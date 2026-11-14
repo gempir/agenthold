@@ -73,6 +73,17 @@ type AgentSkill struct {
 	SkillID string
 }
 
+type ApiToken struct {
+	ID         string
+	UserID     string
+	Name       string
+	TokenHash  string
+	Prefix     string
+	CreatedAt  int64
+	LastUsedAt sql.NullInt64
+	ExpiresAt  sql.NullInt64
+}
+
 type AuditLog struct {
 	ID          int64
 	At          int64
@@ -175,6 +186,23 @@ type Sandbox struct {
 	Subnet         string
 }
 
+type Schedule struct {
+	ID        string
+	AgentID   string
+	SessionID string
+	Name      string
+	Cron      string
+	Timezone  string
+	Prompt    string
+	Enabled   int64
+	CreatedBy string
+	CreatedAt int64
+	UpdatedAt int64
+	NextRunAt int64
+	LastRunAt sql.NullInt64
+	LastError string
+}
+
 type Secret struct {
 	ID          string
 	WorkspaceID string
@@ -214,6 +242,23 @@ type User struct {
 	AvatarUrl     string
 	CreatedAt     int64
 	UpdatedAt     int64
+}
+
+type Webhook struct {
+	ID              string
+	AgentID         string
+	SessionID       string
+	Name            string
+	TokenHash       string
+	PromptTemplate  string
+	SigningSecret   []byte
+	SignatureHeader string
+	Enabled         int64
+	CreatedBy       string
+	CreatedAt       int64
+	UpdatedAt       int64
+	LastDeliveryAt  sql.NullInt64
+	LastError       string
 }
 
 type Workspace struct {

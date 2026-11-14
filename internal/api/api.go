@@ -20,6 +20,7 @@ import (
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
+	"github.com/gempir/agenthold/internal/trigger"
 	"github.com/gempir/agenthold/internal/tunnel"
 )
 
@@ -36,6 +37,7 @@ type Deps struct {
 	Sessions  *session.Manager
 	Idle      *idle.Sleeper
 	Audit     *audit.Log
+	Triggers  *trigger.Runner
 	// ShowTestHarness lists the scripted test harness (development).
 	ShowTestHarness bool
 	Limits          config.Sandbox
@@ -66,7 +68,17 @@ func New(d Deps) *API {
 
 // Mount registers all /api/v1 routes on r.
 func (a *API) Mount(r chi.Router) {
+	r.Get("/api/docs", apiDocs)
 	r.Route("/api/v1", func(r chi.Router) {
+		// Public endpoints that must not interpret Authorization headers.
+		r.Post("/hooks/{token}", a.deliver)
+		r.Get("/openapi.yaml", openAPI)
+		r.Group(func(r chi.Router) { a.mountAuthenticated(r) })
+	})
+}
+
+func (a *API) mountAuthenticated(r chi.Router) {
+	{
 		r.Use(a.Auth.Middleware)
 		r.Get("/auth/login/{provider}", a.login)
 		r.Get("/auth/callback/{provider}", a.callback)
@@ -86,7 +98,7 @@ func (a *API) Mount(r chi.Router) {
 				writeError(w, r, badRequest(err.Error()))
 			},
 		})
-	})
+	}
 }
 
 func requireUser(f gen.StrictHandlerFunc, operationID string) gen.StrictHandlerFunc {

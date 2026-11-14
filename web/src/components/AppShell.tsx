@@ -132,6 +132,12 @@ export function AppShell() {
           <div className="ml-auto flex items-center gap-2">
             <Avatar name={me.data.user.name} url={me.data.user.avatarUrl} />
             <span className="text-sm">{me.data.user.name}</span>
+            <Link
+              to="/settings/tokens"
+              className="text-sm text-muted-foreground hover:underline"
+            >
+              API tokens
+            </Link>
             <Button variant="ghost" size="sm" onClick={() => logout.mutate()}>
               Sign out
             </Button>

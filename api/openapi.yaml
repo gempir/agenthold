@@ -17,6 +17,9 @@ tags:
   - name: files
   - name: sessions
   - name: sharing
+  - name: tokens
+  - name: triggers
+    description: Schedules and webhooks.
   - name: tools
     description: MCP servers and skills.
   - name: secrets
@@ -1212,11 +1215,222 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 
+  /me/tokens:
+    get:
+      operationId: listTokens
+      tags: [tokens]
+      responses:
+        "200":
+          description: Your personal access tokens (without their values).
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/APIToken" }
+    post:
+      operationId: createToken
+      tags: [tokens]
+      description: |
+        Create a personal access token. It acts as you, with your permissions.
+        Send it as `Authorization: Bearer <token>`. The token is shown once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+                expiresInDays: { type: integer, minimum: 1, maximum: 3650 }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatedAPIToken" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /me/tokens/{tokenId}:
+    parameters:
+      - { name: tokenId, in: path, required: true, schema: { type: string } }
+    delete:
+      operationId: deleteToken
+      tags: [tokens]
+      responses:
+        "204": { description: Revoked. }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/schedules:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listSchedules
+      tags: [triggers]
+      responses:
+        "200":
+          description: The agent's schedules.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Schedule" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createSchedule
+      tags: [triggers]
+      description: Agent admin. The schedule prompts its own session as you.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleInput" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /schedules/{scheduleId}:
+    parameters:
+      - { name: scheduleId, in: path, required: true, schema: { type: string } }
+    put:
+      operationId: updateSchedule
+      tags: [triggers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleInput" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteSchedule
+      tags: [triggers]
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /schedules/{scheduleId}/run:
+    parameters:
+      - { name: scheduleId, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: runSchedule
+      tags: [triggers]
+      description: Run now (operator).
+      responses:
+        "202": { description: The turn started. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/webhooks:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listWebhooks
+      tags: [triggers]
+      responses:
+        "200":
+          description: The agent's webhooks.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Webhook" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createWebhook
+      tags: [triggers]
+      description: Agent admin. The URL is shown once; deliveries prompt the webhook's session as you.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WebhookInput" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatedWebhook" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /webhooks/{webhookId}:
+    parameters:
+      - { name: webhookId, in: path, required: true, schema: { type: string } }
+    put:
+      operationId: updateWebhook
+      tags: [triggers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WebhookInput" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Webhook" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteWebhook
+      tags: [triggers]
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /hooks/{token}:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: deliverWebhook
+      tags: [auth-flow]
+      security: []
+      description: |
+        Inbound webhook (no session or token: the URL is the secret). The
+        request body (up to 256 KiB) becomes part of the prompt, clearly marked
+        as untrusted. If the webhook has a signing secret, the signature
+        header must hold the HMAC-SHA256 of the body ("sha256=<hex>" or hex).
+      requestBody:
+        content:
+          "*/*":
+            schema: { type: string, format: binary }
+      responses:
+        "202": { description: The turn started. }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+
 security:
   - session: []
+  - token: []
 
 components:
   securitySchemes:
+    token:
+      type: http
+      scheme: bearer
+      description: A personal access token (POST /me/tokens).
     session:
       type: apiKey
       in: cookie
@@ -1722,3 +1936,82 @@ components:
             workspaceId: { type: string }
             createdAt: { type: string, format: date-time }
             updatedAt: { type: string, format: date-time }
+
+    APIToken:
+      type: object
+      required: [id, name, prefix, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        prefix: { type: string, description: The first characters of the token. }
+        createdAt: { type: string, format: date-time }
+        lastUsedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+
+    CreatedAPIToken:
+      allOf:
+        - $ref: "#/components/schemas/APIToken"
+        - type: object
+          required: [token]
+          properties:
+            token: { type: string }
+
+    ScheduleInput:
+      type: object
+      required: [name, cron, prompt]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        cron: { type: string, description: 'Five fields (minute hour day month weekday) or @hourly, @daily, @weekly.' }
+        timezone: { type: string, description: IANA time zone. Default UTC. }
+        prompt: { type: string, minLength: 1 }
+        enabled: { type: boolean }
+
+    Schedule:
+      allOf:
+        - $ref: "#/components/schemas/ScheduleInput"
+        - type: object
+          required: [id, agentId, sessionId, timezone, enabled, createdBy, nextRunAt, lastError, createdAt]
+          properties:
+            id: { type: string }
+            agentId: { type: string }
+            sessionId: { type: string }
+            createdBy: { $ref: "#/components/schemas/User" }
+            nextRunAt: { type: string, format: date-time }
+            lastRunAt: { type: string, format: date-time }
+            lastError: { type: string }
+            createdAt: { type: string, format: date-time }
+
+    WebhookInput:
+      type: object
+      required: [name, promptTemplate]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        promptTemplate: { type: string, minLength: 1, description: '{{payload}} marks where the delimited request body goes; otherwise it is appended.' }
+        signingSecret: { type: string, description: 'Set to require HMAC-SHA256 signatures; "" removes it; omit to keep.' }
+        signatureHeader: { type: string, description: Header holding the signature. Default X-Hub-Signature-256. }
+        enabled: { type: boolean }
+
+    Webhook:
+      type: object
+      required: [id, agentId, sessionId, name, promptTemplate, signed, signatureHeader, enabled, createdBy, lastError, createdAt]
+      properties:
+        id: { type: string }
+        agentId: { type: string }
+        sessionId: { type: string }
+        name: { type: string }
+        promptTemplate: { type: string }
+        signed: { type: boolean }
+        signatureHeader: { type: string }
+        enabled: { type: boolean }
+        createdBy: { $ref: "#/components/schemas/User" }
+        lastDeliveryAt: { type: string, format: date-time }
+        lastError: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    CreatedWebhook:
+      allOf:
+        - $ref: "#/components/schemas/Webhook"
+        - type: object
+          required: [url]
+          properties:
+            url: { type: string, description: The secret delivery URL. Shown once. }

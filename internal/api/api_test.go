@@ -37,6 +37,7 @@ import (
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/tools"
+	"github.com/gempir/agenthold/internal/trigger"
 	"github.com/gempir/agenthold/internal/tunnel"
 )
 
@@ -54,7 +55,13 @@ type env struct {
 	tracker   *idle.Tracker
 	sleeper   *idle.Sleeper
 	clock     *clock
+	scheduler *trigger.Scheduler
 }
+
+type slogDiscard struct{}
+
+func (slogDiscard) Info(string, ...any) {}
+func (slogDiscard) Warn(string, ...any) {}
 
 // clock is a manual clock for idle tests.
 type clock struct {
@@ -136,12 +143,15 @@ func newEnv(t *testing.T) *env {
 	e.tracker = idle.NewTracker()
 	e.tracker.SetClock(e.clock.Now)
 	e.sessions.OnActivity(e.tracker.Touch)
+	e.scheduler = &trigger.Scheduler{Log: slogDiscard{}, Now: e.clock.Now}
 	e.sleeper = &idle.Sleeper{Store: st, Sandboxes: e.sandboxes, Tracker: e.tracker, Busy: e.sessions.AgentBusy, Tunnel: e.hub, Now: e.clock.Now}
 	a := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Tunnel: e.hub, Limits: cfg.Sandbox,
 		Box: box, Egress: e.directory, CA: ca, Sessions: e.sessions, Idle: e.sleeper, Audit: &audit.Log{Store: st}, ShowTestHarness: true,
+		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}},
 	})
 	e.sessions.SetWaker(a.Wake)
+	e.scheduler.Runner = a.Triggers
 	e.sandboxes.OnChange(func(agentID string, p sandbox.Phase) {
 		if p == sandbox.PhaseStopping || p == sandbox.PhaseDestroying {
 			e.sessions.Disconnect(agentID)

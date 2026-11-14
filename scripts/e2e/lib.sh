@@ -45,3 +45,8 @@ for l in sys.stdin:
   if l.strip():
     d=json.loads(l)
     if d["type"]=="update" and d["data"].get("sessionUpdate")=="agent_message_chunk": sys.stdout.write(d["data"]["content"]["text"])'; }
+# json_events_text: agent message text from a JSON array of session events.
+json_events_text() { python3 -c '
+import json,sys
+for d in json.load(sys.stdin):
+  if d["type"]=="update" and d["data"].get("sessionUpdate")=="agent_message_chunk": sys.stdout.write(d["data"]["content"]["text"])'; }

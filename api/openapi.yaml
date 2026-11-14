@@ -13,6 +13,7 @@ tags:
   - name: auth
   - name: workspaces
   - name: invites
+  - name: agents
   - name: meta
 
 paths:
@@ -27,6 +28,17 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Version" }
+
+  /sandbox/limits:
+    get:
+      operationId: getSandboxLimits
+      tags: [agents]
+      responses:
+        "200":
+          description: Defaults and limits for agent sandboxes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SandboxLimits" }
 
   /auth/providers:
     get:
@@ -284,6 +296,128 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /workspaces/{workspaceId}/agents:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      operationId: listAgents
+      tags: [agents]
+      description: Agents in the workspace that the caller can see.
+      responses:
+        "200":
+          description: Agents.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Agent" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createAgent
+      tags: [agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentInput" }
+      responses:
+        "201":
+          description: Created. The sandbox is provisioned in the background.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: getAgent
+      tags: [agents]
+      responses:
+        "200":
+          description: The agent.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateAgent
+      tags: [agents]
+      description: Image and resource changes take effect after a rebuild (see `needsRebuild`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentPatch" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteAgent
+      tags: [agents]
+      description: Destroys the sandbox and its home volume, then the agent. Runs in the background.
+      responses:
+        "202": { description: Destruction started. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/start:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: startAgent
+      tags: [agents]
+      responses:
+        "202":
+          description: Starting.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/stop:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: stopAgent
+      tags: [agents]
+      responses:
+        "202":
+          description: Stopping. The home volume is kept.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/rebuild:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: rebuildAgent
+      tags: [agents]
+      responses:
+        "202":
+          description: Rebuilding from the current image and resources; the home volume is kept.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
 security:
   - session: []
 
@@ -295,6 +429,11 @@ components:
       name: agenthold_session
 
   parameters:
+    AgentId:
+      name: agentId
+      in: path
+      required: true
+      schema: { type: string }
     WorkspaceId:
       name: workspaceId
       in: path
@@ -421,3 +560,65 @@ components:
         invitedBy: { type: string }
         expiresAt: { type: string, format: date-time }
         alreadyMember: { type: boolean }
+
+    SandboxState:
+      type: string
+      enum: [creating, starting, running, stopping, sleeping, rebuilding, destroying, error]
+
+    AgentRole:
+      type: string
+      enum: [viewer, operator, admin]
+
+    Agent:
+      type: object
+      required: [id, workspaceId, name, owner, image, harness, cpus, memoryMb, idleMinutes, state, stateError, stateChangedAt, needsRebuild, role, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        workspaceId: { type: string }
+        name: { type: string }
+        owner: { $ref: "#/components/schemas/User" }
+        image: { type: string }
+        harness: { type: string }
+        cpus: { type: number }
+        memoryMb: { type: integer, format: int64 }
+        idleMinutes: { type: integer }
+        state: { $ref: "#/components/schemas/SandboxState" }
+        stateError: { type: string }
+        stateChangedAt: { type: string, format: date-time }
+        needsRebuild:
+          type: boolean
+          description: Image or resources changed since the sandbox was built.
+        role:
+          $ref: "#/components/schemas/AgentRole"
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    AgentInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        image: { type: string, description: OCI image. Defaults to the server's default image. }
+        cpus: { type: number }
+        memoryMb: { type: integer, format: int64 }
+        idleMinutes: { type: integer, minimum: 1, maximum: 10080 }
+
+    AgentPatch:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        image: { type: string }
+        cpus: { type: number }
+        memoryMb: { type: integer, format: int64 }
+        idleMinutes: { type: integer, minimum: 1, maximum: 10080 }
+
+    SandboxLimits:
+      type: object
+      required: [defaultImage, defaultCpus, defaultMemoryMb, maxCpus, maxMemoryMb, driver]
+      properties:
+        driver: { type: string }
+        defaultImage: { type: string }
+        defaultCpus: { type: number }
+        defaultMemoryMb: { type: integer, format: int64 }
+        maxCpus: { type: number }
+        maxMemoryMb: { type: integer, format: int64 }

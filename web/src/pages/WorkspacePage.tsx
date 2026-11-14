@@ -9,6 +9,7 @@ import {
   workspaceQuery,
   type WorkspaceRole,
 } from '@/api/queries';
+import { AgentsSection } from '@/components/AgentsSection';
 import { InvitesPanel } from '@/components/InvitesPanel';
 import { MembersList } from '@/components/MembersList';
 import { SettingsPanel } from '@/components/SettingsPanel';
@@ -101,6 +102,8 @@ export function WorkspacePage({ workspaceId }: { workspaceId: string }) {
           ))}
       </div>
 
+      <AgentsSection workspaceId={workspaceId} />
+
       {tab === 'members' && (
         <section className="flex flex-col gap-4">
           {members.isPending && <Loading />}
@@ -121,10 +124,6 @@ export function WorkspacePage({ workspaceId }: { workspaceId: string }) {
               onLeave={() => remove.mutate(me.data.user.id)}
             />
           )}
-          <section className="rounded-lg border border-dashed p-4">
-            <h2 className="text-sm font-semibold">Agents</h2>
-            <p className="text-sm text-muted-foreground">Agents arrive in M2</p>
-          </section>
         </section>
       )}
       {tab === 'invites' && canManage(w.role) && (

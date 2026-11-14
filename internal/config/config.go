@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -23,8 +25,44 @@ type Config struct {
 	PublicURL string `yaml:"public_url"`
 	DataDir   string `yaml:"data_dir"`
 	// DevProxy is the Vite dev server URL used in development.
-	DevProxy string `yaml:"dev_proxy"`
-	Auth     Auth   `yaml:"auth"`
+	DevProxy string  `yaml:"dev_proxy"`
+	Auth     Auth    `yaml:"auth"`
+	Sandbox  Sandbox `yaml:"sandbox"`
+}
+
+// Sandbox configures agent sandboxes.
+type Sandbox struct {
+	// Driver is "docker" (default) or "fake" (in-process, for development without Docker).
+	Driver string `yaml:"driver"`
+	// DefaultImage is used when an agent does not name an image.
+	DefaultImage string `yaml:"default_image"`
+	// Defaults and upper bounds for agent resources.
+	DefaultCPUs     float64 `yaml:"default_cpus"`
+	DefaultMemoryMB int64   `yaml:"default_memory_mb"`
+	MaxCPUs         float64 `yaml:"max_cpus"`
+	MaxMemoryMB     int64   `yaml:"max_memory_mb"`
+	PIDsLimit       int64   `yaml:"pids_limit"`
+	Docker          Docker  `yaml:"docker"`
+	// FakeDir is where the fake driver keeps sandbox home directories.
+	FakeDir string `yaml:"fake_dir"`
+}
+
+// Docker configures the Docker sandbox driver.
+type Docker struct {
+	// Host overrides DOCKER_HOST.
+	Host string `yaml:"host"`
+	// NamePrefix prefixes all containers, networks and volumes. Change it to
+	// run several installations on one Docker host.
+	NamePrefix string `yaml:"name_prefix"`
+	// NetworkPool is the address range per-agent networks are carved from.
+	NetworkPool string `yaml:"network_pool"`
+	// SubnetBits is the prefix length of each agent network (default 28: 14 hosts).
+	SubnetBits int `yaml:"subnet_bits"`
+	// Runtime is an optional OCI runtime, e.g. "sysbox-runc" or "runsc".
+	Runtime string `yaml:"runtime"`
+	// ServerContainer is the server's own container, which is attached to every
+	// agent network. Empty means autodetect when running in a container.
+	ServerContainer string `yaml:"server_container"`
 }
 
 // Auth configures sign-in.
@@ -80,7 +118,7 @@ func Load() (*Config, error) {
 		}
 	}
 	applyEnv(cfg)
-	applyDefaults(cfg)
+	ApplyDefaults(cfg)
 	return cfg, cfg.Validate()
 }
 
@@ -112,7 +150,8 @@ func applyEnv(cfg *Config) {
 	set(&cfg.DevProxy, "AGENTHOLD_DEV_PROXY")
 }
 
-func applyDefaults(cfg *Config) {
+// ApplyDefaults fills unset fields with defaults.
+func ApplyDefaults(cfg *Config) {
 	if cfg.Listen == "" {
 		cfg.Listen = ":8080"
 	}
@@ -122,6 +161,40 @@ func applyDefaults(cfg *Config) {
 	cfg.PublicURL = strings.TrimRight(cfg.PublicURL, "/")
 	if cfg.DataDir == "" {
 		cfg.DataDir = "data"
+	}
+	sb := &cfg.Sandbox
+	if sb.Driver == "" {
+		sb.Driver = "docker"
+	}
+	if sb.DefaultImage == "" {
+		sb.DefaultImage = "debian:bookworm-slim"
+	}
+	if sb.DefaultCPUs == 0 {
+		sb.DefaultCPUs = 2
+	}
+	if sb.DefaultMemoryMB == 0 {
+		sb.DefaultMemoryMB = 4096
+	}
+	if sb.MaxCPUs == 0 {
+		sb.MaxCPUs = 8
+	}
+	if sb.MaxMemoryMB == 0 {
+		sb.MaxMemoryMB = 16384
+	}
+	if sb.PIDsLimit == 0 {
+		sb.PIDsLimit = 4096
+	}
+	if sb.FakeDir == "" {
+		sb.FakeDir = filepath.Join(cfg.DataDir, "fake-sandboxes")
+	}
+	if sb.Docker.NamePrefix == "" {
+		sb.Docker.NamePrefix = "agenthold"
+	}
+	if sb.Docker.NetworkPool == "" {
+		sb.Docker.NetworkPool = "10.213.0.0/16"
+	}
+	if sb.Docker.SubnetBits == 0 {
+		sb.Docker.SubnetBits = 28
 	}
 	if cfg.Auth.SessionTTL == 0 {
 		cfg.Auth.SessionTTL = 30 * 24 * time.Hour
@@ -155,6 +228,16 @@ func (c *Config) Validate() error {
 	var errs []error
 	if _, err := url.Parse(c.PublicURL); err != nil {
 		errs = append(errs, fmt.Errorf("public_url: %w", err))
+	}
+	switch c.Sandbox.Driver {
+	case "docker", "fake":
+	default:
+		errs = append(errs, fmt.Errorf("sandbox.driver: unknown driver %q (want docker or fake)", c.Sandbox.Driver))
+	}
+	if p, err := netip.ParsePrefix(c.Sandbox.Docker.NetworkPool); err != nil || !p.Addr().Is4() {
+		errs = append(errs, fmt.Errorf("sandbox.docker.network_pool: want an IPv4 CIDR, got %q", c.Sandbox.Docker.NetworkPool))
+	} else if b := c.Sandbox.Docker.SubnetBits; b < p.Bits() || b > 29 {
+		errs = append(errs, fmt.Errorf("sandbox.docker.subnet_bits: must be between %d and 29", p.Bits()))
 	}
 	seen := map[string]bool{}
 	for i, p := range c.Auth.Providers {

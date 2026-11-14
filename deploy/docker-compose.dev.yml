@@ -14,6 +14,8 @@ services:
       - go-mod:/go/pkg/mod
       - go-build:/root/.cache/go-build
       - server-data:/data
+      # The server manages agent sandboxes through the Docker API.
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       AGENTHOLD_CONFIG: /src/deploy/dev/agenthold.yaml
       GITHUB_CLIENT_ID: "${GITHUB_CLIENT_ID:-}"

@@ -9,7 +9,7 @@ COMPOSE ?= docker compose -f deploy/docker-compose.dev.yml
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-go web web-deps test test-go test-web lint lint-go lint-web fmt dev dev-down image clean generate gen-sql gen-go-api gen-api
+.PHONY: all build build-go web web-deps test test-go test-docker test-web lint lint-go lint-web fmt dev dev-down image clean generate gen-sql gen-go-api gen-api
 
 all: build
 
@@ -32,6 +32,10 @@ test: test-go test-web
 test-go:
 	CGO_ENABLED=1 $(GO) test -race ./...
 
+## test-docker: integration tests against the local Docker daemon
+test-docker:
+	CGO_ENABLED=1 $(GO) test -race -tags docker -count=1 ./internal/sandbox/docker/...
+
 test-web: web-deps
 	cd web && $(PNPM) test
 
@@ -40,6 +44,7 @@ lint: lint-go lint-web
 
 lint-go:
 	golangci-lint run ./...
+	golangci-lint run --build-tags docker ./internal/sandbox/docker/...
 
 lint-web: web-deps
 	cd web && $(PNPM) lint

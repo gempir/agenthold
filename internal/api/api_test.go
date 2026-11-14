@@ -16,15 +16,19 @@ import (
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/auth/authtest"
 	"github.com/gempir/agenthold/internal/config"
+	"github.com/gempir/agenthold/internal/sandbox"
+	"github.com/gempir/agenthold/internal/sandbox/fake"
 	"github.com/gempir/agenthold/internal/server"
 	"github.com/gempir/agenthold/internal/store"
 )
 
 type env struct {
-	t      *testing.T
-	srv    *httptest.Server
-	idp    *authtest.IdP
-	github *authtest.GitHub
+	t         *testing.T
+	srv       *httptest.Server
+	idp       *authtest.IdP
+	github    *authtest.GitHub
+	driver    *fake.Driver
+	sandboxes *sandbox.Manager
 }
 
 func newEnv(t *testing.T) *env {
@@ -40,15 +44,7 @@ func newEnv(t *testing.T) *env {
 		{ID: "oidc", Type: config.ProviderOIDC, Name: "Test IdP", Issuer: idp.URL, ClientID: idp.ClientID, ClientSecret: idp.ClientSecret},
 		{ID: "github", Type: config.ProviderGitHub, Name: "GitHub", ClientID: gh.ClientID, ClientSecret: gh.ClientSecret, GitHubURL: gh.URL, GitHubAPIURL: gh.URL + "/api"},
 	}}}
-	if err := config.Parse(nil, cfg); err != nil {
-		t.Fatal(err)
-	}
-	cfg.Auth.SessionTTL = 24 * 3600 * 1e9
-	for i := range cfg.Auth.Providers {
-		if cfg.Auth.Providers[i].Scopes == nil {
-			cfg.Auth.Providers[i].Scopes = []string{"openid", "email", "profile"}
-		}
-	}
+	config.ApplyDefaults(cfg)
 
 	st, err := store.Open(t.Context(), ":memory:")
 	if err != nil {
@@ -59,12 +55,16 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := api.New(api.Deps{Store: st, Auth: authSvc, PublicURL: srv.URL})
+	cfg.Sandbox.Driver = "fake"
+	e := &env{t: t, srv: srv, idp: idp, github: gh, driver: fake.New(t.TempDir())}
+	e.sandboxes = sandbox.NewManager(st, e.driver, sandbox.BaseSpec, nil)
+	t.Cleanup(e.sandboxes.Close)
+	a := api.New(api.Deps{Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Limits: cfg.Sandbox})
 	handler = server.New(server.Config{
 		Web: fstest.MapFS{"index.html": {Data: []byte("app")}},
 		API: a.Mount,
 	})
-	return &env{t: t, srv: srv, idp: idp, github: gh}
+	return e
 }
 
 type client struct {

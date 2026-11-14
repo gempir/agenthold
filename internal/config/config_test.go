@@ -61,7 +61,7 @@ func TestValidate(t *testing.T) {
 			cfg := &Config{}
 			err := Parse([]byte(tt.yaml), cfg)
 			if err == nil {
-				applyDefaults(cfg)
+				ApplyDefaults(cfg)
 				err = cfg.Validate()
 			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {

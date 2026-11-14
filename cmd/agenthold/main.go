@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/signal"
@@ -18,6 +19,9 @@ import (
 	"github.com/gempir/agenthold/internal/api"
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/config"
+	"github.com/gempir/agenthold/internal/sandbox"
+	"github.com/gempir/agenthold/internal/sandbox/docker"
+	"github.com/gempir/agenthold/internal/sandbox/fake"
 	"github.com/gempir/agenthold/internal/server"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/version"
@@ -66,7 +70,17 @@ func run() error {
 	if len(cfg.Auth.Providers) == 0 {
 		logger.Warn("no auth providers configured; nobody can sign in")
 	}
-	apiSrv := api.New(api.Deps{Store: st, Auth: authSvc, PublicURL: cfg.PublicURL})
+	driver, err := newDriver(ctx, cfg, logger)
+	if err != nil {
+		return err
+	}
+	sandboxes := sandbox.NewManager(st, driver, sandbox.BaseSpec, logger)
+	defer sandboxes.Close()
+	if err := sandboxes.Reconcile(ctx); err != nil {
+		return fmt.Errorf("reconcile sandboxes: %w", err)
+	}
+
+	apiSrv := api.New(api.Deps{Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Limits: cfg.Sandbox})
 
 	srvCfg := server.Config{Web: web.Dist(), Logger: logger, API: apiSrv.Mount}
 	if cfg.DevProxy != "" {
@@ -101,4 +115,19 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+func newDriver(ctx context.Context, cfg *config.Config, logger *slog.Logger) (sandbox.Driver, error) {
+	switch cfg.Sandbox.Driver {
+	case "fake":
+		logger.Warn("using the fake sandbox driver: agents do not get real sandboxes")
+		return fake.New(cfg.Sandbox.FakeDir), nil
+	default:
+		dc := cfg.Sandbox.Docker
+		return docker.New(ctx, docker.Config{
+			Host: dc.Host, NamePrefix: dc.NamePrefix, NetworkPool: netip.MustParsePrefix(dc.NetworkPool),
+			SubnetBits: dc.SubnetBits, Runtime: dc.Runtime, ServerContainer: dc.ServerContainer,
+			PIDsLimit: cfg.Sandbox.PIDsLimit, Logger: logger,
+		})
+	}
 }

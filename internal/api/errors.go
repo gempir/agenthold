@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/gempir/agenthold/internal/authz"
+	"github.com/gempir/agenthold/internal/sandbox"
 )
 
 // Error is an error with an HTTP status. Handlers return it as a plain error;
@@ -37,6 +38,10 @@ func toHTTP(err error) (int, string) {
 		return http.StatusNotFound, "not found"
 	case errors.Is(err, authz.ErrForbidden):
 		return http.StatusForbidden, "forbidden"
+	case errors.Is(err, sandbox.ErrNotFound):
+		return http.StatusNotFound, "not found"
+	case errors.Is(err, sandbox.ErrConflict):
+		return http.StatusConflict, err.Error()
 	case errors.Is(err, authz.ErrLastOwner), errors.Is(err, authz.ErrPersonal):
 		return http.StatusConflict, err.Error()
 	}

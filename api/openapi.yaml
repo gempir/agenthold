@@ -14,6 +14,9 @@ tags:
   - name: workspaces
   - name: invites
   - name: agents
+  - name: files
+  - name: streams
+    description: WebSocket endpoints. Not generated as JSON handlers.
   - name: meta
 
 paths:
@@ -418,6 +421,112 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /agents/{agentId}/terminal:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: openTerminal
+      tags: [streams]
+      description: |
+        WebSocket upgrade to an interactive shell in the sandbox (operator role).
+        A sleeping agent is woken. Binary messages carry terminal input and
+        output. Text messages are JSON: the client sends
+        `{"type":"resize","cols":N,"rows":N}`; the server sends
+        `{"type":"status","message":"..."}` while waking,
+        `{"type":"exit","code":N}` and `{"type":"error","message":"..."}`.
+      parameters:
+        - { name: cols, in: query, schema: { type: integer } }
+        - { name: rows, in: query, schema: { type: integer } }
+      responses:
+        "101": { description: Switching to WebSocket. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/files:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listFiles
+      tags: [files]
+      description: List a directory. Relative paths are relative to /home/agent. The agent must be running.
+      parameters:
+        - { name: path, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Directory listing.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DirListing" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteFile
+      tags: [files]
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+        - { name: recursive, in: query, schema: { type: boolean } }
+      responses:
+        "204": { description: Deleted. }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/files/content:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+      - { name: path, in: query, required: true, schema: { type: string } }
+    get:
+      operationId: downloadFile
+      tags: [files]
+      responses:
+        "200":
+          description: File content.
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    put:
+      operationId: uploadFile
+      tags: [files]
+      description: Create or replace a file (operator role). Missing parent directories are created.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "204": { description: Written. }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/files/mkdir:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: makeDirectory
+      tags: [files]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string }
+      responses:
+        "204": { description: Created. }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
 security:
   - session: []
 
@@ -622,3 +731,23 @@ components:
         defaultMemoryMb: { type: integer, format: int64 }
         maxCpus: { type: number }
         maxMemoryMb: { type: integer, format: int64 }
+
+    FileEntry:
+      type: object
+      required: [name, size, mode, isDir, isLink, modTime]
+      properties:
+        name: { type: string }
+        size: { type: integer, format: int64 }
+        mode: { type: string }
+        isDir: { type: boolean }
+        isLink: { type: boolean }
+        modTime: { type: string, format: date-time }
+
+    DirListing:
+      type: object
+      required: [path, entries]
+      properties:
+        path: { type: string, description: Absolute path of the directory. }
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/FileEntry" }

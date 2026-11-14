@@ -10,16 +10,22 @@
 package docker
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
+	"net"
 	"net/netip"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
@@ -46,6 +52,15 @@ type Config struct {
 	Runtime         string
 	ServerContainer string
 	PIDsLimit       int64
+	// SandboxdSource provides the sandboxd binary: a volume name, or an
+	// absolute host directory containing "sandboxd" (bind-mounted).
+	SandboxdSource string
+	// TunnelHost overrides the address sandboxes use to reach the server.
+	// Default: the server container's fixed address on the agent network.
+	TunnelHost string
+	// ExternalNetwork creates agent networks without the internal flag. Only
+	// for tests where the server runs on the host.
+	ExternalNetwork bool
 	Logger          *slog.Logger
 }
 
@@ -148,6 +163,13 @@ func (d *Driver) createContainer(ctx context.Context, spec sandbox.Spec, netName
 		env = append(env, k+"="+spec.Env[k])
 	}
 	mounts := []mount.Mount{{Type: mount.TypeVolume, Source: d.homeVolume(spec), Target: homeDir}}
+	if src := d.cfg.SandboxdSource; src != "" {
+		m := mount.Mount{Type: mount.TypeVolume, Source: src, Target: sandbox.SandboxdDir, ReadOnly: true}
+		if strings.HasPrefix(src, "/") {
+			m.Type = mount.TypeBind
+		}
+		mounts = append(mounts, m)
+	}
 	for _, m := range spec.Mounts {
 		mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: m.Source, Target: m.Target, ReadOnly: m.ReadOnly})
 	}
@@ -181,6 +203,7 @@ func (d *Driver) createContainer(ctx context.Context, spec sandbox.Spec, netName
 			Init:          &init,
 			Resources:     res,
 			RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
+			ExtraHosts:    d.extraHosts(),
 		},
 	})
 	if err != nil {
@@ -222,11 +245,14 @@ func (d *Driver) ensureNetwork(ctx context.Context, agentID string) (string, err
 		return "", err
 	}
 	gw := subnet.Addr().Next()
+	// Containers get addresses from the upper half of the subnet, so the
+	// server's fixed address (.2) is never handed out.
+	ipRange := netip.PrefixFrom(fromIP4(ip4(subnet.Addr())+uint32(1)<<(31-subnet.Bits())), subnet.Bits()+1)
 	_, err = d.cli.NetworkCreate(ctx, name, client.NetworkCreateOptions{
 		Driver:   "bridge",
-		Internal: true,
+		Internal: !d.cfg.ExternalNetwork,
 		Labels:   d.labels(agentID),
-		IPAM:     &network.IPAM{Config: []network.IPAMConfig{{Subnet: subnet, Gateway: gw}}},
+		IPAM:     &network.IPAM{Config: []network.IPAMConfig{{Subnet: subnet, Gateway: gw, IPRange: ipRange}}},
 		Options:  map[string]string{"com.docker.network.bridge.enable_icc": "true"},
 	})
 	if err != nil {
@@ -282,14 +308,74 @@ func fromIP4(v uint32) netip.Addr {
 	return netip.AddrFrom4([4]byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)})
 }
 
-// attachServer connects the server's own container to the agent network.
-func (d *Driver) attachServer(ctx context.Context, netName string) error {
-	if d.cfg.ServerContainer == "" {
-		return nil
+// serverIP is the server's fixed address on an agent network: the subnet's .2.
+func (d *Driver) serverIP(ctx context.Context, netName string) (netip.Addr, error) {
+	n, err := d.cli.NetworkInspect(ctx, netName, client.NetworkInspectOptions{})
+	if err != nil {
+		return netip.Addr{}, err
 	}
-	_, err := d.cli.NetworkConnect(ctx, netName, client.NetworkConnectOptions{Container: d.cfg.ServerContainer})
+	for _, c := range n.Network.IPAM.Config {
+		if c.Subnet.IsValid() && c.Subnet.Addr().Is4() {
+			return c.Subnet.Masked().Addr().Next().Next(), nil
+		}
+	}
+	return netip.Addr{}, fmt.Errorf("network %s has no IPv4 subnet", netName)
+}
+
+// attachServer connects the server's own container to the agent network at
+// its fixed address and returns the host sandboxes use to reach the server.
+func (d *Driver) attachServer(ctx context.Context, netName string) (string, error) {
+	if d.cfg.ServerContainer == "" {
+		if d.cfg.TunnelHost == "" {
+			return "", errors.New("the server is not running in a container and no tunnel host is configured; sandboxes cannot reach it")
+		}
+		return d.cfg.TunnelHost, nil
+	}
+	ip, err := d.serverIP(ctx, netName)
+	if err != nil {
+		return "", err
+	}
+	_, err = d.cli.NetworkConnect(ctx, netName, client.NetworkConnectOptions{
+		Container:      d.cfg.ServerContainer,
+		EndpointConfig: &network.EndpointSettings{IPAMConfig: &network.EndpointIPAMConfig{IPv4Address: ip}},
+	})
 	if err != nil && !isAlreadyConnected(err) {
-		return fmt.Errorf("attach server to %s: %w", netName, err)
+		return "", fmt.Errorf("attach server to %s: %w", netName, err)
+	}
+	if d.cfg.TunnelHost != "" {
+		return d.cfg.TunnelHost, nil
+	}
+	return ip.String(), nil
+}
+
+func (d *Driver) extraHosts() []string {
+	if d.cfg.TunnelHost == "host.docker.internal" {
+		return []string{"host.docker.internal:host-gateway"}
+	}
+	return nil
+}
+
+// writeBoot copies sandboxd's boot file into the (stopped) container.
+func (d *Driver) writeBoot(ctx context.Context, id sandbox.ID, boot sandbox.Boot, host string) error {
+	data, err := json.Marshal(map[string]string{
+		"agentId":   boot.AgentID,
+		"token":     boot.Token,
+		"tunnelUrl": fmt.Sprintf("ws://%s/tunnel", net.JoinHostPort(host, strconv.Itoa(boot.TunnelPort))),
+	})
+	if err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	now := time.Now()
+	_ = tw.WriteHeader(&tar.Header{Typeflag: tar.TypeDir, Name: "etc/agenthold/", Mode: 0o755, ModTime: now})
+	_ = tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: "etc/agenthold/boot.json", Mode: 0o600, Size: int64(len(data)), ModTime: now})
+	_, _ = tw.Write(data)
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	if _, err := d.cli.CopyToContainer(ctx, string(id), client.CopyToContainerOptions{DestinationPath: "/", Content: &buf}); err != nil {
+		return fmt.Errorf("write boot file: %w", err)
 	}
 	return nil
 }
@@ -311,12 +397,19 @@ func (d *Driver) agentOf(ctx context.Context, id sandbox.ID) (string, error) {
 }
 
 // Start implements sandbox.Driver.
-func (d *Driver) Start(ctx context.Context, id sandbox.ID) error {
+func (d *Driver) Start(ctx context.Context, id sandbox.ID, boot sandbox.Boot) error {
 	agentID, err := d.agentOf(ctx, id)
 	if err != nil {
 		return err
 	}
-	if err := d.attachServer(ctx, d.networkName(agentID)); err != nil {
+	if st, err := d.Status(ctx, id); err == nil && st.State == sandbox.StateRunning {
+		return nil
+	}
+	host, err := d.attachServer(ctx, d.networkName(agentID))
+	if err != nil {
+		return err
+	}
+	if err := d.writeBoot(ctx, id, boot, host); err != nil {
 		return err
 	}
 	if _, err := d.cli.ContainerStart(ctx, string(id), client.ContainerStartOptions{}); err != nil {

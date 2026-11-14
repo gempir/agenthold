@@ -15,6 +15,7 @@ import (
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
+	"github.com/gempir/agenthold/internal/tunnel"
 )
 
 // Deps are the services the API needs.
@@ -23,6 +24,7 @@ type Deps struct {
 	Auth      *auth.Service
 	PublicURL string
 	Sandboxes *sandbox.Manager
+	Tunnel    *tunnel.Hub
 	Limits    config.Sandbox
 	Now       func() time.Time
 }
@@ -56,6 +58,7 @@ func (a *API) Mount(r chi.Router) {
 		r.Get("/auth/login/{provider}", a.login)
 		r.Get("/auth/callback/{provider}", a.callback)
 		r.Post("/auth/logout", a.logout)
+		r.Get("/agents/{agentId}/terminal", a.terminal)
 
 		strict := gen.NewStrictHandlerWithOptions(a, []gen.StrictMiddlewareFunc{requireUser}, gen.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {

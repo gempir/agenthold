@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/gempir/agenthold/internal/api/gen"
@@ -97,3 +98,5 @@ func TestAgentLifecycleAndAccess(t *testing.T) {
 	e.sandboxes.Wait()
 	expect(t, "deleted", bob.do("GET", "/agents/"+ag.Id, nil, nil), 404)
 }
+
+func jsonUnmarshalTest(b []byte, v any) error { return json.Unmarshal(b, v) }

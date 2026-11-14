@@ -5,9 +5,11 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/sandbox"
+	"github.com/gempir/agenthold/internal/tunnel"
 )
 
 // Error is an error with an HTTP status. Handlers return it as a plain error;
@@ -31,7 +33,15 @@ func badRequest(msg string) error { return errStatus(http.StatusBadRequest, msg)
 // toHTTP maps known errors to statuses.
 func toHTTP(err error) (int, string) {
 	var e *Error
+	var re *tunnel.RemoteError
 	switch {
+	case errors.As(err, &re):
+		if strings.Contains(re.Msg, "no such file or directory") {
+			return http.StatusNotFound, re.Msg
+		}
+		return http.StatusBadRequest, re.Msg
+	case errors.Is(err, tunnel.ErrNotConnected):
+		return http.StatusConflict, "the agent is not running; start it first"
 	case errors.As(err, &e):
 		return e.Status, e.Msg
 	case errors.Is(err, authz.ErrNotFound):

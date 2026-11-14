@@ -103,7 +103,7 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
 }
 
 const getAgentWithSandbox = `-- name: GetAgentWithSandbox :one
-SELECT agents.id, agents.workspace_id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.created_at, agents.updated_at, sandboxes.agent_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at
+SELECT agents.id, agents.workspace_id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.created_at, agents.updated_at, sandboxes.agent_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash
 FROM agents JOIN sandboxes ON sandboxes.agent_id = agents.id
 WHERE agents.id = ?
 `
@@ -136,12 +136,13 @@ func (q *Queries) GetAgentWithSandbox(ctx context.Context, id string) (GetAgentW
 		&i.Sandbox.Error,
 		&i.Sandbox.AppliedSpec,
 		&i.Sandbox.StateChangedAt,
+		&i.Sandbox.BootTokenHash,
 	)
 	return i, err
 }
 
 const getSandbox = `-- name: GetSandbox :one
-SELECT agent_id, driver, driver_id, state, error, applied_spec, state_changed_at FROM sandboxes WHERE agent_id = ?
+SELECT agent_id, driver, driver_id, state, error, applied_spec, state_changed_at, boot_token_hash FROM sandboxes WHERE agent_id = ?
 `
 
 func (q *Queries) GetSandbox(ctx context.Context, agentID string) (Sandbox, error) {
@@ -155,12 +156,13 @@ func (q *Queries) GetSandbox(ctx context.Context, agentID string) (Sandbox, erro
 		&i.Error,
 		&i.AppliedSpec,
 		&i.StateChangedAt,
+		&i.BootTokenHash,
 	)
 	return i, err
 }
 
 const listSandboxes = `-- name: ListSandboxes :many
-SELECT agent_id, driver, driver_id, state, error, applied_spec, state_changed_at FROM sandboxes ORDER BY agent_id
+SELECT agent_id, driver, driver_id, state, error, applied_spec, state_changed_at, boot_token_hash FROM sandboxes ORDER BY agent_id
 `
 
 func (q *Queries) ListSandboxes(ctx context.Context) ([]Sandbox, error) {
@@ -180,6 +182,7 @@ func (q *Queries) ListSandboxes(ctx context.Context) ([]Sandbox, error) {
 			&i.Error,
 			&i.AppliedSpec,
 			&i.StateChangedAt,
+			&i.BootTokenHash,
 		); err != nil {
 			return nil, err
 		}
@@ -195,7 +198,7 @@ func (q *Queries) ListSandboxes(ctx context.Context) ([]Sandbox, error) {
 }
 
 const listWorkspaceAgents = `-- name: ListWorkspaceAgents :many
-SELECT agents.id, agents.workspace_id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.created_at, agents.updated_at, sandboxes.agent_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at
+SELECT agents.id, agents.workspace_id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.created_at, agents.updated_at, sandboxes.agent_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash
 FROM agents JOIN sandboxes ON sandboxes.agent_id = agents.id
 WHERE agents.workspace_id = ?
 ORDER BY agents.name
@@ -235,6 +238,7 @@ func (q *Queries) ListWorkspaceAgents(ctx context.Context, workspaceID string) (
 			&i.Sandbox.Error,
 			&i.Sandbox.AppliedSpec,
 			&i.Sandbox.StateChangedAt,
+			&i.Sandbox.BootTokenHash,
 		); err != nil {
 			return nil, err
 		}
@@ -247,6 +251,20 @@ func (q *Queries) ListWorkspaceAgents(ctx context.Context, workspaceID string) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const setBootToken = `-- name: SetBootToken :exec
+UPDATE sandboxes SET boot_token_hash = ? WHERE agent_id = ?
+`
+
+type SetBootTokenParams struct {
+	BootTokenHash string
+	AgentID       string
+}
+
+func (q *Queries) SetBootToken(ctx context.Context, arg SetBootTokenParams) error {
+	_, err := q.db.ExecContext(ctx, setBootToken, arg.BootTokenHash, arg.AgentID)
+	return err
 }
 
 const setSandboxBuilt = `-- name: SetSandboxBuilt :exec

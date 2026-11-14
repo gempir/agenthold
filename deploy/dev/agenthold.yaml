@@ -21,3 +21,11 @@ auth:
     #   name: GitHub
     #   client_id: ${GITHUB_CLIENT_ID}
     #   client_secret: ${GITHUB_CLIENT_SECRET}
+
+sandbox:
+  driver: docker
+  sandboxd_path: /src/tmp/sandboxd
+  docker:
+    name_prefix: agenthold-dev
+    sandboxd_volume: agenthold-dev-bin
+    sandboxd_volume_dir: /var/lib/agenthold/bin

@@ -45,6 +45,12 @@ type Sandbox struct {
 	Docker          Docker  `yaml:"docker"`
 	// FakeDir is where the fake driver keeps sandbox home directories.
 	FakeDir string `yaml:"fake_dir"`
+	// TunnelListen is the address sandboxd connects to (only reachable from
+	// agent networks in a normal deployment). Default ":8090".
+	TunnelListen string `yaml:"tunnel_listen"`
+	// SandboxdPath is the Linux sandboxd binary handed to sandboxes. Default:
+	// "sandboxd" next to the server binary, else /usr/local/lib/agenthold/sandboxd.
+	SandboxdPath string `yaml:"sandboxd_path"`
 }
 
 // Docker configures the Docker sandbox driver.
@@ -63,6 +69,16 @@ type Docker struct {
 	// ServerContainer is the server's own container, which is attached to every
 	// agent network. Empty means autodetect when running in a container.
 	ServerContainer string `yaml:"server_container"`
+	// SandboxdVolume is the Docker volume that carries sandboxd into sandboxes
+	// (mounted read-only at /opt/agenthold). Default "<name_prefix>-bin".
+	SandboxdVolume string `yaml:"sandboxd_volume"`
+	// SandboxdVolumeDir is where that volume is mounted inside the server's
+	// container; the server copies sandboxd there at startup. Required when
+	// the server runs in a container. When the server runs on the host,
+	// sandboxd_path's directory is bind-mounted instead.
+	SandboxdVolumeDir string `yaml:"sandboxd_volume_dir"`
+	// TunnelHost overrides the address sandboxes dial to reach the server.
+	TunnelHost string `yaml:"tunnel_host"`
 }
 
 // Auth configures sign-in.
@@ -190,6 +206,25 @@ func ApplyDefaults(cfg *Config) {
 	if sb.Docker.NamePrefix == "" {
 		sb.Docker.NamePrefix = "agenthold"
 	}
+	if sb.Docker.SandboxdVolume == "" {
+		sb.Docker.SandboxdVolume = sb.Docker.NamePrefix + "-bin"
+	}
+	if sb.Docker.SandboxdVolumeDir == "" && fileExists("/.dockerenv") {
+		// In a container the server cannot bind-mount its own files into
+		// sandboxes; it shares sandboxd through a volume mounted here.
+		sb.Docker.SandboxdVolumeDir = "/var/lib/agenthold/bin"
+	}
+	if sb.TunnelListen == "" {
+		sb.TunnelListen = ":8090"
+	}
+	if sb.SandboxdPath == "" {
+		sb.SandboxdPath = "/usr/local/lib/agenthold/sandboxd"
+		if exe, err := os.Executable(); err == nil {
+			if p := filepath.Join(filepath.Dir(exe), "sandboxd"); fileExists(p) {
+				sb.SandboxdPath = p
+			}
+		}
+	}
 	if sb.Docker.NetworkPool == "" {
 		sb.Docker.NetworkPool = "10.213.0.0/16"
 	}
@@ -263,4 +298,9 @@ func (c *Config) Validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func fileExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
 }

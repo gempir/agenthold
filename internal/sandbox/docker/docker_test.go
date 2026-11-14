@@ -30,6 +30,7 @@ func newTestDriver(t *testing.T) *Driver {
 		NetworkPool: netip.MustParsePrefix("10.214.0.0/16"),
 		SubnetBits:  28,
 		PIDsLimit:   256,
+		TunnelHost:  "host.docker.internal",
 	})
 	if err != nil {
 		t.Skipf("docker not available: %v", err)
@@ -90,7 +91,7 @@ func TestLifecycle(t *testing.T) {
 	t.Cleanup(func() { _ = d.Destroy(context.Background(), sid, sandbox.DestroyOpts{}) })
 	waitState(t, d, sid, sandbox.StateCreated)
 
-	if err := d.Start(ctx, sid); err != nil {
+	if err := d.Start(ctx, sid, sandbox.Boot{AgentID: agentID, Token: "t", TunnelPort: 1}); err != nil {
 		t.Fatal(err)
 	}
 	waitState(t, d, sid, sandbox.StateRunning)
@@ -112,7 +113,7 @@ func TestLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitState(t, d, sid, sandbox.StateStopped)
-	if err := d.Start(ctx, sid); err != nil {
+	if err := d.Start(ctx, sid, sandbox.Boot{AgentID: agentID, Token: "t", TunnelPort: 1}); err != nil {
 		t.Fatal(err)
 	}
 	waitState(t, d, sid, sandbox.StateRunning)
@@ -125,7 +126,7 @@ func TestLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitState(t, d, sid, sandbox.StateCreated)
-	if err := d.Start(ctx, sid); err != nil {
+	if err := d.Start(ctx, sid, sandbox.Boot{AgentID: agentID, Token: "t", TunnelPort: 1}); err != nil {
 		t.Fatal(err)
 	}
 	waitState(t, d, sid, sandbox.StateRunning)
@@ -160,7 +161,7 @@ func TestNoInternetFromSandbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = d.Destroy(context.Background(), sid, sandbox.DestroyOpts{}) })
-	if err := d.Start(ctx, sid); err != nil {
+	if err := d.Start(ctx, sid, sandbox.Boot{AgentID: agentID, Token: "t", TunnelPort: 1}); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(20 * time.Second)

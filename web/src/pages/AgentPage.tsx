@@ -15,12 +15,17 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { FilesTab } from '@/components/FilesTab';
+import { TerminalTab } from '@/components/TerminalTab';
+
+type Tab = 'overview' | 'terminal' | 'files';
 
 export function AgentPage({ agentId }: { agentId: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const q = useQuery(agentQuery(agentId));
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [tab, setTab] = useState<Tab>('overview');
   const path = { params: { path: { agentId } } };
 
   const setAgent = (a: Agent) => qc.setQueryData(['agents', agentId], a);
@@ -95,71 +100,108 @@ export function AgentPage({ agentId }: { agentId: string }) {
         </p>
       )}
 
-      <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 text-sm">
-        <dt className="text-muted-foreground">Image</dt>
-        <dd>{a.image}</dd>
-        <dt className="text-muted-foreground">CPUs</dt>
-        <dd>{a.cpus}</dd>
-        <dt className="text-muted-foreground">Memory</dt>
-        <dd>{a.memoryMb} MB</dd>
-        <dt className="text-muted-foreground">Idle minutes</dt>
-        <dd>{a.idleMinutes}</dd>
-        <dt className="text-muted-foreground">Owner</dt>
-        <dd>{a.owner.name}</dd>
-        <dt className="text-muted-foreground">Created</dt>
-        <dd>{new Date(a.createdAt).toLocaleString()}</dd>
-      </dl>
+      <div role="tablist" className="flex gap-1 border-b">
+        {(operator
+          ? (['overview', 'terminal', 'files'] as const)
+          : (['overview', 'files'] as const)
+        ).map((t) => (
+          <button
+            key={t}
+            role="tab"
+            type="button"
+            aria-selected={tab === t}
+            onClick={() => setTab(t)}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm capitalize ${
+              tab === t
+                ? 'border-primary font-medium'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
 
-      {a.needsRebuild && (
-        <p className="text-sm text-amber-600">
-          Rebuild to apply image/resource changes
-        </p>
-      )}
+      {tab === 'overview' && (
+        <>
+          <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Image</dt>
+            <dd>{a.image}</dd>
+            <dt className="text-muted-foreground">CPUs</dt>
+            <dd>{a.cpus}</dd>
+            <dt className="text-muted-foreground">Memory</dt>
+            <dd>{a.memoryMb} MB</dd>
+            <dt className="text-muted-foreground">Idle minutes</dt>
+            <dd>{a.idleMinutes}</dd>
+            <dt className="text-muted-foreground">Owner</dt>
+            <dd>{a.owner.name}</dd>
+            <dt className="text-muted-foreground">Created</dt>
+            <dd>{new Date(a.createdAt).toLocaleString()}</dd>
+          </dl>
 
-      {operator && (
-        <div className="flex flex-wrap gap-2">
-          {(a.state === 'sleeping' || a.state === 'error') && (
-            <Button disabled={busy} onClick={() => action.mutate('start')}>
-              Start
-            </Button>
+          {a.needsRebuild && (
+            <p className="text-sm text-amber-600">
+              Rebuild to apply image/resource changes
+            </p>
           )}
-          {(a.state === 'running' || a.state === 'error') && (
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() => action.mutate('stop')}
-            >
-              Stop
-            </Button>
+
+          {operator && (
+            <div className="flex flex-wrap gap-2">
+              {(a.state === 'sleeping' || a.state === 'error') && (
+                <Button disabled={busy} onClick={() => action.mutate('start')}>
+                  Start
+                </Button>
+              )}
+              {(a.state === 'running' || a.state === 'error') && (
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => action.mutate('stop')}
+                >
+                  Stop
+                </Button>
+              )}
+              {(a.state === 'running' ||
+                a.state === 'sleeping' ||
+                a.state === 'error') && (
+                <Button
+                  variant={a.needsRebuild ? 'default' : 'outline'}
+                  className={
+                    a.needsRebuild ? 'ring-2 ring-amber-500' : undefined
+                  }
+                  disabled={busy}
+                  onClick={() => action.mutate('rebuild')}
+                >
+                  Rebuild
+                </Button>
+              )}
+              {admin && (
+                <Button
+                  variant="destructive"
+                  disabled={busy}
+                  onClick={() => setConfirmOpen(true)}
+                >
+                  Delete
+                </Button>
+              )}
+            </div>
           )}
-          {(a.state === 'running' ||
-            a.state === 'sleeping' ||
-            a.state === 'error') && (
-            <Button
-              variant={a.needsRebuild ? 'default' : 'outline'}
-              className={a.needsRebuild ? 'ring-2 ring-amber-500' : undefined}
-              disabled={busy}
-              onClick={() => action.mutate('rebuild')}
-            >
-              Rebuild
-            </Button>
-          )}
+          <ErrorText error={action.error} />
+          <ErrorText error={remove.error} />
+
           {admin && (
-            <Button
-              variant="destructive"
-              disabled={busy}
-              onClick={() => setConfirmOpen(true)}
-            >
-              Delete
-            </Button>
+            <AgentSettings key={a.updatedAt} agent={a} onSaved={setAgent} />
           )}
-        </div>
+        </>
       )}
-      <ErrorText error={action.error} />
-      <ErrorText error={remove.error} />
-
-      {admin && (
-        <AgentSettings key={a.updatedAt} agent={a} onSaved={setAgent} />
+      {tab === 'terminal' && operator && <TerminalTab agentId={agentId} />}
+      {tab === 'files' && (
+        <FilesTab
+          agentId={agentId}
+          operator={operator}
+          starting={busy}
+          onStart={() => action.mutate('start')}
+        />
       )}
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>

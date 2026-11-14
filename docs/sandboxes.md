@@ -53,3 +53,32 @@ sandbox:
 ```
 
 Docker-backed tests carry the `docker` build tag: `make test-docker`.
+
+## sandboxd and the tunnel
+
+`sandboxd` is a static Linux binary and the entrypoint of every sandbox, which is why any OCI image works.
+The Docker driver mounts it read-only at `/opt/agenthold` from a volume (`sandbox.docker.sandboxd_volume`).
+The server copies its own `sandboxd` into that volume at startup, so sandboxes always run the version
+that matches the server. When the server runs on the host instead of in a container, the directory of
+`sandbox.sandboxd_path` is bind-mounted.
+
+Before each start the server writes `/etc/agenthold/boot.json` into the stopped container. It holds the
+agent id, a fresh **per-boot token** and the tunnel URL. sandboxd then dials the server, which listens on
+`sandbox.tunnel_listen` (default `:8090`). It connects at the server container's fixed address (`.2`) on the
+agent network, and containers only receive addresses from the upper half of the subnet. The server stores
+only a hash of the token and accepts it only while the sandbox is starting or running. A sandbox counts as
+`running` once its sandboxd has connected.
+
+The connection is a WebSocket carrying a yamux session; each stream is one channel:
+
+| Channel | Used for |
+| --- | --- |
+| `pty` | Web terminal. Shells run as the `agent` account if the image has one, otherwise as the image's user. |
+| `fs.list`, `fs.read`, `fs.write`, `fs.mkdir`, `fs.remove` | File browser. Relative paths are relative to `/home/agent`. |
+| `hello`, `ping` | Identification and health. |
+
+sandboxd reconnects with backoff if the connection drops. Opening a terminal wakes a sleeping agent;
+file operations need a running agent.
+
+With `sandbox.driver: fake` the server runs sandboxd in-process for every sandbox, so terminals run on the
+server's own machine as the server's user. Use the fake driver only for development and tests.

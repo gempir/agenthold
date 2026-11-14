@@ -1,0 +1,172 @@
+// Package sandboxd is the daemon that runs inside every sandbox. It dials the
+// server, then serves terminals and file access over the tunnel.
+package sandboxd
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"os"
+	"os/user"
+	"strconv"
+	"time"
+
+	"github.com/gempir/agenthold/internal/tunnel"
+)
+
+// BootFile is where the server places the boot configuration before each start.
+const BootFile = "/etc/agenthold/boot.json"
+
+// Boot is written by the server before every start.
+type Boot struct {
+	AgentID   string `json:"agentId"`
+	Token     string `json:"token"`
+	TunnelURL string `json:"tunnelUrl"`
+}
+
+// LoadBoot reads the boot file.
+func LoadBoot(path string) (Boot, error) {
+	var b Boot
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return b, err
+	}
+	if err := json.Unmarshal(data, &b); err != nil {
+		return b, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if b.AgentID == "" || b.Token == "" || b.TunnelURL == "" {
+		return b, fmt.Errorf("%s is incomplete", path)
+	}
+	return b, nil
+}
+
+// Config configures the daemon.
+type Config struct {
+	Boot    Boot
+	Home    string // default /home/agent
+	Version string
+	// RunAs is the account terminals run as. Empty means: "agent" if that
+	// account exists and we are root, otherwise the current user.
+	RunAs  string
+	Logger *slog.Logger
+}
+
+// Daemon is a running sandboxd.
+type Daemon struct {
+	cfg  Config
+	log  *slog.Logger
+	acct account
+}
+
+type account struct {
+	name     string
+	uid, gid int
+	home     string
+	switchTo bool // whether processes must change credentials
+}
+
+// New prepares a daemon.
+func New(cfg Config) (*Daemon, error) {
+	if cfg.Home == "" {
+		cfg.Home = "/home/agent"
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = slog.Default()
+	}
+	acct, err := resolveAccount(cfg.RunAs, cfg.Home)
+	if err != nil {
+		return nil, err
+	}
+	d := &Daemon{cfg: cfg, log: cfg.Logger, acct: acct}
+	d.prepareHome()
+	return d, nil
+}
+
+func resolveAccount(name, home string) (account, error) {
+	cur, err := user.Current()
+	if err != nil {
+		return account{}, err
+	}
+	if name == "" {
+		name = cur.Username
+		if os.Geteuid() == 0 {
+			if _, err := user.Lookup("agent"); err == nil {
+				name = "agent"
+			}
+		}
+	}
+	u, err := user.Lookup(name)
+	if err != nil {
+		return account{}, fmt.Errorf("user %s: %w", name, err)
+	}
+	uid, _ := strconv.Atoi(u.Uid)
+	gid, _ := strconv.Atoi(u.Gid)
+	return account{name: name, uid: uid, gid: gid, home: home, switchTo: u.Uid != cur.Uid}, nil
+}
+
+// prepareHome makes a fresh home volume usable by the agent account.
+func (d *Daemon) prepareHome() {
+	if err := os.MkdirAll(d.acct.home, 0o755); err != nil {
+		d.log.Warn("create home", "err", err)
+		return
+	}
+	if d.acct.switchTo {
+		if fi, err := os.Stat(d.acct.home); err == nil && fi.Sys() != nil {
+			if err := os.Chown(d.acct.home, d.acct.uid, d.acct.gid); err != nil {
+				d.log.Warn("chown home", "err", err)
+			}
+		}
+	}
+}
+
+// Run dials the server and serves until ctx ends, reconnecting with backoff.
+func (d *Daemon) Run(ctx context.Context) error {
+	backoff := 250 * time.Millisecond
+	for {
+		start := time.Now()
+		err := tunnel.Dial(ctx, d.cfg.Boot.TunnelURL, d.cfg.Boot.AgentID, d.cfg.Boot.Token, d.handle)
+		if ctx.Err() != nil {
+			return nil
+		}
+		if time.Since(start) > 30*time.Second {
+			backoff = 250 * time.Millisecond
+		}
+		d.log.Warn("tunnel ended, reconnecting", "err", err, "in", backoff)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(backoff):
+		}
+		backoff = min(backoff*2, 10*time.Second)
+	}
+}
+
+func (d *Daemon) handle(ctx context.Context, st net.Conn, o tunnel.Open) {
+	var err error
+	switch o.Op {
+	case tunnel.OpHello:
+		err = tunnel.WriteJSON(st, tunnel.Hello{Version: d.cfg.Version, User: d.acct.name, Home: d.acct.home})
+	case tunnel.OpPing:
+		err = tunnel.WriteJSON(st, tunnel.OK{OK: true})
+	case tunnel.OpPTY:
+		err = d.pty(ctx, st, o)
+	case tunnel.OpFSList:
+		err = d.fsList(st, o)
+	case tunnel.OpFSRead:
+		err = d.fsRead(st, o)
+	case tunnel.OpFSWrite:
+		err = d.fsWrite(st, o)
+	case tunnel.OpFSMkdir:
+		err = d.fsMkdir(st, o)
+	case tunnel.OpFSRemove:
+		err = d.fsRemove(st, o)
+	default:
+		err = fmt.Errorf("unknown operation %q", o.Op)
+	}
+	if err != nil && !errors.Is(err, net.ErrClosed) {
+		_ = tunnel.WriteError(st, err)
+	}
+}

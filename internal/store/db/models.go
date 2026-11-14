@@ -75,6 +75,7 @@ type Sandbox struct {
 	Error          string
 	AppliedSpec    string
 	StateChangedAt int64
+	BootTokenHash  string
 }
 
 type Session struct {

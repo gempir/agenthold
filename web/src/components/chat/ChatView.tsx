@@ -6,6 +6,7 @@ import { ErrorText } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
 import { ToolCard } from '@/components/chat/ToolCard';
 import { useSessionStream } from '@/components/chat/useSessionStream';
+import type { SandboxState } from '@/api/queries';
 import type { ChatItem, PlanEntry } from '@/lib/session';
 
 const Markdown = lazy(() => import('@/components/chat/Markdown'));
@@ -162,21 +163,27 @@ function Item({
       );
     case 'error':
       return (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-center text-sm text-destructive">
           {item.message}
         </p>
       );
     case 'notice':
-      return <p className="text-xs text-muted-foreground">{item.message}</p>;
+      return (
+        <p className="text-center text-xs text-muted-foreground">
+          {item.message}
+        </p>
+      );
   }
 }
 
 function Composer({
   sessionId,
   running,
+  sleeping,
 }: {
   sessionId: string;
   running: boolean;
+  sleeping: boolean;
 }) {
   const [text, setText] = useState('');
   const path = { params: { path: { sessionId } } };
@@ -206,7 +213,13 @@ function Composer({
           rows={2}
           value={text}
           disabled={running}
-          placeholder={running ? 'Agent is working...' : 'Message the agent'}
+          placeholder={
+            running
+              ? 'Agent is working...'
+              : sleeping
+                ? 'Send a message to wake the agent…'
+                : 'Message the agent'
+          }
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (
@@ -242,9 +255,11 @@ export default function ChatView({
   sessionId,
   operator,
   initialRunning = false,
+  agentState,
 }: {
   sessionId: string;
   operator: boolean;
+  agentState?: SandboxState;
   initialRunning?: boolean;
 }) {
   const { state, running, connected } = useSessionStream(
@@ -288,7 +303,9 @@ export default function ChatView({
             className="flex items-center gap-2 text-sm text-muted-foreground"
           >
             <Loader2 className="size-4 animate-spin" aria-hidden />
-            working...
+            {agentState === 'sleeping' || agentState === 'starting'
+              ? 'Waking the agent…'
+              : 'working...'}
           </p>
         )}
       </div>
@@ -296,7 +313,11 @@ export default function ChatView({
         <p className="text-xs text-muted-foreground">Connecting...</p>
       )}
       {operator ? (
-        <Composer sessionId={sessionId} running={running} />
+        <Composer
+          sessionId={sessionId}
+          running={running}
+          sleeping={agentState === 'sleeping'}
+        />
       ) : (
         <p className="text-sm text-muted-foreground">
           You have read-only access to this session.

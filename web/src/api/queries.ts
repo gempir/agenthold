@@ -88,9 +88,16 @@ export const isTransient = (s: SandboxState) => TRANSIENT.includes(s);
 
 export const POLL_MS = 1000;
 
-/** refetchInterval for a single agent: poll only while transient. */
+export const RUNNING_POLL_MS = 10_000;
+
+/** refetchInterval for a single agent: fast while transient, slow while
+ * running (to refresh sleepsAt and notice it falling asleep). */
 export const agentPollInterval = (a: Agent | undefined) =>
-  a && isTransient(a.state) ? POLL_MS : false;
+  a && isTransient(a.state)
+    ? POLL_MS
+    : a?.state === 'running'
+      ? RUNNING_POLL_MS
+      : false;
 
 /** refetchInterval for an agent list: poll while any agent is transient. */
 export const agentsPollInterval = (list: Agent[] | undefined) =>

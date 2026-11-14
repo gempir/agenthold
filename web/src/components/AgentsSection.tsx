@@ -35,7 +35,7 @@ export function AgentList({ agents }: { agents: Agent[] }) {
             className="flex flex-wrap items-center gap-3 p-3 hover:bg-accent"
           >
             <span className="font-medium">{a.name}</span>
-            <AgentStateBadge state={a.state} />
+            <AgentStateBadge state={a.state} sleepsAt={a.sleepsAt} />
             {a.needsRebuild && (
               <span className="text-xs text-amber-600">rebuild pending</span>
             )}

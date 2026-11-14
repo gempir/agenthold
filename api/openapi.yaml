@@ -1103,6 +1103,14 @@ components:
         credentialsInSandbox:
           type: boolean
           description: A harness login was completed inside the sandbox; the agent can read its own credentials.
+        lastActivityAt:
+          type: string
+          format: date-time
+          description: Last activity while running (prompts, terminals, files, CPU use in the sandbox).
+        sleepsAt:
+          type: string
+          format: date-time
+          description: When the agent goes to sleep if nothing happens. Absent while busy or not running.
         role:
           $ref: "#/components/schemas/AgentRole"
         createdAt: { type: string, format: date-time }

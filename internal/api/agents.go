@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gempir/agenthold/internal/api/gen"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/harness"
 	"github.com/gempir/agenthold/internal/id"
+	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store/db"
 )
@@ -27,7 +29,17 @@ func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role aut
 	if err != nil {
 		return gen.Agent{}, err
 	}
+	var lastActivity, sleepsAt *time.Time
+	if a.Idle != nil && sandbox.Phase(sb.State) == sandbox.PhaseRunning {
+		if l := a.Idle.Tracker.Last(ag.ID); !l.IsZero() {
+			lastActivity = &l
+		}
+		if s := a.Idle.SleepsAt(ag.ID, ag.IdleMinutes); !s.IsZero() {
+			sleepsAt = &s
+		}
+	}
 	return gen.Agent{
+		LastActivityAt: lastActivity, SleepsAt: sleepsAt,
 		Id: ag.ID, WorkspaceId: ag.WorkspaceID, Name: ag.Name, Owner: apiUser(owner), Image: ag.Image,
 		Harness: ag.Harness, Cpus: float32(ag.Cpus), MemoryMb: ag.MemoryMb, IdleMinutes: int(ag.IdleMinutes),
 		State: gen.SandboxState(sb.State), StateError: sb.Error, StateChangedAt: ts(sb.StateChangedAt),

@@ -226,3 +226,16 @@ func (p *Process) ExitCode() (int, error) { return p.code, p.err }
 
 // Close kills the process.
 func (p *Process) Close() error { return p.c.Close() }
+
+// Stats returns the sandbox's resource usage.
+func (s *Session) Stats(ctx context.Context) (Stats, error) {
+	var out Stats
+	c, err := s.Open(ctx, Open{Op: OpStats})
+	if err != nil {
+		return out, err
+	}
+	defer c.Close()
+	stopOnCancel(ctx, c)
+	err = ReadJSON(c, &out)
+	return out, err
+}

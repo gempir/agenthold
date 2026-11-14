@@ -11,6 +11,7 @@ const (
 	OpFSMkdir  = "fs.mkdir"
 	OpFSRemove = "fs.remove"
 	OpPing     = "ping"
+	OpStats    = "stats"   // resource usage, for idle detection
 	OpHarness  = "harness" // agent harness process speaking ACP on stdio
 	OpHello    = "hello"   // the server asks sandboxd who it is right after connecting
 )
@@ -48,6 +49,15 @@ type Resize struct {
 type Exit struct {
 	Type string `json:"type"` // "exit"
 	Code int    `json:"code"`
+}
+
+// Stats answers OpStats.
+type Stats struct {
+	// CPUTicks is the CPU time (in USER_HZ ticks, 1/100 s) used so far by all
+	// processes in the sandbox except sandboxd itself.
+	CPUTicks uint64 `json:"cpuTicks"`
+	// Processes is the number of processes, excluding sandboxd.
+	Processes int `json:"processes"`
 }
 
 // Stderr carries one line of a harness's stderr.

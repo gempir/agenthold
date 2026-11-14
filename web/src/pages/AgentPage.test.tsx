@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
@@ -6,6 +6,7 @@ import {
   agentsPollInterval,
   type Agent,
 } from '@/api/queries';
+import { AgentStateBadge } from '@/components/AgentStateBadge';
 import { mockApi, renderApp } from '@/test-utils';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -83,10 +84,11 @@ it('shows Start for sleeping agent and hides admin controls for operator', async
   expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
 });
 
-it('polls only while transient', () => {
+it('polls fast while transient and slowly while running', () => {
   expect(agentPollInterval(agent({ state: 'starting' }))).toBe(1000);
   expect(agentPollInterval(agent({ state: 'destroying' }))).toBe(1000);
-  expect(agentPollInterval(agent({ state: 'running' }))).toBe(false);
+  expect(agentPollInterval(agent({ state: 'running' }))).toBe(10_000);
+  expect(agentPollInterval(agent({ state: 'sleeping' }))).toBe(false);
   expect(agentPollInterval(undefined)).toBe(false);
   expect(
     agentsPollInterval([
@@ -95,4 +97,34 @@ it('polls only while transient', () => {
     ]),
   ).toBe(1000);
   expect(agentsPollInterval([agent({ state: 'sleeping' })])).toBe(false);
+});
+
+it('badge shows Asleep and sleeps-in text', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2030-01-01T00:00:00Z'));
+  try {
+    const { unmount } = render(<AgentStateBadge state="sleeping" />);
+    expect(screen.getByText('Asleep')).toBeInTheDocument();
+    unmount();
+    render(<AgentStateBadge state="running" sleepsAt="2030-01-01T00:05:00Z" />);
+    expect(screen.getByText('sleeps in 5 min')).toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('sleeping banner Wake now posts start', async () => {
+  const { calls } = mockApi({
+    'GET /me': me,
+    'GET /workspaces': [ws],
+    'GET /agents/a1': agent(),
+    'GET /agents/a1/sessions': [],
+    'POST /agents/a1/start': agent({ state: 'starting' }),
+  });
+  renderApp('/a/a1');
+  expect(await screen.findByText(/This agent is asleep\./)).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Wake now' }));
+  await vi.waitFor(() =>
+    expect(calls.some((c) => c.key === 'POST /agents/a1/start')).toBe(true),
+  );
 });

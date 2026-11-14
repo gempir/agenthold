@@ -25,6 +25,7 @@ import (
 	"github.com/gempir/agenthold/internal/egress"
 	_ "github.com/gempir/agenthold/internal/harness/claude"
 	fakeharness "github.com/gempir/agenthold/internal/harness/fake"
+	"github.com/gempir/agenthold/internal/idle"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/docker"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
@@ -140,6 +141,18 @@ func run() error {
 
 	sessions := session.NewManager(st, nil, logger)
 	defer sessions.Close()
+	tracker := idle.NewTracker()
+	sessions.OnActivity(tracker.Touch)
+	sleeper := &idle.Sleeper{
+		Store: st, Sandboxes: sandboxes, Tracker: tracker, Busy: sessions.AgentBusy, Tunnel: hub,
+		Log: logger, Interval: cfg.Sandbox.IdleCheckInterval,
+	}
+	go sleeper.Run(ctx)
+	sandboxes.OnChange(func(agentID string, p sandbox.Phase) {
+		if p == sandbox.PhaseRunning {
+			tracker.Touch(agentID) // a fresh boot starts the idle clock
+		}
+	})
 	sandboxes.OnChange(func(agentID string, p sandbox.Phase) {
 		if p == sandbox.PhaseStopping || p == sandbox.PhaseDestroying || p == sandbox.PhaseRebuilding {
 			sessions.Disconnect(agentID)
@@ -148,7 +161,7 @@ func run() error {
 
 	apiSrv := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Tunnel: hub, Limits: cfg.Sandbox,
-		Box: box, Egress: directory, CA: ca, Sessions: sessions,
+		Box: box, Egress: directory, CA: ca, Sessions: sessions, Idle: sleeper,
 		ShowTestHarness: cfg.Sandbox.Driver == "fake" || cfg.DevProxy != "",
 	})
 	sessions.SetWaker(apiSrv.Wake)

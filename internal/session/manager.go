@@ -58,6 +58,7 @@ type Manager struct {
 	turns map[string]*turn        // by session id
 	// starting serializes harness startup per agent.
 	starting map[string]*sync.Mutex
+	activity func(agentID string)
 }
 
 type turn struct {
@@ -80,6 +81,27 @@ func NewManager(st *store.Store, wake Waker, lg *slog.Logger) *Manager {
 	}
 	_ = st.ResetRunningSessions(ctx)
 	return m
+}
+
+// OnActivity is called with an agent id whenever a session is used.
+func (m *Manager) OnActivity(fn func(agentID string)) { m.activity = fn }
+
+func (m *Manager) touch(agentID string) {
+	if m.activity != nil {
+		m.activity(agentID)
+	}
+}
+
+// AgentBusy reports whether any session of the agent has a running turn.
+func (m *Manager) AgentBusy(agentID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, t := range m.turns {
+		if t.agentID == agentID {
+			return true
+		}
+	}
+	return false
 }
 
 // SetWaker sets how agents are woken (the API provides it).
@@ -145,10 +167,12 @@ func (m *Manager) Prompt(ctx context.Context, sessionID, userID, userName, text 
 	t := &turn{sessionID: sessionID, agentID: sess.AgentID, perms: map[string]chan acp.PermissionOptionId{}}
 	m.turns[sessionID] = t
 	m.mu.Unlock()
+	m.touch(sess.AgentID)
 	release := func() {
 		m.mu.Lock()
 		delete(m.turns, sessionID)
 		m.mu.Unlock()
+		m.touch(sess.AgentID)
 	}
 
 	if err := m.log.append(ctx, sessionID, EventPrompt, userID, map[string]any{"text": text, "user": map[string]string{"id": userID, "name": userName}}); err != nil {

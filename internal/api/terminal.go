@@ -129,6 +129,10 @@ func (a *API) terminal(w http.ResponseWriter, r *http.Request) {
 		}
 		open.Cmd, open.Env = cmd, env
 	}
+	if a.Idle != nil {
+		a.Idle.Tracker.TerminalOpened(agentID)
+		defer a.Idle.Tracker.TerminalClosed(agentID)
+	}
 	term, err := s.PTY(ctx, open)
 	if err != nil {
 		fail(err)

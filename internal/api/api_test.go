@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/gempir/agenthold/internal/egress"
 	_ "github.com/gempir/agenthold/internal/harness/claude"
 	fakeharness "github.com/gempir/agenthold/internal/harness/fake"
+	"github.com/gempir/agenthold/internal/idle"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
 	"github.com/gempir/agenthold/internal/secrets"
@@ -45,7 +47,19 @@ type env struct {
 	directory *egress.Directory
 	store     *store.Store
 	sessions  *session.Manager
+	tracker   *idle.Tracker
+	sleeper   *idle.Sleeper
+	clock     *clock
 }
+
+// clock is a manual clock for idle tests.
+type clock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *clock) Now() time.Time          { c.mu.Lock(); defer c.mu.Unlock(); return c.t }
+func (c *clock) Advance(d time.Duration) { c.mu.Lock(); c.t = c.t.Add(d); c.mu.Unlock() }
 
 func TestMain(m *testing.M) {
 	// The scripted ACP agent runs as each fake sandbox's harness.
@@ -113,14 +127,22 @@ func newEnv(t *testing.T) *env {
 	e.directory = &egress.Directory{Store: st, Box: box}
 	e.store = st
 	e.sessions = session.NewManager(st, nil, nil)
+	e.clock = &clock{t: time.Now()}
+	e.tracker = idle.NewTracker()
+	e.tracker.SetClock(e.clock.Now)
+	e.sessions.OnActivity(e.tracker.Touch)
+	e.sleeper = &idle.Sleeper{Store: st, Sandboxes: e.sandboxes, Tracker: e.tracker, Busy: e.sessions.AgentBusy, Tunnel: e.hub, Now: e.clock.Now}
 	a := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Tunnel: e.hub, Limits: cfg.Sandbox,
-		Box: box, Egress: e.directory, CA: ca, Sessions: e.sessions, ShowTestHarness: true,
+		Box: box, Egress: e.directory, CA: ca, Sessions: e.sessions, Idle: e.sleeper, ShowTestHarness: true,
 	})
 	e.sessions.SetWaker(a.Wake)
 	e.sandboxes.OnChange(func(agentID string, p sandbox.Phase) {
 		if p == sandbox.PhaseStopping || p == sandbox.PhaseDestroying {
 			e.sessions.Disconnect(agentID)
+		}
+		if p == sandbox.PhaseRunning {
+			e.tracker.Touch(agentID)
 		}
 	})
 	t.Cleanup(e.sessions.Close)

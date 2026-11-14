@@ -22,9 +22,11 @@ import (
 	"github.com/gempir/agenthold/internal/api"
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/config"
+	"github.com/gempir/agenthold/internal/egress"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/docker"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
+	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/server"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/tunnel"
@@ -78,7 +80,32 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("sandbox.tunnel_listen: %w", err)
 	}
-	driver, err := newDriver(ctx, cfg, logger)
+
+	key, generated, err := secrets.LoadMasterKey(cfg.Secrets.MasterKeyFile)
+	if err != nil {
+		return fmt.Errorf("master key: %w", err)
+	}
+	if generated {
+		logger.Warn("generated a new master key; back it up, secrets cannot be decrypted without it", "file", cfg.Secrets.MasterKeyFile)
+	}
+	box, err := secrets.NewBox(key)
+	if err != nil {
+		return err
+	}
+	ca, err := egress.LoadOrCreateCA(filepath.Join(cfg.DataDir, "egress"))
+	if err != nil {
+		return fmt.Errorf("egress CA: %w", err)
+	}
+	directory := &egress.Directory{Store: st, Box: box, Log: logger}
+	egressOn := !cfg.Egress.Disabled
+	if egressOn {
+		if err := startEgress(ctx, cfg, ca, directory, st, tunnelPort, logger); err != nil {
+			logger.Error("egress proxy unavailable: sandboxes have no network access", "err", err)
+			egressOn = false
+		}
+	}
+
+	driver, err := newDriver(ctx, cfg, egressOn, logger)
 	if err != nil {
 		return err
 	}
@@ -86,7 +113,11 @@ func run() error {
 	hub := tunnel.NewHub(func(ctx context.Context, agentID, token string) error {
 		return sandboxes.AuthenticateTunnel(ctx, agentID, token)
 	}, logger)
-	sandboxes = sandbox.NewManagerWithOptions(st, driver, sandbox.BaseSpec, sandbox.Options{Tunnel: hub, TunnelPort: tunnelPort}, logger)
+	sandboxes = sandbox.NewManagerWithOptions(st, driver, egress.SpecFunc(st, cfg.Egress.ExplicitPort), sandbox.Options{
+		Tunnel: hub, TunnelPort: tunnelPort,
+		BootFiles: func(context.Context, string) (map[string][]byte, error) { return ca.BootFiles(), nil },
+	}, logger)
+	sandboxes.OnChange(func(string, sandbox.Phase) { directory.Invalidate() })
 	defer sandboxes.Close()
 
 	tunnelSrv := &http.Server{Addr: cfg.Sandbox.TunnelListen, Handler: tunnelMux(hub), ReadHeaderTimeout: 10 * time.Second}
@@ -104,7 +135,10 @@ func run() error {
 		return fmt.Errorf("reconcile sandboxes: %w", err)
 	}
 
-	apiSrv := api.New(api.Deps{Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Tunnel: hub, Limits: cfg.Sandbox})
+	apiSrv := api.New(api.Deps{
+		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Tunnel: hub, Limits: cfg.Sandbox,
+		Box: box, Egress: directory, CA: ca,
+	})
 
 	srvCfg := server.Config{Web: web.Dist(), Logger: logger, API: apiSrv.Mount}
 	if cfg.DevProxy != "" {
@@ -141,7 +175,60 @@ func run() error {
 	return srv.Shutdown(shutdownCtx)
 }
 
-func newDriver(ctx context.Context, cfg *config.Config, logger *slog.Logger) (sandbox.Driver, error) {
+// startEgress starts the proxy, DNS and explicit proxy listeners and installs
+// the firewall that redirects sandbox traffic to them.
+func startEgress(ctx context.Context, cfg *config.Config, ca *egress.CA, dir *egress.Directory, st *store.Store, tunnelPort int, logger *slog.Logger) error {
+	eg := cfg.Egress
+	rec := &egress.Recorder{Store: st, Keep: eg.LogKeep}
+	names := egress.NewNameCache()
+	proxy := &egress.Proxy{CA: ca, Agents: dir, Names: names, Log: rec.Record, OriginalDst: egress.OriginalDst, Logger: logger}
+	upstream := eg.DNSUpstream
+	if upstream == "" {
+		upstream = egress.UpstreamFromResolvConf()
+	}
+	dns := &egress.DNS{Agents: dir, Names: names, Upstream: upstream, Log: rec.Record}
+
+	lc := net.ListenConfig{}
+	tln, err := lc.Listen(ctx, "tcp", ":"+strconv.Itoa(eg.ProxyPort))
+	if err != nil {
+		return err
+	}
+	eln, err := lc.Listen(ctx, "tcp", ":"+strconv.Itoa(eg.ExplicitPort))
+	if err != nil {
+		return err
+	}
+	dln, err := lc.Listen(ctx, "tcp", ":"+strconv.Itoa(eg.DNSPort))
+	if err != nil {
+		return err
+	}
+	dpc, err := lc.ListenPacket(ctx, "udp", ":"+strconv.Itoa(eg.DNSPort))
+	if err != nil {
+		return err
+	}
+	go func() { _ = proxy.ServeTransparent(tln) }()
+	go func() {
+		_ = (&http.Server{Handler: proxy.ExplicitHandler(), ReadHeaderTimeout: 30 * time.Second}).Serve(eln)
+	}()
+	go func() { _ = dns.ServeTCP(dln) }()
+	go func() { _ = dns.ServeUDP(dpc) }()
+
+	if cfg.Sandbox.Driver != "docker" {
+		logger.Info("egress: proxy listening; no firewall (not using the docker driver)")
+		return nil
+	}
+	fw := egress.Firewall{
+		Pool:      netip.MustParsePrefix(cfg.Sandbox.Docker.NetworkPool),
+		ProxyPort: eg.ProxyPort, DNSPort: eg.DNSPort,
+		OpenPorts: []int{tunnelPort, eg.ExplicitPort},
+	}
+	if err := fw.Install(); err != nil {
+		return err
+	}
+	logger.Info("egress: firewall installed", "pool", fw.Pool, "dns_upstream", upstream)
+	return nil
+}
+
+func newDriver(ctx context.Context, cfg *config.Config, egressOn bool, logger *slog.Logger) (sandbox.Driver, error) {
 	switch cfg.Sandbox.Driver {
 	case "fake":
 		logger.Warn("using the fake sandbox driver: terminals run on this machine as the server's user")
@@ -154,6 +241,7 @@ func newDriver(ctx context.Context, cfg *config.Config, logger *slog.Logger) (sa
 			Host: dc.Host, NamePrefix: dc.NamePrefix, NetworkPool: netip.MustParsePrefix(dc.NetworkPool),
 			SubnetBits: dc.SubnetBits, Runtime: dc.Runtime, ServerContainer: dc.ServerContainer,
 			PIDsLimit: cfg.Sandbox.PIDsLimit, TunnelHost: dc.TunnelHost, Logger: logger,
+			Egress: egressOn && dc.TunnelHost == "",
 		}
 		if dc.SandboxdVolumeDir != "" {
 			if err := installSandboxd(cfg.Sandbox.SandboxdPath, dc.SandboxdVolumeDir); err != nil {

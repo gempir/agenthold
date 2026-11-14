@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 )
 
 func ioPipe() (*io.PipeReader, *io.PipeWriter) { return io.Pipe() }
@@ -38,3 +39,5 @@ func (l *limited) Read(p []byte) (int, error) {
 }
 
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
+
+func trimSpace(s string) string { return strings.TrimSpace(s) }

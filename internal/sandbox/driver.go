@@ -7,6 +7,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"net/netip"
 )
 
 // ID identifies a sandbox inside its driver. It is stable for the life of the
@@ -62,6 +63,8 @@ type Status struct {
 	Detail string
 	// GatewayIP is the address the sandbox reaches the server at, if known.
 	GatewayIP string
+	// Subnet is the sandbox's network, used to attribute its traffic.
+	Subnet netip.Prefix
 }
 
 // Boot is the per-boot configuration for sandboxd. The driver knows how the
@@ -70,7 +73,14 @@ type Boot struct {
 	AgentID    string
 	Token      string
 	TunnelPort int
+	// Files are written into the sandbox before it starts (path -> content),
+	// for example the egress CA certificate.
+	Files map[string][]byte
 }
+
+// ServerPlaceholder in Spec.Env values is replaced by the address sandboxes
+// use to reach the server.
+const ServerPlaceholder = "{{server}}"
 
 // SandboxdDir is where drivers mount the sandboxd binary inside a sandbox.
 const SandboxdDir = "/opt/agenthold"

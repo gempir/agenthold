@@ -12,12 +12,13 @@ import {
 import { AgentsSection } from '@/components/AgentsSection';
 import { InvitesPanel } from '@/components/InvitesPanel';
 import { MembersList } from '@/components/MembersList';
+import { SecretsPanel } from '@/components/SecretsPanel';
 import { SettingsPanel } from '@/components/SettingsPanel';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
-type Tab = 'members' | 'invites' | 'settings';
+type Tab = 'members' | 'invites' | 'secrets' | 'settings';
 
 export function WorkspacePage({ workspaceId }: { workspaceId: string }) {
   const qc = useQueryClient();
@@ -70,6 +71,7 @@ export function WorkspacePage({ workspaceId }: { workspaceId: string }) {
   const tabs: { id: Tab; label: string; show: boolean }[] = [
     { id: 'members', label: 'Members', show: true },
     { id: 'invites', label: 'Invites', show: canManage(w.role) },
+    { id: 'secrets', label: 'Secrets', show: true },
     { id: 'settings', label: 'Settings', show: true },
   ];
 
@@ -129,6 +131,7 @@ export function WorkspacePage({ workspaceId }: { workspaceId: string }) {
       {tab === 'invites' && canManage(w.role) && (
         <InvitesPanel workspaceId={workspaceId} />
       )}
+      {tab === 'secrets' && <SecretsPanel workspaceId={workspaceId} />}
       {tab === 'settings' && <SettingsPanel key={w.name} workspace={w} />}
     </div>
   );

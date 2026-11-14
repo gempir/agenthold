@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net"
@@ -61,7 +62,10 @@ type Config struct {
 	// ExternalNetwork creates agent networks without the internal flag. Only
 	// for tests where the server runs on the host.
 	ExternalNetwork bool
-	Logger          *slog.Logger
+	// Egress routes sandbox traffic through the server: after each start the
+	// sandbox's default route and DNS server are set to the server's address.
+	Egress bool
+	Logger *slog.Logger
 }
 
 // Driver implements sandbox.Driver with Docker.
@@ -159,8 +163,14 @@ func (d *Driver) homeVolume(spec sandbox.Spec) string {
 func (d *Driver) createContainer(ctx context.Context, spec sandbox.Spec, netName string) error {
 	env := make([]string, 0, len(spec.Env)+1)
 	env = append(env, "HOME="+homeDir)
+	serverHost := d.cfg.TunnelHost
+	if serverHost == "" {
+		if ip, err := d.serverIP(ctx, netName); err == nil {
+			serverHost = ip.String()
+		}
+	}
 	for _, k := range sortedKeys(spec.Env) {
-		env = append(env, k+"="+spec.Env[k])
+		env = append(env, k+"="+strings.ReplaceAll(spec.Env[k], sandbox.ServerPlaceholder, serverHost))
 	}
 	mounts := []mount.Mount{{Type: mount.TypeVolume, Source: d.homeVolume(spec), Target: homeDir}}
 	if src := d.cfg.SandboxdSource; src != "" {
@@ -244,16 +254,21 @@ func (d *Driver) ensureNetwork(ctx context.Context, agentID string) (string, err
 	if err != nil {
 		return "", err
 	}
-	gw := subnet.Addr().Next()
 	// Containers get addresses from the upper half of the subnet, so the
 	// server's fixed address (.2) is never handed out.
 	ipRange := netip.PrefixFrom(fromIP4(ip4(subnet.Addr())+uint32(1)<<(31-subnet.Bits())), subnet.Bits()+1)
+	opts := map[string]string{"com.docker.network.bridge.enable_icc": "true"}
+	if !d.cfg.ExternalNetwork {
+		// No address for the host on this bridge (Docker 28+): the host is
+		// unreachable from the sandbox.
+		opts["com.docker.network.bridge.gateway_mode_ipv4"] = "isolated"
+	}
 	_, err = d.cli.NetworkCreate(ctx, name, client.NetworkCreateOptions{
 		Driver:   "bridge",
 		Internal: !d.cfg.ExternalNetwork,
 		Labels:   d.labels(agentID),
-		IPAM:     &network.IPAM{Config: []network.IPAMConfig{{Subnet: subnet, Gateway: gw, IPRange: ipRange}}},
-		Options:  map[string]string{"com.docker.network.bridge.enable_icc": "true"},
+		IPAM:     &network.IPAM{Config: []network.IPAMConfig{{Subnet: subnet, IPRange: ipRange}}},
+		Options:  opts,
 	})
 	if err != nil {
 		return "", fmt.Errorf("create network: %w", err)
@@ -371,6 +386,11 @@ func (d *Driver) writeBoot(ctx context.Context, id sandbox.ID, boot sandbox.Boot
 	_ = tw.WriteHeader(&tar.Header{Typeflag: tar.TypeDir, Name: "etc/agenthold/", Mode: 0o755, ModTime: now})
 	_ = tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: "etc/agenthold/boot.json", Mode: 0o600, Size: int64(len(data)), ModTime: now})
 	_, _ = tw.Write(data)
+	for _, name := range slices.Sorted(maps.Keys(boot.Files)) {
+		content := boot.Files[name]
+		_ = tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: strings.TrimPrefix(name, "/"), Mode: 0o644, Size: int64(len(content)), ModTime: now})
+		_, _ = tw.Write(content)
+	}
 	if err := tw.Close(); err != nil {
 		return err
 	}
@@ -414,6 +434,38 @@ func (d *Driver) Start(ctx context.Context, id sandbox.ID, boot sandbox.Boot) er
 	}
 	if _, err := d.cli.ContainerStart(ctx, string(id), client.ContainerStartOptions{}); err != nil {
 		return fmt.Errorf("start container: %w", err)
+	}
+	if d.cfg.Egress {
+		if err := d.netSetup(ctx, id, host); err != nil {
+			_ = d.Stop(ctx, id)
+			return err
+		}
+	}
+	return nil
+}
+
+// netSetup points the sandbox's default route and DNS at the server. It runs
+// as a privileged exec, so the sandbox itself never gets NET_ADMIN.
+func (d *Driver) netSetup(ctx context.Context, id sandbox.ID, server string) error {
+	ex, err := d.cli.ExecCreate(ctx, string(id), client.ExecCreateOptions{
+		User: "0", Privileged: true, AttachStdout: true, AttachStderr: true,
+		Cmd: []string{sandbox.SandboxdDir + "/sandboxd", "net-setup", "--gateway", server},
+	})
+	if err != nil {
+		return fmt.Errorf("network setup: %w", err)
+	}
+	att, err := d.cli.ExecAttach(ctx, ex.ID, client.ExecAttachOptions{})
+	if err != nil {
+		return fmt.Errorf("network setup: %w", err)
+	}
+	out, _ := io.ReadAll(io.LimitReader(att.Reader, 64*1024))
+	att.Close()
+	res, err := d.cli.ExecInspect(ctx, ex.ID, client.ExecInspectOptions{})
+	if err != nil {
+		return fmt.Errorf("network setup: %w", err)
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("network setup failed (exit %d): %s", res.ExitCode, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -480,10 +532,11 @@ func (d *Driver) Status(ctx context.Context, id sandbox.ID) (sandbox.Status, err
 			st.Detail += " (out of memory)"
 		}
 	}
-	if c.NetworkSettings != nil {
-		for _, ep := range c.NetworkSettings.Networks {
-			if ep != nil && ep.Gateway.IsValid() {
-				st.GatewayIP = ep.Gateway.String()
+	if n, err := d.cli.NetworkInspect(ctx, d.networkName(c.Config.Labels[labelAgent]), client.NetworkInspectOptions{}); err == nil {
+		for _, cfg := range n.Network.IPAM.Config {
+			if cfg.Subnet.IsValid() && cfg.Subnet.Addr().Is4() {
+				st.Subnet = cfg.Subnet.Masked()
+				st.GatewayIP = cfg.Subnet.Masked().Addr().Next().Next().String()
 			}
 		}
 	}

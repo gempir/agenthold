@@ -16,9 +16,10 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { FilesTab } from '@/components/FilesTab';
+import { NetworkTab } from '@/components/NetworkTab';
 import { TerminalTab } from '@/components/TerminalTab';
 
-type Tab = 'overview' | 'terminal' | 'files';
+type Tab = 'overview' | 'terminal' | 'files' | 'network';
 
 export function AgentPage({ agentId }: { agentId: string }) {
   const qc = useQueryClient();
@@ -102,8 +103,8 @@ export function AgentPage({ agentId }: { agentId: string }) {
 
       <div role="tablist" className="flex gap-1 border-b">
         {(operator
-          ? (['overview', 'terminal', 'files'] as const)
-          : (['overview', 'files'] as const)
+          ? (['overview', 'terminal', 'files', 'network'] as const)
+          : (['overview', 'files', 'network'] as const)
         ).map((t) => (
           <button
             key={t}
@@ -201,6 +202,14 @@ export function AgentPage({ agentId }: { agentId: string }) {
           operator={operator}
           starting={busy}
           onStart={() => action.mutate('start')}
+        />
+      )}
+
+      {tab === 'network' && (
+        <NetworkTab
+          agentId={agentId}
+          workspaceId={a.workspaceId}
+          admin={admin}
         />
       )}
 

@@ -19,8 +19,10 @@ import (
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/auth/authtest"
 	"github.com/gempir/agenthold/internal/config"
+	"github.com/gempir/agenthold/internal/egress"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
+	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/server"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/tunnel"
@@ -34,6 +36,8 @@ type env struct {
 	driver    *fake.Driver
 	sandboxes *sandbox.Manager
 	hub       *tunnel.Hub
+	directory *egress.Directory
+	store     *store.Store
 }
 
 func newEnv(t *testing.T) *env {
@@ -69,7 +73,7 @@ func newEnv(t *testing.T) *env {
 	tunnelSrv := httptest.NewServer(e.hub)
 	t.Cleanup(tunnelSrv.Close)
 	port, _ := strconv.Atoi(tunnelSrv.URL[strings.LastIndex(tunnelSrv.URL, ":")+1:])
-	e.sandboxes = sandbox.NewManagerWithOptions(st, e.driver, sandbox.BaseSpec, sandbox.Options{Tunnel: e.hub, TunnelPort: port, ConnectTimeout: 10 * time.Second}, nil)
+	e.sandboxes = sandbox.NewManagerWithOptions(st, e.driver, egress.SpecFunc(st, 15002), sandbox.Options{Tunnel: e.hub, TunnelPort: port, ConnectTimeout: 10 * time.Second}, nil)
 	t.Cleanup(func() {
 		// Stop in-process sandboxd goroutines.
 		rows, _ := st.ListSandboxes(context.Background())
@@ -78,7 +82,17 @@ func newEnv(t *testing.T) *env {
 		}
 		e.sandboxes.Close()
 	})
-	a := api.New(api.Deps{Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Tunnel: e.hub, Limits: cfg.Sandbox})
+	box, _ := secrets.NewBox(bytes.Repeat([]byte{1}, secrets.KeySize))
+	ca, err := egress.LoadOrCreateCA(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.directory = &egress.Directory{Store: st, Box: box}
+	e.store = st
+	a := api.New(api.Deps{
+		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Tunnel: e.hub, Limits: cfg.Sandbox,
+		Box: box, Egress: e.directory, CA: ca,
+	})
 	handler = server.New(server.Config{
 		Web: fstest.MapFS{"index.html": {Data: []byte("app")}},
 		API: a.Mount,

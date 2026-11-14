@@ -80,6 +80,33 @@ func (e CreatedInviteRole) Valid() bool {
 	}
 }
 
+// Defines values for EgressEventKind.
+const (
+	Dns   EgressEventKind = "dns"
+	Http  EgressEventKind = "http"
+	Https EgressEventKind = "https"
+	Tcp   EgressEventKind = "tcp"
+	Tls   EgressEventKind = "tls"
+)
+
+// Valid indicates whether the value is a known member of the EgressEventKind enum.
+func (e EgressEventKind) Valid() bool {
+	switch e {
+	case Dns:
+		return true
+	case Http:
+		return true
+	case Https:
+		return true
+	case Tcp:
+		return true
+	case Tls:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for InviteRole.
 const (
 	InviteRoleAdmin  InviteRole = "admin"
@@ -128,6 +155,24 @@ func (e InvitePreviewRole) Valid() bool {
 	case InvitePreviewRoleAdmin:
 		return true
 	case InvitePreviewRoleMember:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for NetworkPolicyMode.
+const (
+	Allowlist NetworkPolicyMode = "allowlist"
+	Open      NetworkPolicyMode = "open"
+)
+
+// Valid indicates whether the value is a known member of the NetworkPolicyMode enum.
+func (e NetworkPolicyMode) Valid() bool {
+	switch e {
+	case Allowlist:
+		return true
+	case Open:
 		return true
 	default:
 		return false
@@ -236,6 +281,12 @@ type AgentPatch struct {
 // AgentRole defines model for AgentRole.
 type AgentRole string
 
+// AttachedSecret defines model for AttachedSecret.
+type AttachedSecret struct {
+	EnvVar string `json:"envVar"`
+	Secret Secret `json:"secret"`
+}
+
 // AuthProvider defines model for AuthProvider.
 type AuthProvider struct {
 	Id   string           `json:"id"`
@@ -270,6 +321,28 @@ type DirListing struct {
 	// Path Absolute path of the directory.
 	Path string `json:"path"`
 }
+
+// EgressEvent defines model for EgressEvent.
+type EgressEvent struct {
+	Allowed    bool            `json:"allowed"`
+	At         time.Time       `json:"at"`
+	BytesDown  int64           `json:"bytesDown"`
+	BytesUp    int64           `json:"bytesUp"`
+	DurationMs int64           `json:"durationMs"`
+	Host       string          `json:"host"`
+	Id         int64           `json:"id"`
+	Injected   bool            `json:"injected"`
+	Ip         string          `json:"ip"`
+	Kind       EgressEventKind `json:"kind"`
+	Method     string          `json:"method"`
+	Path       string          `json:"path"`
+	Port       int             `json:"port"`
+	Reason     string          `json:"reason"`
+	Status     int             `json:"status"`
+}
+
+// EgressEventKind defines model for EgressEvent.Kind.
+type EgressEventKind string
 
 // Error defines model for Error.
 type Error struct {
@@ -338,6 +411,16 @@ type Member struct {
 	User     User          `json:"user"`
 }
 
+// NetworkPolicy defines model for NetworkPolicy.
+type NetworkPolicy struct {
+	// Allow Entries like "github.com", "*.npmjs.org", "github.com:22", "host:*", "1.2.3.0/24:443". Without a port: 80 and 443.
+	Allow []string          `json:"allow"`
+	Mode  NetworkPolicyMode `json:"mode"`
+}
+
+// NetworkPolicyMode defines model for NetworkPolicy.Mode.
+type NetworkPolicyMode string
+
 // SandboxLimits defines model for SandboxLimits.
 type SandboxLimits struct {
 	DefaultCpus     float32 `json:"defaultCpus"`
@@ -350,6 +433,58 @@ type SandboxLimits struct {
 
 // SandboxState defines model for SandboxState.
 type SandboxState string
+
+// Secret defines model for Secret.
+type Secret struct {
+	CanManage bool      `json:"canManage"`
+	CreatedAt time.Time `json:"createdAt"`
+	Id        string    `json:"id"`
+	Name      string    `json:"name"`
+	Owner     User      `json:"owner"`
+
+	// Placeholder What sandboxes see instead of the value.
+	Placeholder string     `json:"placeholder"`
+	Rule        SecretRule `json:"rule"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+	WorkspaceId string     `json:"workspaceId"`
+}
+
+// SecretInput defines model for SecretInput.
+type SecretInput struct {
+	Name string `json:"name"`
+
+	// Preset Use a preset's rule.
+	Preset *string     `json:"preset,omitempty"`
+	Rule   *SecretRule `json:"rule,omitempty"`
+	Value  string      `json:"value"`
+}
+
+// SecretPatch defines model for SecretPatch.
+type SecretPatch struct {
+	Name  *string     `json:"name,omitempty"`
+	Rule  *SecretRule `json:"rule,omitempty"`
+	Value *string     `json:"value,omitempty"`
+}
+
+// SecretPreset defines model for SecretPreset.
+type SecretPreset struct {
+	Description string     `json:"description"`
+	EnvVar      string     `json:"envVar"`
+	Id          string     `json:"id"`
+	Name        string     `json:"name"`
+	Rule        SecretRule `json:"rule"`
+}
+
+// SecretRule defines model for SecretRule.
+type SecretRule struct {
+	Header string `json:"header"`
+
+	// Hosts Exact host names or "*.example.com".
+	Hosts []string `json:"hosts"`
+
+	// Template Header value; {{.Value}} is the secret. Function: base64.
+	Template string `json:"template"`
+}
 
 // User defines model for User.
 type User struct {
@@ -388,6 +523,13 @@ type AgentId = string
 // WorkspaceId defines model for WorkspaceId.
 type WorkspaceId = string
 
+// ListEgressLogParams defines parameters for ListEgressLog.
+type ListEgressLogParams struct {
+	// Before Return entries older than this id.
+	Before *int64 `form:"before,omitempty" json:"before,omitempty"`
+	Limit  *int   `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // DeleteFileParams defines parameters for DeleteFile.
 type DeleteFileParams struct {
 	Path      string `form:"path" json:"path"`
@@ -414,6 +556,12 @@ type MakeDirectoryJSONBody struct {
 	Path string `json:"path"`
 }
 
+// AttachSecretJSONBody defines parameters for AttachSecret.
+type AttachSecretJSONBody struct {
+	// EnvVar Variable that holds the placeholder in the sandbox.
+	EnvVar *string `json:"envVar,omitempty"`
+}
+
 // UpdateMemberJSONBody defines parameters for UpdateMember.
 type UpdateMemberJSONBody struct {
 	Role WorkspaceRole `json:"role"`
@@ -424,6 +572,15 @@ type UpdateAgentJSONRequestBody = AgentPatch
 
 // MakeDirectoryJSONRequestBody defines body for MakeDirectory for application/json ContentType.
 type MakeDirectoryJSONRequestBody MakeDirectoryJSONBody
+
+// SetNetworkPolicyJSONRequestBody defines body for SetNetworkPolicy for application/json ContentType.
+type SetNetworkPolicyJSONRequestBody = NetworkPolicy
+
+// AttachSecretJSONRequestBody defines body for AttachSecret for application/json ContentType.
+type AttachSecretJSONRequestBody AttachSecretJSONBody
+
+// UpdateSecretJSONRequestBody defines body for UpdateSecret for application/json ContentType.
+type UpdateSecretJSONRequestBody = SecretPatch
 
 // CreateWorkspaceJSONRequestBody defines body for CreateWorkspace for application/json ContentType.
 type CreateWorkspaceJSONRequestBody = WorkspaceInput
@@ -440,6 +597,9 @@ type CreateInviteJSONRequestBody = InviteInput
 // UpdateMemberJSONRequestBody defines body for UpdateMember for application/json ContentType.
 type UpdateMemberJSONRequestBody UpdateMemberJSONBody
 
+// CreateSecretJSONRequestBody defines body for CreateSecret for application/json ContentType.
+type CreateSecretJSONRequestBody = SecretInput
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 
@@ -451,6 +611,9 @@ type ServerInterface interface {
 
 	// (PATCH /agents/{agentId})
 	UpdateAgent(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (GET /agents/{agentId}/egress-log)
+	ListEgressLog(w http.ResponseWriter, r *http.Request, agentId AgentId, params ListEgressLogParams)
 
 	// (DELETE /agents/{agentId}/files)
 	DeleteFile(w http.ResponseWriter, r *http.Request, agentId AgentId, params DeleteFileParams)
@@ -467,8 +630,23 @@ type ServerInterface interface {
 	// (POST /agents/{agentId}/files/mkdir)
 	MakeDirectory(w http.ResponseWriter, r *http.Request, agentId AgentId)
 
+	// (GET /agents/{agentId}/network-policy)
+	GetNetworkPolicy(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (PUT /agents/{agentId}/network-policy)
+	SetNetworkPolicy(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
 	// (POST /agents/{agentId}/rebuild)
 	RebuildAgent(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (GET /agents/{agentId}/secrets)
+	ListAgentSecrets(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (DELETE /agents/{agentId}/secrets/{secretId})
+	DetachSecret(w http.ResponseWriter, r *http.Request, agentId AgentId, secretId string)
+
+	// (PUT /agents/{agentId}/secrets/{secretId})
+	AttachSecret(w http.ResponseWriter, r *http.Request, agentId AgentId, secretId string)
 
 	// (POST /agents/{agentId}/start)
 	StartAgent(w http.ResponseWriter, r *http.Request, agentId AgentId)
@@ -478,6 +656,9 @@ type ServerInterface interface {
 
 	// (GET /auth/providers)
 	ListAuthProviders(w http.ResponseWriter, r *http.Request)
+
+	// (GET /egress/ca.pem)
+	GetEgressCA(w http.ResponseWriter, r *http.Request)
 
 	// (GET /invites/{token})
 	GetInvite(w http.ResponseWriter, r *http.Request, token string)
@@ -490,6 +671,15 @@ type ServerInterface interface {
 
 	// (GET /sandbox/limits)
 	GetSandboxLimits(w http.ResponseWriter, r *http.Request)
+
+	// (GET /secrets/presets)
+	ListSecretPresets(w http.ResponseWriter, r *http.Request)
+
+	// (DELETE /secrets/{secretId})
+	DeleteSecret(w http.ResponseWriter, r *http.Request, secretId string)
+
+	// (PATCH /secrets/{secretId})
+	UpdateSecret(w http.ResponseWriter, r *http.Request, secretId string)
 
 	// (GET /version)
 	GetVersion(w http.ResponseWriter, r *http.Request)
@@ -532,6 +722,12 @@ type ServerInterface interface {
 
 	// (PATCH /workspaces/{workspaceId}/members/{userId})
 	UpdateMember(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId, userId string)
+
+	// (GET /workspaces/{workspaceId}/secrets)
+	ListSecrets(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId)
+
+	// (POST /workspaces/{workspaceId}/secrets)
+	CreateSecret(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -550,6 +746,11 @@ func (_ Unimplemented) GetAgent(w http.ResponseWriter, r *http.Request, agentId 
 
 // (PATCH /agents/{agentId})
 func (_ Unimplemented) UpdateAgent(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /agents/{agentId}/egress-log)
+func (_ Unimplemented) ListEgressLog(w http.ResponseWriter, r *http.Request, agentId AgentId, params ListEgressLogParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -578,8 +779,33 @@ func (_ Unimplemented) MakeDirectory(w http.ResponseWriter, r *http.Request, age
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (GET /agents/{agentId}/network-policy)
+func (_ Unimplemented) GetNetworkPolicy(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /agents/{agentId}/network-policy)
+func (_ Unimplemented) SetNetworkPolicy(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (POST /agents/{agentId}/rebuild)
 func (_ Unimplemented) RebuildAgent(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /agents/{agentId}/secrets)
+func (_ Unimplemented) ListAgentSecrets(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /agents/{agentId}/secrets/{secretId})
+func (_ Unimplemented) DetachSecret(w http.ResponseWriter, r *http.Request, agentId AgentId, secretId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /agents/{agentId}/secrets/{secretId})
+func (_ Unimplemented) AttachSecret(w http.ResponseWriter, r *http.Request, agentId AgentId, secretId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -595,6 +821,11 @@ func (_ Unimplemented) StopAgent(w http.ResponseWriter, r *http.Request, agentId
 
 // (GET /auth/providers)
 func (_ Unimplemented) ListAuthProviders(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /egress/ca.pem)
+func (_ Unimplemented) GetEgressCA(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -615,6 +846,21 @@ func (_ Unimplemented) GetMe(w http.ResponseWriter, r *http.Request) {
 
 // (GET /sandbox/limits)
 func (_ Unimplemented) GetSandboxLimits(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /secrets/presets)
+func (_ Unimplemented) ListSecretPresets(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /secrets/{secretId})
+func (_ Unimplemented) DeleteSecret(w http.ResponseWriter, r *http.Request, secretId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PATCH /secrets/{secretId})
+func (_ Unimplemented) UpdateSecret(w http.ResponseWriter, r *http.Request, secretId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -685,6 +931,16 @@ func (_ Unimplemented) RemoveMember(w http.ResponseWriter, r *http.Request, work
 
 // (PATCH /workspaces/{workspaceId}/members/{userId})
 func (_ Unimplemented) UpdateMember(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId, userId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /workspaces/{workspaceId}/secrets)
+func (_ Unimplemented) ListSecrets(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /workspaces/{workspaceId}/secrets)
+func (_ Unimplemented) CreateSecret(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -766,6 +1022,61 @@ func (siw *ServerInterfaceWrapper) UpdateAgent(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateAgent(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListEgressLog operation middleware
+func (siw *ServerInterfaceWrapper) ListEgressLog(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListEgressLogParams
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListEgressLog(w, r, agentId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -982,6 +1293,58 @@ func (siw *ServerInterfaceWrapper) MakeDirectory(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// GetNetworkPolicy operation middleware
+func (siw *ServerInterfaceWrapper) GetNetworkPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetNetworkPolicy(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetNetworkPolicy operation middleware
+func (siw *ServerInterfaceWrapper) SetNetworkPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetNetworkPolicy(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RebuildAgent operation middleware
 func (siw *ServerInterfaceWrapper) RebuildAgent(w http.ResponseWriter, r *http.Request) {
 
@@ -999,6 +1362,102 @@ func (siw *ServerInterfaceWrapper) RebuildAgent(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RebuildAgent(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAgentSecrets operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentSecrets(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAgentSecrets(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DetachSecret operation middleware
+func (siw *ServerInterfaceWrapper) DetachSecret(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "secretId" -------------
+	var secretId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "secretId", chi.URLParam(r, "secretId"), &secretId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "secretId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DetachSecret(w, r, agentId, secretId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AttachSecret operation middleware
+func (siw *ServerInterfaceWrapper) AttachSecret(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "secretId" -------------
+	var secretId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "secretId", chi.URLParam(r, "secretId"), &secretId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "secretId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AttachSecret(w, r, agentId, secretId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1065,6 +1524,20 @@ func (siw *ServerInterfaceWrapper) ListAuthProviders(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAuthProviders(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetEgressCA operation middleware
+func (siw *ServerInterfaceWrapper) GetEgressCA(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetEgressCA(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1145,6 +1618,72 @@ func (siw *ServerInterfaceWrapper) GetSandboxLimits(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetSandboxLimits(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSecretPresets operation middleware
+func (siw *ServerInterfaceWrapper) ListSecretPresets(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSecretPresets(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteSecret operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSecret(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "secretId" -------------
+	var secretId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "secretId", chi.URLParam(r, "secretId"), &secretId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "secretId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteSecret(w, r, secretId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateSecret operation middleware
+func (siw *ServerInterfaceWrapper) UpdateSecret(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "secretId" -------------
+	var secretId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "secretId", chi.URLParam(r, "secretId"), &secretId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "secretId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateSecret(w, r, secretId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1509,6 +2048,58 @@ func (siw *ServerInterfaceWrapper) UpdateMember(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ListSecrets operation middleware
+func (siw *ServerInterfaceWrapper) ListSecrets(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceId" -------------
+	var workspaceId WorkspaceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceId", chi.URLParam(r, "workspaceId"), &workspaceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSecrets(w, r, workspaceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateSecret operation middleware
+func (siw *ServerInterfaceWrapper) CreateSecret(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceId" -------------
+	var workspaceId WorkspaceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceId", chi.URLParam(r, "workspaceId"), &workspaceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSecret(w, r, workspaceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1712,6 +2303,42 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/agents/{agentId}/files/mkdir", wrapper.MakeDirectory)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/egress/ca.pem", wrapper.GetEgressCA)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/secrets/presets", wrapper.ListSecretPresets)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/workspaces/{workspaceId}/secrets", wrapper.ListSecrets)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/workspaces/{workspaceId}/secrets", wrapper.CreateSecret)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/secrets/{secretId}", wrapper.DeleteSecret)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/secrets/{secretId}", wrapper.UpdateSecret)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/agents/{agentId}/secrets", wrapper.ListAgentSecrets)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/agents/{agentId}/secrets/{secretId}", wrapper.DetachSecret)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/agents/{agentId}/secrets/{secretId}", wrapper.AttachSecret)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/agents/{agentId}/network-policy", wrapper.GetNetworkPolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/agents/{agentId}/network-policy", wrapper.SetNetworkPolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/agents/{agentId}/egress-log", wrapper.ListEgressLog)
+	})
 
 	return r
 }
@@ -1866,6 +2493,43 @@ func (response UpdateAgent403JSONResponse) VisitUpdateAgentResponse(w http.Respo
 type UpdateAgent404JSONResponse Error
 
 func (response UpdateAgent404JSONResponse) VisitUpdateAgentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEgressLogRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+	Params  ListEgressLogParams
+}
+
+type ListEgressLogResponseObject interface {
+	VisitListEgressLogResponse(w http.ResponseWriter) error
+}
+
+type ListEgressLog200JSONResponse []EgressEvent
+
+func (response ListEgressLog200JSONResponse) VisitListEgressLogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEgressLog404JSONResponse struct{ ErrorJSONResponse }
+
+func (response ListEgressLog404JSONResponse) VisitListEgressLogResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -2233,6 +2897,107 @@ func (response MakeDirectory409JSONResponse) VisitMakeDirectoryResponse(w http.R
 	return err
 }
 
+type GetNetworkPolicyRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+}
+
+type GetNetworkPolicyResponseObject interface {
+	VisitGetNetworkPolicyResponse(w http.ResponseWriter) error
+}
+
+type GetNetworkPolicy200JSONResponse NetworkPolicy
+
+func (response GetNetworkPolicy200JSONResponse) VisitGetNetworkPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNetworkPolicy404JSONResponse struct{ ErrorJSONResponse }
+
+func (response GetNetworkPolicy404JSONResponse) VisitGetNetworkPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetNetworkPolicyRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+	Body    *SetNetworkPolicyJSONRequestBody
+}
+
+type SetNetworkPolicyResponseObject interface {
+	VisitSetNetworkPolicyResponse(w http.ResponseWriter) error
+}
+
+type SetNetworkPolicy200JSONResponse NetworkPolicy
+
+func (response SetNetworkPolicy200JSONResponse) VisitSetNetworkPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetNetworkPolicy400JSONResponse struct{ ErrorJSONResponse }
+
+func (response SetNetworkPolicy400JSONResponse) VisitSetNetworkPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetNetworkPolicy403JSONResponse Error
+
+func (response SetNetworkPolicy403JSONResponse) VisitSetNetworkPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetNetworkPolicy404JSONResponse Error
+
+func (response SetNetworkPolicy404JSONResponse) VisitSetNetworkPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RebuildAgentRequestObject struct {
 	AgentId AgentId `json:"agentId"`
 }
@@ -2293,6 +3058,153 @@ func (response RebuildAgent409JSONResponse) VisitRebuildAgentResponse(w http.Res
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentSecretsRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+}
+
+type ListAgentSecretsResponseObject interface {
+	VisitListAgentSecretsResponse(w http.ResponseWriter) error
+}
+
+type ListAgentSecrets200JSONResponse []AttachedSecret
+
+func (response ListAgentSecrets200JSONResponse) VisitListAgentSecretsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentSecrets404JSONResponse struct{ ErrorJSONResponse }
+
+func (response ListAgentSecrets404JSONResponse) VisitListAgentSecretsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DetachSecretRequestObject struct {
+	AgentId  AgentId `json:"agentId"`
+	SecretId string  `json:"secretId"`
+}
+
+type DetachSecretResponseObject interface {
+	VisitDetachSecretResponse(w http.ResponseWriter) error
+}
+
+type DetachSecret204Response struct {
+}
+
+func (response DetachSecret204Response) VisitDetachSecretResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DetachSecret403JSONResponse struct{ ErrorJSONResponse }
+
+func (response DetachSecret403JSONResponse) VisitDetachSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DetachSecret404JSONResponse Error
+
+func (response DetachSecret404JSONResponse) VisitDetachSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AttachSecretRequestObject struct {
+	AgentId  AgentId `json:"agentId"`
+	SecretId string  `json:"secretId"`
+	Body     *AttachSecretJSONRequestBody
+}
+
+type AttachSecretResponseObject interface {
+	VisitAttachSecretResponse(w http.ResponseWriter) error
+}
+
+type AttachSecret200JSONResponse AttachedSecret
+
+func (response AttachSecret200JSONResponse) VisitAttachSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AttachSecret400JSONResponse struct{ ErrorJSONResponse }
+
+func (response AttachSecret400JSONResponse) VisitAttachSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AttachSecret403JSONResponse Error
+
+func (response AttachSecret403JSONResponse) VisitAttachSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AttachSecret404JSONResponse Error
+
+func (response AttachSecret404JSONResponse) VisitAttachSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -2443,6 +3355,33 @@ func (response ListAuthProviders200JSONResponse) VisitListAuthProvidersResponse(
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEgressCARequestObject struct {
+}
+
+type GetEgressCAResponseObject interface {
+	VisitGetEgressCAResponse(w http.ResponseWriter) error
+}
+
+type GetEgressCA200ApplicationxPemFileResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response GetEgressCA200ApplicationxPemFileResponse) VisitGetEgressCAResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/x-pem-file")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
 	return err
 }
 
@@ -2598,6 +3537,136 @@ func (response GetSandboxLimits200JSONResponse) VisitGetSandboxLimitsResponse(w 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSecretPresetsRequestObject struct {
+}
+
+type ListSecretPresetsResponseObject interface {
+	VisitListSecretPresetsResponse(w http.ResponseWriter) error
+}
+
+type ListSecretPresets200JSONResponse []SecretPreset
+
+func (response ListSecretPresets200JSONResponse) VisitListSecretPresetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSecretRequestObject struct {
+	SecretId string `json:"secretId"`
+}
+
+type DeleteSecretResponseObject interface {
+	VisitDeleteSecretResponse(w http.ResponseWriter) error
+}
+
+type DeleteSecret204Response struct {
+}
+
+func (response DeleteSecret204Response) VisitDeleteSecretResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteSecret403JSONResponse struct{ ErrorJSONResponse }
+
+func (response DeleteSecret403JSONResponse) VisitDeleteSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSecret404JSONResponse Error
+
+func (response DeleteSecret404JSONResponse) VisitDeleteSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSecretRequestObject struct {
+	SecretId string `json:"secretId"`
+	Body     *UpdateSecretJSONRequestBody
+}
+
+type UpdateSecretResponseObject interface {
+	VisitUpdateSecretResponse(w http.ResponseWriter) error
+}
+
+type UpdateSecret200JSONResponse Secret
+
+func (response UpdateSecret200JSONResponse) VisitUpdateSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSecret400JSONResponse struct{ ErrorJSONResponse }
+
+func (response UpdateSecret400JSONResponse) VisitUpdateSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSecret403JSONResponse Error
+
+func (response UpdateSecret403JSONResponse) VisitUpdateSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSecret404JSONResponse Error
+
+func (response UpdateSecret404JSONResponse) VisitUpdateSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -3247,6 +4316,107 @@ func (response UpdateMember409JSONResponse) VisitUpdateMemberResponse(w http.Res
 	return err
 }
 
+type ListSecretsRequestObject struct {
+	WorkspaceId WorkspaceId `json:"workspaceId"`
+}
+
+type ListSecretsResponseObject interface {
+	VisitListSecretsResponse(w http.ResponseWriter) error
+}
+
+type ListSecrets200JSONResponse []Secret
+
+func (response ListSecrets200JSONResponse) VisitListSecretsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSecrets404JSONResponse struct{ ErrorJSONResponse }
+
+func (response ListSecrets404JSONResponse) VisitListSecretsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSecretRequestObject struct {
+	WorkspaceId WorkspaceId `json:"workspaceId"`
+	Body        *CreateSecretJSONRequestBody
+}
+
+type CreateSecretResponseObject interface {
+	VisitCreateSecretResponse(w http.ResponseWriter) error
+}
+
+type CreateSecret201JSONResponse Secret
+
+func (response CreateSecret201JSONResponse) VisitCreateSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSecret400JSONResponse struct{ ErrorJSONResponse }
+
+func (response CreateSecret400JSONResponse) VisitCreateSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSecret404JSONResponse Error
+
+func (response CreateSecret404JSONResponse) VisitCreateSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSecret409JSONResponse Error
+
+func (response CreateSecret409JSONResponse) VisitCreateSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
@@ -3258,6 +4428,9 @@ type StrictServerInterface interface {
 
 	// (PATCH /agents/{agentId})
 	UpdateAgent(ctx context.Context, request UpdateAgentRequestObject) (UpdateAgentResponseObject, error)
+
+	// (GET /agents/{agentId}/egress-log)
+	ListEgressLog(ctx context.Context, request ListEgressLogRequestObject) (ListEgressLogResponseObject, error)
 
 	// (DELETE /agents/{agentId}/files)
 	DeleteFile(ctx context.Context, request DeleteFileRequestObject) (DeleteFileResponseObject, error)
@@ -3274,8 +4447,23 @@ type StrictServerInterface interface {
 	// (POST /agents/{agentId}/files/mkdir)
 	MakeDirectory(ctx context.Context, request MakeDirectoryRequestObject) (MakeDirectoryResponseObject, error)
 
+	// (GET /agents/{agentId}/network-policy)
+	GetNetworkPolicy(ctx context.Context, request GetNetworkPolicyRequestObject) (GetNetworkPolicyResponseObject, error)
+
+	// (PUT /agents/{agentId}/network-policy)
+	SetNetworkPolicy(ctx context.Context, request SetNetworkPolicyRequestObject) (SetNetworkPolicyResponseObject, error)
+
 	// (POST /agents/{agentId}/rebuild)
 	RebuildAgent(ctx context.Context, request RebuildAgentRequestObject) (RebuildAgentResponseObject, error)
+
+	// (GET /agents/{agentId}/secrets)
+	ListAgentSecrets(ctx context.Context, request ListAgentSecretsRequestObject) (ListAgentSecretsResponseObject, error)
+
+	// (DELETE /agents/{agentId}/secrets/{secretId})
+	DetachSecret(ctx context.Context, request DetachSecretRequestObject) (DetachSecretResponseObject, error)
+
+	// (PUT /agents/{agentId}/secrets/{secretId})
+	AttachSecret(ctx context.Context, request AttachSecretRequestObject) (AttachSecretResponseObject, error)
 
 	// (POST /agents/{agentId}/start)
 	StartAgent(ctx context.Context, request StartAgentRequestObject) (StartAgentResponseObject, error)
@@ -3285,6 +4473,9 @@ type StrictServerInterface interface {
 
 	// (GET /auth/providers)
 	ListAuthProviders(ctx context.Context, request ListAuthProvidersRequestObject) (ListAuthProvidersResponseObject, error)
+
+	// (GET /egress/ca.pem)
+	GetEgressCA(ctx context.Context, request GetEgressCARequestObject) (GetEgressCAResponseObject, error)
 
 	// (GET /invites/{token})
 	GetInvite(ctx context.Context, request GetInviteRequestObject) (GetInviteResponseObject, error)
@@ -3297,6 +4488,15 @@ type StrictServerInterface interface {
 
 	// (GET /sandbox/limits)
 	GetSandboxLimits(ctx context.Context, request GetSandboxLimitsRequestObject) (GetSandboxLimitsResponseObject, error)
+
+	// (GET /secrets/presets)
+	ListSecretPresets(ctx context.Context, request ListSecretPresetsRequestObject) (ListSecretPresetsResponseObject, error)
+
+	// (DELETE /secrets/{secretId})
+	DeleteSecret(ctx context.Context, request DeleteSecretRequestObject) (DeleteSecretResponseObject, error)
+
+	// (PATCH /secrets/{secretId})
+	UpdateSecret(ctx context.Context, request UpdateSecretRequestObject) (UpdateSecretResponseObject, error)
 
 	// (GET /version)
 	GetVersion(ctx context.Context, request GetVersionRequestObject) (GetVersionResponseObject, error)
@@ -3339,6 +4539,12 @@ type StrictServerInterface interface {
 
 	// (PATCH /workspaces/{workspaceId}/members/{userId})
 	UpdateMember(ctx context.Context, request UpdateMemberRequestObject) (UpdateMemberResponseObject, error)
+
+	// (GET /workspaces/{workspaceId}/secrets)
+	ListSecrets(ctx context.Context, request ListSecretsRequestObject) (ListSecretsResponseObject, error)
+
+	// (POST /workspaces/{workspaceId}/secrets)
+	CreateSecret(ctx context.Context, request CreateSecretRequestObject) (CreateSecretResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -3458,6 +4664,33 @@ func (sh *strictHandler) UpdateAgent(w http.ResponseWriter, r *http.Request, age
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateAgentResponseObject); ok {
 		if err := validResponse.VisitUpdateAgentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListEgressLog operation middleware
+func (sh *strictHandler) ListEgressLog(w http.ResponseWriter, r *http.Request, agentId AgentId, params ListEgressLogParams) {
+	var request ListEgressLogRequestObject
+
+	request.AgentId = agentId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListEgressLog(ctx, request.(ListEgressLogRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListEgressLog")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListEgressLogResponseObject); ok {
+		if err := validResponse.VisitListEgressLogResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -3608,6 +4841,65 @@ func (sh *strictHandler) MakeDirectory(w http.ResponseWriter, r *http.Request, a
 	}
 }
 
+// GetNetworkPolicy operation middleware
+func (sh *strictHandler) GetNetworkPolicy(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	var request GetNetworkPolicyRequestObject
+
+	request.AgentId = agentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetNetworkPolicy(ctx, request.(GetNetworkPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetNetworkPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetNetworkPolicyResponseObject); ok {
+		if err := validResponse.VisitGetNetworkPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetNetworkPolicy operation middleware
+func (sh *strictHandler) SetNetworkPolicy(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	var request SetNetworkPolicyRequestObject
+
+	request.AgentId = agentId
+
+	var body SetNetworkPolicyJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetNetworkPolicy(ctx, request.(SetNetworkPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetNetworkPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetNetworkPolicyResponseObject); ok {
+		if err := validResponse.VisitSetNetworkPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // RebuildAgent operation middleware
 func (sh *strictHandler) RebuildAgent(w http.ResponseWriter, r *http.Request, agentId AgentId) {
 	var request RebuildAgentRequestObject
@@ -3627,6 +4919,93 @@ func (sh *strictHandler) RebuildAgent(w http.ResponseWriter, r *http.Request, ag
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RebuildAgentResponseObject); ok {
 		if err := validResponse.VisitRebuildAgentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListAgentSecrets operation middleware
+func (sh *strictHandler) ListAgentSecrets(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	var request ListAgentSecretsRequestObject
+
+	request.AgentId = agentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAgentSecrets(ctx, request.(ListAgentSecretsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAgentSecrets")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAgentSecretsResponseObject); ok {
+		if err := validResponse.VisitListAgentSecretsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DetachSecret operation middleware
+func (sh *strictHandler) DetachSecret(w http.ResponseWriter, r *http.Request, agentId AgentId, secretId string) {
+	var request DetachSecretRequestObject
+
+	request.AgentId = agentId
+	request.SecretId = secretId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DetachSecret(ctx, request.(DetachSecretRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DetachSecret")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DetachSecretResponseObject); ok {
+		if err := validResponse.VisitDetachSecretResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AttachSecret operation middleware
+func (sh *strictHandler) AttachSecret(w http.ResponseWriter, r *http.Request, agentId AgentId, secretId string) {
+	var request AttachSecretRequestObject
+
+	request.AgentId = agentId
+	request.SecretId = secretId
+
+	var body AttachSecretJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AttachSecret(ctx, request.(AttachSecretRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AttachSecret")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AttachSecretResponseObject); ok {
+		if err := validResponse.VisitAttachSecretResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -3703,6 +5082,30 @@ func (sh *strictHandler) ListAuthProviders(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListAuthProvidersResponseObject); ok {
 		if err := validResponse.VisitListAuthProvidersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetEgressCA operation middleware
+func (sh *strictHandler) GetEgressCA(w http.ResponseWriter, r *http.Request) {
+	var request GetEgressCARequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetEgressCA(ctx, request.(GetEgressCARequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetEgressCA")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetEgressCAResponseObject); ok {
+		if err := validResponse.VisitGetEgressCAResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -3803,6 +5206,89 @@ func (sh *strictHandler) GetSandboxLimits(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetSandboxLimitsResponseObject); ok {
 		if err := validResponse.VisitGetSandboxLimitsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSecretPresets operation middleware
+func (sh *strictHandler) ListSecretPresets(w http.ResponseWriter, r *http.Request) {
+	var request ListSecretPresetsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSecretPresets(ctx, request.(ListSecretPresetsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSecretPresets")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSecretPresetsResponseObject); ok {
+		if err := validResponse.VisitListSecretPresetsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteSecret operation middleware
+func (sh *strictHandler) DeleteSecret(w http.ResponseWriter, r *http.Request, secretId string) {
+	var request DeleteSecretRequestObject
+
+	request.SecretId = secretId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteSecret(ctx, request.(DeleteSecretRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteSecret")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteSecretResponseObject); ok {
+		if err := validResponse.VisitDeleteSecretResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateSecret operation middleware
+func (sh *strictHandler) UpdateSecret(w http.ResponseWriter, r *http.Request, secretId string) {
+	var request UpdateSecretRequestObject
+
+	request.SecretId = secretId
+
+	var body UpdateSecretJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateSecret(ctx, request.(UpdateSecretRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateSecret")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateSecretResponseObject); ok {
+		if err := validResponse.VisitUpdateSecretResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -4206,60 +5692,140 @@ func (sh *strictHandler) UpdateMember(w http.ResponseWriter, r *http.Request, wo
 	}
 }
 
+// ListSecrets operation middleware
+func (sh *strictHandler) ListSecrets(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId) {
+	var request ListSecretsRequestObject
+
+	request.WorkspaceId = workspaceId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSecrets(ctx, request.(ListSecretsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSecrets")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSecretsResponseObject); ok {
+		if err := validResponse.VisitListSecretsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateSecret operation middleware
+func (sh *strictHandler) CreateSecret(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId) {
+	var request CreateSecretRequestObject
+
+	request.WorkspaceId = workspaceId
+
+	var body CreateSecretJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateSecret(ctx, request.(CreateSecretRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateSecret")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateSecretResponseObject); ok {
+		if err := validResponse.VisitCreateSecretResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
 // Stored as a slice of fixed-width chunks rather than one concatenated
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"AAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

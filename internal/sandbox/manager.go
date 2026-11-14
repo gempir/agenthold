@@ -40,6 +40,8 @@ type Options struct {
 	TunnelPort int
 	// ConnectTimeout bounds how long a start waits for sandboxd. Default 60s.
 	ConnectTimeout time.Duration
+	// BootFiles returns extra files written into the sandbox before each start.
+	BootFiles func(ctx context.Context, agentID string) (map[string][]byte, error)
 }
 
 // Manager drives agents' sandboxes through their lifecycle. Every operation
@@ -107,8 +109,22 @@ func (m *Manager) boot(ctx context.Context, agentID string, id ID) error {
 	if err := m.store.SetBootToken(ctx, db.SetBootTokenParams{BootTokenHash: hashToken(token), AgentID: agentID}); err != nil {
 		return err
 	}
-	if err := m.driver.Start(ctx, id, Boot{AgentID: agentID, Token: token, TunnelPort: m.opts.TunnelPort}); err != nil {
+	boot := Boot{AgentID: agentID, Token: token, TunnelPort: m.opts.TunnelPort}
+	if m.opts.BootFiles != nil {
+		files, err := m.opts.BootFiles(ctx, agentID)
+		if err != nil {
+			return err
+		}
+		boot.Files = files
+	}
+	if err := m.driver.Start(ctx, id, boot); err != nil {
 		return err
+	}
+	if st, err := m.driver.Status(ctx, id); err == nil && st.Subnet.IsValid() {
+		if err := m.store.SetSandboxSubnet(ctx, db.SetSandboxSubnetParams{Subnet: st.Subnet.String(), AgentID: agentID}); err != nil {
+			return err
+		}
+		m.notify(agentID, PhaseStarting)
 	}
 	if m.opts.Tunnel != nil {
 		wctx, cancel := context.WithTimeout(ctx, m.opts.ConnectTimeout)
@@ -209,7 +225,8 @@ func SpecJSON(s Spec) string {
 	b, _ := json.Marshal(struct {
 		Image     string
 		Resources Resources
-	}{s.Image, s.Resources})
+		Env       map[string]string `json:",omitempty"`
+	}{s.Image, s.Resources, s.Env})
 	return string(b)
 }
 

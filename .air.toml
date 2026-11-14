@@ -1,0 +1,16 @@
+# Live reload for the server in the dev compose stack.
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o ./tmp/agenthold ./cmd/agenthold"
+entrypoint = ["./tmp/agenthold"]
+include_ext = ["go", "yaml", "sql"]
+exclude_dir = ["web", "tmp", "bin", ".git", "deploy"]
+delay = 200
+stop_on_error = true
+poll = true
+poll_interval = 500
+
+[log]
+time = true

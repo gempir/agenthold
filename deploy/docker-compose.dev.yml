@@ -1,0 +1,40 @@
+# Development stack: `make dev`, then open http://localhost:8080.
+# The server always runs in a container (see PLAN.md 3.1). It rebuilds on Go
+# changes and proxies the UI to Vite, which hot-reloads through the same port.
+name: agenthold-dev
+
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.dev
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - go-mod:/go/pkg/mod
+      - go-build:/root/.cache/go-build
+    environment:
+      AGENTHOLD_LISTEN: ":8080"
+      AGENTHOLD_DEV_PROXY: "http://web:5173"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - web
+
+  web:
+    image: node:26-alpine
+    working_dir: /src/web
+    command: sh -c "npm install -g pnpm@11.7.0 >/dev/null && pnpm install --frozen-lockfile --store-dir /pnpm-store && pnpm dev"
+    volumes:
+      - ../web:/src/web
+      - web-node-modules:/src/web/node_modules
+      - pnpm-store:/pnpm-store
+    environment:
+      AGENTHOLD_API_URL: "http://server:8080"
+      CHOKIDAR_USEPOLLING: "true"
+
+volumes:
+  go-mod:
+  go-build:
+  web-node-modules:
+  pnpm-store:

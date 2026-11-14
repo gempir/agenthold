@@ -125,7 +125,8 @@ func apiUser(u db.User) gen.User {
 // limitBodies caps request bodies. File uploads have their own, larger limit.
 func limitBodies(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Body != nil && !(r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/files/content")) {
+		upload := r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/files/content")
+		if r.Body != nil && !upload {
 			r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
 		}
 		next.ServeHTTP(w, r)

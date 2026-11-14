@@ -29,7 +29,9 @@ test('chat with an agent', async ({ page, browser }) => {
   );
 
   await page.getByRole('button', { name: 'New session' }).click();
+  await expect(page).toHaveURL(/[?&]s=ses_/);
   const box = page.getByRole('textbox', { name: 'Message' });
+  await expect(box).toBeVisible();
   await box.fill('hello from the browser');
   await box.press('Enter');
   await expect(page.getByText('echo: hello from the browser')).toBeVisible();

@@ -26,5 +26,7 @@ RUN CGO_ENABLED=0 go build -trimpath \
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/agenthold /usr/local/bin/agenthold
 COPY --from=build /out/sandboxd /usr/local/lib/agenthold/sandboxd
+# Mount the volume shared with sandboxes here (see docs/sandboxes.md).
+VOLUME /var/lib/agenthold/bin
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/agenthold"]

@@ -2,14 +2,17 @@ package api_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/gempir/agenthold/internal/api"
 	"github.com/gempir/agenthold/internal/api/gen"
@@ -20,6 +23,7 @@ import (
 	"github.com/gempir/agenthold/internal/sandbox/fake"
 	"github.com/gempir/agenthold/internal/server"
 	"github.com/gempir/agenthold/internal/store"
+	"github.com/gempir/agenthold/internal/tunnel"
 )
 
 type env struct {
@@ -29,6 +33,7 @@ type env struct {
 	github    *authtest.GitHub
 	driver    *fake.Driver
 	sandboxes *sandbox.Manager
+	hub       *tunnel.Hub
 }
 
 func newEnv(t *testing.T) *env {
@@ -57,9 +62,23 @@ func newEnv(t *testing.T) *env {
 	}
 	cfg.Sandbox.Driver = "fake"
 	e := &env{t: t, srv: srv, idp: idp, github: gh, driver: fake.New(t.TempDir())}
-	e.sandboxes = sandbox.NewManager(st, e.driver, sandbox.BaseSpec, nil)
-	t.Cleanup(e.sandboxes.Close)
-	a := api.New(api.Deps{Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Limits: cfg.Sandbox})
+	e.driver.RunSandboxd("127.0.0.1", nil)
+	e.hub = tunnel.NewHub(func(ctx context.Context, agentID, token string) error {
+		return e.sandboxes.AuthenticateTunnel(ctx, agentID, token)
+	}, nil)
+	tunnelSrv := httptest.NewServer(e.hub)
+	t.Cleanup(tunnelSrv.Close)
+	port, _ := strconv.Atoi(tunnelSrv.URL[strings.LastIndex(tunnelSrv.URL, ":")+1:])
+	e.sandboxes = sandbox.NewManagerWithOptions(st, e.driver, sandbox.BaseSpec, sandbox.Options{Tunnel: e.hub, TunnelPort: port, ConnectTimeout: 10 * time.Second}, nil)
+	t.Cleanup(func() {
+		// Stop in-process sandboxd goroutines.
+		rows, _ := st.ListSandboxes(context.Background())
+		for _, r := range rows {
+			_ = e.driver.Stop(context.Background(), sandbox.ID(r.DriverID))
+		}
+		e.sandboxes.Close()
+	})
+	a := api.New(api.Deps{Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Tunnel: e.hub, Limits: cfg.Sandbox})
 	handler = server.New(server.Config{
 		Web: fstest.MapFS{"index.html": {Data: []byte("app")}},
 		API: a.Mount,

@@ -2,7 +2,10 @@ package sandbox
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	id2 "github.com/gempir/agenthold/internal/id"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
 )
@@ -20,6 +24,24 @@ var ErrConflict = errors.New("operation not allowed in the current state")
 // SpecFunc builds the sandbox spec for an agent.
 type SpecFunc func(a db.Agent) Spec
 
+// Tunnel is what the manager needs from the tunnel hub.
+type Tunnel interface {
+	// WaitConnected blocks until the agent's sandboxd is connected.
+	WaitConnected(ctx context.Context, agentID string) error
+	// Disconnect drops the agent's connection.
+	Disconnect(agentID string)
+}
+
+// Options configures optional manager behavior.
+type Options struct {
+	// Tunnel, if set, makes "running" mean "sandboxd is connected".
+	Tunnel Tunnel
+	// TunnelPort is passed to sandboxes in their boot configuration.
+	TunnelPort int
+	// ConnectTimeout bounds how long a start waits for sandboxd. Default 60s.
+	ConnectTimeout time.Duration
+}
+
 // Manager drives agents' sandboxes through their lifecycle. Every operation
 // first moves the persisted state with a guarded UPDATE (so concurrent requests
 // cannot both win) and then performs the driver call in the background.
@@ -27,6 +49,7 @@ type Manager struct {
 	store  *store.Store
 	driver Driver
 	spec   SpecFunc
+	opts   Options
 	log    *slog.Logger
 	now    func() time.Time
 
@@ -41,11 +64,66 @@ type Manager struct {
 
 // NewManager returns a manager. Call Close to wait for background operations.
 func NewManager(st *store.Store, d Driver, spec SpecFunc, log *slog.Logger) *Manager {
+	return NewManagerWithOptions(st, d, spec, Options{}, log)
+}
+
+// NewManagerWithOptions returns a manager with options.
+func NewManagerWithOptions(st *store.Store, d Driver, spec SpecFunc, opts Options, log *slog.Logger) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Manager{store: st, driver: d, spec: spec, log: log, now: time.Now, ctx: ctx, cancel: cancel}
+	if opts.ConnectTimeout == 0 {
+		opts.ConnectTimeout = 60 * time.Second
+	}
+	return &Manager{store: st, driver: d, spec: spec, opts: opts, log: log, now: time.Now, ctx: ctx, cancel: cancel}
+}
+
+// AuthenticateTunnel checks a sandboxd's boot token. Only sandboxes that are
+// starting or running may connect.
+func (m *Manager) AuthenticateTunnel(ctx context.Context, agentID, token string) error {
+	sb, err := m.store.GetSandbox(ctx, agentID)
+	if err != nil {
+		return notFound(err)
+	}
+	if sb.BootTokenHash == "" || subtle.ConstantTimeCompare([]byte(sb.BootTokenHash), []byte(hashToken(token))) != 1 {
+		return errors.New("invalid boot token")
+	}
+	switch Phase(sb.State) {
+	case PhaseStarting, PhaseRunning:
+		return nil
+	}
+	return fmt.Errorf("sandbox is %s", sb.State)
+}
+
+func hashToken(t string) string {
+	sum := sha256.Sum256([]byte(t))
+	return hex.EncodeToString(sum[:])
+}
+
+// boot starts a sandbox with a fresh token and waits for sandboxd.
+func (m *Manager) boot(ctx context.Context, agentID string, id ID) error {
+	token := id2.Random(32)
+	if err := m.store.SetBootToken(ctx, db.SetBootTokenParams{BootTokenHash: hashToken(token), AgentID: agentID}); err != nil {
+		return err
+	}
+	if err := m.driver.Start(ctx, id, Boot{AgentID: agentID, Token: token, TunnelPort: m.opts.TunnelPort}); err != nil {
+		return err
+	}
+	if m.opts.Tunnel != nil {
+		wctx, cancel := context.WithTimeout(ctx, m.opts.ConnectTimeout)
+		defer cancel()
+		if err := m.opts.Tunnel.WaitConnected(wctx, agentID); err != nil {
+			st, _ := m.driver.Status(ctx, id)
+			detail := ""
+			if st.State != StateRunning {
+				detail = fmt.Sprintf(" (sandbox %s %s)", st.State, st.Detail)
+			}
+			return fmt.Errorf("sandboxd did not connect within %s%s", m.opts.ConnectTimeout, detail)
+		}
+	}
+	m.set(agentID, PhaseRunning, "")
+	return nil
 }
 
 // Driver returns the manager's driver.
@@ -168,11 +246,7 @@ func (m *Manager) create(agentID string) func(ctx context.Context) error {
 			return err
 		}
 		m.set(agentID, PhaseStarting, "")
-		if err := m.driver.Start(ctx, id); err != nil {
-			return err
-		}
-		m.set(agentID, PhaseRunning, "")
-		return nil
+		return m.boot(ctx, agentID, id)
 	}
 }
 
@@ -209,11 +283,7 @@ func (m *Manager) Start(ctx context.Context, agentID string) error {
 		if err != nil {
 			return err
 		}
-		if err := m.driver.Start(ctx, id); err != nil {
-			return err
-		}
-		m.set(agentID, PhaseRunning, "")
-		return nil
+		return m.boot(ctx, agentID, id)
 	})
 	return nil
 }
@@ -231,6 +301,7 @@ func (m *Manager) Stop(ctx context.Context, agentID string) error {
 		if err := m.driver.Stop(ctx, id); err != nil {
 			return err
 		}
+		m.disconnect(agentID)
 		m.set(agentID, PhaseSleeping, "")
 		return nil
 	})
@@ -274,13 +345,15 @@ func (m *Manager) Rebuild(ctx context.Context, agentID string) error {
 			return nil
 		}
 		m.set(agentID, PhaseStarting, "")
-		if err := m.driver.Start(ctx, id); err != nil {
-			return err
-		}
-		m.set(agentID, PhaseRunning, "")
-		return nil
+		return m.boot(ctx, agentID, id)
 	})
 	return nil
+}
+
+func (m *Manager) disconnect(agentID string) {
+	if m.opts.Tunnel != nil {
+		m.opts.Tunnel.Disconnect(agentID)
+	}
 }
 
 // Destroy removes the sandbox, its home volume and finally the agent row.
@@ -303,6 +376,7 @@ func (m *Manager) destroy(agentID string) func(ctx context.Context) error {
 				return err
 			}
 		}
+		m.disconnect(agentID)
 		if err := m.store.DeleteAgent(ctx, agentID); err != nil {
 			return err
 		}

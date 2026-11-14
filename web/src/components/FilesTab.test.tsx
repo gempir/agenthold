@@ -1,0 +1,87 @@
+import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, expect, it, vi } from 'vitest';
+import type { Agent } from '@/api/queries';
+import { mockApi, renderApp } from '@/test-utils';
+
+afterEach(() => vi.unstubAllGlobals());
+
+const me = {
+  user: { id: 'u1', email: 'a@x.io', name: 'Alice', avatarUrl: '' },
+  personalWorkspaceId: 'w1',
+};
+const agent = (role: Agent['role']): Agent => ({
+  id: 'a1',
+  workspaceId: 'w1',
+  name: 'builder',
+  owner: me.user,
+  image: 'ubuntu:24.04',
+  harness: 'none',
+  cpus: 2,
+  memoryMb: 2048,
+  idleMinutes: 15,
+  state: 'running',
+  stateError: '',
+  stateChangedAt: '2030-01-01T00:00:00Z',
+  needsRebuild: false,
+  role,
+  createdAt: '2030-01-01T00:00:00Z',
+  updatedAt: '2030-01-01T00:00:00Z',
+});
+const entry = (name: string, isDir: boolean) => ({
+  name,
+  size: 2048,
+  mode: '0644',
+  isDir,
+  isLink: false,
+  modTime: '2030-01-01T00:00:00Z',
+});
+
+function setup(role: Agent['role']) {
+  return mockApi({
+    'GET /me': me,
+    'GET /workspaces': [],
+    'GET /agents/a1': agent(role),
+    'GET /agents/a1/files': () => ({
+      body: {
+        path: '/home/agent',
+        entries: [entry('notes.txt', false), entry('src', true)],
+      },
+    }),
+  });
+}
+
+it('lists entries and navigates into a directory', async () => {
+  const { calls } = setup('operator');
+  renderApp('/a/a1');
+  await userEvent.click(await screen.findByRole('tab', { name: 'files' }));
+  expect(await screen.findByText('notes.txt')).toBeVisible();
+  expect(screen.getByText('2.0 KB')).toBeVisible();
+  await userEvent.click(screen.getByRole('button', { name: 'src' }));
+  await vi.waitFor(() =>
+    expect(calls.filter((c) => c.key === 'GET /agents/a1/files').length).toBe(
+      2,
+    ),
+  );
+});
+
+it('shows write controls to operators only', async () => {
+  setup('operator');
+  renderApp('/a/a1');
+  await userEvent.click(await screen.findByRole('tab', { name: 'files' }));
+  await screen.findByText('notes.txt');
+  expect(screen.getByRole('button', { name: 'Upload' })).toBeVisible();
+  expect(
+    screen.getByRole('button', { name: 'Delete notes.txt' }),
+  ).toBeVisible();
+});
+
+it('hides write controls and terminal from viewers', async () => {
+  setup('viewer');
+  renderApp('/a/a1');
+  expect(screen.queryByRole('tab', { name: 'terminal' })).toBeNull();
+  await userEvent.click(await screen.findByRole('tab', { name: 'files' }));
+  await screen.findByText('notes.txt');
+  expect(screen.queryByRole('button', { name: 'Upload' })).toBeNull();
+  expect(screen.queryByRole('button', { name: /^Delete/ })).toBeNull();
+});

@@ -19,6 +19,7 @@ type Sandbox struct {
 	State   sandbox.State
 	HomeDir string
 	Starts  int
+	Boot    sandbox.Boot
 }
 
 // Driver implements sandbox.Driver in memory.
@@ -29,8 +30,8 @@ type Driver struct {
 	sandboxes map[sandbox.ID]*Sandbox
 	// FailNext, if set, makes the next call of that operation fail ("create", "start", ...).
 	failNext map[string]error
-	// OnStart is called after a sandbox starts (M3 uses it to run sandboxd).
-	OnStart func(id sandbox.ID, sb *Sandbox)
+	// OnStart is called after a sandbox starts.
+	OnStart func(id sandbox.ID, sb Sandbox, boot sandbox.Boot)
 	// OnStop is called before a sandbox stops.
 	OnStop func(id sandbox.ID)
 }
@@ -98,7 +99,7 @@ func (d *Driver) Create(_ context.Context, spec sandbox.Spec) (sandbox.ID, error
 }
 
 // Start implements sandbox.Driver.
-func (d *Driver) Start(_ context.Context, id sandbox.ID) error {
+func (d *Driver) Start(_ context.Context, id sandbox.ID, boot sandbox.Boot) error {
 	d.mu.Lock()
 	if err := d.fail("start"); err != nil {
 		d.mu.Unlock()
@@ -115,10 +116,11 @@ func (d *Driver) Start(_ context.Context, id sandbox.ID) error {
 	}
 	sb.State = sandbox.StateRunning
 	sb.Starts++
-	hook := d.OnStart
+	sb.Boot = boot
+	hook, copySB := d.OnStart, *sb
 	d.mu.Unlock()
 	if hook != nil {
-		hook(id, sb)
+		hook(id, copySB, boot)
 	}
 	return nil
 }

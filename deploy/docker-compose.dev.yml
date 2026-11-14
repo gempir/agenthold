@@ -16,6 +16,8 @@ services:
       - server-data:/data
       # The server manages agent sandboxes through the Docker API.
       - /var/run/docker.sock:/var/run/docker.sock
+      # Shared with every sandbox (read-only at /opt/agenthold): carries sandboxd.
+      - sandboxd-bin:/var/lib/agenthold/bin
     environment:
       AGENTHOLD_CONFIG: /src/deploy/dev/agenthold.yaml
       GITHUB_CLIENT_ID: "${GITHUB_CLIENT_ID:-}"
@@ -52,6 +54,8 @@ services:
       CHOKIDAR_USEPOLLING: "true"
 
 volumes:
+  sandboxd-bin:
+    name: agenthold-dev-bin
   server-data:
   go-mod:
   go-build:

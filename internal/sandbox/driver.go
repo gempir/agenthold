@@ -64,6 +64,17 @@ type Status struct {
 	GatewayIP string
 }
 
+// Boot is the per-boot configuration for sandboxd. The driver knows how the
+// sandbox reaches the server and turns TunnelPort into a URL.
+type Boot struct {
+	AgentID    string
+	Token      string
+	TunnelPort int
+}
+
+// SandboxdDir is where drivers mount the sandboxd binary inside a sandbox.
+const SandboxdDir = "/opt/agenthold"
+
 // DestroyOpts controls what Destroy removes.
 type DestroyOpts struct {
 	KeepHome bool
@@ -76,8 +87,10 @@ type Driver interface {
 	Name() string
 	// Create provisions a sandbox (network, volume, container) without starting it.
 	Create(ctx context.Context, spec Spec) (ID, error)
-	// Start starts a created or stopped sandbox. Starting a running sandbox is a no-op.
-	Start(ctx context.Context, id ID) error
+	// Start starts a created or stopped sandbox with a fresh boot configuration
+	// (written to sandboxd's boot file before the entrypoint runs). Starting a
+	// running sandbox is a no-op.
+	Start(ctx context.Context, id ID, boot Boot) error
 	// Stop stops a sandbox and keeps its disk ("sleep"). Stopping a stopped sandbox is a no-op.
 	Stop(ctx context.Context, id ID) error
 	// Destroy removes the sandbox. Destroying a missing sandbox is a no-op.

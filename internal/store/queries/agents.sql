@@ -42,3 +42,6 @@ UPDATE sandboxes SET state = ?, error = ?, state_changed_at = ? WHERE agent_id =
 
 -- name: SetSandboxBuilt :exec
 UPDATE sandboxes SET driver_id = ?, applied_spec = ? WHERE agent_id = ?;
+
+-- name: SetBootToken :exec
+UPDATE sandboxes SET boot_token_hash = ? WHERE agent_id = ?;

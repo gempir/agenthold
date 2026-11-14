@@ -1,7 +1,5 @@
-// Command sandboxd is the daemon that runs inside every agent sandbox.
-//
-// In M0 it only reports its version and waits for a termination signal so it
-// can already serve as a container entrypoint. The tunnel arrives in M3.
+// Command sandboxd is the daemon that runs inside every agent sandbox. It is
+// the sandbox's entrypoint, dials the server and serves terminals and files.
 package main
 
 import (
@@ -13,23 +11,47 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/gempir/agenthold/internal/sandboxd"
 	"github.com/gempir/agenthold/internal/version"
 )
 
 func main() {
-	showVersion := flag.Bool("version", false, "print version and exit")
-	flag.Parse()
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	if err := run(logger); err != nil {
+		logger.Error("sandboxd", "err", err)
+		os.Exit(1)
+	}
+}
 
+func run(logger *slog.Logger) error {
+	showVersion := flag.Bool("version", false, "print version and exit")
+	bootPath := flag.String("boot", envOr("AGENTHOLD_BOOT", sandboxd.BootFile), "boot configuration written by the server")
+	flag.Parse()
 	if *showVersion {
 		fmt.Printf("sandboxd %s (%s)\n", version.Version, version.Commit)
-		return
+		return nil
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	logger.Info("sandboxd started", "version", version.Version)
-	<-ctx.Done()
+	boot, err := sandboxd.LoadBoot(*bootPath)
+	if err != nil {
+		return fmt.Errorf("no boot configuration; was this sandbox started by agenthold? %w", err)
+	}
+	d, err := sandboxd.New(sandboxd.Config{Boot: boot, Version: version.Version, Logger: logger})
+	if err != nil {
+		return err
+	}
+	logger.Info("sandboxd started", "version", version.Version, "agent", boot.AgentID)
+	_ = d.Run(ctx)
 	logger.Info("sandboxd stopping")
+	return nil
+}
+
+func envOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
 }

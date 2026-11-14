@@ -87,8 +87,7 @@ function NewAgentDialog({
   const harnesses = useQuery(harnessesQuery);
   // '' until the user picks one: the server's default harness.
   const [picked, setHarness] = useState('');
-  const harness =
-    picked || harnesses.data?.find((h) => h.default)?.id || '';
+  const harness = picked || harnesses.data?.find((h) => h.default)?.id || '';
   const [model, setModel] = useState('');
   const [name, setName] = useState('');
   const [image, setImage] = useState('');

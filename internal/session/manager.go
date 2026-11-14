@@ -59,6 +59,7 @@ type Manager struct {
 	// starting serializes harness startup per agent.
 	starting map[string]*sync.Mutex
 	activity func(agentID string)
+	tools    Tools
 }
 
 type turn struct {
@@ -103,6 +104,16 @@ func (m *Manager) AgentBusy(agentID string) bool {
 	}
 	return false
 }
+
+// Tools supplies what a session gets: MCP servers, and files to install
+// (skills) before the harness sees the session.
+type Tools interface {
+	MCPServers(ctx context.Context, agentID string, caps acp.McpCapabilities) ([]acp.McpServer, error)
+	Prepare(ctx context.Context, agentID string, ts *tunnel.Session) error
+}
+
+// SetTools sets the tools provider.
+func (m *Manager) SetTools(t Tools) { m.tools = t }
 
 // SetWaker sets how agents are woken (the API provides it).
 func (m *Manager) SetWaker(w Waker) { m.wake = w }
@@ -258,11 +269,23 @@ func (m *Manager) activate(ctx context.Context, conn *harnessConn, sess db.Agent
 		return sess.AcpSessionID, nil
 	}
 	caps := conn.init.AgentCapabilities
+	mcp := []acp.McpServer{}
+	if m.tools != nil {
+		if err := m.tools.Prepare(ctx, sess.AgentID, conn.ts); err != nil {
+			notice("Could not install the agent's skills: " + err.Error())
+		}
+		servers, err := m.tools.MCPServers(ctx, sess.AgentID, caps.McpCapabilities)
+		if err != nil {
+			notice("MCP servers are not available in this session: " + err.Error())
+		} else {
+			mcp = servers
+		}
+	}
 	if sess.AcpSessionID != "" {
 		switch {
 		case caps.LoadSession:
 			conn.setLoading(sess.AcpSessionID, true)
-			_, err := conn.acp.LoadSession(ctx, acp.LoadSessionRequest{SessionId: acp.SessionId(sess.AcpSessionID), Cwd: HomeDir, McpServers: []acp.McpServer{}})
+			_, err := conn.acp.LoadSession(ctx, acp.LoadSessionRequest{SessionId: acp.SessionId(sess.AcpSessionID), Cwd: HomeDir, McpServers: mcp})
 			conn.setLoading(sess.AcpSessionID, false)
 			if err == nil {
 				conn.markActive(sess.AcpSessionID)
@@ -270,15 +293,15 @@ func (m *Manager) activate(ctx context.Context, conn *harnessConn, sess db.Agent
 			}
 			m.lg.Warn("session/load failed, starting a new session", "session", sess.ID, "err", err)
 		case caps.SessionCapabilities.Resume != nil:
-			if _, err := conn.acp.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: acp.SessionId(sess.AcpSessionID), Cwd: HomeDir}); err == nil {
+			if _, err := conn.acp.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: acp.SessionId(sess.AcpSessionID), Cwd: HomeDir, McpServers: mcp}); err == nil {
 				conn.markActive(sess.AcpSessionID)
 				return sess.AcpSessionID, nil
 			}
 		}
 	}
-	res, err := conn.acp.NewSession(ctx, acp.NewSessionRequest{Cwd: HomeDir, McpServers: []acp.McpServer{}})
+	res, err := conn.acp.NewSession(ctx, acp.NewSessionRequest{Cwd: HomeDir, McpServers: mcp})
 	if err != nil && authRequired(err) && m.autoAuthenticate(ctx, conn, sess.AgentID) {
-		res, err = conn.acp.NewSession(ctx, acp.NewSessionRequest{Cwd: HomeDir, McpServers: []acp.McpServer{}})
+		res, err = conn.acp.NewSession(ctx, acp.NewSessionRequest{Cwd: HomeDir, McpServers: mcp})
 	}
 	if err != nil {
 		if authRequired(err) {
@@ -462,6 +485,7 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 		return nil, fmt.Errorf("start %s: %w", ad.Name(), err)
 	}
 	hc.proc = proc
+	hc.ts = ts
 	hc.acp = acp.NewClientSideConnection(hc, proc, proc.Stdout)
 	hc.acp.SetLogger(m.lg.With("agent", agentID, "component", "acp"))
 	go func() {

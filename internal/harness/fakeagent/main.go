@@ -37,6 +37,28 @@ type agent struct {
 	dir     string
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc
+	mcp     map[string][]string // session -> MCP servers it was given
+}
+
+func mcpNames(servers []acp.McpServer) []string {
+	var out []string
+	for _, s := range servers {
+		switch {
+		case s.Stdio != nil:
+			env := []string{}
+			for _, e := range s.Stdio.Env {
+				env = append(env, e.Name+"="+e.Value)
+			}
+			out = append(out, "stdio:"+s.Stdio.Name+":"+s.Stdio.Command+":"+strings.Join(env, ","))
+		case s.Http != nil:
+			h := []string{}
+			for _, x := range s.Http.Headers {
+				h = append(h, x.Name+"="+x.Value)
+			}
+			out = append(out, "http:"+s.Http.Name+":"+s.Http.Url+":"+strings.Join(h, ","))
+		}
+	}
+	return out
 }
 
 var (
@@ -52,7 +74,7 @@ func main() {
 		login(dir)
 		return
 	}
-	a := &agent{dir: dir, cancels: map[string]context.CancelFunc{}}
+	a := &agent{dir: dir, cancels: map[string]context.CancelFunc{}, mcp: map[string][]string{}}
 	a.conn = acp.NewAgentSideConnection(a, os.Stdout, os.Stdin)
 	fmt.Fprintln(os.Stderr, "fakeagent ready")
 	<-a.conn.Done()
@@ -79,7 +101,7 @@ func (a *agent) Initialize(context.Context, acp.InitializeRequest) (acp.Initiali
 	return acp.InitializeResponse{
 		ProtocolVersion:   acp.ProtocolVersionNumber,
 		AgentInfo:         &acp.Implementation{Name: "fakeagent", Version: "1.0"},
-		AgentCapabilities: acp.AgentCapabilities{LoadSession: os.Getenv("FAKEAGENT_NO_LOAD") == ""},
+		AgentCapabilities: acp.AgentCapabilities{LoadSession: os.Getenv("FAKEAGENT_NO_LOAD") == "", McpCapabilities: acp.McpCapabilities{Http: true}},
 		AuthMethods: []acp.AuthMethod{{Terminal: &acp.AuthMethodTerminalInline{
 			Id: "fake-login", Name: "Fake subscription", Type: "terminal", Args: []string{"login"},
 			Description: acp.Ptr("Sign in with a device code"),
@@ -114,7 +136,7 @@ func (a *agent) record(id string, t turn) {
 	_ = os.WriteFile(a.path(id), b, 0o644)
 }
 
-func (a *agent) NewSession(context.Context, acp.NewSessionRequest) (acp.NewSessionResponse, error) {
+func (a *agent) NewSession(_ context.Context, p acp.NewSessionRequest) (acp.NewSessionResponse, error) {
 	if !a.loggedIn() {
 		return acp.NewSessionResponse{}, acp.NewAuthRequired("log in first")
 	}
@@ -122,6 +144,9 @@ func (a *agent) NewSession(context.Context, acp.NewSessionRequest) (acp.NewSessi
 	_, _ = rand.Read(b)
 	id := "fs-" + hex.EncodeToString(b)
 	_ = os.WriteFile(a.path(id), []byte("[]"), 0o644)
+	a.mu.Lock()
+	a.mcp[id] = mcpNames(p.McpServers)
+	a.mu.Unlock()
 	return acp.NewSessionResponse{SessionId: acp.SessionId(id)}, nil
 }
 
@@ -129,6 +154,9 @@ func (a *agent) LoadSession(ctx context.Context, p acp.LoadSessionRequest) (acp.
 	if _, err := os.Stat(a.path(string(p.SessionId))); err != nil {
 		return acp.LoadSessionResponse{}, acp.NewInvalidParams("unknown session")
 	}
+	a.mu.Lock()
+	a.mcp[string(p.SessionId)] = mcpNames(p.McpServers)
+	a.mu.Unlock()
 	for _, t := range a.history(string(p.SessionId)) {
 		u := acp.UpdateAgentMessageText(t.Text)
 		if t.Role == "user" {
@@ -216,6 +244,19 @@ func (a *agent) Prompt(_ context.Context, p acp.PromptRequest) (acp.PromptRespon
 			_ = a.say(ctx, sid, fmt.Sprintf("chunk %d ", i))
 		}
 		answer = "done"
+	case len(fields) == 1 && fields[0] == "tools":
+		a.mu.Lock()
+		servers := a.mcp[string(sid)]
+		a.mu.Unlock()
+		var skills []string
+		if entries, err := os.ReadDir(filepath.Join(a.dir, "skills")); err == nil {
+			for _, e := range entries {
+				if b, err := os.ReadFile(filepath.Join(a.dir, "skills", e.Name(), "SKILL.md")); err == nil && e.IsDir() {
+					skills = append(skills, e.Name()+"("+strconv.Itoa(len(b))+")")
+				}
+			}
+		}
+		answer = "mcp=[" + strings.Join(servers, " | ") + "] skills=[" + strings.Join(skills, ",") + "]"
 	case len(fields) >= 1 && fields[0] == "think":
 		_ = a.conn.SessionUpdate(ctx, acp.SessionNotification{SessionId: sid, Update: acp.UpdateAgentThoughtText("Thinking about " + strings.Join(fields[1:], " "))})
 		answer = "Here is my answer."

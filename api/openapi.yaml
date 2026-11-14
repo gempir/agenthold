@@ -17,6 +17,8 @@ tags:
   - name: files
   - name: sessions
   - name: sharing
+  - name: tools
+    description: MCP servers and skills.
   - name: secrets
   - name: egress
   - name: streams
@@ -991,6 +993,225 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 
+  /workspaces/{workspaceId}/mcp-servers:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      operationId: listWorkspaceMCPServers
+      tags: [tools]
+      responses:
+        "200":
+          description: Workspace-level MCP servers (attachable to agents).
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MCPServer" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createWorkspaceMCPServer
+      tags: [tools]
+      description: Workspace admins only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MCPServerInput" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MCPServer" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/mcp-servers:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listAgentMCPServers
+      tags: [tools]
+      description: The agent's own servers and attached workspace servers.
+      responses:
+        "200":
+          description: MCP servers used by the agent.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MCPServer" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createAgentMCPServer
+      tags: [tools]
+      description: A server only this agent uses (agent admin).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MCPServerInput" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MCPServer" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/mcp-servers/{serverId}:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+      - { name: serverId, in: path, required: true, schema: { type: string } }
+    put:
+      operationId: attachMCPServer
+      tags: [tools]
+      description: Attach a workspace server (agent admin). Takes effect in the next session.
+      responses:
+        "204": { description: Attached. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: detachMCPServer
+      tags: [tools]
+      description: Detach a workspace server, or delete one of the agent's own servers.
+      responses:
+        "204": { description: Detached. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /mcp-servers/{serverId}:
+    parameters:
+      - { name: serverId, in: path, required: true, schema: { type: string } }
+    put:
+      operationId: updateMCPServer
+      tags: [tools]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MCPServerInput" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MCPServer" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteMCPServer
+      tags: [tools]
+      responses:
+        "204": { description: Deleted (and detached everywhere). }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /workspaces/{workspaceId}/skills:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      operationId: listSkills
+      tags: [tools]
+      responses:
+        "200":
+          description: The workspace skills library.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Skill" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createSkill
+      tags: [tools]
+      description: Workspace admins only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SkillInput" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Skill" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /skills/{skillId}:
+    parameters:
+      - { name: skillId, in: path, required: true, schema: { type: string } }
+    put:
+      operationId: updateSkill
+      tags: [tools]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SkillInput" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Skill" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteSkill
+      tags: [tools]
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/skills:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listAgentSkills
+      tags: [tools]
+      responses:
+        "200":
+          description: Skills attached to the agent.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Skill" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/skills/{skillId}:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+      - { name: skillId, in: path, required: true, schema: { type: string } }
+    put:
+      operationId: attachSkill
+      tags: [tools]
+      description: Attach a skill (agent admin). It is written into the sandbox for the next session.
+      responses:
+        "204": { description: Attached. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: detachSkill
+      tags: [tools]
+      responses:
+        "204": { description: Detached; removed from the sandbox in the next session. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
 security:
   - session: []
 
@@ -1446,3 +1667,58 @@ components:
         details:
           type: object
           additionalProperties: true
+
+    MCPServerInput:
+      type: object
+      required: [name, transport]
+      properties:
+        name: { type: string, description: 'Letters, digits, dashes and underscores.' }
+        transport: { type: string, enum: [stdio, http] }
+        command: { type: string, description: stdio only; runs inside the sandbox. }
+        args:
+          type: array
+          items: { type: string }
+        env:
+          type: object
+          additionalProperties: { type: string }
+          description: 'stdio only. Values may reference secrets as {{secret:NAME}}.'
+        url: { type: string, description: http only. }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+          description: 'http only. Values may reference secrets as {{secret:NAME}}; the sandbox sees a placeholder and the egress proxy injects the value.'
+
+    MCPServer:
+      allOf:
+        - $ref: "#/components/schemas/MCPServerInput"
+        - type: object
+          required: [id, workspaceId, scope, secretRefs, createdAt, updatedAt, args, env, headers, command, url]
+          properties:
+            id: { type: string }
+            workspaceId: { type: string }
+            scope: { type: string, enum: [workspace, agent] }
+            agentId: { type: string }
+            secretRefs:
+              type: array
+              items: { type: string }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+
+    SkillInput:
+      type: object
+      required: [name, description, content]
+      properties:
+        name: { type: string, description: 'Lowercase letters, digits and dashes.' }
+        description: { type: string, description: When the agent should use the skill. }
+        content: { type: string, description: The SKILL.md instructions (Markdown). }
+
+    Skill:
+      allOf:
+        - $ref: "#/components/schemas/SkillInput"
+        - type: object
+          required: [id, workspaceId, createdAt, updatedAt]
+          properties:
+            id: { type: string }
+            workspaceId: { type: string }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }

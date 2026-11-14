@@ -160,25 +160,25 @@ func (e CreatedInviteRole) Valid() bool {
 
 // Defines values for EgressEventKind.
 const (
-	Dns   EgressEventKind = "dns"
-	Http  EgressEventKind = "http"
-	Https EgressEventKind = "https"
-	Tcp   EgressEventKind = "tcp"
-	Tls   EgressEventKind = "tls"
+	EgressEventKindDns   EgressEventKind = "dns"
+	EgressEventKindHttp  EgressEventKind = "http"
+	EgressEventKindHttps EgressEventKind = "https"
+	EgressEventKindTcp   EgressEventKind = "tcp"
+	EgressEventKindTls   EgressEventKind = "tls"
 )
 
 // Valid indicates whether the value is a known member of the EgressEventKind enum.
 func (e EgressEventKind) Valid() bool {
 	switch e {
-	case Dns:
+	case EgressEventKindDns:
 		return true
-	case Http:
+	case EgressEventKindHttp:
 		return true
-	case Https:
+	case EgressEventKindHttps:
 		return true
-	case Tcp:
+	case EgressEventKindTcp:
 		return true
-	case Tls:
+	case EgressEventKindTls:
 		return true
 	default:
 		return false
@@ -269,6 +269,60 @@ func (e InvitePreviewRole) Valid() bool {
 	case InvitePreviewRoleAdmin:
 		return true
 	case InvitePreviewRoleMember:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MCPServerScope.
+const (
+	MCPServerScopeAgent     MCPServerScope = "agent"
+	MCPServerScopeWorkspace MCPServerScope = "workspace"
+)
+
+// Valid indicates whether the value is a known member of the MCPServerScope enum.
+func (e MCPServerScope) Valid() bool {
+	switch e {
+	case MCPServerScopeAgent:
+		return true
+	case MCPServerScopeWorkspace:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MCPServerTransport.
+const (
+	MCPServerTransportHttp  MCPServerTransport = "http"
+	MCPServerTransportStdio MCPServerTransport = "stdio"
+)
+
+// Valid indicates whether the value is a known member of the MCPServerTransport enum.
+func (e MCPServerTransport) Valid() bool {
+	switch e {
+	case MCPServerTransportHttp:
+		return true
+	case MCPServerTransportStdio:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MCPServerInputTransport.
+const (
+	MCPServerInputTransportHttp  MCPServerInputTransport = "http"
+	MCPServerInputTransportStdio MCPServerInputTransport = "stdio"
+)
+
+// Valid indicates whether the value is a known member of the MCPServerInputTransport enum.
+func (e MCPServerInputTransport) Valid() bool {
+	switch e {
+	case MCPServerInputTransportHttp:
+		return true
+	case MCPServerInputTransportStdio:
 		return true
 	default:
 		return false
@@ -656,6 +710,64 @@ type InvitePreview struct {
 // InvitePreviewRole defines model for InvitePreview.Role.
 type InvitePreviewRole string
 
+// MCPServer defines model for MCPServer.
+type MCPServer struct {
+	AgentId *string  `json:"agentId,omitempty"`
+	Args    []string `json:"args"`
+
+	// Command stdio only; runs inside the sandbox.
+	Command   string    `json:"command"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Env stdio only. Values may reference secrets as {{secret:NAME}}.
+	Env map[string]string `json:"env"`
+
+	// Headers http only. Values may reference secrets as {{secret:NAME}}; the sandbox sees a placeholder and the egress proxy injects the value.
+	Headers map[string]string `json:"headers"`
+	Id      string            `json:"id"`
+
+	// Name Letters, digits, dashes and underscores.
+	Name       string             `json:"name"`
+	Scope      MCPServerScope     `json:"scope"`
+	SecretRefs []string           `json:"secretRefs"`
+	Transport  MCPServerTransport `json:"transport"`
+	UpdatedAt  time.Time          `json:"updatedAt"`
+
+	// Url http only.
+	Url         string `json:"url"`
+	WorkspaceId string `json:"workspaceId"`
+}
+
+// MCPServerScope defines model for MCPServer.Scope.
+type MCPServerScope string
+
+// MCPServerTransport defines model for MCPServer.Transport.
+type MCPServerTransport string
+
+// MCPServerInput defines model for MCPServerInput.
+type MCPServerInput struct {
+	Args *[]string `json:"args,omitempty"`
+
+	// Command stdio only; runs inside the sandbox.
+	Command *string `json:"command,omitempty"`
+
+	// Env stdio only. Values may reference secrets as {{secret:NAME}}.
+	Env *map[string]string `json:"env,omitempty"`
+
+	// Headers http only. Values may reference secrets as {{secret:NAME}}; the sandbox sees a placeholder and the egress proxy injects the value.
+	Headers *map[string]string `json:"headers,omitempty"`
+
+	// Name Letters, digits, dashes and underscores.
+	Name      string                  `json:"name"`
+	Transport MCPServerInputTransport `json:"transport"`
+
+	// Url http only.
+	Url *string `json:"url,omitempty"`
+}
+
+// MCPServerInputTransport defines model for MCPServerInput.Transport.
+type MCPServerInputTransport string
+
 // Me defines model for Me.
 type Me struct {
 	PersonalWorkspaceId string `json:"personalWorkspaceId"`
@@ -776,6 +888,34 @@ type SessionEvent struct {
 // permission_resolved: {requestId, optionId, by}; turn_end:
 // {stopReason}; error/notice: {message}.
 type SessionEventType string
+
+// Skill defines model for Skill.
+type Skill struct {
+	// Content The SKILL.md instructions (Markdown).
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Description When the agent should use the skill.
+	Description string `json:"description"`
+	Id          string `json:"id"`
+
+	// Name Lowercase letters, digits and dashes.
+	Name        string    `json:"name"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	WorkspaceId string    `json:"workspaceId"`
+}
+
+// SkillInput defines model for SkillInput.
+type SkillInput struct {
+	// Content The SKILL.md instructions (Markdown).
+	Content string `json:"content"`
+
+	// Description When the agent should use the skill.
+	Description string `json:"description"`
+
+	// Name Lowercase letters, digits and dashes.
+	Name string `json:"name"`
+}
 
 // User defines model for User.
 type User struct {
@@ -907,6 +1047,9 @@ type MakeDirectoryJSONRequestBody MakeDirectoryJSONBody
 // SetGrantJSONRequestBody defines body for SetGrant for application/json ContentType.
 type SetGrantJSONRequestBody = GrantInput
 
+// CreateAgentMCPServerJSONRequestBody defines body for CreateAgentMCPServer for application/json ContentType.
+type CreateAgentMCPServerJSONRequestBody = MCPServerInput
+
 // SetNetworkPolicyJSONRequestBody defines body for SetNetworkPolicy for application/json ContentType.
 type SetNetworkPolicyJSONRequestBody = NetworkPolicy
 
@@ -915,6 +1058,9 @@ type AttachSecretJSONRequestBody AttachSecretJSONBody
 
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody CreateSessionJSONBody
+
+// UpdateMCPServerJSONRequestBody defines body for UpdateMCPServer for application/json ContentType.
+type UpdateMCPServerJSONRequestBody = MCPServerInput
 
 // UpdateSecretJSONRequestBody defines body for UpdateSecret for application/json ContentType.
 type UpdateSecretJSONRequestBody = SecretPatch
@@ -928,6 +1074,9 @@ type AnswerPermissionJSONRequestBody AnswerPermissionJSONBody
 // PromptSessionJSONRequestBody defines body for PromptSession for application/json ContentType.
 type PromptSessionJSONRequestBody PromptSessionJSONBody
 
+// UpdateSkillJSONRequestBody defines body for UpdateSkill for application/json ContentType.
+type UpdateSkillJSONRequestBody = SkillInput
+
 // CreateWorkspaceJSONRequestBody defines body for CreateWorkspace for application/json ContentType.
 type CreateWorkspaceJSONRequestBody = WorkspaceInput
 
@@ -940,11 +1089,17 @@ type CreateAgentJSONRequestBody = AgentInput
 // CreateInviteJSONRequestBody defines body for CreateInvite for application/json ContentType.
 type CreateInviteJSONRequestBody = InviteInput
 
+// CreateWorkspaceMCPServerJSONRequestBody defines body for CreateWorkspaceMCPServer for application/json ContentType.
+type CreateWorkspaceMCPServerJSONRequestBody = MCPServerInput
+
 // UpdateMemberJSONRequestBody defines body for UpdateMember for application/json ContentType.
 type UpdateMemberJSONRequestBody UpdateMemberJSONBody
 
 // CreateSecretJSONRequestBody defines body for CreateSecret for application/json ContentType.
 type CreateSecretJSONRequestBody = SecretInput
+
+// CreateSkillJSONRequestBody defines body for CreateSkill for application/json ContentType.
+type CreateSkillJSONRequestBody = SkillInput
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -991,6 +1146,18 @@ type ServerInterface interface {
 	// (GET /agents/{agentId}/harness)
 	GetHarness(w http.ResponseWriter, r *http.Request, agentId AgentId, params GetHarnessParams)
 
+	// (GET /agents/{agentId}/mcp-servers)
+	ListAgentMCPServers(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (POST /agents/{agentId}/mcp-servers)
+	CreateAgentMCPServer(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (DELETE /agents/{agentId}/mcp-servers/{serverId})
+	DetachMCPServer(w http.ResponseWriter, r *http.Request, agentId AgentId, serverId string)
+
+	// (PUT /agents/{agentId}/mcp-servers/{serverId})
+	AttachMCPServer(w http.ResponseWriter, r *http.Request, agentId AgentId, serverId string)
+
 	// (GET /agents/{agentId}/network-policy)
 	GetNetworkPolicy(w http.ResponseWriter, r *http.Request, agentId AgentId)
 
@@ -1015,6 +1182,15 @@ type ServerInterface interface {
 	// (POST /agents/{agentId}/sessions)
 	CreateSession(w http.ResponseWriter, r *http.Request, agentId AgentId)
 
+	// (GET /agents/{agentId}/skills)
+	ListAgentSkills(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (DELETE /agents/{agentId}/skills/{skillId})
+	DetachSkill(w http.ResponseWriter, r *http.Request, agentId AgentId, skillId string)
+
+	// (PUT /agents/{agentId}/skills/{skillId})
+	AttachSkill(w http.ResponseWriter, r *http.Request, agentId AgentId, skillId string)
+
 	// (POST /agents/{agentId}/start)
 	StartAgent(w http.ResponseWriter, r *http.Request, agentId AgentId)
 
@@ -1035,6 +1211,12 @@ type ServerInterface interface {
 
 	// (POST /invites/{token}/accept)
 	AcceptInvite(w http.ResponseWriter, r *http.Request, token string)
+
+	// (DELETE /mcp-servers/{serverId})
+	DeleteMCPServer(w http.ResponseWriter, r *http.Request, serverId string)
+
+	// (PUT /mcp-servers/{serverId})
+	UpdateMCPServer(w http.ResponseWriter, r *http.Request, serverId string)
 
 	// (GET /me)
 	GetMe(w http.ResponseWriter, r *http.Request)
@@ -1072,6 +1254,12 @@ type ServerInterface interface {
 	// (POST /sessions/{sessionId}/prompt)
 	PromptSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
 
+	// (DELETE /skills/{skillId})
+	DeleteSkill(w http.ResponseWriter, r *http.Request, skillId string)
+
+	// (PUT /skills/{skillId})
+	UpdateSkill(w http.ResponseWriter, r *http.Request, skillId string)
+
 	// (GET /version)
 	GetVersion(w http.ResponseWriter, r *http.Request)
 
@@ -1105,6 +1293,12 @@ type ServerInterface interface {
 	// (DELETE /workspaces/{workspaceId}/invites/{inviteId})
 	RevokeInvite(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId, inviteId string)
 
+	// (GET /workspaces/{workspaceId}/mcp-servers)
+	ListWorkspaceMCPServers(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId)
+
+	// (POST /workspaces/{workspaceId}/mcp-servers)
+	CreateWorkspaceMCPServer(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId)
+
 	// (GET /workspaces/{workspaceId}/members)
 	ListMembers(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId)
 
@@ -1119,6 +1313,12 @@ type ServerInterface interface {
 
 	// (POST /workspaces/{workspaceId}/secrets)
 	CreateSecret(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId)
+
+	// (GET /workspaces/{workspaceId}/skills)
+	ListSkills(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId)
+
+	// (POST /workspaces/{workspaceId}/skills)
+	CreateSkill(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -1195,6 +1395,26 @@ func (_ Unimplemented) GetHarness(w http.ResponseWriter, r *http.Request, agentI
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (GET /agents/{agentId}/mcp-servers)
+func (_ Unimplemented) ListAgentMCPServers(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /agents/{agentId}/mcp-servers)
+func (_ Unimplemented) CreateAgentMCPServer(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /agents/{agentId}/mcp-servers/{serverId})
+func (_ Unimplemented) DetachMCPServer(w http.ResponseWriter, r *http.Request, agentId AgentId, serverId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /agents/{agentId}/mcp-servers/{serverId})
+func (_ Unimplemented) AttachMCPServer(w http.ResponseWriter, r *http.Request, agentId AgentId, serverId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (GET /agents/{agentId}/network-policy)
 func (_ Unimplemented) GetNetworkPolicy(w http.ResponseWriter, r *http.Request, agentId AgentId) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -1235,6 +1455,21 @@ func (_ Unimplemented) CreateSession(w http.ResponseWriter, r *http.Request, age
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (GET /agents/{agentId}/skills)
+func (_ Unimplemented) ListAgentSkills(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /agents/{agentId}/skills/{skillId})
+func (_ Unimplemented) DetachSkill(w http.ResponseWriter, r *http.Request, agentId AgentId, skillId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /agents/{agentId}/skills/{skillId})
+func (_ Unimplemented) AttachSkill(w http.ResponseWriter, r *http.Request, agentId AgentId, skillId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (POST /agents/{agentId}/start)
 func (_ Unimplemented) StartAgent(w http.ResponseWriter, r *http.Request, agentId AgentId) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -1267,6 +1502,16 @@ func (_ Unimplemented) GetInvite(w http.ResponseWriter, r *http.Request, token s
 
 // (POST /invites/{token}/accept)
 func (_ Unimplemented) AcceptInvite(w http.ResponseWriter, r *http.Request, token string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /mcp-servers/{serverId})
+func (_ Unimplemented) DeleteMCPServer(w http.ResponseWriter, r *http.Request, serverId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /mcp-servers/{serverId})
+func (_ Unimplemented) UpdateMCPServer(w http.ResponseWriter, r *http.Request, serverId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1330,6 +1575,16 @@ func (_ Unimplemented) PromptSession(w http.ResponseWriter, r *http.Request, ses
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (DELETE /skills/{skillId})
+func (_ Unimplemented) DeleteSkill(w http.ResponseWriter, r *http.Request, skillId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /skills/{skillId})
+func (_ Unimplemented) UpdateSkill(w http.ResponseWriter, r *http.Request, skillId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (GET /version)
 func (_ Unimplemented) GetVersion(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -1385,6 +1640,16 @@ func (_ Unimplemented) RevokeInvite(w http.ResponseWriter, r *http.Request, work
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (GET /workspaces/{workspaceId}/mcp-servers)
+func (_ Unimplemented) ListWorkspaceMCPServers(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /workspaces/{workspaceId}/mcp-servers)
+func (_ Unimplemented) CreateWorkspaceMCPServer(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (GET /workspaces/{workspaceId}/members)
 func (_ Unimplemented) ListMembers(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -1407,6 +1672,16 @@ func (_ Unimplemented) ListSecrets(w http.ResponseWriter, r *http.Request, works
 
 // (POST /workspaces/{workspaceId}/secrets)
 func (_ Unimplemented) CreateSecret(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /workspaces/{workspaceId}/skills)
+func (_ Unimplemented) ListSkills(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /workspaces/{workspaceId}/skills)
+func (_ Unimplemented) CreateSkill(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1943,6 +2218,128 @@ func (siw *ServerInterfaceWrapper) GetHarness(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// ListAgentMCPServers operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentMCPServers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAgentMCPServers(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateAgentMCPServer operation middleware
+func (siw *ServerInterfaceWrapper) CreateAgentMCPServer(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateAgentMCPServer(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DetachMCPServer operation middleware
+func (siw *ServerInterfaceWrapper) DetachMCPServer(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "serverId" -------------
+	var serverId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serverId", chi.URLParam(r, "serverId"), &serverId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serverId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DetachMCPServer(w, r, agentId, serverId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AttachMCPServer operation middleware
+func (siw *ServerInterfaceWrapper) AttachMCPServer(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "serverId" -------------
+	var serverId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serverId", chi.URLParam(r, "serverId"), &serverId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serverId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AttachMCPServer(w, r, agentId, serverId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetNetworkPolicy operation middleware
 func (siw *ServerInterfaceWrapper) GetNetworkPolicy(w http.ResponseWriter, r *http.Request) {
 
@@ -2169,6 +2566,102 @@ func (siw *ServerInterfaceWrapper) CreateSession(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListAgentSkills operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentSkills(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAgentSkills(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DetachSkill operation middleware
+func (siw *ServerInterfaceWrapper) DetachSkill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "skillId" -------------
+	var skillId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "skillId", chi.URLParam(r, "skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DetachSkill(w, r, agentId, skillId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AttachSkill operation middleware
+func (siw *ServerInterfaceWrapper) AttachSkill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "skillId" -------------
+	var skillId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "skillId", chi.URLParam(r, "skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AttachSkill(w, r, agentId, skillId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // StartAgent operation middleware
 func (siw *ServerInterfaceWrapper) StartAgent(w http.ResponseWriter, r *http.Request) {
 
@@ -2306,6 +2799,58 @@ func (siw *ServerInterfaceWrapper) AcceptInvite(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AcceptInvite(w, r, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteMCPServer operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMCPServer(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "serverId" -------------
+	var serverId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serverId", chi.URLParam(r, "serverId"), &serverId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serverId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteMCPServer(w, r, serverId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateMCPServer operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMCPServer(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "serverId" -------------
+	var serverId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serverId", chi.URLParam(r, "serverId"), &serverId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serverId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateMCPServer(w, r, serverId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2629,6 +3174,58 @@ func (siw *ServerInterfaceWrapper) PromptSession(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// DeleteSkill operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSkill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "skillId" -------------
+	var skillId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "skillId", chi.URLParam(r, "skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteSkill(w, r, skillId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateSkill operation middleware
+func (siw *ServerInterfaceWrapper) UpdateSkill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "skillId" -------------
+	var skillId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "skillId", chi.URLParam(r, "skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateSkill(w, r, skillId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetVersion operation middleware
 func (siw *ServerInterfaceWrapper) GetVersion(w http.ResponseWriter, r *http.Request) {
 
@@ -2888,6 +3485,58 @@ func (siw *ServerInterfaceWrapper) RevokeInvite(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ListWorkspaceMCPServers operation middleware
+func (siw *ServerInterfaceWrapper) ListWorkspaceMCPServers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceId" -------------
+	var workspaceId WorkspaceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceId", chi.URLParam(r, "workspaceId"), &workspaceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWorkspaceMCPServers(w, r, workspaceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateWorkspaceMCPServer operation middleware
+func (siw *ServerInterfaceWrapper) CreateWorkspaceMCPServer(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceId" -------------
+	var workspaceId WorkspaceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceId", chi.URLParam(r, "workspaceId"), &workspaceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateWorkspaceMCPServer(w, r, workspaceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListMembers operation middleware
 func (siw *ServerInterfaceWrapper) ListMembers(w http.ResponseWriter, r *http.Request) {
 
@@ -3027,6 +3676,58 @@ func (siw *ServerInterfaceWrapper) CreateSecret(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateSecret(w, r, workspaceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSkills operation middleware
+func (siw *ServerInterfaceWrapper) ListSkills(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceId" -------------
+	var workspaceId WorkspaceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceId", chi.URLParam(r, "workspaceId"), &workspaceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSkills(w, r, workspaceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateSkill operation middleware
+func (siw *ServerInterfaceWrapper) CreateSkill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceId" -------------
+	var workspaceId WorkspaceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceId", chi.URLParam(r, "workspaceId"), &workspaceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSkill(w, r, workspaceId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3319,6 +4020,51 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/agents/{agentId}/audit", wrapper.ListAgentAudit)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/workspaces/{workspaceId}/mcp-servers", wrapper.ListWorkspaceMCPServers)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/workspaces/{workspaceId}/mcp-servers", wrapper.CreateWorkspaceMCPServer)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/agents/{agentId}/mcp-servers", wrapper.ListAgentMCPServers)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/agents/{agentId}/mcp-servers", wrapper.CreateAgentMCPServer)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/agents/{agentId}/mcp-servers/{serverId}", wrapper.DetachMCPServer)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/agents/{agentId}/mcp-servers/{serverId}", wrapper.AttachMCPServer)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/mcp-servers/{serverId}", wrapper.DeleteMCPServer)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/mcp-servers/{serverId}", wrapper.UpdateMCPServer)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/workspaces/{workspaceId}/skills", wrapper.ListSkills)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/workspaces/{workspaceId}/skills", wrapper.CreateSkill)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/skills/{skillId}", wrapper.DeleteSkill)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/skills/{skillId}", wrapper.UpdateSkill)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/agents/{agentId}/skills", wrapper.ListAgentSkills)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/agents/{agentId}/skills/{skillId}", wrapper.DetachSkill)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/agents/{agentId}/skills/{skillId}", wrapper.AttachSkill)
 	})
 
 	return r
@@ -4126,6 +4872,211 @@ func (response GetHarness409JSONResponse) VisitGetHarnessResponse(w http.Respons
 	return err
 }
 
+type ListAgentMCPServersRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+}
+
+type ListAgentMCPServersResponseObject interface {
+	VisitListAgentMCPServersResponse(w http.ResponseWriter) error
+}
+
+type ListAgentMCPServers200JSONResponse []MCPServer
+
+func (response ListAgentMCPServers200JSONResponse) VisitListAgentMCPServersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentMCPServers404JSONResponse struct{ ErrorJSONResponse }
+
+func (response ListAgentMCPServers404JSONResponse) VisitListAgentMCPServersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAgentMCPServerRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+	Body    *CreateAgentMCPServerJSONRequestBody
+}
+
+type CreateAgentMCPServerResponseObject interface {
+	VisitCreateAgentMCPServerResponse(w http.ResponseWriter) error
+}
+
+type CreateAgentMCPServer201JSONResponse MCPServer
+
+func (response CreateAgentMCPServer201JSONResponse) VisitCreateAgentMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAgentMCPServer400JSONResponse struct{ ErrorJSONResponse }
+
+func (response CreateAgentMCPServer400JSONResponse) VisitCreateAgentMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAgentMCPServer403JSONResponse Error
+
+func (response CreateAgentMCPServer403JSONResponse) VisitCreateAgentMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAgentMCPServer404JSONResponse Error
+
+func (response CreateAgentMCPServer404JSONResponse) VisitCreateAgentMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAgentMCPServer409JSONResponse Error
+
+func (response CreateAgentMCPServer409JSONResponse) VisitCreateAgentMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DetachMCPServerRequestObject struct {
+	AgentId  AgentId `json:"agentId"`
+	ServerId string  `json:"serverId"`
+}
+
+type DetachMCPServerResponseObject interface {
+	VisitDetachMCPServerResponse(w http.ResponseWriter) error
+}
+
+type DetachMCPServer204Response struct {
+}
+
+func (response DetachMCPServer204Response) VisitDetachMCPServerResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DetachMCPServer403JSONResponse struct{ ErrorJSONResponse }
+
+func (response DetachMCPServer403JSONResponse) VisitDetachMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DetachMCPServer404JSONResponse Error
+
+func (response DetachMCPServer404JSONResponse) VisitDetachMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AttachMCPServerRequestObject struct {
+	AgentId  AgentId `json:"agentId"`
+	ServerId string  `json:"serverId"`
+}
+
+type AttachMCPServerResponseObject interface {
+	VisitAttachMCPServerResponse(w http.ResponseWriter) error
+}
+
+type AttachMCPServer204Response struct {
+}
+
+func (response AttachMCPServer204Response) VisitAttachMCPServerResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type AttachMCPServer403JSONResponse struct{ ErrorJSONResponse }
+
+func (response AttachMCPServer403JSONResponse) VisitAttachMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AttachMCPServer404JSONResponse Error
+
+func (response AttachMCPServer404JSONResponse) VisitAttachMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetNetworkPolicyRequestObject struct {
 	AgentId AgentId `json:"agentId"`
 }
@@ -4525,6 +5476,132 @@ func (response CreateSession404JSONResponse) VisitCreateSessionResponse(w http.R
 	return err
 }
 
+type ListAgentSkillsRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+}
+
+type ListAgentSkillsResponseObject interface {
+	VisitListAgentSkillsResponse(w http.ResponseWriter) error
+}
+
+type ListAgentSkills200JSONResponse []Skill
+
+func (response ListAgentSkills200JSONResponse) VisitListAgentSkillsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentSkills404JSONResponse struct{ ErrorJSONResponse }
+
+func (response ListAgentSkills404JSONResponse) VisitListAgentSkillsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DetachSkillRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+	SkillId string  `json:"skillId"`
+}
+
+type DetachSkillResponseObject interface {
+	VisitDetachSkillResponse(w http.ResponseWriter) error
+}
+
+type DetachSkill204Response struct {
+}
+
+func (response DetachSkill204Response) VisitDetachSkillResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DetachSkill403JSONResponse struct{ ErrorJSONResponse }
+
+func (response DetachSkill403JSONResponse) VisitDetachSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DetachSkill404JSONResponse Error
+
+func (response DetachSkill404JSONResponse) VisitDetachSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AttachSkillRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+	SkillId string  `json:"skillId"`
+}
+
+type AttachSkillResponseObject interface {
+	VisitAttachSkillResponse(w http.ResponseWriter) error
+}
+
+type AttachSkill204Response struct {
+}
+
+func (response AttachSkill204Response) VisitAttachSkillResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type AttachSkill403JSONResponse struct{ ErrorJSONResponse }
+
+func (response AttachSkill403JSONResponse) VisitAttachSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AttachSkill404JSONResponse Error
+
+func (response AttachSkill404JSONResponse) VisitAttachSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type StartAgentRequestObject struct {
 	AgentId AgentId `json:"agentId"`
 }
@@ -4818,6 +5895,115 @@ func (response AcceptInvite409JSONResponse) VisitAcceptInviteResponse(w http.Res
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMCPServerRequestObject struct {
+	ServerId string `json:"serverId"`
+}
+
+type DeleteMCPServerResponseObject interface {
+	VisitDeleteMCPServerResponse(w http.ResponseWriter) error
+}
+
+type DeleteMCPServer204Response struct {
+}
+
+func (response DeleteMCPServer204Response) VisitDeleteMCPServerResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteMCPServer403JSONResponse struct{ ErrorJSONResponse }
+
+func (response DeleteMCPServer403JSONResponse) VisitDeleteMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMCPServer404JSONResponse Error
+
+func (response DeleteMCPServer404JSONResponse) VisitDeleteMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMCPServerRequestObject struct {
+	ServerId string `json:"serverId"`
+	Body     *UpdateMCPServerJSONRequestBody
+}
+
+type UpdateMCPServerResponseObject interface {
+	VisitUpdateMCPServerResponse(w http.ResponseWriter) error
+}
+
+type UpdateMCPServer200JSONResponse MCPServer
+
+func (response UpdateMCPServer200JSONResponse) VisitUpdateMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMCPServer400JSONResponse struct{ ErrorJSONResponse }
+
+func (response UpdateMCPServer400JSONResponse) VisitUpdateMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMCPServer403JSONResponse Error
+
+func (response UpdateMCPServer403JSONResponse) VisitUpdateMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMCPServer404JSONResponse Error
+
+func (response UpdateMCPServer404JSONResponse) VisitUpdateMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5367,6 +6553,115 @@ func (response PromptSession409JSONResponse) VisitPromptSessionResponse(w http.R
 	return err
 }
 
+type DeleteSkillRequestObject struct {
+	SkillId string `json:"skillId"`
+}
+
+type DeleteSkillResponseObject interface {
+	VisitDeleteSkillResponse(w http.ResponseWriter) error
+}
+
+type DeleteSkill204Response struct {
+}
+
+func (response DeleteSkill204Response) VisitDeleteSkillResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteSkill403JSONResponse struct{ ErrorJSONResponse }
+
+func (response DeleteSkill403JSONResponse) VisitDeleteSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSkill404JSONResponse Error
+
+func (response DeleteSkill404JSONResponse) VisitDeleteSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSkillRequestObject struct {
+	SkillId string `json:"skillId"`
+	Body    *UpdateSkillJSONRequestBody
+}
+
+type UpdateSkillResponseObject interface {
+	VisitUpdateSkillResponse(w http.ResponseWriter) error
+}
+
+type UpdateSkill200JSONResponse Skill
+
+func (response UpdateSkill200JSONResponse) VisitUpdateSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSkill400JSONResponse struct{ ErrorJSONResponse }
+
+func (response UpdateSkill400JSONResponse) VisitUpdateSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSkill403JSONResponse Error
+
+func (response UpdateSkill403JSONResponse) VisitUpdateSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSkill404JSONResponse Error
+
+func (response UpdateSkill404JSONResponse) VisitUpdateSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetVersionRequestObject struct {
 }
 
@@ -5851,6 +7146,121 @@ func (response RevokeInvite404JSONResponse) VisitRevokeInviteResponse(w http.Res
 	return err
 }
 
+type ListWorkspaceMCPServersRequestObject struct {
+	WorkspaceId WorkspaceId `json:"workspaceId"`
+}
+
+type ListWorkspaceMCPServersResponseObject interface {
+	VisitListWorkspaceMCPServersResponse(w http.ResponseWriter) error
+}
+
+type ListWorkspaceMCPServers200JSONResponse []MCPServer
+
+func (response ListWorkspaceMCPServers200JSONResponse) VisitListWorkspaceMCPServersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListWorkspaceMCPServers404JSONResponse struct{ ErrorJSONResponse }
+
+func (response ListWorkspaceMCPServers404JSONResponse) VisitListWorkspaceMCPServersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateWorkspaceMCPServerRequestObject struct {
+	WorkspaceId WorkspaceId `json:"workspaceId"`
+	Body        *CreateWorkspaceMCPServerJSONRequestBody
+}
+
+type CreateWorkspaceMCPServerResponseObject interface {
+	VisitCreateWorkspaceMCPServerResponse(w http.ResponseWriter) error
+}
+
+type CreateWorkspaceMCPServer201JSONResponse MCPServer
+
+func (response CreateWorkspaceMCPServer201JSONResponse) VisitCreateWorkspaceMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateWorkspaceMCPServer400JSONResponse struct{ ErrorJSONResponse }
+
+func (response CreateWorkspaceMCPServer400JSONResponse) VisitCreateWorkspaceMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateWorkspaceMCPServer403JSONResponse Error
+
+func (response CreateWorkspaceMCPServer403JSONResponse) VisitCreateWorkspaceMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateWorkspaceMCPServer404JSONResponse Error
+
+func (response CreateWorkspaceMCPServer404JSONResponse) VisitCreateWorkspaceMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateWorkspaceMCPServer409JSONResponse Error
+
+func (response CreateWorkspaceMCPServer409JSONResponse) VisitCreateWorkspaceMCPServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListMembersRequestObject struct {
 	WorkspaceId WorkspaceId `json:"workspaceId"`
 }
@@ -6113,6 +7523,121 @@ func (response CreateSecret409JSONResponse) VisitCreateSecretResponse(w http.Res
 	return err
 }
 
+type ListSkillsRequestObject struct {
+	WorkspaceId WorkspaceId `json:"workspaceId"`
+}
+
+type ListSkillsResponseObject interface {
+	VisitListSkillsResponse(w http.ResponseWriter) error
+}
+
+type ListSkills200JSONResponse []Skill
+
+func (response ListSkills200JSONResponse) VisitListSkillsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSkills404JSONResponse struct{ ErrorJSONResponse }
+
+func (response ListSkills404JSONResponse) VisitListSkillsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSkillRequestObject struct {
+	WorkspaceId WorkspaceId `json:"workspaceId"`
+	Body        *CreateSkillJSONRequestBody
+}
+
+type CreateSkillResponseObject interface {
+	VisitCreateSkillResponse(w http.ResponseWriter) error
+}
+
+type CreateSkill201JSONResponse Skill
+
+func (response CreateSkill201JSONResponse) VisitCreateSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSkill400JSONResponse struct{ ErrorJSONResponse }
+
+func (response CreateSkill400JSONResponse) VisitCreateSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSkill403JSONResponse Error
+
+func (response CreateSkill403JSONResponse) VisitCreateSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSkill404JSONResponse Error
+
+func (response CreateSkill404JSONResponse) VisitCreateSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSkill409JSONResponse Error
+
+func (response CreateSkill409JSONResponse) VisitCreateSkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
@@ -6158,6 +7683,18 @@ type StrictServerInterface interface {
 	// (GET /agents/{agentId}/harness)
 	GetHarness(ctx context.Context, request GetHarnessRequestObject) (GetHarnessResponseObject, error)
 
+	// (GET /agents/{agentId}/mcp-servers)
+	ListAgentMCPServers(ctx context.Context, request ListAgentMCPServersRequestObject) (ListAgentMCPServersResponseObject, error)
+
+	// (POST /agents/{agentId}/mcp-servers)
+	CreateAgentMCPServer(ctx context.Context, request CreateAgentMCPServerRequestObject) (CreateAgentMCPServerResponseObject, error)
+
+	// (DELETE /agents/{agentId}/mcp-servers/{serverId})
+	DetachMCPServer(ctx context.Context, request DetachMCPServerRequestObject) (DetachMCPServerResponseObject, error)
+
+	// (PUT /agents/{agentId}/mcp-servers/{serverId})
+	AttachMCPServer(ctx context.Context, request AttachMCPServerRequestObject) (AttachMCPServerResponseObject, error)
+
 	// (GET /agents/{agentId}/network-policy)
 	GetNetworkPolicy(ctx context.Context, request GetNetworkPolicyRequestObject) (GetNetworkPolicyResponseObject, error)
 
@@ -6182,6 +7719,15 @@ type StrictServerInterface interface {
 	// (POST /agents/{agentId}/sessions)
 	CreateSession(ctx context.Context, request CreateSessionRequestObject) (CreateSessionResponseObject, error)
 
+	// (GET /agents/{agentId}/skills)
+	ListAgentSkills(ctx context.Context, request ListAgentSkillsRequestObject) (ListAgentSkillsResponseObject, error)
+
+	// (DELETE /agents/{agentId}/skills/{skillId})
+	DetachSkill(ctx context.Context, request DetachSkillRequestObject) (DetachSkillResponseObject, error)
+
+	// (PUT /agents/{agentId}/skills/{skillId})
+	AttachSkill(ctx context.Context, request AttachSkillRequestObject) (AttachSkillResponseObject, error)
+
 	// (POST /agents/{agentId}/start)
 	StartAgent(ctx context.Context, request StartAgentRequestObject) (StartAgentResponseObject, error)
 
@@ -6202,6 +7748,12 @@ type StrictServerInterface interface {
 
 	// (POST /invites/{token}/accept)
 	AcceptInvite(ctx context.Context, request AcceptInviteRequestObject) (AcceptInviteResponseObject, error)
+
+	// (DELETE /mcp-servers/{serverId})
+	DeleteMCPServer(ctx context.Context, request DeleteMCPServerRequestObject) (DeleteMCPServerResponseObject, error)
+
+	// (PUT /mcp-servers/{serverId})
+	UpdateMCPServer(ctx context.Context, request UpdateMCPServerRequestObject) (UpdateMCPServerResponseObject, error)
 
 	// (GET /me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
@@ -6239,6 +7791,12 @@ type StrictServerInterface interface {
 	// (POST /sessions/{sessionId}/prompt)
 	PromptSession(ctx context.Context, request PromptSessionRequestObject) (PromptSessionResponseObject, error)
 
+	// (DELETE /skills/{skillId})
+	DeleteSkill(ctx context.Context, request DeleteSkillRequestObject) (DeleteSkillResponseObject, error)
+
+	// (PUT /skills/{skillId})
+	UpdateSkill(ctx context.Context, request UpdateSkillRequestObject) (UpdateSkillResponseObject, error)
+
 	// (GET /version)
 	GetVersion(ctx context.Context, request GetVersionRequestObject) (GetVersionResponseObject, error)
 
@@ -6272,6 +7830,12 @@ type StrictServerInterface interface {
 	// (DELETE /workspaces/{workspaceId}/invites/{inviteId})
 	RevokeInvite(ctx context.Context, request RevokeInviteRequestObject) (RevokeInviteResponseObject, error)
 
+	// (GET /workspaces/{workspaceId}/mcp-servers)
+	ListWorkspaceMCPServers(ctx context.Context, request ListWorkspaceMCPServersRequestObject) (ListWorkspaceMCPServersResponseObject, error)
+
+	// (POST /workspaces/{workspaceId}/mcp-servers)
+	CreateWorkspaceMCPServer(ctx context.Context, request CreateWorkspaceMCPServerRequestObject) (CreateWorkspaceMCPServerResponseObject, error)
+
 	// (GET /workspaces/{workspaceId}/members)
 	ListMembers(ctx context.Context, request ListMembersRequestObject) (ListMembersResponseObject, error)
 
@@ -6286,6 +7850,12 @@ type StrictServerInterface interface {
 
 	// (POST /workspaces/{workspaceId}/secrets)
 	CreateSecret(ctx context.Context, request CreateSecretRequestObject) (CreateSecretResponseObject, error)
+
+	// (GET /workspaces/{workspaceId}/skills)
+	ListSkills(ctx context.Context, request ListSkillsRequestObject) (ListSkillsResponseObject, error)
+
+	// (POST /workspaces/{workspaceId}/skills)
+	CreateSkill(ctx context.Context, request CreateSkillRequestObject) (CreateSkillResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -6722,6 +8292,119 @@ func (sh *strictHandler) GetHarness(w http.ResponseWriter, r *http.Request, agen
 	}
 }
 
+// ListAgentMCPServers operation middleware
+func (sh *strictHandler) ListAgentMCPServers(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	var request ListAgentMCPServersRequestObject
+
+	request.AgentId = agentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAgentMCPServers(ctx, request.(ListAgentMCPServersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAgentMCPServers")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAgentMCPServersResponseObject); ok {
+		if err := validResponse.VisitListAgentMCPServersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateAgentMCPServer operation middleware
+func (sh *strictHandler) CreateAgentMCPServer(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	var request CreateAgentMCPServerRequestObject
+
+	request.AgentId = agentId
+
+	var body CreateAgentMCPServerJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateAgentMCPServer(ctx, request.(CreateAgentMCPServerRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateAgentMCPServer")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateAgentMCPServerResponseObject); ok {
+		if err := validResponse.VisitCreateAgentMCPServerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DetachMCPServer operation middleware
+func (sh *strictHandler) DetachMCPServer(w http.ResponseWriter, r *http.Request, agentId AgentId, serverId string) {
+	var request DetachMCPServerRequestObject
+
+	request.AgentId = agentId
+	request.ServerId = serverId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DetachMCPServer(ctx, request.(DetachMCPServerRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DetachMCPServer")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DetachMCPServerResponseObject); ok {
+		if err := validResponse.VisitDetachMCPServerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AttachMCPServer operation middleware
+func (sh *strictHandler) AttachMCPServer(w http.ResponseWriter, r *http.Request, agentId AgentId, serverId string) {
+	var request AttachMCPServerRequestObject
+
+	request.AgentId = agentId
+	request.ServerId = serverId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AttachMCPServer(ctx, request.(AttachMCPServerRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AttachMCPServer")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AttachMCPServerResponseObject); ok {
+		if err := validResponse.VisitAttachMCPServerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetNetworkPolicy operation middleware
 func (sh *strictHandler) GetNetworkPolicy(w http.ResponseWriter, r *http.Request, agentId AgentId) {
 	var request GetNetworkPolicyRequestObject
@@ -6956,6 +8639,86 @@ func (sh *strictHandler) CreateSession(w http.ResponseWriter, r *http.Request, a
 	}
 }
 
+// ListAgentSkills operation middleware
+func (sh *strictHandler) ListAgentSkills(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	var request ListAgentSkillsRequestObject
+
+	request.AgentId = agentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAgentSkills(ctx, request.(ListAgentSkillsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAgentSkills")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAgentSkillsResponseObject); ok {
+		if err := validResponse.VisitListAgentSkillsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DetachSkill operation middleware
+func (sh *strictHandler) DetachSkill(w http.ResponseWriter, r *http.Request, agentId AgentId, skillId string) {
+	var request DetachSkillRequestObject
+
+	request.AgentId = agentId
+	request.SkillId = skillId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DetachSkill(ctx, request.(DetachSkillRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DetachSkill")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DetachSkillResponseObject); ok {
+		if err := validResponse.VisitDetachSkillResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AttachSkill operation middleware
+func (sh *strictHandler) AttachSkill(w http.ResponseWriter, r *http.Request, agentId AgentId, skillId string) {
+	var request AttachSkillRequestObject
+
+	request.AgentId = agentId
+	request.SkillId = skillId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AttachSkill(ctx, request.(AttachSkillRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AttachSkill")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AttachSkillResponseObject); ok {
+		if err := validResponse.VisitAttachSkillResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // StartAgent operation middleware
 func (sh *strictHandler) StartAgent(w http.ResponseWriter, r *http.Request, agentId AgentId) {
 	var request StartAgentRequestObject
@@ -7125,6 +8888,65 @@ func (sh *strictHandler) AcceptInvite(w http.ResponseWriter, r *http.Request, to
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(AcceptInviteResponseObject); ok {
 		if err := validResponse.VisitAcceptInviteResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteMCPServer operation middleware
+func (sh *strictHandler) DeleteMCPServer(w http.ResponseWriter, r *http.Request, serverId string) {
+	var request DeleteMCPServerRequestObject
+
+	request.ServerId = serverId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteMCPServer(ctx, request.(DeleteMCPServerRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteMCPServer")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteMCPServerResponseObject); ok {
+		if err := validResponse.VisitDeleteMCPServerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateMCPServer operation middleware
+func (sh *strictHandler) UpdateMCPServer(w http.ResponseWriter, r *http.Request, serverId string) {
+	var request UpdateMCPServerRequestObject
+
+	request.ServerId = serverId
+
+	var body UpdateMCPServerJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateMCPServer(ctx, request.(UpdateMCPServerRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateMCPServer")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateMCPServerResponseObject); ok {
+		if err := validResponse.VisitUpdateMCPServerResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -7468,6 +9290,65 @@ func (sh *strictHandler) PromptSession(w http.ResponseWriter, r *http.Request, s
 	}
 }
 
+// DeleteSkill operation middleware
+func (sh *strictHandler) DeleteSkill(w http.ResponseWriter, r *http.Request, skillId string) {
+	var request DeleteSkillRequestObject
+
+	request.SkillId = skillId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteSkill(ctx, request.(DeleteSkillRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteSkill")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteSkillResponseObject); ok {
+		if err := validResponse.VisitDeleteSkillResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateSkill operation middleware
+func (sh *strictHandler) UpdateSkill(w http.ResponseWriter, r *http.Request, skillId string) {
+	var request UpdateSkillRequestObject
+
+	request.SkillId = skillId
+
+	var body UpdateSkillJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateSkill(ctx, request.(UpdateSkillRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateSkill")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateSkillResponseObject); ok {
+		if err := validResponse.VisitUpdateSkillResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetVersion operation middleware
 func (sh *strictHandler) GetVersion(w http.ResponseWriter, r *http.Request) {
 	var request GetVersionRequestObject
@@ -7777,6 +9658,65 @@ func (sh *strictHandler) RevokeInvite(w http.ResponseWriter, r *http.Request, wo
 	}
 }
 
+// ListWorkspaceMCPServers operation middleware
+func (sh *strictHandler) ListWorkspaceMCPServers(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId) {
+	var request ListWorkspaceMCPServersRequestObject
+
+	request.WorkspaceId = workspaceId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListWorkspaceMCPServers(ctx, request.(ListWorkspaceMCPServersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListWorkspaceMCPServers")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListWorkspaceMCPServersResponseObject); ok {
+		if err := validResponse.VisitListWorkspaceMCPServersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateWorkspaceMCPServer operation middleware
+func (sh *strictHandler) CreateWorkspaceMCPServer(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId) {
+	var request CreateWorkspaceMCPServerRequestObject
+
+	request.WorkspaceId = workspaceId
+
+	var body CreateWorkspaceMCPServerJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateWorkspaceMCPServer(ctx, request.(CreateWorkspaceMCPServerRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateWorkspaceMCPServer")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateWorkspaceMCPServerResponseObject); ok {
+		if err := validResponse.VisitCreateWorkspaceMCPServerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListMembers operation middleware
 func (sh *strictHandler) ListMembers(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId) {
 	var request ListMembersRequestObject
@@ -7923,109 +9863,182 @@ func (sh *strictHandler) CreateSecret(w http.ResponseWriter, r *http.Request, wo
 	}
 }
 
+// ListSkills operation middleware
+func (sh *strictHandler) ListSkills(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId) {
+	var request ListSkillsRequestObject
+
+	request.WorkspaceId = workspaceId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSkills(ctx, request.(ListSkillsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSkills")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSkillsResponseObject); ok {
+		if err := validResponse.VisitListSkillsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateSkill operation middleware
+func (sh *strictHandler) CreateSkill(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId) {
+	var request CreateSkillRequestObject
+
+	request.WorkspaceId = workspaceId
+
+	var body CreateSkillJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateSkill(ctx, request.(CreateSkillRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateSkill")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateSkillResponseObject); ok {
+		if err := validResponse.VisitCreateSkillResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
 // Stored as a slice of fixed-width chunks rather than one concatenated
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"qLIgmFEeJ1hhWlVNYk6qsRImZJZfl/8fAAD//w==",
+	"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",
+	"4v7r/f8EAAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

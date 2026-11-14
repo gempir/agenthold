@@ -46,3 +46,6 @@ func (adapter) TerminalLogin(methodID string) ([]string, bool) {
 	}
 	return nil, false
 }
+
+// SkillsDir implements harness.SkillsDirer.
+func (adapter) SkillsDir() string { return ".config/opencode/skills" }

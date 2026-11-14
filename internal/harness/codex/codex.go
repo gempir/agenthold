@@ -30,3 +30,6 @@ func (adapter) InstallHint() string {
 // key in the environment (an attached secret's placeholder), the "api-key"
 // method signs in without user interaction.
 func (adapter) AutoAuthenticate() []string { return []string{"api-key"} }
+
+// SkillsDir implements harness.SkillsDirer.
+func (adapter) SkillsDir() string { return ".codex/skills" }

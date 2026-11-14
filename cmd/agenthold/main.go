@@ -36,6 +36,7 @@ import (
 	"github.com/gempir/agenthold/internal/server"
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store"
+	"github.com/gempir/agenthold/internal/tools"
 	"github.com/gempir/agenthold/internal/tunnel"
 	"github.com/gempir/agenthold/internal/version"
 	"github.com/gempir/agenthold/web"
@@ -143,6 +144,7 @@ func run() error {
 	}
 
 	sessions := session.NewManager(st, nil, logger)
+	sessions.SetTools(tools.Provider{Store: st})
 	defer sessions.Close()
 	tracker := idle.NewTracker()
 	sessions.OnActivity(tracker.Touch)

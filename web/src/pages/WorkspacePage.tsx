@@ -1,3 +1,4 @@
+import { WorkspaceToolsPanel } from '@/components/ToolsPanel';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
@@ -18,7 +19,7 @@ import { ErrorText, Loading } from '@/components/Spinner';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
-type Tab = 'members' | 'invites' | 'secrets' | 'settings';
+type Tab = 'members' | 'invites' | 'secrets' | 'tools' | 'settings';
 
 export function WorkspacePage({ workspaceId }: { workspaceId: string }) {
   const qc = useQueryClient();
@@ -72,6 +73,7 @@ export function WorkspacePage({ workspaceId }: { workspaceId: string }) {
     { id: 'members', label: 'Members', show: true },
     { id: 'invites', label: 'Invites', show: canManage(w.role) },
     { id: 'secrets', label: 'Secrets', show: true },
+    { id: 'tools', label: 'Tools', show: true },
     { id: 'settings', label: 'Settings', show: true },
   ];
 
@@ -132,6 +134,12 @@ export function WorkspacePage({ workspaceId }: { workspaceId: string }) {
         <InvitesPanel workspaceId={workspaceId} />
       )}
       {tab === 'secrets' && <SecretsPanel workspaceId={workspaceId} />}
+      {tab === 'tools' && (
+        <WorkspaceToolsPanel
+          workspaceId={workspaceId}
+          admin={canManage(w.role)}
+        />
+      )}
       {tab === 'settings' && <SettingsPanel key={w.name} workspace={w} />}
     </div>
   );

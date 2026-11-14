@@ -11,7 +11,8 @@ const (
 	OpFSMkdir  = "fs.mkdir"
 	OpFSRemove = "fs.remove"
 	OpPing     = "ping"
-	OpHello    = "hello" // the server asks sandboxd who it is right after connecting
+	OpHarness  = "harness" // agent harness process speaking ACP on stdio
+	OpHello    = "hello"   // the server asks sandboxd who it is right after connecting
 )
 
 // Open is the first frame on every stream.
@@ -47,6 +48,12 @@ type Resize struct {
 type Exit struct {
 	Type string `json:"type"` // "exit"
 	Code int    `json:"code"`
+}
+
+// Stderr carries one line of a harness's stderr.
+type Stderr struct {
+	Type string `json:"type"` // "stderr"
+	Line string `json:"line"`
 }
 
 // FileInfo describes one directory entry.

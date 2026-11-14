@@ -10,6 +10,12 @@ it('builds ws/wss urls', () => {
   );
 });
 
+it('appends the auth method', () => {
+  expect(
+    terminalUrl({ protocol: 'http:', host: 'h' }, 'a1', 1, 2, 'claude-login'),
+  ).toMatch(/&auth=claude-login$/);
+});
+
 it('parses server messages', () => {
   expect(parseServerMessage('{"type":"exit","code":3}')).toEqual({
     type: 'exit',

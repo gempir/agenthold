@@ -2,7 +2,12 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { api, unwrap } from '@/api/client';
-import { agentsQuery, sandboxLimitsQuery, type Agent } from '@/api/queries';
+import {
+  agentsQuery,
+  harnessesQuery,
+  sandboxLimitsQuery,
+  type Agent,
+} from '@/api/queries';
 import { AgentStateBadge } from '@/components/AgentStateBadge';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
@@ -15,6 +20,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 
 export function AgentList({ agents }: { agents: Agent[] }) {
   if (agents.length === 0)
@@ -78,6 +84,9 @@ function NewAgentDialog({
   const navigate = useNavigate();
   const limits = useQuery(sandboxLimitsQuery);
   const l = limits.data;
+  const harnesses = useQuery(harnessesQuery);
+  const [harness, setHarness] = useState('claude-code');
+  const [model, setModel] = useState('');
   const [name, setName] = useState('');
   const [image, setImage] = useState('');
   const [cpus, setCpus] = useState<string>('');
@@ -95,6 +104,8 @@ function NewAgentDialog({
             cpus: Number(cpus || l?.defaultCpus),
             memoryMb: Number(mem || l?.defaultMemoryMb),
             idleMinutes: Number(idle),
+            harness,
+            ...(model.trim() && { model: model.trim() }),
           },
         }),
       ),
@@ -167,6 +178,32 @@ function NewAgentDialog({
                 min={1}
                 value={idle}
                 onChange={(e) => setIdle(e.target.value)}
+              />
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="grid gap-1 text-sm">
+              Harness
+              <Select
+                value={harness}
+                onChange={(e) => setHarness(e.target.value)}
+              >
+                {!harnesses.data?.some((h) => h.id === 'claude-code') && (
+                  <option value="claude-code">claude-code</option>
+                )}
+                {harnesses.data?.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className="grid gap-1 text-sm">
+              Model (optional)
+              <Input
+                value={model}
+                placeholder="default"
+                onChange={(e) => setModel(e.target.value)}
               />
             </label>
           </div>

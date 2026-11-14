@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"sync"
 )
 
 // List lists a directory in the sandbox.
@@ -142,3 +143,86 @@ func stopOnCancel(ctx context.Context, c net.Conn) {
 		_ = c.Close()
 	}()
 }
+
+// Process is a harness process in the sandbox: Stdout and Stdin carry its
+// raw stdio.
+type Process struct {
+	wmu    sync.Mutex
+	c      net.Conn
+	Stdout *io.PipeReader
+	out    *io.PipeWriter
+	done   chan struct{}
+	code   int
+	err    error
+}
+
+// StartHarness starts cmd in the sandbox. stderr receives its stderr lines.
+func (s *Session) StartHarness(ctx context.Context, cmd []string, env map[string]string, stderr func(string)) (*Process, error) {
+	c, err := s.Open(ctx, Open{Op: OpHarness, Cmd: cmd, Env: env})
+	if err != nil {
+		return nil, err
+	}
+	pr, pw := io.Pipe()
+	p := &Process{c: c, Stdout: pr, out: pw, done: make(chan struct{}), code: -1}
+	go p.read(stderr)
+	return p, nil
+}
+
+func (p *Process) read(stderr func(string)) {
+	defer close(p.done)
+	buf := make([]byte, 64*1024)
+	for {
+		typ, b, err := ReadFrame(p.c, buf)
+		if err != nil {
+			p.err = err
+			_ = p.out.CloseWithError(io.ErrUnexpectedEOF)
+			return
+		}
+		switch typ {
+		case FrameData:
+			if _, err := p.out.Write(b); err != nil {
+				p.err = err
+				return
+			}
+		case FrameJSON:
+			var m struct {
+				Type string `json:"type"`
+				Line string `json:"line"`
+				Code int    `json:"code"`
+			}
+			if jsonUnmarshal(b, &m) != nil {
+				continue
+			}
+			switch m.Type {
+			case "stderr":
+				if stderr != nil {
+					stderr(m.Line)
+				}
+			case "exit":
+				p.code = m.Code
+				_ = p.out.Close()
+				return
+			}
+		case FrameError:
+			p.err = &RemoteError{Msg: string(b)}
+			_ = p.out.CloseWithError(p.err)
+			return
+		}
+	}
+}
+
+// Write sends bytes to the process's stdin.
+func (p *Process) Write(b []byte) (int, error) {
+	p.wmu.Lock()
+	defer p.wmu.Unlock()
+	return DataWriter(p.c).Write(b)
+}
+
+// Done is closed when the process has exited or the connection is lost.
+func (p *Process) Done() <-chan struct{} { return p.done }
+
+// ExitCode returns the exit code (-1 if unknown) and any transport error.
+func (p *Process) ExitCode() (int, error) { return p.code, p.err }
+
+// Close kills the process.
+func (p *Process) Close() error { return p.c.Close() }

@@ -23,11 +23,14 @@ import (
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/egress"
+	_ "github.com/gempir/agenthold/internal/harness/claude"
+	fakeharness "github.com/gempir/agenthold/internal/harness/fake"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/docker"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
 	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/server"
+	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/tunnel"
 	"github.com/gempir/agenthold/internal/version"
@@ -135,10 +138,20 @@ func run() error {
 		return fmt.Errorf("reconcile sandboxes: %w", err)
 	}
 
+	sessions := session.NewManager(st, nil, logger)
+	defer sessions.Close()
+	sandboxes.OnChange(func(agentID string, p sandbox.Phase) {
+		if p == sandbox.PhaseStopping || p == sandbox.PhaseDestroying || p == sandbox.PhaseRebuilding {
+			sessions.Disconnect(agentID)
+		}
+	})
+
 	apiSrv := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Tunnel: hub, Limits: cfg.Sandbox,
-		Box: box, Egress: directory, CA: ca,
+		Box: box, Egress: directory, CA: ca, Sessions: sessions,
+		ShowTestHarness: cfg.Sandbox.Driver == "fake" || cfg.DevProxy != "",
 	})
+	sessions.SetWaker(apiSrv.Wake)
 
 	srvCfg := server.Config{Web: web.Dist(), Logger: logger, API: apiSrv.Mount}
 	if cfg.DevProxy != "" {
@@ -232,6 +245,7 @@ func newDriver(ctx context.Context, cfg *config.Config, egressOn bool, logger *s
 	switch cfg.Sandbox.Driver {
 	case "fake":
 		logger.Warn("using the fake sandbox driver: terminals run on this machine as the server's user")
+		fakeharness.Command = filepath.Join(filepath.Dir(cfg.Sandbox.SandboxdPath), "fakeagent")
 		d := fake.New(cfg.Sandbox.FakeDir)
 		d.RunSandboxd("127.0.0.1", logger)
 		return d, nil
@@ -255,19 +269,30 @@ func newDriver(ctx context.Context, cfg *config.Config, egressOn bool, logger *s
 	}
 }
 
-// installSandboxd copies the sandboxd binary into the volume shared with sandboxes.
+// installSandboxd copies sandboxd (and the scripted test agent, if it was
+// built) into the volume shared with sandboxes.
 func installSandboxd(src, dir string) error {
+	if err := installBinary(src, filepath.Join(dir, "sandboxd")); err != nil {
+		return fmt.Errorf("install sandboxd (sandbox.sandboxd_path): %w", err)
+	}
+	fa := filepath.Join(filepath.Dir(src), "fakeagent")
+	if _, err := os.Stat(fa); err == nil {
+		return installBinary(fa, filepath.Join(dir, "fakeagent"))
+	}
+	return nil
+}
+
+func installBinary(src, dst string) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
-		return fmt.Errorf("read sandboxd (sandbox.sandboxd_path): %w", err)
+		return err
 	}
-	dst := filepath.Join(dir, "sandboxd")
 	if cur, err := os.ReadFile(dst); err == nil && bytes.Equal(cur, data) {
 		return nil
 	}
 	tmp := dst + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o755); err != nil {
-		return fmt.Errorf("install sandboxd: %w", err)
+		return err
 	}
 	return os.Rename(tmp, dst)
 }

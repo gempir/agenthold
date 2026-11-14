@@ -9,7 +9,7 @@ COMPOSE ?= docker compose -f deploy/docker-compose.dev.yml
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-go web web-deps test test-go test-docker test-web lint lint-go lint-web fmt dev dev-down image clean generate gen-sql gen-go-api gen-api
+.PHONY: all build build-go web web-deps test test-go test-docker test-web lint lint-go lint-web fmt dev dev-down image base-image clean generate gen-sql gen-go-api gen-api
 
 all: build
 
@@ -59,6 +59,10 @@ dev:
 
 dev-down:
 	$(COMPOSE) down
+
+## base-image: build the default agent image (images/base)
+base-image:
+	docker build -t agenthold/base:dev images/base
 
 ## image: build the production server image
 image:

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { api, ApiError, unwrap } from '@/api/client';
@@ -17,16 +17,29 @@ import {
 import { Input } from '@/components/ui/input';
 import { FilesTab } from '@/components/FilesTab';
 import { NetworkTab } from '@/components/NetworkTab';
-import { TerminalTab } from '@/components/TerminalTab';
+import { ChatTab } from '@/components/ChatTab';
+import { HarnessPanel } from '@/components/HarnessPanel';
 
-type Tab = 'overview' | 'terminal' | 'files' | 'network';
+const TerminalTab = lazy(() =>
+  import('@/components/TerminalTab').then((m) => ({ default: m.TerminalTab })),
+);
 
-export function AgentPage({ agentId }: { agentId: string }) {
+type Tab = 'chat' | 'overview' | 'terminal' | 'files' | 'network';
+
+export function AgentPage({
+  agentId,
+  sessionId,
+  onSelectSession,
+}: {
+  agentId: string;
+  sessionId?: string;
+  onSelectSession?: (id: string) => void;
+}) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const q = useQuery(agentQuery(agentId));
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [tab, setTab] = useState<Tab>('overview');
+  const [tab, setTab] = useState<Tab>('chat');
   const path = { params: { path: { agentId } } };
 
   const setAgent = (a: Agent) => qc.setQueryData(['agents', agentId], a);
@@ -103,8 +116,8 @@ export function AgentPage({ agentId }: { agentId: string }) {
 
       <div role="tablist" className="flex gap-1 border-b">
         {(operator
-          ? (['overview', 'terminal', 'files', 'network'] as const)
-          : (['overview', 'files', 'network'] as const)
+          ? (['chat', 'overview', 'terminal', 'files', 'network'] as const)
+          : (['chat', 'overview', 'files', 'network'] as const)
         ).map((t) => (
           <button
             key={t}
@@ -123,6 +136,14 @@ export function AgentPage({ agentId }: { agentId: string }) {
         ))}
       </div>
 
+      {tab === 'chat' && (
+        <ChatTab
+          agentId={agentId}
+          operator={operator}
+          sessionId={sessionId}
+          onSelect={(id) => onSelectSession?.(id)}
+        />
+      )}
       {tab === 'overview' && (
         <>
           <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 text-sm">
@@ -190,12 +211,18 @@ export function AgentPage({ agentId }: { agentId: string }) {
           <ErrorText error={action.error} />
           <ErrorText error={remove.error} />
 
+          <HarnessPanel agent={a} admin={admin} onSaved={setAgent} />
+
           {admin && (
             <AgentSettings key={a.updatedAt} agent={a} onSaved={setAgent} />
           )}
         </>
       )}
-      {tab === 'terminal' && operator && <TerminalTab agentId={agentId} />}
+      {tab === 'terminal' && operator && (
+        <Suspense fallback={<Loading />}>
+          <TerminalTab agentId={agentId} />
+        </Suspense>
+      )}
       {tab === 'files' && (
         <FilesTab
           agentId={agentId}

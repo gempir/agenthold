@@ -23,6 +23,60 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for AgentPermissionPolicy.
+const (
+	AgentPermissionPolicyAsk         AgentPermissionPolicy = "ask"
+	AgentPermissionPolicyAutoApprove AgentPermissionPolicy = "auto-approve"
+)
+
+// Valid indicates whether the value is a known member of the AgentPermissionPolicy enum.
+func (e AgentPermissionPolicy) Valid() bool {
+	switch e {
+	case AgentPermissionPolicyAsk:
+		return true
+	case AgentPermissionPolicyAutoApprove:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentInputPermissionPolicy.
+const (
+	AgentInputPermissionPolicyAsk         AgentInputPermissionPolicy = "ask"
+	AgentInputPermissionPolicyAutoApprove AgentInputPermissionPolicy = "auto-approve"
+)
+
+// Valid indicates whether the value is a known member of the AgentInputPermissionPolicy enum.
+func (e AgentInputPermissionPolicy) Valid() bool {
+	switch e {
+	case AgentInputPermissionPolicyAsk:
+		return true
+	case AgentInputPermissionPolicyAutoApprove:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentPatchPermissionPolicy.
+const (
+	AgentPatchPermissionPolicyAsk         AgentPatchPermissionPolicy = "ask"
+	AgentPatchPermissionPolicyAutoApprove AgentPatchPermissionPolicy = "auto-approve"
+)
+
+// Valid indicates whether the value is a known member of the AgentPatchPermissionPolicy enum.
+func (e AgentPatchPermissionPolicy) Valid() bool {
+	switch e {
+	case AgentPatchPermissionPolicyAsk:
+		return true
+	case AgentPatchPermissionPolicyAutoApprove:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AgentRole.
 const (
 	AgentRoleAdmin    AgentRole = "admin"
@@ -215,6 +269,39 @@ func (e SandboxState) Valid() bool {
 	}
 }
 
+// Defines values for SessionEventType.
+const (
+	SessionEventTypeError              SessionEventType = "error"
+	SessionEventTypeNotice             SessionEventType = "notice"
+	SessionEventTypePermission         SessionEventType = "permission"
+	SessionEventTypePermissionResolved SessionEventType = "permission_resolved"
+	SessionEventTypePrompt             SessionEventType = "prompt"
+	SessionEventTypeTurnEnd            SessionEventType = "turn_end"
+	SessionEventTypeUpdate             SessionEventType = "update"
+)
+
+// Valid indicates whether the value is a known member of the SessionEventType enum.
+func (e SessionEventType) Valid() bool {
+	switch e {
+	case SessionEventTypeError:
+		return true
+	case SessionEventTypeNotice:
+		return true
+	case SessionEventTypePermission:
+		return true
+	case SessionEventTypePermissionResolved:
+		return true
+	case SessionEventTypePrompt:
+		return true
+	case SessionEventTypeTurnEnd:
+		return true
+	case SessionEventTypeUpdate:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WorkspaceRole.
 const (
 	WorkspaceRoleAdmin  WorkspaceRole = "admin"
@@ -238,45 +325,69 @@ func (e WorkspaceRole) Valid() bool {
 
 // Agent defines model for Agent.
 type Agent struct {
-	Cpus        float32   `json:"cpus"`
-	CreatedAt   time.Time `json:"createdAt"`
-	Harness     string    `json:"harness"`
-	Id          string    `json:"id"`
-	IdleMinutes int       `json:"idleMinutes"`
-	Image       string    `json:"image"`
-	MemoryMb    int64     `json:"memoryMb"`
-	Name        string    `json:"name"`
+	Cpus      float32   `json:"cpus"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	// CredentialsInSandbox A harness login was completed inside the sandbox; the agent can read its own credentials.
+	CredentialsInSandbox bool   `json:"credentialsInSandbox"`
+	Harness              string `json:"harness"`
+	Id                   string `json:"id"`
+	IdleMinutes          int    `json:"idleMinutes"`
+	Image                string `json:"image"`
+	MemoryMb             int64  `json:"memoryMb"`
+	Model                string `json:"model"`
+	Name                 string `json:"name"`
 
 	// NeedsRebuild Image or resources changed since the sandbox was built.
-	NeedsRebuild   bool         `json:"needsRebuild"`
-	Owner          User         `json:"owner"`
-	Role           AgentRole    `json:"role"`
-	State          SandboxState `json:"state"`
-	StateChangedAt time.Time    `json:"stateChangedAt"`
-	StateError     string       `json:"stateError"`
-	UpdatedAt      time.Time    `json:"updatedAt"`
-	WorkspaceId    string       `json:"workspaceId"`
+	NeedsRebuild     bool                  `json:"needsRebuild"`
+	Owner            User                  `json:"owner"`
+	PermissionPolicy AgentPermissionPolicy `json:"permissionPolicy"`
+	Role             AgentRole             `json:"role"`
+	State            SandboxState          `json:"state"`
+	StateChangedAt   time.Time             `json:"stateChangedAt"`
+	StateError       string                `json:"stateError"`
+	UpdatedAt        time.Time             `json:"updatedAt"`
+	WorkspaceId      string                `json:"workspaceId"`
 }
+
+// AgentPermissionPolicy defines model for Agent.PermissionPolicy.
+type AgentPermissionPolicy string
 
 // AgentInput defines model for AgentInput.
 type AgentInput struct {
-	Cpus        *float32 `json:"cpus,omitempty"`
-	IdleMinutes *int     `json:"idleMinutes,omitempty"`
+	Cpus *float32 `json:"cpus,omitempty"`
+
+	// Harness Harness id (see /harnesses). Default claude-code.
+	Harness     *string `json:"harness,omitempty"`
+	IdleMinutes *int    `json:"idleMinutes,omitempty"`
 
 	// Image OCI image. Defaults to the server's default image.
-	Image    *string `json:"image,omitempty"`
-	MemoryMb *int64  `json:"memoryMb,omitempty"`
-	Name     string  `json:"name"`
+	Image            *string                     `json:"image,omitempty"`
+	MemoryMb         *int64                      `json:"memoryMb,omitempty"`
+	Model            *string                     `json:"model,omitempty"`
+	Name             string                      `json:"name"`
+	PermissionPolicy *AgentInputPermissionPolicy `json:"permissionPolicy,omitempty"`
 }
+
+// AgentInputPermissionPolicy defines model for AgentInput.PermissionPolicy.
+type AgentInputPermissionPolicy string
 
 // AgentPatch defines model for AgentPatch.
 type AgentPatch struct {
-	Cpus        *float32 `json:"cpus,omitempty"`
-	IdleMinutes *int     `json:"idleMinutes,omitempty"`
-	Image       *string  `json:"image,omitempty"`
-	MemoryMb    *int64   `json:"memoryMb,omitempty"`
-	Name        *string  `json:"name,omitempty"`
+	Cpus *float32 `json:"cpus,omitempty"`
+
+	// Harness Harness id (see /harnesses). Default claude-code.
+	Harness          *string                     `json:"harness,omitempty"`
+	IdleMinutes      *int                        `json:"idleMinutes,omitempty"`
+	Image            *string                     `json:"image,omitempty"`
+	MemoryMb         *int64                      `json:"memoryMb,omitempty"`
+	Model            *string                     `json:"model,omitempty"`
+	Name             *string                     `json:"name,omitempty"`
+	PermissionPolicy *AgentPatchPermissionPolicy `json:"permissionPolicy,omitempty"`
 }
+
+// AgentPatchPermissionPolicy defines model for AgentPatch.PermissionPolicy.
+type AgentPatchPermissionPolicy string
 
 // AgentRole defines model for AgentRole.
 type AgentRole string
@@ -285,6 +396,16 @@ type AgentRole string
 type AttachedSecret struct {
 	EnvVar string `json:"envVar"`
 	Secret Secret `json:"secret"`
+}
+
+// AuthMethodInfo defines model for AuthMethodInfo.
+type AuthMethodInfo struct {
+	Description string `json:"description"`
+	Id          string `json:"id"`
+	Name        string `json:"name"`
+
+	// Type "terminal": run it in the agent terminal (terminal?auth=<id>).
+	Type string `json:"type"`
 }
 
 // AuthProvider defines model for AuthProvider.
@@ -357,6 +478,24 @@ type FileEntry struct {
 	Mode    string    `json:"mode"`
 	Name    string    `json:"name"`
 	Size    int64     `json:"size"`
+}
+
+// HarnessState defines model for HarnessState.
+type HarnessState struct {
+	AgentName    string           `json:"agentName"`
+	AgentVersion string           `json:"agentVersion"`
+	AuthMethods  []AuthMethodInfo `json:"authMethods"`
+	Connected    bool             `json:"connected"`
+	Harness      string           `json:"harness"`
+	LoadSession  bool             `json:"loadSession"`
+}
+
+// HarnessType defines model for HarnessType.
+type HarnessType struct {
+	Id            string   `json:"id"`
+	InstallHint   string   `json:"installHint"`
+	Name          string   `json:"name"`
+	SecretPresets []string `json:"secretPresets"`
 }
 
 // Invite defines model for Invite.
@@ -486,6 +625,39 @@ type SecretRule struct {
 	Template string `json:"template"`
 }
 
+// Session defines model for Session.
+type Session struct {
+	AgentId   string    `json:"agentId"`
+	CreatedAt time.Time `json:"createdAt"`
+	CreatedBy User      `json:"createdBy"`
+	Id        string    `json:"id"`
+	Running   bool      `json:"running"`
+	Title     string    `json:"title"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// SessionEvent defines model for SessionEvent.
+type SessionEvent struct {
+	At   time.Time              `json:"at"`
+	Data map[string]interface{} `json:"data"`
+	Seq  int64                  `json:"seq"`
+
+	// Type prompt: {text, user{id,name}}; update: an ACP SessionUpdate
+	// (discriminated by "sessionUpdate"); permission: {requestId,
+	// toolCall, options[{optionId,name,kind}], policy};
+	// permission_resolved: {requestId, optionId, by}; turn_end:
+	// {stopReason}; error/notice: {message}.
+	Type   SessionEventType `json:"type"`
+	UserId *string          `json:"userId,omitempty"`
+}
+
+// SessionEventType prompt: {text, user{id,name}}; update: an ACP SessionUpdate
+// (discriminated by "sessionUpdate"); permission: {requestId,
+// toolCall, options[{optionId,name,kind}], policy};
+// permission_resolved: {requestId, optionId, by}; turn_end:
+// {stopReason}; error/notice: {message}.
+type SessionEventType string
+
 // User defines model for User.
 type User struct {
 	AvatarUrl string `json:"avatarUrl"`
@@ -519,6 +691,9 @@ type WorkspaceRole string
 
 // AgentId defines model for AgentId.
 type AgentId = string
+
+// SessionId defines model for SessionId.
+type SessionId = string
 
 // WorkspaceId defines model for WorkspaceId.
 type WorkspaceId = string
@@ -556,10 +731,41 @@ type MakeDirectoryJSONBody struct {
 	Path string `json:"path"`
 }
 
+// GetHarnessParams defines parameters for GetHarness.
+type GetHarnessParams struct {
+	Connect *bool `form:"connect,omitempty" json:"connect,omitempty"`
+}
+
 // AttachSecretJSONBody defines parameters for AttachSecret.
 type AttachSecretJSONBody struct {
 	// EnvVar Variable that holds the placeholder in the sandbox.
 	EnvVar *string `json:"envVar,omitempty"`
+}
+
+// CreateSessionJSONBody defines parameters for CreateSession.
+type CreateSessionJSONBody struct {
+	Title *string `json:"title,omitempty"`
+}
+
+// RenameSessionJSONBody defines parameters for RenameSession.
+type RenameSessionJSONBody struct {
+	Title string `json:"title"`
+}
+
+// ListSessionEventsParams defines parameters for ListSessionEvents.
+type ListSessionEventsParams struct {
+	After *int64 `form:"after,omitempty" json:"after,omitempty"`
+	Limit *int   `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// AnswerPermissionJSONBody defines parameters for AnswerPermission.
+type AnswerPermissionJSONBody struct {
+	OptionId string `json:"optionId"`
+}
+
+// PromptSessionJSONBody defines parameters for PromptSession.
+type PromptSessionJSONBody struct {
+	Text string `json:"text"`
 }
 
 // UpdateMemberJSONBody defines parameters for UpdateMember.
@@ -579,8 +785,20 @@ type SetNetworkPolicyJSONRequestBody = NetworkPolicy
 // AttachSecretJSONRequestBody defines body for AttachSecret for application/json ContentType.
 type AttachSecretJSONRequestBody AttachSecretJSONBody
 
+// CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
+type CreateSessionJSONRequestBody CreateSessionJSONBody
+
 // UpdateSecretJSONRequestBody defines body for UpdateSecret for application/json ContentType.
 type UpdateSecretJSONRequestBody = SecretPatch
+
+// RenameSessionJSONRequestBody defines body for RenameSession for application/json ContentType.
+type RenameSessionJSONRequestBody RenameSessionJSONBody
+
+// AnswerPermissionJSONRequestBody defines body for AnswerPermission for application/json ContentType.
+type AnswerPermissionJSONRequestBody AnswerPermissionJSONBody
+
+// PromptSessionJSONRequestBody defines body for PromptSession for application/json ContentType.
+type PromptSessionJSONRequestBody PromptSessionJSONBody
 
 // CreateWorkspaceJSONRequestBody defines body for CreateWorkspace for application/json ContentType.
 type CreateWorkspaceJSONRequestBody = WorkspaceInput
@@ -630,6 +848,9 @@ type ServerInterface interface {
 	// (POST /agents/{agentId}/files/mkdir)
 	MakeDirectory(w http.ResponseWriter, r *http.Request, agentId AgentId)
 
+	// (GET /agents/{agentId}/harness)
+	GetHarness(w http.ResponseWriter, r *http.Request, agentId AgentId, params GetHarnessParams)
+
 	// (GET /agents/{agentId}/network-policy)
 	GetNetworkPolicy(w http.ResponseWriter, r *http.Request, agentId AgentId)
 
@@ -648,6 +869,12 @@ type ServerInterface interface {
 	// (PUT /agents/{agentId}/secrets/{secretId})
 	AttachSecret(w http.ResponseWriter, r *http.Request, agentId AgentId, secretId string)
 
+	// (GET /agents/{agentId}/sessions)
+	ListSessions(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (POST /agents/{agentId}/sessions)
+	CreateSession(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
 	// (POST /agents/{agentId}/start)
 	StartAgent(w http.ResponseWriter, r *http.Request, agentId AgentId)
 
@@ -659,6 +886,9 @@ type ServerInterface interface {
 
 	// (GET /egress/ca.pem)
 	GetEgressCA(w http.ResponseWriter, r *http.Request)
+
+	// (GET /harnesses)
+	ListHarnesses(w http.ResponseWriter, r *http.Request)
 
 	// (GET /invites/{token})
 	GetInvite(w http.ResponseWriter, r *http.Request, token string)
@@ -680,6 +910,27 @@ type ServerInterface interface {
 
 	// (PATCH /secrets/{secretId})
 	UpdateSecret(w http.ResponseWriter, r *http.Request, secretId string)
+
+	// (DELETE /sessions/{sessionId})
+	DeleteSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
+
+	// (GET /sessions/{sessionId})
+	GetSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
+
+	// (PATCH /sessions/{sessionId})
+	RenameSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
+
+	// (POST /sessions/{sessionId}/cancel)
+	CancelSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
+
+	// (GET /sessions/{sessionId}/events)
+	ListSessionEvents(w http.ResponseWriter, r *http.Request, sessionId SessionId, params ListSessionEventsParams)
+
+	// (POST /sessions/{sessionId}/permissions/{requestId})
+	AnswerPermission(w http.ResponseWriter, r *http.Request, sessionId SessionId, requestId string)
+
+	// (POST /sessions/{sessionId}/prompt)
+	PromptSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
 
 	// (GET /version)
 	GetVersion(w http.ResponseWriter, r *http.Request)
@@ -779,6 +1030,11 @@ func (_ Unimplemented) MakeDirectory(w http.ResponseWriter, r *http.Request, age
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (GET /agents/{agentId}/harness)
+func (_ Unimplemented) GetHarness(w http.ResponseWriter, r *http.Request, agentId AgentId, params GetHarnessParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (GET /agents/{agentId}/network-policy)
 func (_ Unimplemented) GetNetworkPolicy(w http.ResponseWriter, r *http.Request, agentId AgentId) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -809,6 +1065,16 @@ func (_ Unimplemented) AttachSecret(w http.ResponseWriter, r *http.Request, agen
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (GET /agents/{agentId}/sessions)
+func (_ Unimplemented) ListSessions(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /agents/{agentId}/sessions)
+func (_ Unimplemented) CreateSession(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (POST /agents/{agentId}/start)
 func (_ Unimplemented) StartAgent(w http.ResponseWriter, r *http.Request, agentId AgentId) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -826,6 +1092,11 @@ func (_ Unimplemented) ListAuthProviders(w http.ResponseWriter, r *http.Request)
 
 // (GET /egress/ca.pem)
 func (_ Unimplemented) GetEgressCA(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /harnesses)
+func (_ Unimplemented) ListHarnesses(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -861,6 +1132,41 @@ func (_ Unimplemented) DeleteSecret(w http.ResponseWriter, r *http.Request, secr
 
 // (PATCH /secrets/{secretId})
 func (_ Unimplemented) UpdateSecret(w http.ResponseWriter, r *http.Request, secretId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /sessions/{sessionId})
+func (_ Unimplemented) DeleteSession(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /sessions/{sessionId})
+func (_ Unimplemented) GetSession(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PATCH /sessions/{sessionId})
+func (_ Unimplemented) RenameSession(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /sessions/{sessionId}/cancel)
+func (_ Unimplemented) CancelSession(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /sessions/{sessionId}/events)
+func (_ Unimplemented) ListSessionEvents(w http.ResponseWriter, r *http.Request, sessionId SessionId, params ListSessionEventsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /sessions/{sessionId}/permissions/{requestId})
+func (_ Unimplemented) AnswerPermission(w http.ResponseWriter, r *http.Request, sessionId SessionId, requestId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /sessions/{sessionId}/prompt)
+func (_ Unimplemented) PromptSession(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1293,6 +1599,48 @@ func (siw *ServerInterfaceWrapper) MakeDirectory(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// GetHarness operation middleware
+func (siw *ServerInterfaceWrapper) GetHarness(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetHarnessParams
+
+	// ------------- Optional query parameter "connect" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "connect", r.URL.Query(), &params.Connect, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "connect"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "connect", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetHarness(w, r, agentId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetNetworkPolicy operation middleware
 func (siw *ServerInterfaceWrapper) GetNetworkPolicy(w http.ResponseWriter, r *http.Request) {
 
@@ -1467,6 +1815,58 @@ func (siw *ServerInterfaceWrapper) AttachSecret(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ListSessions operation middleware
+func (siw *ServerInterfaceWrapper) ListSessions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSessions(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateSession operation middleware
+func (siw *ServerInterfaceWrapper) CreateSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSession(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // StartAgent operation middleware
 func (siw *ServerInterfaceWrapper) StartAgent(w http.ResponseWriter, r *http.Request) {
 
@@ -1538,6 +1938,20 @@ func (siw *ServerInterfaceWrapper) GetEgressCA(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetEgressCA(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListHarnesses operation middleware
+func (siw *ServerInterfaceWrapper) ListHarnesses(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListHarnesses(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1684,6 +2098,226 @@ func (siw *ServerInterfaceWrapper) UpdateSecret(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateSecret(w, r, secretId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteSession operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", chi.URLParam(r, "sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteSession(w, r, sessionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSession operation middleware
+func (siw *ServerInterfaceWrapper) GetSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", chi.URLParam(r, "sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSession(w, r, sessionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RenameSession operation middleware
+func (siw *ServerInterfaceWrapper) RenameSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", chi.URLParam(r, "sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RenameSession(w, r, sessionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CancelSession operation middleware
+func (siw *ServerInterfaceWrapper) CancelSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", chi.URLParam(r, "sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelSession(w, r, sessionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSessionEvents operation middleware
+func (siw *ServerInterfaceWrapper) ListSessionEvents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", chi.URLParam(r, "sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSessionEventsParams
+
+	// ------------- Optional query parameter "after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSessionEvents(w, r, sessionId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AnswerPermission operation middleware
+func (siw *ServerInterfaceWrapper) AnswerPermission(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", chi.URLParam(r, "sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "requestId" -------------
+	var requestId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "requestId", chi.URLParam(r, "requestId"), &requestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "requestId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AnswerPermission(w, r, sessionId, requestId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PromptSession operation middleware
+func (siw *ServerInterfaceWrapper) PromptSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", chi.URLParam(r, "sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PromptSession(w, r, sessionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2339,6 +2973,39 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/agents/{agentId}/egress-log", wrapper.ListEgressLog)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/harnesses", wrapper.ListHarnesses)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/agents/{agentId}/harness", wrapper.GetHarness)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/agents/{agentId}/sessions", wrapper.ListSessions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/agents/{agentId}/sessions", wrapper.CreateSession)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/sessions/{sessionId}", wrapper.DeleteSession)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/sessions/{sessionId}", wrapper.GetSession)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/sessions/{sessionId}", wrapper.RenameSession)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/sessions/{sessionId}/prompt", wrapper.PromptSession)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/sessions/{sessionId}/cancel", wrapper.CancelSession)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/sessions/{sessionId}/permissions/{requestId}", wrapper.AnswerPermission)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/sessions/{sessionId}/events", wrapper.ListSessionEvents)
+	})
 
 	return r
 }
@@ -2897,6 +3564,57 @@ func (response MakeDirectory409JSONResponse) VisitMakeDirectoryResponse(w http.R
 	return err
 }
 
+type GetHarnessRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+	Params  GetHarnessParams
+}
+
+type GetHarnessResponseObject interface {
+	VisitGetHarnessResponse(w http.ResponseWriter) error
+}
+
+type GetHarness200JSONResponse HarnessState
+
+func (response GetHarness200JSONResponse) VisitGetHarnessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetHarness404JSONResponse struct{ ErrorJSONResponse }
+
+func (response GetHarness404JSONResponse) VisitGetHarnessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetHarness409JSONResponse Error
+
+func (response GetHarness409JSONResponse) VisitGetHarnessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetNetworkPolicyRequestObject struct {
 	AgentId AgentId `json:"agentId"`
 }
@@ -3209,6 +3927,93 @@ func (response AttachSecret404JSONResponse) VisitAttachSecretResponse(w http.Res
 	return err
 }
 
+type ListSessionsRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+}
+
+type ListSessionsResponseObject interface {
+	VisitListSessionsResponse(w http.ResponseWriter) error
+}
+
+type ListSessions200JSONResponse []Session
+
+func (response ListSessions200JSONResponse) VisitListSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessions404JSONResponse struct{ ErrorJSONResponse }
+
+func (response ListSessions404JSONResponse) VisitListSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSessionRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+	Body    *CreateSessionJSONRequestBody
+}
+
+type CreateSessionResponseObject interface {
+	VisitCreateSessionResponse(w http.ResponseWriter) error
+}
+
+type CreateSession201JSONResponse Session
+
+func (response CreateSession201JSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSession403JSONResponse struct{ ErrorJSONResponse }
+
+func (response CreateSession403JSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSession404JSONResponse Error
+
+func (response CreateSession404JSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type StartAgentRequestObject struct {
 	AgentId AgentId `json:"agentId"`
 }
@@ -3382,6 +4187,27 @@ func (response GetEgressCA200ApplicationxPemFileResponse) VisitGetEgressCARespon
 		defer closer.Close()
 	}
 	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ListHarnessesRequestObject struct {
+}
+
+type ListHarnessesResponseObject interface {
+	VisitListHarnessesResponse(w http.ResponseWriter) error
+}
+
+type ListHarnesses200JSONResponse []HarnessType
+
+func (response ListHarnesses200JSONResponse) VisitListHarnessesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
 	return err
 }
 
@@ -3667,6 +4493,365 @@ func (response UpdateSecret404JSONResponse) VisitUpdateSecretResponse(w http.Res
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSessionRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+}
+
+type DeleteSessionResponseObject interface {
+	VisitDeleteSessionResponse(w http.ResponseWriter) error
+}
+
+type DeleteSession204Response struct {
+}
+
+func (response DeleteSession204Response) VisitDeleteSessionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteSession403JSONResponse struct{ ErrorJSONResponse }
+
+func (response DeleteSession403JSONResponse) VisitDeleteSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSession404JSONResponse Error
+
+func (response DeleteSession404JSONResponse) VisitDeleteSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSession409JSONResponse Error
+
+func (response DeleteSession409JSONResponse) VisitDeleteSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+}
+
+type GetSessionResponseObject interface {
+	VisitGetSessionResponse(w http.ResponseWriter) error
+}
+
+type GetSession200JSONResponse Session
+
+func (response GetSession200JSONResponse) VisitGetSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSession404JSONResponse struct{ ErrorJSONResponse }
+
+func (response GetSession404JSONResponse) VisitGetSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameSessionRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+	Body      *RenameSessionJSONRequestBody
+}
+
+type RenameSessionResponseObject interface {
+	VisitRenameSessionResponse(w http.ResponseWriter) error
+}
+
+type RenameSession200JSONResponse Session
+
+func (response RenameSession200JSONResponse) VisitRenameSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameSession403JSONResponse struct{ ErrorJSONResponse }
+
+func (response RenameSession403JSONResponse) VisitRenameSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameSession404JSONResponse Error
+
+func (response RenameSession404JSONResponse) VisitRenameSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelSessionRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+}
+
+type CancelSessionResponseObject interface {
+	VisitCancelSessionResponse(w http.ResponseWriter) error
+}
+
+type CancelSession202Response struct {
+}
+
+func (response CancelSession202Response) VisitCancelSessionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(202)
+	return nil
+}
+
+type CancelSession403JSONResponse struct{ ErrorJSONResponse }
+
+func (response CancelSession403JSONResponse) VisitCancelSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelSession404JSONResponse Error
+
+func (response CancelSession404JSONResponse) VisitCancelSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelSession409JSONResponse Error
+
+func (response CancelSession409JSONResponse) VisitCancelSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionEventsRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+	Params    ListSessionEventsParams
+}
+
+type ListSessionEventsResponseObject interface {
+	VisitListSessionEventsResponse(w http.ResponseWriter) error
+}
+
+type ListSessionEvents200JSONResponse []SessionEvent
+
+func (response ListSessionEvents200JSONResponse) VisitListSessionEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionEvents404JSONResponse struct{ ErrorJSONResponse }
+
+func (response ListSessionEvents404JSONResponse) VisitListSessionEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AnswerPermissionRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+	RequestId string    `json:"requestId"`
+	Body      *AnswerPermissionJSONRequestBody
+}
+
+type AnswerPermissionResponseObject interface {
+	VisitAnswerPermissionResponse(w http.ResponseWriter) error
+}
+
+type AnswerPermission204Response struct {
+}
+
+func (response AnswerPermission204Response) VisitAnswerPermissionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type AnswerPermission403JSONResponse struct{ ErrorJSONResponse }
+
+func (response AnswerPermission403JSONResponse) VisitAnswerPermissionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AnswerPermission404JSONResponse Error
+
+func (response AnswerPermission404JSONResponse) VisitAnswerPermissionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PromptSessionRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+	Body      *PromptSessionJSONRequestBody
+}
+
+type PromptSessionResponseObject interface {
+	VisitPromptSessionResponse(w http.ResponseWriter) error
+}
+
+type PromptSession202Response struct {
+}
+
+func (response PromptSession202Response) VisitPromptSessionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(202)
+	return nil
+}
+
+type PromptSession400JSONResponse struct{ ErrorJSONResponse }
+
+func (response PromptSession400JSONResponse) VisitPromptSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PromptSession403JSONResponse Error
+
+func (response PromptSession403JSONResponse) VisitPromptSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PromptSession404JSONResponse Error
+
+func (response PromptSession404JSONResponse) VisitPromptSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PromptSession409JSONResponse Error
+
+func (response PromptSession409JSONResponse) VisitPromptSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -4447,6 +5632,9 @@ type StrictServerInterface interface {
 	// (POST /agents/{agentId}/files/mkdir)
 	MakeDirectory(ctx context.Context, request MakeDirectoryRequestObject) (MakeDirectoryResponseObject, error)
 
+	// (GET /agents/{agentId}/harness)
+	GetHarness(ctx context.Context, request GetHarnessRequestObject) (GetHarnessResponseObject, error)
+
 	// (GET /agents/{agentId}/network-policy)
 	GetNetworkPolicy(ctx context.Context, request GetNetworkPolicyRequestObject) (GetNetworkPolicyResponseObject, error)
 
@@ -4465,6 +5653,12 @@ type StrictServerInterface interface {
 	// (PUT /agents/{agentId}/secrets/{secretId})
 	AttachSecret(ctx context.Context, request AttachSecretRequestObject) (AttachSecretResponseObject, error)
 
+	// (GET /agents/{agentId}/sessions)
+	ListSessions(ctx context.Context, request ListSessionsRequestObject) (ListSessionsResponseObject, error)
+
+	// (POST /agents/{agentId}/sessions)
+	CreateSession(ctx context.Context, request CreateSessionRequestObject) (CreateSessionResponseObject, error)
+
 	// (POST /agents/{agentId}/start)
 	StartAgent(ctx context.Context, request StartAgentRequestObject) (StartAgentResponseObject, error)
 
@@ -4476,6 +5670,9 @@ type StrictServerInterface interface {
 
 	// (GET /egress/ca.pem)
 	GetEgressCA(ctx context.Context, request GetEgressCARequestObject) (GetEgressCAResponseObject, error)
+
+	// (GET /harnesses)
+	ListHarnesses(ctx context.Context, request ListHarnessesRequestObject) (ListHarnessesResponseObject, error)
 
 	// (GET /invites/{token})
 	GetInvite(ctx context.Context, request GetInviteRequestObject) (GetInviteResponseObject, error)
@@ -4497,6 +5694,27 @@ type StrictServerInterface interface {
 
 	// (PATCH /secrets/{secretId})
 	UpdateSecret(ctx context.Context, request UpdateSecretRequestObject) (UpdateSecretResponseObject, error)
+
+	// (DELETE /sessions/{sessionId})
+	DeleteSession(ctx context.Context, request DeleteSessionRequestObject) (DeleteSessionResponseObject, error)
+
+	// (GET /sessions/{sessionId})
+	GetSession(ctx context.Context, request GetSessionRequestObject) (GetSessionResponseObject, error)
+
+	// (PATCH /sessions/{sessionId})
+	RenameSession(ctx context.Context, request RenameSessionRequestObject) (RenameSessionResponseObject, error)
+
+	// (POST /sessions/{sessionId}/cancel)
+	CancelSession(ctx context.Context, request CancelSessionRequestObject) (CancelSessionResponseObject, error)
+
+	// (GET /sessions/{sessionId}/events)
+	ListSessionEvents(ctx context.Context, request ListSessionEventsRequestObject) (ListSessionEventsResponseObject, error)
+
+	// (POST /sessions/{sessionId}/permissions/{requestId})
+	AnswerPermission(ctx context.Context, request AnswerPermissionRequestObject) (AnswerPermissionResponseObject, error)
+
+	// (POST /sessions/{sessionId}/prompt)
+	PromptSession(ctx context.Context, request PromptSessionRequestObject) (PromptSessionResponseObject, error)
 
 	// (GET /version)
 	GetVersion(ctx context.Context, request GetVersionRequestObject) (GetVersionResponseObject, error)
@@ -4841,6 +6059,33 @@ func (sh *strictHandler) MakeDirectory(w http.ResponseWriter, r *http.Request, a
 	}
 }
 
+// GetHarness operation middleware
+func (sh *strictHandler) GetHarness(w http.ResponseWriter, r *http.Request, agentId AgentId, params GetHarnessParams) {
+	var request GetHarnessRequestObject
+
+	request.AgentId = agentId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetHarness(ctx, request.(GetHarnessRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetHarness")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetHarnessResponseObject); ok {
+		if err := validResponse.VisitGetHarnessResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetNetworkPolicy operation middleware
 func (sh *strictHandler) GetNetworkPolicy(w http.ResponseWriter, r *http.Request, agentId AgentId) {
 	var request GetNetworkPolicyRequestObject
@@ -5013,6 +6258,68 @@ func (sh *strictHandler) AttachSecret(w http.ResponseWriter, r *http.Request, ag
 	}
 }
 
+// ListSessions operation middleware
+func (sh *strictHandler) ListSessions(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	var request ListSessionsRequestObject
+
+	request.AgentId = agentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSessions(ctx, request.(ListSessionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSessions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSessionsResponseObject); ok {
+		if err := validResponse.VisitListSessionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateSession operation middleware
+func (sh *strictHandler) CreateSession(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	var request CreateSessionRequestObject
+
+	request.AgentId = agentId
+
+	var body CreateSessionJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateSession(ctx, request.(CreateSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateSessionResponseObject); ok {
+		if err := validResponse.VisitCreateSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // StartAgent operation middleware
 func (sh *strictHandler) StartAgent(w http.ResponseWriter, r *http.Request, agentId AgentId) {
 	var request StartAgentRequestObject
@@ -5106,6 +6413,30 @@ func (sh *strictHandler) GetEgressCA(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetEgressCAResponseObject); ok {
 		if err := validResponse.VisitGetEgressCAResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListHarnesses operation middleware
+func (sh *strictHandler) ListHarnesses(w http.ResponseWriter, r *http.Request) {
+	var request ListHarnessesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListHarnesses(ctx, request.(ListHarnessesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListHarnesses")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListHarnessesResponseObject); ok {
+		if err := validResponse.VisitListHarnessesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -5289,6 +6620,211 @@ func (sh *strictHandler) UpdateSecret(w http.ResponseWriter, r *http.Request, se
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateSecretResponseObject); ok {
 		if err := validResponse.VisitUpdateSecretResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteSession operation middleware
+func (sh *strictHandler) DeleteSession(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
+	var request DeleteSessionRequestObject
+
+	request.SessionId = sessionId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteSession(ctx, request.(DeleteSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteSessionResponseObject); ok {
+		if err := validResponse.VisitDeleteSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSession operation middleware
+func (sh *strictHandler) GetSession(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
+	var request GetSessionRequestObject
+
+	request.SessionId = sessionId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSession(ctx, request.(GetSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSessionResponseObject); ok {
+		if err := validResponse.VisitGetSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RenameSession operation middleware
+func (sh *strictHandler) RenameSession(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
+	var request RenameSessionRequestObject
+
+	request.SessionId = sessionId
+
+	var body RenameSessionJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RenameSession(ctx, request.(RenameSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RenameSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RenameSessionResponseObject); ok {
+		if err := validResponse.VisitRenameSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CancelSession operation middleware
+func (sh *strictHandler) CancelSession(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
+	var request CancelSessionRequestObject
+
+	request.SessionId = sessionId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CancelSession(ctx, request.(CancelSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CancelSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CancelSessionResponseObject); ok {
+		if err := validResponse.VisitCancelSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSessionEvents operation middleware
+func (sh *strictHandler) ListSessionEvents(w http.ResponseWriter, r *http.Request, sessionId SessionId, params ListSessionEventsParams) {
+	var request ListSessionEventsRequestObject
+
+	request.SessionId = sessionId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSessionEvents(ctx, request.(ListSessionEventsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSessionEvents")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSessionEventsResponseObject); ok {
+		if err := validResponse.VisitListSessionEventsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AnswerPermission operation middleware
+func (sh *strictHandler) AnswerPermission(w http.ResponseWriter, r *http.Request, sessionId SessionId, requestId string) {
+	var request AnswerPermissionRequestObject
+
+	request.SessionId = sessionId
+	request.RequestId = requestId
+
+	var body AnswerPermissionJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AnswerPermission(ctx, request.(AnswerPermissionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AnswerPermission")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AnswerPermissionResponseObject); ok {
+		if err := validResponse.VisitAnswerPermissionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PromptSession operation middleware
+func (sh *strictHandler) PromptSession(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
+	var request PromptSessionRequestObject
+
+	request.SessionId = sessionId
+
+	var body PromptSessionJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PromptSession(ctx, request.(PromptSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PromptSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PromptSessionResponseObject); ok {
+		if err := validResponse.VisitPromptSessionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -5756,76 +7292,94 @@ func (sh *strictHandler) CreateSecret(w http.ResponseWriter, r *http.Request, wo
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"AAD//w==",
+	"3D1rUxu5ln/lVO9WJbnl2CRh586aurXFkMwd7oYZCpLJh0DNlbuPbQ3dUo+kNrCU//uWHv202u4GY0g+",
+	"YbvV0nm/dCTugpAnKWfIlAzGd0FKBElQoTDfDmfI1HGkP1IWjIOUqHkwCBhJMBgHxD0dBAL/yqjAKBgr",
+	"keEgkOEcE6JfU7epHiqVoGwWLJeD4BylpJy1ziqL5/3m/cLFlUxJiK0zX1dG9Jl7qQfLlDOJhiofhOBC",
+	"fwg5U8iU/kjSNKYhUZSz0Z+SM/1bOeN/CpwG4+A/RiWxR/apHNnZzCoRylDQVE8SjO0yQ4ObG1uwxHBK",
+	"8BSFohamMM1kBXaWJRMUwXIQhAKJwujQvDPlIiEqGAcRUfha0QSDQRNd80qETFESy2N2Tlg04Tf67Tp4",
+	"hzAngqGUEPMZZXBNJGj0YlQYAWWSRghqjiDtDAfmi5EZCAkDgSQCqiTwawaVJYclSBPOYyRMw+TW8rBn",
+	"ENCo5ecYTyjLFFZfo0zhzJKGJmSG3lcTTLi4PZnUaEaZ+mG/BK4yUcIjjL0TWcnzPUCM5BlOMhpHq7Q9",
+	"1pABFyBQ8kyEKCGcEzbDCCRlYY2uhvB6HuWnHL9mKDYJ4WdpMUlRJNTo3ymPaXir30OWJcH4a0AyxV+T",
+	"NBV8ocWGyKvg0iM9gse4aTkjxGd6oBZuRdTGN5wYnpux+UtHliZ9ZNu8VyjwyuMsjfpqy3Xd7qwaptLQ",
+	"fNWiOmjYISMiOZtyoSwFPpcuD29aNHVgjUFFiuu6kFO8RowVijZE1PG1ak+q1CoFgU/+xFBpwljnwdKs",
+	"j7mq6HldJX5xxoZG8FIiwsiNRPlqCO9xSrJYQRiTLMLXIY9w6ONVwyQk5IYmWrjf7O39uDcIEsrc98E6",
+	"c1EH7LejYzCPCjAkKG41FMUCxQsJkYPPjvNBtnWLk5Cbj8hmam6wM7gV3z3rP1jxG4JuwGiVilOiwvl3",
+	"JhXfJUv97DtzJj6fbUHx2hgvzUyijDkhUUKZ10EcKkXCOUbnGAr02AZki9+J3zzL4pW1vsKOaoqke3mQ",
+	"L+CVzkzNT1DNeXTMpnwVtpr0dQ9FWsMA+0NTqi8CpXnHSHwRjEFkDKgCyioBVP4cXuaf/odkav6Pi2xv",
+	"711II/MXX3nE3eeQnAuqAuHea6PRqeALGtm4ok6h+1IglyVOozAYBDOq5tlks52pwt8K8ZH1WcdsQW2k",
+	"QeL4t2kw/rpejtz45aCJo+JX6Od/JuJVdn6k7Eq7BDknAuGaqrnhJDXT42Ye2eXs5KvoXS4HwXsqPlKp",
+	"9MsedVIi543CRG7Snp9pjB+YErcldwIiBDHfTUK1mgpMJI8zhaAfA58a9CIqMFRc3G5G0KVpOaQ+Fn6Y",
+	"CZTyw8Kb/JA45tdYFbxK/Et6xHKTW4XyPb9mHW22Gf857Tg6yoRJEE9kxxfmXKo1ZqbDDJRpAraRhqbe",
+	"2a8oi6oqOVcq1WGj/qtXifUXFerPEZNeG58YG+qdPReh1QdcKH+iJpDIFoOro9bMm9/5DAXR5t+g54hr",
+	"aOCWLqAe5ALpJh8UAlaAUqFsKQVV+alx2yvQeQ7S0NaW1KSBjR3mm7dU31XTLN9T0SIJUhsp/7OER5+o",
+	"td7dtEhHMv2cgKT/h50k2hdlutfdugOHZoFTiYCPXC6APM9z0IZh0c721zaozdPfUci2aIAU0UR389uI",
+	"QDw2OOSMrVHqdZWSmJPI1d98LzeoW6ag5ZKDCk0aFKhPX8d+Dek/uQCgUxhBmVQkjn+hTPWUMBP8nQqU",
+	"qOrMaIlIcnqviTfqc9aB8yFcxh+NtOdeJTr9yk+3XgwwIdSfSuBNSgXKPku1cEI0cgAb75usRydt3QI3",
+	"V1Ow8NZrCyWkVWzbydpSaChI0SiwTUGiGgBn8S0QyCSKPDCjEsxLpkhJwhBT5c0aHYDH7BeeCU9qWi0G",
+	"vPnhR3j5d4jIrTQxeZFi/v3txgTzoYQ277fT7VSgTt98QZVAEt2e2GW8puY+0mQWbRPc3rhuKr9VnreY",
+	"8Qa16rW5+suFvJZI1OW0TjIfzU886p+ikJyR+MsGTLSQdqvjNnAyLw686/hhzDleh/NPTlk/K9WlFFxA",
+	"k5eDH4qm41EBrQ/FX1Fp1pZ1EU8+sarRH2x+AjG9QrhwKeow5MlFMICL4G9DliZ/yiEXM/tDOWD89q39",
+	"SQed47/Zz2+Gb4fvhnujt/vj/f13F8EQvlA155kCAjogHcOPe0BYBPv777TR6OqxygCsyKlTkz8atGIq",
+	"1Waj4UIpSwgfBV2x+SNNqNs4bNRJjPE7aivouefHrcUzN+CkXw0tEnSB/tJRQm5aoUnITa+FGsSqITOo",
+	"4b6KSAlJfd0C+DXULqLUnLHGMWoETa4i3EeRMZb/yNPUfYwR3Udha/r2S4RSCX5rvzTTipJ8bcW6kLAT",
+	"wupcrHiIe4Q2fQtI/fa3YhLinMeudFXX7y9zovJdNZQgEUGHdEiivKaxIHHmryGLbLOpszQ8y5yde7Kt",
+	"JgNrnRbl/lPJ0D57PRa1lhjsvvVrE1ivsumzRG0hzdMXEjQ2W2KJYa+BdB1k/hzUvttOm5Ytj3vS5hFx",
+	"a4O/4Ea/iviaan5fTe+L9JrUzamAA65e+m7n4ZkDoE6BOZKoxelod+9JDT7ckFCBfggaHglcmPgBb0iS",
+	"xmhDin4uX2GSxs47NLbIDHjWdB3A3d3wd/1puQQq3SalRm0IP2cs1K+MYUIk/rC/uWxrsRvkBKgA4Sdh",
+	"UXfwFFlaYt6HpsZdfEJbguu8qNevKapi3E4HgbdOWXRW2YWqPr3Er5+BNtRvK6D3oG9ElOlpIlFEtbyQ",
+	"+LQyl+2lWlle4l8dQzj/jlgqeJKqMdwpvFEDk6/f0WigtWe5PACL+xgIg8OjU3DIfja/XrCXEdVzJZRp",
+	"AsHkFi7yLjM3JHh1AOV26RjuNEdQquNocMEU5/ERieMBcAOO/HpnPxxbAAZXlEXLywGkJp1YHlywcq4/",
+	"BEoeLzCqTQrFBDC5XR6AygT7A1k0vmB3OmY7M1Xm5QGYgGzEuKIhjuEuQSnJDJfDC2asl40CLXEKEai1",
+	"itS+FMBoyrsli6hvENhlvOGfJniXoEPz2ZXZzUAnLj6J/Cx9SSZZEEXEZxH3LGz18yU+ncuLUM5DlID4",
+	"gK9UfRvxME8S6q9NLlorxQ1wFkVB1c3mg6DIm7dST+zrivNagt863iPvX+Ori7U8PUhrKbPNcLRre0sd",
+	"rWoO7uLrLuU7iWEmqLo917SyQMvSe5rO1pDzK4qNXlwdzP8hiwJ8HiOk9H/x1naYUtfVULeuZx/OP8Hh",
+	"6XGe5hSTuQ6mIfwk+LVEAWFMNReBZGqOTNGQqHJH+4K5tcFCBxKVtrZ6StsjOo359RAO49jsFEsgAiFj",
+	"OjwZkZSOFm+sYXPetURKAxdUNCjYG74Z7pnsL0VGUhqMg3fDveE7t3dnSDYyr8vRnfOmS4t4jL4o6b1N",
+	"g2Wts5Iw26E65wnCgsdZggM9oNKJMYSzjMm8OWNCwquZ4BmLhkU3jOt1Dt6blW37bqOh+O3e2xaIMhOS",
+	"gUnuMRpqjPf33rXpVjFp3lSsR+/3Gv3fnUdrX01m0pRpDaGDy+UgmNkcoY76P1G14L23tTZqu4CnjfpT",
+	"waq+9PBjWO2Qb2kgKYeM8g765aWRzHDe1uyrZS3v9nXNvhIUuULA6RRDBWSqUAABV72x/W7/rjZp/vvV",
+	"qtTZAKekvolAfuLR7XYJb7PbZd1M6lhw+RQst0jn6rLXSwEeS7l8wrQcrBqpEZpOl9cxN6mHV58+Uqls",
+	"Q8xHPgtWRLJh3FGHeuCaa8DUe0DNCbN7XdSYKuNT/spQ3JYuZYJTLsw+Z8GNDpXRO+9cMdVxTHWqYgvs",
+	"v/Y2bIFp1XmQDHXad682GK1uAq+I2K94jVLBlAr5IMNiuf0gw+KVoimN8/pM7vB87uhnakuB9aV9HHQt",
+	"MT1O5PjnETq2kXRRF6yVToRVnu/7XKQ5bPKs9PzeTtRyrOJDm02EUgGpdNXBGcZE0QVWYimR/6Q4jHTU",
+	"MnJBSuEEIcmkggmCKyisegy90M8Glj5y0S4Hl4/oASp9jx4dfZ/TCmI76F6CslPWb98GjCqE9jqT9/ya",
+	"xZxEzhT04BUPFarXUgkkSZ1nhZ+YUEaMtHjO1NWZpZcHt9B3y6fBlmyrDiYzj5Gwjc724JjZ3gECGmh4",
+	"mXfmg06hXw3hhEpJ2QxSIrRVyM2KjhC0IXEZti+erMlKl3DygWKyKZ70+IUvgiqF7PvyC2tUPLmKbGPn",
+	"A3IT12pc5/YJucLCij4gf2g0vPg7gH1N4asllnuKxFEu0N+9SFT6P72BRBEKvJD5CV7beQKuy/Mfmqim",
+	"nJEf8KUyr0DAy2type1GUQB5pWONiMqQL1C4Mo/to5ar1uOfqH4pmko7BBcOor6h4vYCjFp7sMdr5efP",
+	"zOHJ4c4EwNXZHiFmYLYz6nVatEa1VXTqPVSPyIP6QusqPC8kOPjdXswTZ2YtXvoTuUKZl3WuqZpTBhJD",
+	"ziI5MN9tD5hAo3SrWnTuI/72Czseuu+utrOR6edk8XwrPIXseHVMlMf+t+2wXSVwXZX5cUtvZ0VvGUwF",
+	"T4yfCDNhgky6UuiU9lKISn1d+5or03L9zEvdXs7aXgq5tnBnSHfuBu6istU4b9uhuOWgA+LezM+zP7iM",
+	"ntNn627LTTy6sx9WNnuatS+N13l+HrhLockSYrgzC7IFSg1artexBNpKvmlFC4hrIoKXtsZk9jgPKt1F",
+	"L8wtLyh0ZkqgaEq0A18NL9ixOU1HObMPgSYJRpQojG8PgBSXnyBbUMFZohdZEEHJJEYwWyDlxojdQqwz",
+	"3MJZYfg20piys61OlN9zwNScKJjzOLK7ipV+y3y/0G00+lut7pH4bHFvpWE0Vo1EPuK5+uBSg1oshguh",
+	"19nq83zQLux03iDXyUBbuAaQcKlAYIhMxbdAQlP9ffCuxFbyi7YYxabi5TnB7Whj0ZFXaet4u7fXSbFW",
+	"FenN1hSp4OoqF+s1iZ2oRMFWv07ofOMxwtJzPfHTBaXn7mzENxpUKp4+DlN4+pQ8sUdT7N7Ud5MB5Nex",
+	"PIRhZuJMzUchieMJCa9Gd6m7b0WHtcVjU2xrf8ZNxFb8kg/bkJ1ULnfZUXpSvU6mg+874mxKZ5kwd+HN",
+	"2GvKoEBtWGufC8ZfLyt8y9Tccc2m56OQDFNM1hZK3ZFug+ALCfZFODqEUHueqe1/e6lEJiuXHhZHiF55",
+	"K6C20+DosB91b16nmLyeUuvk1l5WWUfj9MNJFdphe6GiuDtrrYT8UozahXRULwnoIByHC0JjE3wXyAzX",
+	"uUB7kleO7swdO8t19U53ev8RY+76gWwPduaAmj2SbmvwVLpbhOCaZ3EEEX9I1OeI4Qv6PIlkfitRjyzS",
+	"Q/GRRcdjLrezZJvzOzTLPj5PyzZtDz//Zc4oD8G2aNkssUiOn6v/K6VEs9O2UrfpzMmj0vYE23YDtGPA",
+	"SLuGTKJwlHxzL29feg1n1kdxcea5De364ehHpEB9IV8LTH4JBWERWMBhyoXrBSoc1bA9wskra2l5dcqa",
+	"dLl+IcoucubK2cQO/qGsM4ksRneI1JIk5EnCV2IJfzWhb7lR/96r3GgvUdZMi1zp0ZbTSRxb3slnUYrc",
+	"Zn0xb4729S8/uHLXQYaeooO5vbr2zFuYm+pggyqtD+7y9k4KUVaA+nV6PjufWKuXtXqFNnz3dlFsMm7R",
+	"Pn6iymB58f8afT9DbUd2Vhzsc+bLTnL5xIX5NSy2tHu6eqLPDIxCwkK8RzmkIS3+SrKZu1WvPIeq7Bs2",
+	"nwcnW9+EWWmlLy7yf93hLWKcKy4wAjuqOEMUZkJyMYSfuYCYLtAdoJY6XLYbU6Zb098cXj1K3rGPy6y7",
+	"i5Mkz+IoSe2sfYeg1FISKAMuoiJdeUrz3Cpt5VlyOSrPsy8fpN7+fepi8i3l+0xeozitnovfjmvJT/Jv",
+	"bmgtRm6tqdUi9dwsvruOYEsW37OTA8RcmLDa1P7FNNaVt6TTKVAF5uYrOYRTwW35lghBFyiB2014Yxtb",
+	"Ld6pwWbrAQneqL4XDZl37ic7b/3VbUPF+tnib7wzuot8licRHmYgK/c5tIX85dW4jxYP5kt4/MpP5pww",
+	"ZdbX2sC/dXskQUUc1YoS5Ppqz5dy2C68aqWSutmllrAZFTf3u1IJBOy1C8Cn9fJOBWXjOdc0LpRwPE45",
+	"onF9RSf9frObenXesGC2bEMSxyhggiFPUOb/yasIX/buo741NtRFcXRXucuuQ3WhzqZvvL7QEM82c7MG",
+	"5x3taHzy7GDsbwHjfpa6esPtxtric9TnHXHrmRcZO1sD14bRmgSb1orikpay/dQ0aKrSloWEgbT/kaWl",
+	"b3tHLRGzjpnjYXUrYLcXm6zo2BqX+ejXjzyJq2xtbaq5yfwuISrt1pIO1kyryMqFQY965rlte69VpfJt",
+	"3nUR4LEbswudKP4Z00alOEVmzp84DHaXHK/pn9iiMlV6FravTdX/pbBjdar/k65NamVaQbRSmf/gIEwD",
+	"BUbAWRF2PDt3Vm+c2KR4ozv7YUOwe4YLfoVtfSyeSNe+EH1zWuGvEuY06t+H1Ep/myGuN3wnbswuDJ/7",
+	"dwwdDJ+DKr/F77nF4V2oPrqzN42uvavvDBO+wCKZH0KOeEK0KTAP1RwTifECJbyMkSzQ04tp53H07aY7",
+	"+oVvJUvcurK5S2C32dhRIf42yqoPv3i05b/l7DZpy1V+U8b2vCVwrb6vnpT1H0FtZGf2RCq8VHOkAvg1",
+	"OzAtUdbiJaaPq3G6UL4agrnx3F5sw3CBoogX2jY4d3c4t/eh3Kc5ftsnQN1Bs9aTBKjtzVoPuVxmJ5si",
+	"RbNWvfxfuVb466Vmq73u10qE+Ve2gbuX1zDdzddU1fxuYIH2FqkiAKne+fsrV/Cv899+BWRRyqmpWpTt",
+	"AZmav9bjjOep/Fj9XrEtlV/z6LL6os1vK7/Y+3IqPxTbRLXfLJUqP7nTEfqXxvYCTs55eIWqgo5BcYZM",
+	"KwRGQKTFd05YFJt20rJF0mxA1VYyuy/Ly+X/BwAA//8=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

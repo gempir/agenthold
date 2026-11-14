@@ -86,7 +86,13 @@ func (a *API) terminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	agentID := chi.URLParam(r, "agentId")
-	if _, err := a.authz.Agent(r.Context(), u.ID, agentID, authz.AgentTerminal); err != nil {
+	authMethod := r.URL.Query().Get("auth")
+	action := authz.AgentTerminal
+	if authMethod != "" {
+		action = authz.AgentAuthLogin
+	}
+	acc, err := a.authz.Agent(r.Context(), u.ID, agentID, action)
+	if err != nil {
 		writeError(w, r, err)
 		return
 	}
@@ -113,7 +119,17 @@ func (a *API) terminal(w http.ResponseWriter, r *http.Request) {
 	}
 	cols, _ := strconv.Atoi(r.URL.Query().Get("cols"))
 	rows, _ := strconv.Atoi(r.URL.Query().Get("rows"))
-	term, err := s.PTY(ctx, tunnel.Open{Cols: uint16(max(cols, 0)), Rows: uint16(max(rows, 0))})
+	open := tunnel.Open{Cols: uint16(max(cols, 0)), Rows: uint16(max(rows, 0))}
+	if authMethod != "" {
+		status("Starting the harness login…")
+		cmd, env, err := a.loginCommand(auth.WithUser(ctx, u), acc.Row.Agent, authMethod)
+		if err != nil {
+			fail(err)
+			return
+		}
+		open.Cmd, open.Env = cmd, env
+	}
+	term, err := s.PTY(ctx, open)
 	if err != nil {
 		fail(err)
 		return
@@ -125,6 +141,10 @@ func (a *API) terminal(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer close(done)
 		code, err := term.ReadOutput(wsWriter{ctx: ctx, ws: ws})
+		if err == nil && code == 0 && authMethod != "" {
+			// The harness stored a login on the agent's disk.
+			_ = a.Store.MarkCredentialsInSandbox(context.WithoutCancel(ctx), agentID)
+		}
 		if err != nil && ctx.Err() == nil {
 			_ = wsjson.Write(ctx, ws, termMsg{Type: "error", Message: "the terminal connection was lost"})
 		} else {

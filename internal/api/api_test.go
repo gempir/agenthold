@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -20,10 +23,13 @@ import (
 	"github.com/gempir/agenthold/internal/auth/authtest"
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/egress"
+	_ "github.com/gempir/agenthold/internal/harness/claude"
+	fakeharness "github.com/gempir/agenthold/internal/harness/fake"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
 	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/server"
+	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/tunnel"
 )
@@ -38,6 +44,23 @@ type env struct {
 	hub       *tunnel.Hub
 	directory *egress.Directory
 	store     *store.Store
+	sessions  *session.Manager
+}
+
+func TestMain(m *testing.M) {
+	// The scripted ACP agent runs as each fake sandbox's harness.
+	dir, err := os.MkdirTemp("", "fakeagent")
+	if err != nil {
+		panic(err)
+	}
+	bin := filepath.Join(dir, "fakeagent")
+	if out, err := exec.Command("go", "build", "-o", bin, "github.com/gempir/agenthold/internal/harness/fakeagent").CombinedOutput(); err != nil {
+		panic(string(out))
+	}
+	fakeharness.Command = bin
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
 }
 
 func newEnv(t *testing.T) *env {
@@ -89,10 +112,18 @@ func newEnv(t *testing.T) *env {
 	}
 	e.directory = &egress.Directory{Store: st, Box: box}
 	e.store = st
+	e.sessions = session.NewManager(st, nil, nil)
 	a := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Tunnel: e.hub, Limits: cfg.Sandbox,
-		Box: box, Egress: e.directory, CA: ca,
+		Box: box, Egress: e.directory, CA: ca, Sessions: e.sessions, ShowTestHarness: true,
 	})
+	e.sessions.SetWaker(a.Wake)
+	e.sandboxes.OnChange(func(agentID string, p sandbox.Phase) {
+		if p == sandbox.PhaseStopping || p == sandbox.PhaseDestroying {
+			e.sessions.Disconnect(agentID)
+		}
+	})
+	t.Cleanup(e.sessions.Close)
 	handler = server.New(server.Config{
 		Web: fstest.MapFS{"index.html": {Data: []byte("app")}},
 		API: a.Mount,

@@ -7,7 +7,9 @@ import (
 
 	"github.com/gempir/agenthold/internal/api/gen"
 	"github.com/gempir/agenthold/internal/authz"
+	"github.com/gempir/agenthold/internal/harness"
 	"github.com/gempir/agenthold/internal/id"
+	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store/db"
 )
 
@@ -30,7 +32,9 @@ func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role aut
 		Harness: ag.Harness, Cpus: float32(ag.Cpus), MemoryMb: ag.MemoryMb, IdleMinutes: int(ag.IdleMinutes),
 		State: gen.SandboxState(sb.State), StateError: sb.Error, StateChangedAt: ts(sb.StateChangedAt),
 		NeedsRebuild: a.Sandboxes.NeedsRebuild(ag, sb), Role: gen.AgentRole(role),
-		CreatedAt: ts(ag.CreatedAt), UpdatedAt: ts(ag.UpdatedAt),
+		Model: ag.Model, PermissionPolicy: gen.AgentPermissionPolicy(ag.PermissionPolicy),
+		CredentialsInSandbox: ag.CredentialsInSandbox == 1,
+		CreatedAt:            ts(ag.CreatedAt), UpdatedAt: ts(ag.UpdatedAt),
 	}, nil
 }
 
@@ -40,6 +44,9 @@ type agentSettings struct {
 	cpus        float64
 	memoryMB    int64
 	idleMinutes int64
+	harness     string
+	model       string
+	policy      string
 }
 
 func (a *API) validateSettings(s *agentSettings) error {
@@ -62,6 +69,22 @@ func (a *API) validateSettings(s *agentSettings) error {
 	}
 	if s.idleMinutes < 1 || s.idleMinutes > 10080 {
 		return badRequest("idleMinutes must be between 1 and 10080")
+	}
+	if s.harness == "" {
+		s.harness = "claude-code"
+	}
+	if _, ok := harness.Get(s.harness); !ok {
+		return badRequest("unknown harness")
+	}
+	s.model = strings.TrimSpace(s.model)
+	if len(s.model) > 100 || strings.ContainsAny(s.model, " \t\n") {
+		return badRequest("invalid model")
+	}
+	if s.policy == "" {
+		s.policy = session.PolicyAutoApprove
+	}
+	if s.policy != session.PolicyAutoApprove && s.policy != session.PolicyAsk {
+		return badRequest("permissionPolicy must be auto-approve or ask")
 	}
 	return nil
 }
@@ -114,6 +137,15 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 	if b.IdleMinutes != nil {
 		s.idleMinutes = int64(*b.IdleMinutes)
 	}
+	if b.Harness != nil {
+		s.harness = *b.Harness
+	}
+	if b.Model != nil {
+		s.model = *b.Model
+	}
+	if b.PermissionPolicy != nil {
+		s.policy = string(*b.PermissionPolicy)
+	}
 	if err := a.validateSettings(&s); err != nil {
 		return nil, err
 	}
@@ -123,9 +155,12 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 	err := a.Store.Tx(ctx, func(q *db.Queries) error {
 		if err := q.CreateAgent(ctx, db.CreateAgentParams{
 			ID: agentID, WorkspaceID: req.WorkspaceId, OwnerID: u.ID, Name: s.name, Image: s.image,
-			Harness: "claude-code", Cpus: s.cpus, MemoryMb: s.memoryMB, IdleMinutes: s.idleMinutes,
+			Harness: s.harness, Model: s.model, Cpus: s.cpus, MemoryMb: s.memoryMB, IdleMinutes: s.idleMinutes,
 			CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
+			return err
+		}
+		if err := q.SetPermissionPolicy(ctx, db.SetPermissionPolicyParams{PermissionPolicy: s.policy, UpdatedAt: now, ID: agentID}); err != nil {
 			return err
 		}
 		var err error
@@ -167,8 +202,20 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 		return nil, err
 	}
 	ag := acc.Row.Agent
-	s := agentSettings{name: ag.Name, image: ag.Image, cpus: ag.Cpus, memoryMB: ag.MemoryMb, idleMinutes: ag.IdleMinutes}
+	s := agentSettings{
+		name: ag.Name, image: ag.Image, cpus: ag.Cpus, memoryMB: ag.MemoryMb, idleMinutes: ag.IdleMinutes,
+		harness: ag.Harness, model: ag.Model, policy: ag.PermissionPolicy,
+	}
 	b := req.Body
+	if b.Harness != nil {
+		s.harness = *b.Harness
+	}
+	if b.Model != nil {
+		s.model = *b.Model
+	}
+	if b.PermissionPolicy != nil {
+		s.policy = string(*b.PermissionPolicy)
+	}
 	if b.Name != nil {
 		s.name = *b.Name
 	}
@@ -192,6 +239,15 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 		UpdatedAt: a.Now().Unix(), ID: ag.ID,
 	}); err != nil {
 		return nil, err
+	}
+	if err := a.Store.SetPermissionPolicy(ctx, db.SetPermissionPolicyParams{PermissionPolicy: s.policy, UpdatedAt: a.Now().Unix(), ID: ag.ID}); err != nil {
+		return nil, err
+	}
+	if s.harness != ag.Harness || s.model != ag.Model {
+		if err := a.Store.SetAgentHarness(ctx, db.SetAgentHarnessParams{Harness: s.harness, Model: s.model, UpdatedAt: a.Now().Unix(), ID: ag.ID}); err != nil {
+			return nil, err
+		}
+		a.Sessions.Disconnect(ag.ID) // the next prompt starts the new harness
 	}
 	g, err := a.reloadAgent(ctx, ag.ID, acc.Role)
 	if err != nil {

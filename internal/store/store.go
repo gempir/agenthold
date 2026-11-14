@@ -7,6 +7,7 @@ import (
 	"embed"
 	"fmt"
 	"net/url"
+	"time"
 
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite" // cgo-free SQLite driver
@@ -78,3 +79,8 @@ func (s *Store) Tx(ctx context.Context, fn func(q *db.Queries) error) error {
 
 // Close closes the database.
 func (s *Store) Close() error { return s.DB.Close() }
+
+// RenameAgentSessionTitle sets a session's title.
+func (s *Store) RenameAgentSessionTitle(ctx context.Context, id, title string) error {
+	return s.RenameSession(ctx, db.RenameSessionParams{Title: title, UpdatedAt: time.Now().Unix(), ID: id})
+}

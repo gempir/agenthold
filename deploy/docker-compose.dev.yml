@@ -20,6 +20,9 @@ services:
       - sandboxd-bin:/var/lib/agenthold/bin
     environment:
       AGENTHOLD_CONFIG: /src/deploy/dev/agenthold.yaml
+      # "off" serves the embedded production build of the UI instead of Vite
+      # (build it first: make web). CI does this.
+      AGENTHOLD_DEV_PROXY: "${AGENTHOLD_DEV_PROXY:-}"
       GITHUB_CLIENT_ID: "${GITHUB_CLIENT_ID:-}"
       GITHUB_CLIENT_SECRET: "${GITHUB_CLIENT_SECRET:-}"
     # The egress firewall (nftables in the server's own network namespace).

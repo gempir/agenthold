@@ -2,6 +2,7 @@
 data_dir: /data
 public_url: http://localhost:8080
 dev_proxy: http://web:5173
+test_harness: true
 auth:
   providers:
     - id: keycloak

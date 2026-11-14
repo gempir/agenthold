@@ -197,7 +197,7 @@ func run() error {
 	apiSrv := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Tunnel: hub, Limits: cfg.Sandbox,
 		Box: box, Egress: directory, CA: ca, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner,
-		ShowTestHarness: cfg.Sandbox.Driver == "fake" || cfg.DevProxy != "",
+		ShowTestHarness: cfg.TestHarness || cfg.Sandbox.Driver == "fake",
 	})
 	sessions.SetWaker(apiSrv.Wake)
 

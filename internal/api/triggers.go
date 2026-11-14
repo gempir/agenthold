@@ -49,6 +49,10 @@ func (a *API) ListTokens(ctx context.Context, _ gen.ListTokensRequestObject) (ge
 
 // CreateToken implements gen.StrictServerInterface.
 func (a *API) CreateToken(ctx context.Context, req gen.CreateTokenRequestObject) (gen.CreateTokenResponseObject, error) {
+	if auth.ViaToken(ctx) {
+		// A token must not be able to outlive its own revocation.
+		return nil, errStatus(http.StatusForbidden, "tokens can only be created when signed in, not with another token")
+	}
 	name := strings.TrimSpace(req.Body.Name)
 	if name == "" || len(name) > 100 {
 		return nil, badRequest("name must be 1 to 100 characters")
@@ -418,6 +422,7 @@ func openAPI(w http.ResponseWriter, _ *http.Request) {
 // apiDocs is a reference page for the API, rendered from the OpenAPI document.
 func apiDocs(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com https://cdn.jsdelivr.net data:; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'")
 	_, _ = io.WriteString(w, `<!doctype html>
 <html lang="en">
 <head>

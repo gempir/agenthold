@@ -3,3 +3,5 @@ dist/*
 !dist/.gitkeep
 *.tsbuildinfo
 .pnpm-store
+test-results
+playwright-report

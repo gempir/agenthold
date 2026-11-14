@@ -10,6 +10,7 @@ import (
 	"github.com/gempir/agenthold/internal/api/gen"
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
+	"github.com/gempir/agenthold/internal/harness"
 	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/tunnel"
 )
@@ -76,15 +77,31 @@ func (a *API) ListFiles(ctx context.Context, req gen.ListFilesRequestObject) (ge
 // DownloadFile implements gen.StrictServerInterface. The file is streamed:
 // the response starts once sandboxd reports the size.
 func (a *API) DownloadFile(ctx context.Context, req gen.DownloadFileRequestObject) (gen.DownloadFileResponseObject, error) {
-	s, err := a.connected(ctx, req.AgentId, authz.AgentRead)
+	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentRead)
 	if err != nil {
 		return nil, err
+	}
+	s, err := a.session(req.AgentId)
+	if err != nil {
+		return nil, err
+	}
+	// Viewers cannot open a terminal, so this is their only way to read files:
+	// keep harness logins and sandboxd's boot file out of reach. (Operators can
+	// read them in the terminal; such agents are marked credentialsInSandbox.)
+	var deny []string
+	if !authz.CanAgent(acc.Role, authz.AgentTerminal) {
+		deny = append(deny, "/etc/agenthold")
+		if ad, ok := harness.Get(acc.Row.Agent.Harness); ok {
+			for _, p := range ad.CredentialPaths() {
+				deny = append(deny, "~/"+p)
+			}
+		}
 	}
 	pr, pw := ioPipe()
 	sizeCh := make(chan int64, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		err := s.ReadFile(ctx, req.Params.Path, func(n int64) { sizeCh <- n }, pw)
+		err := s.ReadFile(ctx, req.Params.Path, func(n int64) { sizeCh <- n }, pw, deny...)
 		_ = pw.CloseWithError(err)
 		errCh <- err
 	}()

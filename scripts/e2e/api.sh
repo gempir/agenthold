@@ -9,7 +9,7 @@ echo "token ${TOKEN:0:10}…"
 T() { curl -s -H "Authorization: Bearer $TOKEN" -H content-type:application/json "$@"; }
 
 WS=$(T "$BASE/api/v1/me" | json 'd["personalWorkspaceId"]')
-AG=$(T -X POST "$BASE/api/v1/workspaces/$WS/agents" -d '{"name":"e2e-api","image":"agenthold/base:dev","harness":"fake","memoryMb":512}' | json 'd["id"]')
+AG=$(T -X POST "$BASE/api/v1/workspaces/$WS/agents" -d '{"name":"e2e-api","image":"'"$IMG"'","harness":"fake","memoryMb":512}' | json 'd["id"]')
 for _ in $(seq 1 90); do [[ $(T "$BASE/api/v1/agents/$AG" | json 'd["state"]') == running ]] && break; sleep 1; done
 SES=$(T -X POST "$BASE/api/v1/agents/$AG/sessions" -d '{}' | json 'd["id"]')
 T -X POST "$BASE/api/v1/sessions/$SES/prompt" -d '{"text":"hello from a script"}' >/dev/null

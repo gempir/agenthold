@@ -170,6 +170,13 @@ func Parse(data []byte, cfg *Config) error {
 		if k == "$" {
 			return "$"
 		}
+		// ${VAR:-default}
+		if name, def, ok := strings.Cut(k, ":-"); ok {
+			if v := os.Getenv(name); v != "" {
+				return v
+			}
+			return def
+		}
 		return os.Getenv(k)
 	})
 	dec := yaml.NewDecoder(strings.NewReader(expanded))

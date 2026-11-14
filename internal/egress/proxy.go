@@ -428,6 +428,10 @@ func (p *Proxy) forwarder() http.Handler {
 			if info.host != "" {
 				pr.Out.Host = hostWithPort(info.host, ev.Port, info.scheme)
 			}
+			// Secrets only travel encrypted: never inject into plain HTTP.
+			if info.scheme != "https" {
+				return
+			}
 			for _, inj := range p.injectionsFor(info.agent, ev.Host) {
 				if ok, err := inj.Apply(pr.Out); err != nil {
 					p.logger().Error("egress: inject", "secret", inj.SecretID, "err", err)

@@ -35,7 +35,7 @@ func New(cfg Config) http.Handler {
 	}
 
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID, middleware.Recoverer)
+	r.Use(middleware.RequestID, middleware.Recoverer, securityHeaders(cfg.DevProxy != nil))
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -97,4 +97,27 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// appCSP allows only the app's own scripts and connections. The API reference
+// page (/api/docs) sets its own policy.
+const appCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' ws: wss:; " +
+	"frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+
+// securityHeaders sets protective headers. In development (Vite dev server)
+// the CSP is left out: Vite injects inline scripts for hot reload.
+func securityHeaders(dev bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h := w.Header()
+			h.Set("X-Content-Type-Options", "nosniff")
+			h.Set("X-Frame-Options", "DENY")
+			h.Set("Referrer-Policy", "same-origin")
+			if !dev && !strings.HasPrefix(r.URL.Path, "/api/") {
+				h.Set("Content-Security-Policy", appCSP)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

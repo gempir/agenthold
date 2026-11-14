@@ -45,6 +45,17 @@ auth:
 	}
 }
 
+func TestExpandDefaults(t *testing.T) {
+	t.Setenv("SET_VAR", "from-env")
+	cfg := &Config{}
+	if err := Parse([]byte("listen: ${UNSET_VAR:-:7000}\npublic_url: ${SET_VAR:-nope}\n"), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Listen != ":7000" || cfg.PublicURL != "from-env" {
+		t.Fatalf("cfg %+v", cfg)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name, yaml, wantErr string

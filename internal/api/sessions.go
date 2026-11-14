@@ -214,8 +214,8 @@ func (a *API) PromptSession(ctx context.Context, req gen.PromptSessionRequestObj
 		return nil, err
 	}
 	text := strings.TrimSpace(req.Body.Text)
-	if text == "" {
-		return nil, badRequest("text is required")
+	if text == "" || len(text) > 256*1024 {
+		return nil, badRequest("text must be 1 byte to 256 KiB")
 	}
 	u := me(ctx)
 	if err := a.Sessions.Prompt(ctx, s.ID, u.ID, u.Name, text, nil); err != nil {

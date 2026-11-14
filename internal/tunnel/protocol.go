@@ -35,6 +35,9 @@ type Open struct {
 	Mode os.FileMode `json:"mode,omitempty"`
 	// Recursive applies to fs.remove and fs.mkdir.
 	Recursive bool `json:"recursive,omitempty"`
+	// Deny lists absolute paths (files or directories) that fs operations must
+	// refuse, checked after resolving symlinks.
+	Deny []string `json:"deny,omitempty"`
 
 	// platform (opened by sandboxd): a platform tool call from an MCP client.
 	Tool    string          `json:"tool,omitempty"`

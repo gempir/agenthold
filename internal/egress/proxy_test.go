@@ -406,3 +406,26 @@ func TestDNS(t *testing.T) {
 		t.Fatalf("event %+v", ev)
 	}
 }
+
+func TestNoInjectionOverPlainHTTP(t *testing.T) {
+	f := newFixture(t)
+	f.agent.Injections = []secrets.Injection{{
+		Value: "real", Placeholder: "ph-1",
+		Rule: secrets.Rule{Hosts: []string{"api.example.com"}, Header: "Authorization", Template: "Bearer {{.Value}}"},
+	}}
+	got := make(chan string, 1)
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got <- r.Header.Get("Authorization")
+	}))
+	defer plain.Close()
+	pu, _ := url.Parse(plain.URL)
+	pp, _ := strconv.Atoi(pu.Port())
+	c := f.transparent(netip.AddrPortFrom(netip.MustParseAddr("203.0.113.9"), uint16(pp)))
+	fmt.Fprintf(c, "GET / HTTP/1.1\r\nHost: api.example.com\r\nAuthorization: Bearer ph-1\r\nConnection: close\r\n\r\n")
+	if _, err := http.ReadResponse(bufio.NewReader(c), nil); err != nil {
+		t.Fatal(err)
+	}
+	if a := <-got; a != "Bearer ph-1" {
+		t.Fatalf("secret sent over plain HTTP: %q", a)
+	}
+}

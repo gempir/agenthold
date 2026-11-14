@@ -8,9 +8,10 @@ JAR=$(login alice alice)
 COOKIE=$(awk '/agenthold_session/{print $7}' "$JAR")
 WSURL=${BASE/http/ws}
 WS=$(api "$JAR" "$BASE/api/v1/me" | json 'd["personalWorkspaceId"]')
-mk() { api "$JAR" -X POST "$BASE/api/v1/workspaces/$WS/agents" -d "{\"name\":\"$1\",\"image\":\"agenthold/base:dev\",\"harness\":\"$2\",\"memoryMb\":${3:-512}}" | json 'd["id"]'; }
+mk() { api "$JAR" -X POST "$BASE/api/v1/workspaces/$WS/agents" -d "{\"name\":\"$1\",\"image\":\"$IMG\",\"harness\":\"$2\",\"memoryMb\":${3:-512}}" | json 'd["id"]'; }
 N=$RANDOM
-PLANNER=$(mk "planner-$N" fake); WORKER=$(mk "worker-$N" fake); BRAIN=$(mk "brain-$N" opencode 2048)
+PLANNER=$(mk "planner-$N" fake); WORKER=$(mk "worker-$N" fake); BRAIN=""
+[[ -n ${SKIP_REAL_MODEL:-} ]] || BRAIN=$(mk "brain-$N" opencode 2048)
 for a in $PLANNER $WORKER $BRAIN; do wait_running "$JAR" "$a"; done
 echo "agents planner=$PLANNER worker=$WORKER brain=$BRAIN"
 
@@ -23,7 +24,7 @@ ask_session() { # ask_session AGENT PROMPT -> answer text
 }
 
 echo "Delegation (scripted harness, real sandboxes)"
-in_sandbox "$PLANNER" 'ls -la ~/.agenthold/' | grep -q platform.sock && pass "platform socket in the sandbox" || fail "no platform socket"
+in_sandbox "$PLANNER" 'ls -la /home/agent/.agenthold/' | grep -q platform.sock && pass "platform socket in the sandbox" || fail "no platform socket"
 ans=$(ask_session "$PLANNER" "ask worker-$N check the build")
 echo "  planner: ${ans:0:160}"
 [[ $ans == *"echo: check the build"* ]] && pass "planner asked worker and got its answer back" || fail "delegation"
@@ -33,12 +34,14 @@ echo "Loop"
 ans=$(ask_session "$PLANNER" "ask worker-$N ask planner-$N ask worker-$N ask planner-$N ask worker-$N hello")
 [[ $ans == *"too many agents in a row"* ]] && pass "loop stopped by the depth limit" || fail "loop: ${ans:0:300}"
 
+if [[ -z ${SKIP_REAL_MODEL:-} ]]; then
 echo "Delegation by a real model (OpenCode)"
 ans=$(ask_session "$BRAIN" "Use the ask tool of the agenthold MCP server to ask the agent named worker-$N this question: what-is-the-codeword. Then reply with exactly the answer it gave you.")
 echo "  brain: ${ans:0:200}"
 grep -q '"title":"agenthold_ask"' "$WORK/last" && pass "the model called the agenthold ask tool" || fail "no agenthold ask call"
 grep -q 'echo: what-is-the-codeword' "$WORK/last" && pass "the tool returned the worker's answer to the model" || fail "tool result missing"
 [[ $ans == *"what-is-the-codeword"* ]] && pass "the model relayed it" || fail "model answer: ${ans:0:200}"
+fi
 
 for a in $PLANNER $WORKER $BRAIN; do api "$JAR" -X DELETE "$BASE/api/v1/agents/$a" >/dev/null; done
 exit $FAILED

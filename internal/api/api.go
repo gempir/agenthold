@@ -11,6 +11,8 @@ import (
 	"github.com/gempir/agenthold/internal/api/gen"
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/authz"
+	"github.com/gempir/agenthold/internal/config"
+	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
 )
@@ -20,6 +22,8 @@ type Deps struct {
 	Store     *store.Store
 	Auth      *auth.Service
 	PublicURL string
+	Sandboxes *sandbox.Manager
+	Limits    config.Sandbox
 	Now       func() time.Time
 }
 

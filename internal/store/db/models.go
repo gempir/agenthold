@@ -8,6 +8,21 @@ import (
 	"database/sql"
 )
 
+type Agent struct {
+	ID          string
+	WorkspaceID string
+	OwnerID     string
+	Name        string
+	Image       string
+	Harness     string
+	Model       string
+	Cpus        float64
+	MemoryMb    int64
+	IdleMinutes int64
+	CreatedAt   int64
+	UpdatedAt   int64
+}
+
 type Identity struct {
 	Provider    string
 	Subject     string
@@ -50,6 +65,16 @@ type Membership struct {
 type PersonalWorkspace struct {
 	UserID      string
 	WorkspaceID string
+}
+
+type Sandbox struct {
+	AgentID        string
+	Driver         string
+	DriverID       string
+	State          string
+	Error          string
+	AppliedSpec    string
+	StateChangedAt int64
 }
 
 type Session struct {

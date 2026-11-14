@@ -73,3 +73,53 @@ export const invitePreviewQuery = (token: string) =>
 
 export const canManage = (role: WorkspaceRole) =>
   role === 'owner' || role === 'admin';
+
+export type Agent = components['schemas']['Agent'];
+export type SandboxState = components['schemas']['SandboxState'];
+
+const TRANSIENT: SandboxState[] = [
+  'creating',
+  'starting',
+  'stopping',
+  'rebuilding',
+  'destroying',
+];
+export const isTransient = (s: SandboxState) => TRANSIENT.includes(s);
+
+export const POLL_MS = 1000;
+
+/** refetchInterval for a single agent: poll only while transient. */
+export const agentPollInterval = (a: Agent | undefined) =>
+  a && isTransient(a.state) ? POLL_MS : false;
+
+/** refetchInterval for an agent list: poll while any agent is transient. */
+export const agentsPollInterval = (list: Agent[] | undefined) =>
+  list?.some((a) => isTransient(a.state)) ? POLL_MS : false;
+
+export const sandboxLimitsQuery = queryOptions({
+  queryKey: ['sandbox', 'limits'],
+  queryFn: () => unwrap(api.GET('/sandbox/limits')),
+  retry: false,
+});
+
+export const agentsQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: ['workspaces', workspaceId, 'agents'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/workspaces/{workspaceId}/agents', {
+          params: { path: { workspaceId } },
+        }),
+      ),
+    refetchInterval: (q) => agentsPollInterval(q.state.data),
+    retry: false,
+  });
+
+export const agentQuery = (agentId: string) =>
+  queryOptions({
+    queryKey: ['agents', agentId],
+    queryFn: () =>
+      unwrap(api.GET('/agents/{agentId}', { params: { path: { agentId } } })),
+    refetchInterval: (q) => agentPollInterval(q.state.data),
+    retry: false,
+  });

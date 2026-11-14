@@ -23,6 +23,15 @@ jobs:
       - run: make test-go
       - run: make build-go
 
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: make test-docker
+
   go-lint:
     runs-on: ubuntu-latest
     steps:

@@ -20,6 +20,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sandbox/limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getSandboxLimits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/providers": {
         parameters: {
             query?: never;
@@ -245,6 +261,99 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workspaces/{workspaceId}/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        /** @description Agents in the workspace that the caller can see. */
+        get: operations["listAgents"];
+        put?: never;
+        post: operations["createAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get: operations["getAgent"];
+        put?: never;
+        post?: never;
+        /** @description Destroys the sandbox and its home volume, then the agent. Runs in the background. */
+        delete: operations["deleteAgent"];
+        options?: never;
+        head?: never;
+        /** @description Image and resource changes take effect after a rebuild (see `needsRebuild`). */
+        patch: operations["updateAgent"];
+        trace?: never;
+    };
+    "/agents/{agentId}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["startAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["stopAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/rebuild": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["rebuildAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -325,6 +434,60 @@ export interface components {
             expiresAt: string;
             alreadyMember: boolean;
         };
+        /** @enum {string} */
+        SandboxState: "creating" | "starting" | "running" | "stopping" | "sleeping" | "rebuilding" | "destroying" | "error";
+        /** @enum {string} */
+        AgentRole: "viewer" | "operator" | "admin";
+        Agent: {
+            id: string;
+            workspaceId: string;
+            name: string;
+            owner: components["schemas"]["User"];
+            image: string;
+            harness: string;
+            cpus: number;
+            /** Format: int64 */
+            memoryMb: number;
+            idleMinutes: number;
+            state: components["schemas"]["SandboxState"];
+            stateError: string;
+            /** Format: date-time */
+            stateChangedAt: string;
+            /** @description Image or resources changed since the sandbox was built. */
+            needsRebuild: boolean;
+            role: components["schemas"]["AgentRole"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        AgentInput: {
+            name: string;
+            /** @description OCI image. Defaults to the server's default image. */
+            image?: string;
+            cpus?: number;
+            /** Format: int64 */
+            memoryMb?: number;
+            idleMinutes?: number;
+        };
+        AgentPatch: {
+            name?: string;
+            image?: string;
+            cpus?: number;
+            /** Format: int64 */
+            memoryMb?: number;
+            idleMinutes?: number;
+        };
+        SandboxLimits: {
+            driver: string;
+            defaultImage: string;
+            defaultCpus: number;
+            /** Format: int64 */
+            defaultMemoryMb: number;
+            maxCpus: number;
+            /** Format: int64 */
+            maxMemoryMb: number;
+        };
     };
     responses: {
         /** @description Error. */
@@ -338,6 +501,7 @@ export interface components {
         };
     };
     parameters: {
+        AgentId: string;
         WorkspaceId: string;
     };
     requestBodies: never;
@@ -362,6 +526,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Version"];
+                };
+            };
+        };
+    };
+    getSandboxLimits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Defaults and limits for agent sandboxes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SandboxLimits"];
                 };
             };
         };
@@ -790,6 +974,207 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Workspace"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    listAgents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Agents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentInput"];
+            };
+        };
+        responses: {
+            /** @description Created. The sandbox is provisioned in the background. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    getAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Destruction started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentPatch"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    startAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Starting. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    stopAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stopping. The home volume is kept. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    rebuildAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rebuilding from the current image and resources; the home volume is kept. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
                 };
             };
             403: components["responses"]["Error"];

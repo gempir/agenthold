@@ -1,0 +1,366 @@
+package sandbox
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/gempir/agenthold/internal/store"
+	"github.com/gempir/agenthold/internal/store/db"
+)
+
+// ErrConflict is returned when an operation is not allowed in the current phase.
+var ErrConflict = errors.New("operation not allowed in the current state")
+
+// SpecFunc builds the sandbox spec for an agent.
+type SpecFunc func(a db.Agent) Spec
+
+// Manager drives agents' sandboxes through their lifecycle. Every operation
+// first moves the persisted state with a guarded UPDATE (so concurrent requests
+// cannot both win) and then performs the driver call in the background.
+type Manager struct {
+	store  *store.Store
+	driver Driver
+	spec   SpecFunc
+	log    *slog.Logger
+	now    func() time.Time
+
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+	locks  sync.Map // agent id -> *sync.Mutex
+
+	mu        sync.Mutex
+	listeners []func(agentID string, phase Phase)
+}
+
+// NewManager returns a manager. Call Close to wait for background operations.
+func NewManager(st *store.Store, d Driver, spec SpecFunc, log *slog.Logger) *Manager {
+	ctx, cancel := context.WithCancel(context.Background())
+	if log == nil {
+		log = slog.Default()
+	}
+	return &Manager{store: st, driver: d, spec: spec, log: log, now: time.Now, ctx: ctx, cancel: cancel}
+}
+
+// Driver returns the manager's driver.
+func (m *Manager) Driver() Driver { return m.driver }
+
+// OnChange registers a callback for phase changes (used for live UI updates
+// and, later, waking agents).
+func (m *Manager) OnChange(fn func(agentID string, phase Phase)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.listeners = append(m.listeners, fn)
+}
+
+func (m *Manager) notify(agentID string, p Phase) {
+	m.mu.Lock()
+	ls := append([]func(string, Phase){}, m.listeners...)
+	m.mu.Unlock()
+	for _, fn := range ls {
+		fn(agentID, p)
+	}
+}
+
+// Close cancels nothing that is running but waits for it to finish.
+func (m *Manager) Close() {
+	m.wg.Wait()
+	m.cancel()
+}
+
+// Wait blocks until all background operations have finished (tests).
+func (m *Manager) Wait() { m.wg.Wait() }
+
+func (m *Manager) lock(agentID string) func() {
+	v, _ := m.locks.LoadOrStore(agentID, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
+func (m *Manager) transition(ctx context.Context, agentID string, from []Phase, to Phase) error {
+	n, err := m.store.TransitionSandbox(ctx, db.TransitionSandboxParams{
+		ToState: string(to), Error: "", Now: m.now().Unix(), AgentID: agentID, FromStates: phases(from),
+	})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := m.store.GetSandbox(ctx, agentID); errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return ErrConflict
+	}
+	m.notify(agentID, to)
+	return nil
+}
+
+func (m *Manager) set(agentID string, p Phase, errMsg string) {
+	if err := m.store.SetSandboxState(m.ctx, db.SetSandboxStateParams{
+		State: string(p), Error: errMsg, StateChangedAt: m.now().Unix(), AgentID: agentID,
+	}); err != nil {
+		m.log.Error("persist sandbox state", "agent", agentID, "state", p, "err", err)
+	}
+	m.notify(agentID, p)
+}
+
+// background runs fn for agentID, serialized with other operations on the same agent.
+func (m *Manager) background(agentID, op string, fn func(ctx context.Context) error) {
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		unlock := m.lock(agentID)
+		defer unlock()
+		ctx, cancel := context.WithTimeout(m.ctx, 15*time.Minute)
+		defer cancel()
+		if err := fn(ctx); err != nil {
+			m.log.Warn("sandbox operation failed", "agent", agentID, "op", op, "err", err)
+			m.set(agentID, PhaseError, fmt.Sprintf("%s failed: %v", op, err))
+		}
+	}()
+}
+
+// SpecJSON is the canonical form of a spec, stored to detect pending rebuilds.
+func SpecJSON(s Spec) string {
+	b, _ := json.Marshal(struct {
+		Image     string
+		Resources Resources
+	}{s.Image, s.Resources})
+	return string(b)
+}
+
+// NeedsRebuild reports whether the agent's settings differ from what its
+// sandbox was built with.
+func (m *Manager) NeedsRebuild(a db.Agent, sb db.Sandbox) bool {
+	return sb.AppliedSpec != "" && sb.AppliedSpec != SpecJSON(m.spec(a))
+}
+
+// Provision creates the sandbox row for a new agent (inside the caller's
+// transaction q) and returns a function that starts provisioning; call it
+// after the transaction commits.
+func (m *Manager) Provision(ctx context.Context, q *db.Queries, agentID string) (start func(), err error) {
+	if err := q.CreateSandbox(ctx, db.CreateSandboxParams{
+		AgentID: agentID, Driver: m.driver.Name(), State: string(PhaseCreating), StateChangedAt: m.now().Unix(),
+	}); err != nil {
+		return nil, err
+	}
+	return func() { m.background(agentID, "create", m.create(agentID)) }, nil
+}
+
+func (m *Manager) create(agentID string) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		a, err := m.store.GetAgent(ctx, agentID)
+		if err != nil {
+			return err
+		}
+		spec := m.spec(a)
+		id, err := m.driver.Create(ctx, spec)
+		if err != nil {
+			return err
+		}
+		if err := m.store.SetSandboxBuilt(ctx, db.SetSandboxBuiltParams{DriverID: string(id), AppliedSpec: SpecJSON(spec), AgentID: agentID}); err != nil {
+			return err
+		}
+		m.set(agentID, PhaseStarting, "")
+		if err := m.driver.Start(ctx, id); err != nil {
+			return err
+		}
+		m.set(agentID, PhaseRunning, "")
+		return nil
+	}
+}
+
+func (m *Manager) driverID(ctx context.Context, agentID string) (ID, error) {
+	sb, err := m.store.GetSandbox(ctx, agentID)
+	if err != nil {
+		return "", err
+	}
+	if sb.DriverID == "" {
+		return "", errors.New("sandbox was never created")
+	}
+	return ID(sb.DriverID), nil
+}
+
+// Start wakes a sleeping sandbox (or retries one in error).
+func (m *Manager) Start(ctx context.Context, agentID string) error {
+	sb, err := m.store.GetSandbox(ctx, agentID)
+	if err != nil {
+		return notFound(err)
+	}
+	if sb.State == string(PhaseError) && sb.DriverID == "" {
+		// Creation failed before the driver produced a sandbox: retry it.
+		if err := m.transition(ctx, agentID, []Phase{PhaseError}, PhaseCreating); err != nil {
+			return err
+		}
+		m.background(agentID, "create", m.create(agentID))
+		return nil
+	}
+	if err := m.transition(ctx, agentID, startFrom, PhaseStarting); err != nil {
+		return err
+	}
+	m.background(agentID, "start", func(ctx context.Context) error {
+		id, err := m.driverID(ctx, agentID)
+		if err != nil {
+			return err
+		}
+		if err := m.driver.Start(ctx, id); err != nil {
+			return err
+		}
+		m.set(agentID, PhaseRunning, "")
+		return nil
+	})
+	return nil
+}
+
+// Stop puts a sandbox to sleep; its disk is kept.
+func (m *Manager) Stop(ctx context.Context, agentID string) error {
+	if err := m.transition(ctx, agentID, stopFrom, PhaseStopping); err != nil {
+		return err
+	}
+	m.background(agentID, "stop", func(ctx context.Context) error {
+		id, err := m.driverID(ctx, agentID)
+		if err != nil {
+			return err
+		}
+		if err := m.driver.Stop(ctx, id); err != nil {
+			return err
+		}
+		m.set(agentID, PhaseSleeping, "")
+		return nil
+	})
+	return nil
+}
+
+// Rebuild recreates the sandbox from the agent's current settings, keeping the
+// home volume. A running sandbox is started again afterwards.
+func (m *Manager) Rebuild(ctx context.Context, agentID string) error {
+	sb, err := m.store.GetSandbox(ctx, agentID)
+	if err != nil {
+		return notFound(err)
+	}
+	wasRunning := sb.State == string(PhaseRunning)
+	if err := m.transition(ctx, agentID, rebuildFrom, PhaseRebuilding); err != nil {
+		return err
+	}
+	m.background(agentID, "rebuild", func(ctx context.Context) error {
+		a, err := m.store.GetAgent(ctx, agentID)
+		if err != nil {
+			return err
+		}
+		spec := m.spec(a)
+		sb, err := m.store.GetSandbox(ctx, agentID)
+		if err != nil {
+			return err
+		}
+		id := ID(sb.DriverID)
+		if id == "" {
+			if id, err = m.driver.Create(ctx, spec); err != nil {
+				return err
+			}
+		} else if err := m.driver.Rebuild(ctx, id, spec); err != nil {
+			return err
+		}
+		if err := m.store.SetSandboxBuilt(ctx, db.SetSandboxBuiltParams{DriverID: string(id), AppliedSpec: SpecJSON(spec), AgentID: agentID}); err != nil {
+			return err
+		}
+		if !wasRunning {
+			m.set(agentID, PhaseSleeping, "")
+			return nil
+		}
+		m.set(agentID, PhaseStarting, "")
+		if err := m.driver.Start(ctx, id); err != nil {
+			return err
+		}
+		m.set(agentID, PhaseRunning, "")
+		return nil
+	})
+	return nil
+}
+
+// Destroy removes the sandbox, its home volume and finally the agent row.
+func (m *Manager) Destroy(ctx context.Context, agentID string) error {
+	if err := m.transition(ctx, agentID, destroyFrom, PhaseDestroying); err != nil {
+		return err
+	}
+	m.background(agentID, "destroy", m.destroy(agentID))
+	return nil
+}
+
+func (m *Manager) destroy(agentID string) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		sb, err := m.store.GetSandbox(ctx, agentID)
+		if err != nil {
+			return err
+		}
+		if sb.DriverID != "" {
+			if err := m.driver.Destroy(ctx, ID(sb.DriverID), DestroyOpts{}); err != nil {
+				return err
+			}
+		}
+		if err := m.store.DeleteAgent(ctx, agentID); err != nil {
+			return err
+		}
+		m.locks.Delete(agentID)
+		m.notify(agentID, PhaseDestroying)
+		return nil
+	}
+}
+
+// Reconcile aligns persisted state with the driver after a (re)start of the
+// server: interrupted operations are resolved from what actually exists.
+func (m *Manager) Reconcile(ctx context.Context) error {
+	sbs, err := m.store.ListSandboxes(ctx)
+	if err != nil {
+		return err
+	}
+	for _, sb := range sbs {
+		phase := Phase(sb.State)
+		switch {
+		case phase == PhaseDestroying:
+			m.background(sb.AgentID, "destroy", m.destroy(sb.AgentID))
+			continue
+		case sb.DriverID == "":
+			if phase == PhaseCreating {
+				m.background(sb.AgentID, "create", m.create(sb.AgentID))
+			}
+			continue
+		}
+		st, err := m.driver.Status(ctx, ID(sb.DriverID))
+		if err != nil {
+			m.log.Warn("reconcile: status", "agent", sb.AgentID, "err", err)
+			continue
+		}
+		var actual Phase
+		msg := ""
+		switch st.State {
+		case StateRunning:
+			actual = PhaseRunning
+		case StateCreated, StateStopped:
+			actual = PhaseSleeping
+		case StateMissing:
+			actual, msg = PhaseError, "sandbox no longer exists in the driver; rebuild to recreate it"
+		}
+		if actual == phase && (phase != PhaseError || sb.Error != "") {
+			continue
+		}
+		if phase == PhaseError && actual != PhaseError {
+			continue // keep the error visible until someone acts on it
+		}
+		m.log.Info("reconcile", "agent", sb.AgentID, "persisted", phase, "actual", actual)
+		m.set(sb.AgentID, actual, msg)
+	}
+	return nil
+}
+
+func notFound(err error) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
+}

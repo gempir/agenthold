@@ -40,3 +40,43 @@ func (c Checker) Workspace(ctx context.Context, userID, workspaceID string, acti
 	}
 	return role, nil
 }
+
+// AgentAccess is an agent together with the caller's effective role.
+type AgentAccess struct {
+	Row           db.GetAgentWithSandboxRow
+	WorkspaceRole WorkspaceRole
+	Role          AgentRole
+}
+
+// AgentRoleOf computes userID's effective role on an agent.
+func (c Checker) AgentRoleOf(ctx context.Context, userID string, a db.Agent) (WorkspaceRole, AgentRole, error) {
+	ws, err := c.WorkspaceRoleOf(ctx, userID, a.WorkspaceID)
+	if err != nil {
+		return WorkspaceNone, AgentNone, err
+	}
+	return ws, EffectiveAgentRole(ws, a.OwnerID == userID), nil
+}
+
+// Agent loads an agent if userID may perform action on it. Users who cannot
+// even read the agent get ErrNotFound.
+func (c Checker) Agent(ctx context.Context, userID, agentID string, action Action) (AgentAccess, error) {
+	row, err := c.Q.GetAgentWithSandbox(ctx, agentID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AgentAccess{}, ErrNotFound
+	}
+	if err != nil {
+		return AgentAccess{}, err
+	}
+	ws, role, err := c.AgentRoleOf(ctx, userID, row.Agent)
+	if err != nil {
+		return AgentAccess{}, err
+	}
+	acc := AgentAccess{Row: row, WorkspaceRole: ws, Role: role}
+	if !CanAgent(role, AgentRead) {
+		return AgentAccess{}, ErrNotFound
+	}
+	if !CanAgent(role, action) {
+		return acc, ErrForbidden
+	}
+	return acc, nil
+}

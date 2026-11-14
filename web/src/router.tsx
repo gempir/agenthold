@@ -18,6 +18,7 @@ import { ApiError } from '@/api/client';
 import { meQuery } from '@/api/queries';
 import { AppShell } from '@/components/AppShell';
 import { Loading } from '@/components/Spinner';
+import { AgentPage } from '@/pages/AgentPage';
 import { InvitePage } from '@/pages/InvitePage';
 import { LoginPage } from '@/pages/LoginPage';
 import { WorkspacePage } from '@/pages/WorkspacePage';
@@ -86,10 +87,19 @@ const workspaceRoute = createRoute({
   },
 });
 
+const agentRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/a/$agentId',
+  component: function Agent() {
+    const { agentId } = agentRoute.useParams();
+    return <AgentPage key={agentId} agentId={agentId} />;
+  },
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   inviteRoute,
-  appRoute.addChildren([indexRoute, workspaceRoute]),
+  appRoute.addChildren([indexRoute, workspaceRoute, agentRoute]),
 ]);
 
 export function createAppRouter(

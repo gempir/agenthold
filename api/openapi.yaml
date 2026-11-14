@@ -15,6 +15,7 @@ tags:
   - name: invites
   - name: agents
   - name: files
+  - name: sessions
   - name: secrets
   - name: egress
   - name: streams
@@ -439,6 +440,10 @@ paths:
       parameters:
         - { name: cols, in: query, schema: { type: integer } }
         - { name: rows, in: query, schema: { type: integer } }
+        - name: auth
+          in: query
+          description: Run this harness login method (agent admin) instead of a shell.
+          schema: { type: string }
       responses:
         "101": { description: Switching to WebSocket. }
         "403": { $ref: "#/components/responses/Error" }
@@ -718,6 +723,206 @@ paths:
                 items: { $ref: "#/components/schemas/EgressEvent" }
         "404": { $ref: "#/components/responses/Error" }
 
+  /harnesses:
+    get:
+      operationId: listHarnesses
+      tags: [sessions]
+      responses:
+        "200":
+          description: Available harnesses.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/HarnessType" }
+
+  /agents/{agentId}/harness:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: getHarness
+      tags: [sessions]
+      description: The agent's harness. With connect=true the harness is started (waking the agent) to discover login methods.
+      parameters:
+        - { name: connect, in: query, schema: { type: boolean } }
+      responses:
+        "200":
+          description: Harness state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HarnessState" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/sessions:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listSessions
+      tags: [sessions]
+      responses:
+        "200":
+          description: Sessions, most recently active first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Session" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createSession
+      tags: [sessions]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string, maxLength: 200 }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    get:
+      operationId: getSession
+      tags: [sessions]
+      responses:
+        "200":
+          description: The session.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: renameSession
+      tags: [sessions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        "200":
+          description: Renamed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteSession
+      tags: [sessions]
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/prompt:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      operationId: promptSession
+      tags: [sessions]
+      description: Start a turn (operator role). Wakes the agent if it sleeps. Progress arrives on the event stream.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, minLength: 1 }
+      responses:
+        "202": { description: The turn started. }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      operationId: cancelSession
+      tags: [sessions]
+      responses:
+        "202": { description: Cancellation requested. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/permissions/{requestId}:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+      - { name: requestId, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: answerPermission
+      tags: [sessions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [optionId]
+              properties:
+                optionId: { type: string }
+      responses:
+        "204": { description: Answered. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/events:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    get:
+      operationId: listSessionEvents
+      tags: [sessions]
+      description: Stored events after a cursor. For live updates use the stream.
+      parameters:
+        - { name: after, in: query, schema: { type: integer, format: int64 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 5000 } }
+      responses:
+        "200":
+          description: Events in order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SessionEvent" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/stream:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    get:
+      operationId: streamSession
+      tags: [streams]
+      description: |
+        WebSocket. The server sends every event after `after` as a JSON text
+        message (a SessionEvent), then live events as they happen. After a
+        reconnect, pass the last seq received to continue without gaps.
+        `{"type":"status","running":bool}` messages report whether a turn runs.
+      parameters:
+        - { name: after, in: query, schema: { type: integer, format: int64 } }
+      responses:
+        "101": { description: Switching to WebSocket. }
+        "404": { $ref: "#/components/responses/Error" }
+
 security:
   - session: []
 
@@ -729,6 +934,11 @@ components:
       name: agenthold_session
 
   parameters:
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema: { type: string }
     AgentId:
       name: agentId
       in: path
@@ -871,7 +1081,7 @@ components:
 
     Agent:
       type: object
-      required: [id, workspaceId, name, owner, image, harness, cpus, memoryMb, idleMinutes, state, stateError, stateChangedAt, needsRebuild, role, createdAt, updatedAt]
+      required: [id, workspaceId, name, owner, image, harness, model, permissionPolicy, credentialsInSandbox, cpus, memoryMb, idleMinutes, state, stateError, stateChangedAt, needsRebuild, role, createdAt, updatedAt]
       properties:
         id: { type: string }
         workspaceId: { type: string }
@@ -888,6 +1098,11 @@ components:
         needsRebuild:
           type: boolean
           description: Image or resources changed since the sandbox was built.
+        model: { type: string }
+        permissionPolicy: { type: string, enum: [auto-approve, ask] }
+        credentialsInSandbox:
+          type: boolean
+          description: A harness login was completed inside the sandbox; the agent can read its own credentials.
         role:
           $ref: "#/components/schemas/AgentRole"
         createdAt: { type: string, format: date-time }
@@ -902,6 +1117,9 @@ components:
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }
         idleMinutes: { type: integer, minimum: 1, maximum: 10080 }
+        harness: { type: string, description: Harness id (see /harnesses). Default claude-code. }
+        model: { type: string }
+        permissionPolicy: { type: string, enum: [auto-approve, ask] }
 
     AgentPatch:
       type: object
@@ -911,6 +1129,9 @@ components:
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }
         idleMinutes: { type: integer, minimum: 1, maximum: 10080 }
+        harness: { type: string, description: Harness id (see /harnesses). Default claude-code. }
+        model: { type: string }
+        permissionPolicy: { type: string, enum: [auto-approve, ask] }
 
     SandboxLimits:
       type: object
@@ -1030,3 +1251,68 @@ components:
         bytesUp: { type: integer, format: int64 }
         bytesDown: { type: integer, format: int64 }
         durationMs: { type: integer, format: int64 }
+
+    HarnessType:
+      type: object
+      required: [id, name, secretPresets, installHint]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        secretPresets:
+          type: array
+          items: { type: string }
+        installHint: { type: string }
+
+    AuthMethodInfo:
+      type: object
+      required: [id, name, description, type]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        type: { type: string, description: '"terminal": run it in the agent terminal (terminal?auth=<id>).' }
+
+    HarnessState:
+      type: object
+      required: [harness, connected, agentName, agentVersion, loadSession, authMethods]
+      properties:
+        harness: { type: string }
+        connected: { type: boolean }
+        agentName: { type: string }
+        agentVersion: { type: string }
+        loadSession: { type: boolean }
+        authMethods:
+          type: array
+          items: { $ref: "#/components/schemas/AuthMethodInfo" }
+
+    Session:
+      type: object
+      required: [id, agentId, title, running, createdBy, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        agentId: { type: string }
+        title: { type: string }
+        running: { type: boolean }
+        createdBy: { $ref: "#/components/schemas/User" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    SessionEvent:
+      type: object
+      required: [seq, at, type, data]
+      properties:
+        seq: { type: integer, format: int64 }
+        at: { type: string, format: date-time }
+        type:
+          type: string
+          enum: [prompt, update, permission, permission_resolved, turn_end, error, notice]
+          description: |
+            prompt: {text, user{id,name}}; update: an ACP SessionUpdate
+            (discriminated by "sessionUpdate"); permission: {requestId,
+            toolCall, options[{optionId,name,kind}], policy};
+            permission_resolved: {requestId, optionId, by}; turn_end:
+            {stopReason}; error/notice: {message}.
+        userId: { type: string }
+        data:
+          type: object
+          additionalProperties: true

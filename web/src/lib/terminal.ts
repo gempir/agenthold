@@ -3,9 +3,10 @@ export function terminalUrl(
   agentId: string,
   cols: number,
   rows: number,
+  auth?: string,
 ): string {
   const scheme = loc.protocol === 'https:' ? 'wss' : 'ws';
-  return `${scheme}://${loc.host}/api/v1/agents/${encodeURIComponent(agentId)}/terminal?cols=${cols}&rows=${rows}`;
+  return `${scheme}://${loc.host}/api/v1/agents/${encodeURIComponent(agentId)}/terminal?cols=${cols}&rows=${rows}${auth ? `&auth=${encodeURIComponent(auth)}` : ''}`;
 }
 
 export type ServerMessage =

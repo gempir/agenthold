@@ -123,3 +123,25 @@ export const agentQuery = (agentId: string) =>
     refetchInterval: (q) => agentPollInterval(q.state.data),
     retry: false,
   });
+
+export type Session = components['schemas']['Session'];
+export type HarnessType = components['schemas']['HarnessType'];
+
+export const sessionsQuery = (agentId: string) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'sessions'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/sessions', {
+          params: { path: { agentId } },
+        }),
+      ),
+    refetchInterval: 5000,
+    retry: false,
+  });
+
+export const harnessesQuery = queryOptions({
+  queryKey: ['harnesses'],
+  queryFn: () => unwrap(api.GET('/harnesses')),
+  retry: false,
+});

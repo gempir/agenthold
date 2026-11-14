@@ -1,4 +1,5 @@
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   agentPollInterval,
@@ -26,7 +27,10 @@ const agent = (over: Partial<Agent> = {}): Agent => ({
   name: 'builder',
   owner: me.user,
   image: 'ubuntu:24.04',
-  harness: 'none',
+  harness: 'claude-code',
+  model: '',
+  permissionPolicy: 'ask',
+  credentialsInSandbox: false,
   cpus: 2,
   memoryMb: 2048,
   idleMinutes: 15,
@@ -67,8 +71,11 @@ it('shows Start for sleeping agent and hides admin controls for operator', async
     'GET /me': me,
     'GET /workspaces': [ws],
     'GET /agents/a1': agent(),
+    'GET /agents/a1/sessions': [],
+    'GET /harnesses': [],
   });
   renderApp('/a/a1');
+  await userEvent.click(await screen.findByRole('tab', { name: 'overview' }));
   expect(await screen.findByRole('button', { name: 'Start' })).toBeVisible();
   expect(screen.getByRole('button', { name: 'Rebuild' })).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();

@@ -15,6 +15,7 @@ import (
 	"github.com/gempir/agenthold/internal/egress"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/secrets"
+	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/tunnel"
@@ -30,8 +31,11 @@ type Deps struct {
 	Box       *secrets.Box
 	Egress    *egress.Directory
 	CA        *egress.CA
-	Limits    config.Sandbox
-	Now       func() time.Time
+	Sessions  *session.Manager
+	// ShowTestHarness lists the scripted test harness (development).
+	ShowTestHarness bool
+	Limits          config.Sandbox
+	Now             func() time.Time
 }
 
 // API implements gen.StrictServerInterface.
@@ -64,6 +68,7 @@ func (a *API) Mount(r chi.Router) {
 		r.Get("/auth/callback/{provider}", a.callback)
 		r.Post("/auth/logout", a.logout)
 		r.Get("/agents/{agentId}/terminal", a.terminal)
+		r.Get("/sessions/{sessionId}/stream", a.stream)
 
 		strict := gen.NewStrictHandlerWithOptions(a, []gen.StrictMiddlewareFunc{requireUser}, gen.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {

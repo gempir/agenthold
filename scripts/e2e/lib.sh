@@ -39,3 +39,9 @@ wait_running() {
 }
 # in_sandbox AGENT CMD: runs CMD as the agent user inside the sandbox.
 in_sandbox() { docker exec -u agent "agenthold-dev-$1" bash -c "$2" 2>&1 || true; }
+json_lines_text() { python3 -c '
+import json,sys
+for l in sys.stdin:
+  if l.strip():
+    d=json.loads(l)
+    if d["type"]=="update" and d["data"].get("sessionUpdate")=="agent_message_chunk": sys.stdout.write(d["data"]["content"]["text"])'; }

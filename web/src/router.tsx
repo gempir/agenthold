@@ -90,9 +90,27 @@ const workspaceRoute = createRoute({
 const agentRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/a/$agentId',
+  validateSearch: (s: Record<string, unknown>): { s?: string } => ({
+    ...(str(s.s) && { s: str(s.s) }),
+  }),
   component: function Agent() {
     const { agentId } = agentRoute.useParams();
-    return <AgentPage key={agentId} agentId={agentId} />;
+    const { s } = agentRoute.useSearch();
+    const navigate = useNavigate();
+    return (
+      <AgentPage
+        key={agentId}
+        agentId={agentId}
+        sessionId={s}
+        onSelectSession={(id) =>
+          void navigate({
+            to: '/a/$agentId',
+            params: { agentId },
+            search: { s: id },
+          })
+        }
+      />
+    );
   },
 });
 

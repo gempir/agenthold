@@ -586,6 +586,176 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/harnesses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listHarnesses"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/harness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description The agent's harness. With connect=true the harness is started (waking the agent) to discover login methods. */
+        get: operations["getHarness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get: operations["listSessions"];
+        put?: never;
+        post: operations["createSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get: operations["getSession"];
+        put?: never;
+        post?: never;
+        delete: operations["deleteSession"];
+        options?: never;
+        head?: never;
+        patch: operations["renameSession"];
+        trace?: never;
+    };
+    "/sessions/{sessionId}/prompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Start a turn (operator role). Wakes the agent if it sleeps. Progress arrives on the event stream. */
+        post: operations["promptSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancelSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/permissions/{requestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["answerPermission"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        /** @description Stored events after a cursor. For live updates use the stream. */
+        get: operations["listSessionEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description WebSocket. The server sends every event after `after` as a JSON text
+         *     message (a SessionEvent), then live events as they happen. After a
+         *     reconnect, pass the last seq received to continue without gaps.
+         *     `{"type":"status","running":bool}` messages report whether a turn runs.
+         */
+        get: operations["streamSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -687,6 +857,11 @@ export interface components {
             stateChangedAt: string;
             /** @description Image or resources changed since the sandbox was built. */
             needsRebuild: boolean;
+            model: string;
+            /** @enum {string} */
+            permissionPolicy: "auto-approve" | "ask";
+            /** @description A harness login was completed inside the sandbox; the agent can read its own credentials. */
+            credentialsInSandbox: boolean;
             role: components["schemas"]["AgentRole"];
             /** Format: date-time */
             createdAt: string;
@@ -701,6 +876,11 @@ export interface components {
             /** Format: int64 */
             memoryMb?: number;
             idleMinutes?: number;
+            /** @description Harness id (see /harnesses). Default claude-code. */
+            harness?: string;
+            model?: string;
+            /** @enum {string} */
+            permissionPolicy?: "auto-approve" | "ask";
         };
         AgentPatch: {
             name?: string;
@@ -709,6 +889,11 @@ export interface components {
             /** Format: int64 */
             memoryMb?: number;
             idleMinutes?: number;
+            /** @description Harness id (see /harnesses). Default claude-code. */
+            harness?: string;
+            model?: string;
+            /** @enum {string} */
+            permissionPolicy?: "auto-approve" | "ask";
         };
         SandboxLimits: {
             driver: string;
@@ -808,6 +993,57 @@ export interface components {
             /** Format: int64 */
             durationMs: number;
         };
+        HarnessType: {
+            id: string;
+            name: string;
+            secretPresets: string[];
+            installHint: string;
+        };
+        AuthMethodInfo: {
+            id: string;
+            name: string;
+            description: string;
+            /** @description "terminal": run it in the agent terminal (terminal?auth=<id>). */
+            type: string;
+        };
+        HarnessState: {
+            harness: string;
+            connected: boolean;
+            agentName: string;
+            agentVersion: string;
+            loadSession: boolean;
+            authMethods: components["schemas"]["AuthMethodInfo"][];
+        };
+        Session: {
+            id: string;
+            agentId: string;
+            title: string;
+            running: boolean;
+            createdBy: components["schemas"]["User"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        SessionEvent: {
+            /** Format: int64 */
+            seq: number;
+            /** Format: date-time */
+            at: string;
+            /**
+             * @description prompt: {text, user{id,name}}; update: an ACP SessionUpdate
+             *     (discriminated by "sessionUpdate"); permission: {requestId,
+             *     toolCall, options[{optionId,name,kind}], policy};
+             *     permission_resolved: {requestId, optionId, by}; turn_end:
+             *     {stopReason}; error/notice: {message}.
+             * @enum {string}
+             */
+            type: "prompt" | "update" | "permission" | "permission_resolved" | "turn_end" | "error" | "notice";
+            userId?: string;
+            data: {
+                [key: string]: unknown;
+            };
+        };
     };
     responses: {
         /** @description Error. */
@@ -821,6 +1057,7 @@ export interface components {
         };
     };
     parameters: {
+        SessionId: string;
         AgentId: string;
         WorkspaceId: string;
     };
@@ -1507,6 +1744,8 @@ export interface operations {
             query?: {
                 cols?: number;
                 rows?: number;
+                /** @description Run this harness login method (agent admin) instead of a shell. */
+                auth?: string;
             };
             header?: never;
             path: {
@@ -1965,6 +2204,312 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["EgressEvent"][];
                 };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    listHarnesses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Available harnesses. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HarnessType"][];
+                };
+            };
+        };
+    };
+    getHarness: {
+        parameters: {
+            query?: {
+                connect?: boolean;
+            };
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Harness state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HarnessState"];
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    listSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sessions, most recently active first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    title?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    getSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The session. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    renameSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    title: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Renamed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    promptSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    text: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The turn started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    cancelSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancellation requested. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    answerPermission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    optionId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Answered. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listSessionEvents: {
+        parameters: {
+            query?: {
+                after?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Events in order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionEvent"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    streamSession: {
+        parameters: {
+            query?: {
+                after?: number;
+            };
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Switching to WebSocket. */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             404: components["responses"]["Error"];
         };

@@ -9,19 +9,21 @@ import (
 )
 
 type Agent struct {
-	ID            string
-	WorkspaceID   string
-	OwnerID       string
-	Name          string
-	Image         string
-	Harness       string
-	Model         string
-	Cpus          float64
-	MemoryMb      int64
-	IdleMinutes   int64
-	CreatedAt     int64
-	UpdatedAt     int64
-	NetworkPolicy string
+	ID                   string
+	WorkspaceID          string
+	OwnerID              string
+	Name                 string
+	Image                string
+	Harness              string
+	Model                string
+	Cpus                 float64
+	MemoryMb             int64
+	IdleMinutes          int64
+	CreatedAt            int64
+	UpdatedAt            int64
+	NetworkPolicy        string
+	PermissionPolicy     string
+	CredentialsInSandbox int64
 }
 
 type AgentSecret struct {
@@ -29,6 +31,26 @@ type AgentSecret struct {
 	SecretID  string
 	EnvVar    string
 	CreatedAt int64
+}
+
+type AgentSession struct {
+	ID           string
+	AgentID      string
+	AcpSessionID string
+	Title        string
+	Status       string
+	CreatedBy    string
+	CreatedAt    int64
+	UpdatedAt    int64
+}
+
+type AgentSessionEvent struct {
+	SessionID string
+	Seq       int64
+	At        int64
+	Type      string
+	UserID    string
+	Data      string
 }
 
 type EgressEvent struct {

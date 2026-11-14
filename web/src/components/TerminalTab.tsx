@@ -11,7 +11,13 @@ type Status =
   | { kind: 'live' }
   | { kind: 'ended'; text: string };
 
-export function TerminalTab({ agentId }: { agentId: string }) {
+export function TerminalTab({
+  agentId,
+  auth,
+}: {
+  agentId: string;
+  auth?: string;
+}) {
   const host = useRef<HTMLDivElement>(null);
   const [session, setSession] = useState(0);
   const [status, setStatus] = useState<Status>({ kind: 'connecting' });
@@ -31,7 +37,7 @@ export function TerminalTab({ agentId }: { agentId: string }) {
     fit.fit();
 
     const ws = new WebSocket(
-      terminalUrl(globalThis.location, agentId, term.cols, term.rows),
+      terminalUrl(globalThis.location, agentId, term.cols, term.rows, auth),
     );
     ws.binaryType = 'arraybuffer';
     const enc = new TextEncoder();
@@ -83,7 +89,7 @@ export function TerminalTab({ agentId }: { agentId: string }) {
       ws.close();
       term.dispose();
     };
-  }, [agentId, session]);
+  }, [agentId, auth, session]);
 
   return (
     <div className="grid gap-2">

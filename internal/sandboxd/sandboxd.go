@@ -154,6 +154,8 @@ func (d *Daemon) handle(ctx context.Context, st net.Conn, o tunnel.Open) {
 		err = tunnel.WriteJSON(st, tunnel.OK{OK: true})
 	case tunnel.OpPTY:
 		err = d.pty(ctx, st, o)
+	case tunnel.OpHarness:
+		err = d.harness(ctx, st, o)
 	case tunnel.OpFSList:
 		err = d.fsList(st, o)
 	case tunnel.OpFSRead:

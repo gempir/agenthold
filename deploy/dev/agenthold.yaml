@@ -24,6 +24,8 @@ auth:
 
 sandbox:
   driver: docker
+  # Build it with: make base-image
+  default_image: agenthold/base:dev
   sandboxd_path: /src/tmp/sandboxd
   docker:
     name_prefix: agenthold-dev

@@ -1,3 +1,4 @@
+import { TriggersTab } from '@/components/TriggersTab';
 import { AgentToolsPanel } from '@/components/ToolsPanel';
 import { lazy, Suspense, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -35,6 +36,7 @@ type Tab =
   | 'files'
   | 'network'
   | 'tools'
+  | 'triggers'
   | 'sharing'
   | 'activity';
 
@@ -159,6 +161,7 @@ export function AgentPage({
             'files',
             'network',
             'tools',
+            'triggers',
             'sharing',
             ...(admin ? ['activity'] : []),
           ] as Tab[]
@@ -289,6 +292,18 @@ export function AgentPage({
           agentId={agentId}
           workspaceId={a.workspaceId}
           admin={admin}
+        />
+      )}
+
+      {tab === 'triggers' && (
+        <TriggersTab
+          agentId={agentId}
+          admin={admin}
+          operator={operator}
+          onOpenSession={(id) => {
+            setTab('chat');
+            onSelectSession?.(id);
+          }}
         />
       )}
 

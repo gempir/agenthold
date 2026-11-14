@@ -3,6 +3,7 @@ module github.com/gempir/agenthold
 go 1.26.4
 
 require (
+	github.com/coder/acp-go-sdk v0.13.5
 	github.com/coder/websocket v1.8.15
 	github.com/containerd/errdefs v1.0.0
 	github.com/coreos/go-oidc/v3 v3.21.0
@@ -16,6 +17,7 @@ require (
 	github.com/moby/moby/client v0.6.3
 	github.com/oapi-codegen/runtime v1.9.0
 	github.com/pressly/goose/v3 v3.30.1
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/vishvananda/netlink v1.3.1
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/crypto v0.59.0
@@ -29,7 +31,6 @@ require (
 	github.com/Microsoft/go-winio v0.6.4 // indirect
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/coder/acp-go-sdk v0.13.5 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-connections v0.8.2 // indirect

@@ -37,6 +37,7 @@ import (
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/tools"
+	"github.com/gempir/agenthold/internal/trigger"
 	"github.com/gempir/agenthold/internal/tunnel"
 	"github.com/gempir/agenthold/internal/version"
 	"github.com/gempir/agenthold/web"
@@ -143,7 +144,10 @@ func run() error {
 		return fmt.Errorf("reconcile sandboxes: %w", err)
 	}
 
+	auditLog := &audit.Log{Store: st, Log: logger}
 	sessions := session.NewManager(st, nil, logger)
+	runner := &trigger.Runner{Store: st, Sessions: sessions, Audit: auditLog}
+	go (&trigger.Scheduler{Runner: runner, Log: logger}).Run(ctx)
 	sessions.SetTools(tools.Provider{Store: st})
 	defer sessions.Close()
 	tracker := idle.NewTracker()
@@ -166,7 +170,7 @@ func run() error {
 
 	apiSrv := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Tunnel: hub, Limits: cfg.Sandbox,
-		Box: box, Egress: directory, CA: ca, Sessions: sessions, Idle: sleeper, Audit: &audit.Log{Store: st, Log: logger},
+		Box: box, Egress: directory, CA: ca, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner,
 		ShowTestHarness: cfg.Sandbox.Driver == "fake" || cfg.DevProxy != "",
 	})
 	sessions.SetWaker(apiSrv.Wake)

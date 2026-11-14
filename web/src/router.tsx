@@ -1,3 +1,4 @@
+import { TokensPage } from '@/pages/TokensPage';
 import { useEffect } from 'react';
 import {
   MutationCache,
@@ -114,10 +115,16 @@ const agentRoute = createRoute({
   },
 });
 
+const tokensRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/settings/tokens',
+  component: TokensPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   inviteRoute,
-  appRoute.addChildren([indexRoute, workspaceRoute, agentRoute]),
+  appRoute.addChildren([indexRoute, workspaceRoute, agentRoute, tokensRoute]),
 ]);
 
 export function createAppRouter(

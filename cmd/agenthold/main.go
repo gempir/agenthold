@@ -11,10 +11,15 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/gempir/agenthold/internal/api"
+	"github.com/gempir/agenthold/internal/auth"
+	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/server"
+	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/version"
 	"github.com/gempir/agenthold/web"
 )
@@ -27,11 +32,8 @@ func main() {
 }
 
 func run() error {
-	listen := flag.String("listen", envOr("AGENTHOLD_LISTEN", ":8080"), "HTTP listen address")
-	devProxy := flag.String("dev-proxy", os.Getenv("AGENTHOLD_DEV_PROXY"), "proxy the web UI to this Vite dev server URL")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
-
 	if *showVersion {
 		fmt.Printf("agenthold %s (%s)\n", version.Version, version.Commit)
 		return nil
@@ -40,27 +42,50 @@ func run() error {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	slog.SetDefault(logger)
 
-	cfg := server.Config{Web: web.Dist(), Logger: logger}
-	if *devProxy != "" {
-		u, err := url.Parse(*devProxy)
-		if err != nil {
-			return fmt.Errorf("parse dev proxy url: %w", err)
-		}
-		cfg.DevProxy = u
-	}
-
-	srv := &http.Server{
-		Addr:              *listen,
-		Handler:           server.New(cfg),
-		ReadHeaderTimeout: 10 * time.Second,
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
+		return err
+	}
+	st, err := store.Open(ctx, filepath.Join(cfg.DataDir, "agenthold.db"))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	authSvc, err := auth.NewService(st, cfg)
+	if err != nil {
+		return err
+	}
+	if len(cfg.Auth.Providers) == 0 {
+		logger.Warn("no auth providers configured; nobody can sign in")
+	}
+	apiSrv := api.New(api.Deps{Store: st, Auth: authSvc, PublicURL: cfg.PublicURL})
+
+	srvCfg := server.Config{Web: web.Dist(), Logger: logger, API: apiSrv.Mount}
+	if cfg.DevProxy != "" {
+		u, err := url.Parse(cfg.DevProxy)
+		if err != nil {
+			return fmt.Errorf("parse dev proxy url: %w", err)
+		}
+		srvCfg.DevProxy = u
+	}
+
+	srv := &http.Server{
+		Addr:              cfg.Listen,
+		Handler:           server.New(srvCfg),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
 	errc := make(chan error, 1)
 	go func() {
-		logger.Info("listening", "addr", *listen, "version", version.Version, "dev_proxy", *devProxy)
+		logger.Info("listening", "addr", cfg.Listen, "public_url", cfg.PublicURL, "version", version.Version)
 		errc <- srv.ListenAndServe()
 	}()
 
@@ -76,11 +101,4 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }

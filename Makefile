@@ -9,7 +9,7 @@ COMPOSE ?= docker compose -f deploy/docker-compose.dev.yml
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-go web web-deps test test-go test-web lint lint-go lint-web fmt dev dev-down image clean
+.PHONY: all build build-go web web-deps test test-go test-web lint lint-go lint-web fmt dev dev-down image clean generate gen-sql gen-go-api gen-api
 
 all: build
 
@@ -62,3 +62,18 @@ image:
 clean:
 	rm -rf bin tmp web/node_modules
 	find web/dist -mindepth 1 ! -name .gitkeep -delete
+
+SQLC_VERSION := v1.31.1
+
+## generate: regenerate sqlc queries, Go API types and the TypeScript client
+generate: gen-sql gen-go-api gen-api
+
+gen-sql:
+	CGO_ENABLED=1 $(GO) run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION) generate
+
+gen-go-api:
+	$(GO) generate ./internal/api/gen/
+
+## gen-api: regenerate web/src/api/schema.d.ts from api/openapi.yaml
+gen-api: web-deps
+	cd web && $(PNPM) gen:api

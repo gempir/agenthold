@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
@@ -21,6 +22,9 @@ const target = process.env.AGENTHOLD_API_URL ?? 'http://localhost:8080';
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), keepDist()],
+  resolve: {
+    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+  },
   server: {
     host: true,
     port: 5173,

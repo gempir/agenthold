@@ -16,6 +16,13 @@ linters:
     revive:
       rules:
         - name: exported
+  exclusions:
+    generated: strict
+    presets:
+      - std-error-handling # unchecked Close and friends
+    rules:
+      - path: _test\.go
+        linters: [noctx, bodyclose, unparam]
 formatters:
   enable:
     - gofumpt
@@ -24,3 +31,5 @@ formatters:
     goimports:
       local-prefixes:
         - github.com/gempir/agenthold
+  exclusions:
+    generated: strict

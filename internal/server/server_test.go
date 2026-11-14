@@ -10,7 +10,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/gempir/agenthold/internal/version"
+	"github.com/go-chi/chi/v5"
 )
 
 func testSite() fstest.MapFS {
@@ -33,14 +33,26 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
-func TestVersion(t *testing.T) {
-	rec := get(t, New(Config{Web: testSite()}), "/api/v1/version")
-	var got map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
-		t.Fatal(err)
+func TestMountsAPI(t *testing.T) {
+	h := New(Config{Web: testSite(), API: func(r chi.Router) {
+		r.Get("/api/v1/ping", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, `{"pong":true}`) })
+	}})
+	var got map[string]bool
+	if err := json.NewDecoder(get(t, h, "/api/v1/ping").Body).Decode(&got); err != nil || !got["pong"] {
+		t.Fatalf("got %v, %v", got, err)
 	}
-	if got["version"] != version.Version || got["commit"] != version.Commit {
-		t.Fatalf("got %v", got)
+}
+
+func TestCrossOriginPostRejected(t *testing.T) {
+	h := New(Config{Web: testSite(), API: func(r chi.Router) {
+		r.Post("/api/v1/thing", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	}})
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/thing", nil)
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", rec.Code)
 	}
 }
 
@@ -91,7 +103,7 @@ func TestDevProxy(t *testing.T) {
 	if b := get(t, h, "/src/main.tsx").Body.String(); b != "vite:/src/main.tsx" {
 		t.Fatalf("proxied body = %q", b)
 	}
-	if rec := get(t, h, "/api/v1/version"); rec.Code != http.StatusOK || strings.HasPrefix(rec.Body.String(), "vite:") {
+	if rec := get(t, h, "/api/v1/version"); rec.Code != http.StatusNotFound || strings.HasPrefix(rec.Body.String(), "vite:") {
 		t.Fatalf("api must not be proxied: %d %q", rec.Code, rec.Body.String())
 	}
 }

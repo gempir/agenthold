@@ -5,6 +5,7 @@ import {
   initialChatState,
   parseStreamMessage,
   sessionStreamUrl,
+  type Viewer,
 } from '@/lib/session';
 
 /** Streams a session's events over a WebSocket, reconnecting with backoff and
@@ -13,6 +14,7 @@ export function useSessionStream(sessionId: string, initialRunning: boolean) {
   const [state, dispatch] = useReducer(chatReducer, initialChatState);
   const [running, setRunning] = useState(initialRunning);
   const [connected, setConnected] = useState(false);
+  const [viewers, setViewers] = useState<Viewer[]>([]);
 
   useEffect(() => {
     dispatch({ type: 'reset' });
@@ -37,6 +39,7 @@ export function useSessionStream(sessionId: string, initialRunning: boolean) {
         const m = parseStreamMessage(e.data);
         if (!m) return;
         if (m.type === 'status') setRunning(m.running);
+        else if (m.type === 'presence') setViewers(m.viewers);
         else {
           if (m.event.seq > lastSeq) lastSeq = m.event.seq;
           dispatch({ type: 'event', event: m.event });
@@ -45,6 +48,7 @@ export function useSessionStream(sessionId: string, initialRunning: boolean) {
       sock.onclose = () => {
         if (cancelled) return;
         setConnected(false);
+        setViewers([]);
         timer = setTimeout(connect, backoffMs(attempt++));
       };
     };
@@ -54,8 +58,9 @@ export function useSessionStream(sessionId: string, initialRunning: boolean) {
       cancelled = true;
       clearTimeout(timer);
       ws?.close();
+      setViewers([]);
     };
   }, [sessionId]);
 
-  return { state, running, connected };
+  return { state, running, connected, viewers };
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gempir/agenthold/internal/api/gen"
+	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/harness"
 	"github.com/gempir/agenthold/internal/id"
@@ -187,6 +188,7 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 	if err != nil {
 		return nil, err
 	}
+	a.record(ctx, row.Agent, audit.AgentCreate, row.Agent.Name, map[string]any{"image": s.image, "harness": s.harness})
 	out, err := a.apiAgent(ctx, row.Agent, row.Sandbox, authz.AgentAdmin)
 	if err != nil {
 		return nil, err
@@ -265,6 +267,10 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	if err != nil {
 		return nil, err
 	}
+	a.record(ctx, ag, audit.AgentUpdate, ag.Name, map[string]any{
+		"name": s.name, "image": s.image, "cpus": s.cpus, "memoryMb": s.memoryMB, "idleMinutes": s.idleMinutes,
+		"harness": s.harness, "model": s.model, "permissionPolicy": s.policy,
+	})
 	return gen.UpdateAgent200JSONResponse(g), nil
 }
 
@@ -278,16 +284,18 @@ func (a *API) reloadAgent(ctx context.Context, agentID string, role authz.AgentR
 
 // DeleteAgent implements gen.StrictServerInterface.
 func (a *API) DeleteAgent(ctx context.Context, req gen.DeleteAgentRequestObject) (gen.DeleteAgentResponseObject, error) {
-	if _, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentDelete); err != nil {
+	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentDelete)
+	if err != nil {
 		return nil, err
 	}
 	if err := a.Sandboxes.Destroy(ctx, req.AgentId); err != nil {
 		return nil, err
 	}
+	a.record(ctx, acc.Row.Agent, audit.AgentDelete, acc.Row.Agent.Name, nil)
 	return gen.DeleteAgent202Response{}, nil
 }
 
-func (a *API) lifecycle(ctx context.Context, agentID string, op func(context.Context, string) error) (gen.Agent, error) {
+func (a *API) lifecycle(ctx context.Context, agentID, action string, op func(context.Context, string) error) (gen.Agent, error) {
 	acc, err := a.authz.Agent(ctx, me(ctx).ID, agentID, authz.AgentLifecycle)
 	if err != nil {
 		return gen.Agent{}, err
@@ -295,12 +303,13 @@ func (a *API) lifecycle(ctx context.Context, agentID string, op func(context.Con
 	if err := op(ctx, agentID); err != nil {
 		return gen.Agent{}, err
 	}
+	a.record(ctx, acc.Row.Agent, action, "", nil)
 	return a.reloadAgent(ctx, agentID, acc.Role)
 }
 
 // StartAgent implements gen.StrictServerInterface.
 func (a *API) StartAgent(ctx context.Context, req gen.StartAgentRequestObject) (gen.StartAgentResponseObject, error) {
-	g, err := a.lifecycle(ctx, req.AgentId, a.Sandboxes.Start)
+	g, err := a.lifecycle(ctx, req.AgentId, audit.AgentStart, a.Sandboxes.Start)
 	if err != nil {
 		return nil, err
 	}
@@ -309,7 +318,7 @@ func (a *API) StartAgent(ctx context.Context, req gen.StartAgentRequestObject) (
 
 // StopAgent implements gen.StrictServerInterface.
 func (a *API) StopAgent(ctx context.Context, req gen.StopAgentRequestObject) (gen.StopAgentResponseObject, error) {
-	g, err := a.lifecycle(ctx, req.AgentId, a.Sandboxes.Stop)
+	g, err := a.lifecycle(ctx, req.AgentId, audit.AgentStop, a.Sandboxes.Stop)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +327,7 @@ func (a *API) StopAgent(ctx context.Context, req gen.StopAgentRequestObject) (ge
 
 // RebuildAgent implements gen.StrictServerInterface.
 func (a *API) RebuildAgent(ctx context.Context, req gen.RebuildAgentRequestObject) (gen.RebuildAgentResponseObject, error) {
-	g, err := a.lifecycle(ctx, req.AgentId, a.Sandboxes.Rebuild)
+	g, err := a.lifecycle(ctx, req.AgentId, audit.AgentRebuild, a.Sandboxes.Rebuild)
 	if err != nil {
 		return nil, err
 	}

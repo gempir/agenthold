@@ -11,6 +11,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/go-chi/chi/v5"
 
+	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/sandbox"
@@ -132,6 +133,11 @@ func (a *API) terminal(w http.ResponseWriter, r *http.Request) {
 	if a.Idle != nil {
 		a.Idle.Tracker.TerminalOpened(agentID)
 		defer a.Idle.Tracker.TerminalClosed(agentID)
+	}
+	if authMethod != "" {
+		a.record(auth.WithUser(ctx, u), acc.Row.Agent, audit.HarnessLogin, authMethod, nil)
+	} else {
+		a.record(auth.WithUser(ctx, u), acc.Row.Agent, audit.TerminalOpen, "", nil)
 	}
 	term, err := s.PTY(ctx, open)
 	if err != nil {

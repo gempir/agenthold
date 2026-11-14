@@ -152,3 +152,18 @@ export const harnessesQuery = queryOptions({
   queryFn: () => unwrap(api.GET('/harnesses')),
   retry: false,
 });
+
+export type AccessList = components['schemas']['AccessList'];
+export type Grant = components['schemas']['Grant'];
+export type AuditEntry = components['schemas']['AuditEntry'];
+export type AgentRole = components['schemas']['AgentRole'];
+
+export const accessQuery = (agentId: string) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'grants'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/grants', { params: { path: { agentId } } }),
+      ),
+    retry: false,
+  });

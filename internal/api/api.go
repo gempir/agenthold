@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/gempir/agenthold/internal/api/gen"
+	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/config"
@@ -34,6 +35,7 @@ type Deps struct {
 	CA        *egress.CA
 	Sessions  *session.Manager
 	Idle      *idle.Sleeper
+	Audit     *audit.Log
 	// ShowTestHarness lists the scripted test harness (development).
 	ShowTestHarness bool
 	Limits          config.Sandbox

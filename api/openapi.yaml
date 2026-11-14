@@ -16,6 +16,7 @@ tags:
   - name: agents
   - name: files
   - name: sessions
+  - name: sharing
   - name: secrets
   - name: egress
   - name: streams
@@ -916,11 +917,78 @@ paths:
         WebSocket. The server sends every event after `after` as a JSON text
         message (a SessionEvent), then live events as they happen. After a
         reconnect, pass the last seq received to continue without gaps.
-        `{"type":"status","running":bool}` messages report whether a turn runs.
+        `{"type":"status","running":bool}` messages report whether a turn runs;
+        `{"type":"presence","viewers":[{id,name,avatarUrl,role}]}` lists who is watching.
       parameters:
         - { name: after, in: query, schema: { type: integer, format: int64 } }
       responses:
         "101": { description: Switching to WebSocket. }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/grants:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listGrants
+      tags: [sharing]
+      description: Who has access to the agent, including implicit access (owner, workspace owners and admins).
+      responses:
+        "200":
+          description: Access list.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccessList" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: setGrant
+      tags: [sharing]
+      description: Grant a role to a workspace member or to the whole workspace (agent admin). Replaces an existing grant for the same subject.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GrantInput" }
+      responses:
+        "200":
+          description: Saved.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Grant" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/grants/{grantId}:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+      - { name: grantId, in: path, required: true, schema: { type: string } }
+    delete:
+      operationId: deleteGrant
+      tags: [sharing]
+      responses:
+        "204": { description: Revoked. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/audit:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listAgentAudit
+      tags: [sharing]
+      description: Who did what to this agent (agent admin). Newest first.
+      parameters:
+        - { name: before, in: query, schema: { type: integer, format: int64 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500 } }
+      responses:
+        "200":
+          description: Audit entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AuditEntry" }
+        "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 
 security:
@@ -1322,5 +1390,58 @@ components:
             {stopReason}; error/notice: {message}.
         userId: { type: string }
         data:
+          type: object
+          additionalProperties: true
+
+    GrantInput:
+      type: object
+      required: [subjectType, role]
+      properties:
+        subjectType: { type: string, enum: [user, workspace] }
+        userId: { type: string, description: Required for subjectType user; must be a workspace member. }
+        role: { $ref: "#/components/schemas/AgentRole" }
+
+    Grant:
+      type: object
+      required: [id, subjectType, role, createdAt]
+      properties:
+        id: { type: string }
+        subjectType: { type: string, enum: [user, workspace] }
+        user: { $ref: "#/components/schemas/User" }
+        role: { $ref: "#/components/schemas/AgentRole" }
+        createdAt: { type: string, format: date-time }
+
+    AccessEntry:
+      type: object
+      required: [user, role, via]
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        role: { $ref: "#/components/schemas/AgentRole" }
+        via:
+          type: string
+          enum: [owner, workspace_admin, grant, workspace_grant]
+
+    AccessList:
+      type: object
+      required: [grants, effective]
+      properties:
+        grants:
+          type: array
+          items: { $ref: "#/components/schemas/Grant" }
+        effective:
+          type: array
+          description: Every workspace member with access and their effective role.
+          items: { $ref: "#/components/schemas/AccessEntry" }
+
+    AuditEntry:
+      type: object
+      required: [id, at, user, action, target, details]
+      properties:
+        id: { type: integer, format: int64 }
+        at: { type: string, format: date-time }
+        user: { $ref: "#/components/schemas/User" }
+        action: { type: string }
+        target: { type: string }
+        details:
           type: object
           additionalProperties: true

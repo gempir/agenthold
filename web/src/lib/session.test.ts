@@ -133,4 +133,12 @@ it('parses stream messages', () => {
     parseStreamMessage('{"seq":3,"at":"x","type":"notice","data":{}}'),
   ).toMatchObject({ type: 'event' });
   expect(parseStreamMessage('nope')).toBeNull();
+  expect(
+    parseStreamMessage(
+      '{"type":"presence","viewers":[{"id":"u1","name":"A","avatarUrl":"","role":"admin"},{"name":"bad"}]}',
+    ),
+  ).toEqual({
+    type: 'presence',
+    viewers: [{ id: 'u1', name: 'A', avatarUrl: '', role: 'admin' }],
+  });
 });

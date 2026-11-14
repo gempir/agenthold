@@ -136,9 +136,10 @@ func (m *Manager) Create(ctx context.Context, agentID, userID, title string) (db
 	return s, err
 }
 
-// Subscribe returns events after `after` and a live subscription.
-func (m *Manager) Subscribe(ctx context.Context, sessionID string, after int64) ([]Event, *Subscription, error) {
-	return m.log.subscribe(ctx, sessionID, after)
+// Subscribe returns events after `after` and a live subscription. A non-nil
+// viewer is shown to everyone else watching the session.
+func (m *Manager) Subscribe(ctx context.Context, sessionID string, after int64, viewer *Viewer) ([]Event, *Subscription, error) {
+	return m.log.subscribe(ctx, sessionID, after, viewer)
 }
 
 // Running reports whether a turn is in progress.

@@ -23,6 +23,30 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for AccessEntryVia.
+const (
+	AccessEntryViaGrant          AccessEntryVia = "grant"
+	AccessEntryViaOwner          AccessEntryVia = "owner"
+	AccessEntryViaWorkspaceAdmin AccessEntryVia = "workspace_admin"
+	AccessEntryViaWorkspaceGrant AccessEntryVia = "workspace_grant"
+)
+
+// Valid indicates whether the value is a known member of the AccessEntryVia enum.
+func (e AccessEntryVia) Valid() bool {
+	switch e {
+	case AccessEntryViaGrant:
+		return true
+	case AccessEntryViaOwner:
+		return true
+	case AccessEntryViaWorkspaceAdmin:
+		return true
+	case AccessEntryViaWorkspaceGrant:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AgentPermissionPolicy.
 const (
 	AgentPermissionPolicyAsk         AgentPermissionPolicy = "ask"
@@ -155,6 +179,42 @@ func (e EgressEventKind) Valid() bool {
 	case Tcp:
 		return true
 	case Tls:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GrantSubjectType.
+const (
+	GrantSubjectTypeUser      GrantSubjectType = "user"
+	GrantSubjectTypeWorkspace GrantSubjectType = "workspace"
+)
+
+// Valid indicates whether the value is a known member of the GrantSubjectType enum.
+func (e GrantSubjectType) Valid() bool {
+	switch e {
+	case GrantSubjectTypeUser:
+		return true
+	case GrantSubjectTypeWorkspace:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GrantInputSubjectType.
+const (
+	GrantInputSubjectTypeUser      GrantInputSubjectType = "user"
+	GrantInputSubjectTypeWorkspace GrantInputSubjectType = "workspace"
+)
+
+// Valid indicates whether the value is a known member of the GrantInputSubjectType enum.
+func (e GrantInputSubjectType) Valid() bool {
+	switch e {
+	case GrantInputSubjectTypeUser:
+		return true
+	case GrantInputSubjectTypeWorkspace:
 		return true
 	default:
 		return false
@@ -323,6 +383,23 @@ func (e WorkspaceRole) Valid() bool {
 	}
 }
 
+// AccessEntry defines model for AccessEntry.
+type AccessEntry struct {
+	Role AgentRole      `json:"role"`
+	User User           `json:"user"`
+	Via  AccessEntryVia `json:"via"`
+}
+
+// AccessEntryVia defines model for AccessEntry.Via.
+type AccessEntryVia string
+
+// AccessList defines model for AccessList.
+type AccessList struct {
+	// Effective Every workspace member with access and their effective role.
+	Effective []AccessEntry `json:"effective"`
+	Grants    []Grant       `json:"grants"`
+}
+
 // Agent defines model for Agent.
 type Agent struct {
 	Cpus      float32   `json:"cpus"`
@@ -402,6 +479,16 @@ type AgentRole string
 type AttachedSecret struct {
 	EnvVar string `json:"envVar"`
 	Secret Secret `json:"secret"`
+}
+
+// AuditEntry defines model for AuditEntry.
+type AuditEntry struct {
+	Action  string                 `json:"action"`
+	At      time.Time              `json:"at"`
+	Details map[string]interface{} `json:"details"`
+	Id      int64                  `json:"id"`
+	Target  string                 `json:"target"`
+	User    User                   `json:"user"`
 }
 
 // AuthMethodInfo defines model for AuthMethodInfo.
@@ -485,6 +572,30 @@ type FileEntry struct {
 	Name    string    `json:"name"`
 	Size    int64     `json:"size"`
 }
+
+// Grant defines model for Grant.
+type Grant struct {
+	CreatedAt   time.Time        `json:"createdAt"`
+	Id          string           `json:"id"`
+	Role        AgentRole        `json:"role"`
+	SubjectType GrantSubjectType `json:"subjectType"`
+	User        *User            `json:"user,omitempty"`
+}
+
+// GrantSubjectType defines model for Grant.SubjectType.
+type GrantSubjectType string
+
+// GrantInput defines model for GrantInput.
+type GrantInput struct {
+	Role        AgentRole             `json:"role"`
+	SubjectType GrantInputSubjectType `json:"subjectType"`
+
+	// UserId Required for subjectType user; must be a workspace member.
+	UserId *string `json:"userId,omitempty"`
+}
+
+// GrantInputSubjectType defines model for GrantInput.SubjectType.
+type GrantInputSubjectType string
 
 // HarnessState defines model for HarnessState.
 type HarnessState struct {
@@ -704,6 +815,12 @@ type SessionId = string
 // WorkspaceId defines model for WorkspaceId.
 type WorkspaceId = string
 
+// ListAgentAuditParams defines parameters for ListAgentAudit.
+type ListAgentAuditParams struct {
+	Before *int64 `form:"before,omitempty" json:"before,omitempty"`
+	Limit  *int   `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListEgressLogParams defines parameters for ListEgressLog.
 type ListEgressLogParams struct {
 	// Before Return entries older than this id.
@@ -785,6 +902,9 @@ type UpdateAgentJSONRequestBody = AgentPatch
 // MakeDirectoryJSONRequestBody defines body for MakeDirectory for application/json ContentType.
 type MakeDirectoryJSONRequestBody MakeDirectoryJSONBody
 
+// SetGrantJSONRequestBody defines body for SetGrant for application/json ContentType.
+type SetGrantJSONRequestBody = GrantInput
+
 // SetNetworkPolicyJSONRequestBody defines body for SetNetworkPolicy for application/json ContentType.
 type SetNetworkPolicyJSONRequestBody = NetworkPolicy
 
@@ -836,6 +956,9 @@ type ServerInterface interface {
 	// (PATCH /agents/{agentId})
 	UpdateAgent(w http.ResponseWriter, r *http.Request, agentId AgentId)
 
+	// (GET /agents/{agentId}/audit)
+	ListAgentAudit(w http.ResponseWriter, r *http.Request, agentId AgentId, params ListAgentAuditParams)
+
 	// (GET /agents/{agentId}/egress-log)
 	ListEgressLog(w http.ResponseWriter, r *http.Request, agentId AgentId, params ListEgressLogParams)
 
@@ -853,6 +976,15 @@ type ServerInterface interface {
 
 	// (POST /agents/{agentId}/files/mkdir)
 	MakeDirectory(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (GET /agents/{agentId}/grants)
+	ListGrants(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (POST /agents/{agentId}/grants)
+	SetGrant(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (DELETE /agents/{agentId}/grants/{grantId})
+	DeleteGrant(w http.ResponseWriter, r *http.Request, agentId AgentId, grantId string)
 
 	// (GET /agents/{agentId}/harness)
 	GetHarness(w http.ResponseWriter, r *http.Request, agentId AgentId, params GetHarnessParams)
@@ -1006,6 +1138,11 @@ func (_ Unimplemented) UpdateAgent(w http.ResponseWriter, r *http.Request, agent
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (GET /agents/{agentId}/audit)
+func (_ Unimplemented) ListAgentAudit(w http.ResponseWriter, r *http.Request, agentId AgentId, params ListAgentAuditParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (GET /agents/{agentId}/egress-log)
 func (_ Unimplemented) ListEgressLog(w http.ResponseWriter, r *http.Request, agentId AgentId, params ListEgressLogParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -1033,6 +1170,21 @@ func (_ Unimplemented) UploadFile(w http.ResponseWriter, r *http.Request, agentI
 
 // (POST /agents/{agentId}/files/mkdir)
 func (_ Unimplemented) MakeDirectory(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /agents/{agentId}/grants)
+func (_ Unimplemented) ListGrants(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /agents/{agentId}/grants)
+func (_ Unimplemented) SetGrant(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /agents/{agentId}/grants/{grantId})
+func (_ Unimplemented) DeleteGrant(w http.ResponseWriter, r *http.Request, agentId AgentId, grantId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1343,6 +1495,61 @@ func (siw *ServerInterfaceWrapper) UpdateAgent(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// ListAgentAudit operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentAudit(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAgentAuditParams
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAgentAudit(w, r, agentId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListEgressLog operation middleware
 func (siw *ServerInterfaceWrapper) ListEgressLog(w http.ResponseWriter, r *http.Request) {
 
@@ -1596,6 +1803,93 @@ func (siw *ServerInterfaceWrapper) MakeDirectory(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.MakeDirectory(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListGrants operation middleware
+func (siw *ServerInterfaceWrapper) ListGrants(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListGrants(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetGrant operation middleware
+func (siw *ServerInterfaceWrapper) SetGrant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetGrant(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteGrant operation middleware
+func (siw *ServerInterfaceWrapper) DeleteGrant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "grantId" -------------
+	var grantId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "grantId", chi.URLParam(r, "grantId"), &grantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "grantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteGrant(w, r, agentId, grantId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3012,6 +3306,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/sessions/{sessionId}/events", wrapper.ListSessionEvents)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/agents/{agentId}/grants", wrapper.ListGrants)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/agents/{agentId}/grants", wrapper.SetGrant)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/agents/{agentId}/grants/{grantId}", wrapper.DeleteGrant)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/agents/{agentId}/audit", wrapper.ListAgentAudit)
+	})
 
 	return r
 }
@@ -3166,6 +3472,57 @@ func (response UpdateAgent403JSONResponse) VisitUpdateAgentResponse(w http.Respo
 type UpdateAgent404JSONResponse Error
 
 func (response UpdateAgent404JSONResponse) VisitUpdateAgentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentAuditRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+	Params  ListAgentAuditParams
+}
+
+type ListAgentAuditResponseObject interface {
+	VisitListAgentAuditResponse(w http.ResponseWriter) error
+}
+
+type ListAgentAudit200JSONResponse []AuditEntry
+
+func (response ListAgentAudit200JSONResponse) VisitListAgentAuditResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentAudit403JSONResponse struct{ ErrorJSONResponse }
+
+func (response ListAgentAudit403JSONResponse) VisitListAgentAuditResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentAudit404JSONResponse Error
+
+func (response ListAgentAudit404JSONResponse) VisitListAgentAuditResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -3566,6 +3923,152 @@ func (response MakeDirectory409JSONResponse) VisitMakeDirectoryResponse(w http.R
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListGrantsRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+}
+
+type ListGrantsResponseObject interface {
+	VisitListGrantsResponse(w http.ResponseWriter) error
+}
+
+type ListGrants200JSONResponse AccessList
+
+func (response ListGrants200JSONResponse) VisitListGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListGrants404JSONResponse struct{ ErrorJSONResponse }
+
+func (response ListGrants404JSONResponse) VisitListGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetGrantRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+	Body    *SetGrantJSONRequestBody
+}
+
+type SetGrantResponseObject interface {
+	VisitSetGrantResponse(w http.ResponseWriter) error
+}
+
+type SetGrant200JSONResponse Grant
+
+func (response SetGrant200JSONResponse) VisitSetGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetGrant400JSONResponse struct{ ErrorJSONResponse }
+
+func (response SetGrant400JSONResponse) VisitSetGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetGrant403JSONResponse Error
+
+func (response SetGrant403JSONResponse) VisitSetGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetGrant404JSONResponse Error
+
+func (response SetGrant404JSONResponse) VisitSetGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteGrantRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+	GrantId string  `json:"grantId"`
+}
+
+type DeleteGrantResponseObject interface {
+	VisitDeleteGrantResponse(w http.ResponseWriter) error
+}
+
+type DeleteGrant204Response struct {
+}
+
+func (response DeleteGrant204Response) VisitDeleteGrantResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteGrant403JSONResponse struct{ ErrorJSONResponse }
+
+func (response DeleteGrant403JSONResponse) VisitDeleteGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteGrant404JSONResponse Error
+
+func (response DeleteGrant404JSONResponse) VisitDeleteGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5620,6 +6123,9 @@ type StrictServerInterface interface {
 	// (PATCH /agents/{agentId})
 	UpdateAgent(ctx context.Context, request UpdateAgentRequestObject) (UpdateAgentResponseObject, error)
 
+	// (GET /agents/{agentId}/audit)
+	ListAgentAudit(ctx context.Context, request ListAgentAuditRequestObject) (ListAgentAuditResponseObject, error)
+
 	// (GET /agents/{agentId}/egress-log)
 	ListEgressLog(ctx context.Context, request ListEgressLogRequestObject) (ListEgressLogResponseObject, error)
 
@@ -5637,6 +6143,15 @@ type StrictServerInterface interface {
 
 	// (POST /agents/{agentId}/files/mkdir)
 	MakeDirectory(ctx context.Context, request MakeDirectoryRequestObject) (MakeDirectoryResponseObject, error)
+
+	// (GET /agents/{agentId}/grants)
+	ListGrants(ctx context.Context, request ListGrantsRequestObject) (ListGrantsResponseObject, error)
+
+	// (POST /agents/{agentId}/grants)
+	SetGrant(ctx context.Context, request SetGrantRequestObject) (SetGrantResponseObject, error)
+
+	// (DELETE /agents/{agentId}/grants/{grantId})
+	DeleteGrant(ctx context.Context, request DeleteGrantRequestObject) (DeleteGrantResponseObject, error)
 
 	// (GET /agents/{agentId}/harness)
 	GetHarness(ctx context.Context, request GetHarnessRequestObject) (GetHarnessResponseObject, error)
@@ -5895,6 +6410,33 @@ func (sh *strictHandler) UpdateAgent(w http.ResponseWriter, r *http.Request, age
 	}
 }
 
+// ListAgentAudit operation middleware
+func (sh *strictHandler) ListAgentAudit(w http.ResponseWriter, r *http.Request, agentId AgentId, params ListAgentAuditParams) {
+	var request ListAgentAuditRequestObject
+
+	request.AgentId = agentId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAgentAudit(ctx, request.(ListAgentAuditRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAgentAudit")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAgentAuditResponseObject); ok {
+		if err := validResponse.VisitListAgentAuditResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListEgressLog operation middleware
 func (sh *strictHandler) ListEgressLog(w http.ResponseWriter, r *http.Request, agentId AgentId, params ListEgressLogParams) {
 	var request ListEgressLogRequestObject
@@ -6058,6 +6600,92 @@ func (sh *strictHandler) MakeDirectory(w http.ResponseWriter, r *http.Request, a
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(MakeDirectoryResponseObject); ok {
 		if err := validResponse.VisitMakeDirectoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListGrants operation middleware
+func (sh *strictHandler) ListGrants(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	var request ListGrantsRequestObject
+
+	request.AgentId = agentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListGrants(ctx, request.(ListGrantsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListGrants")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListGrantsResponseObject); ok {
+		if err := validResponse.VisitListGrantsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetGrant operation middleware
+func (sh *strictHandler) SetGrant(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	var request SetGrantRequestObject
+
+	request.AgentId = agentId
+
+	var body SetGrantJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetGrant(ctx, request.(SetGrantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetGrant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetGrantResponseObject); ok {
+		if err := validResponse.VisitSetGrantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteGrant operation middleware
+func (sh *strictHandler) DeleteGrant(w http.ResponseWriter, r *http.Request, agentId AgentId, grantId string) {
+	var request DeleteGrantRequestObject
+
+	request.AgentId = agentId
+	request.GrantId = grantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteGrant(ctx, request.(DeleteGrantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteGrant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteGrantResponseObject); ok {
+		if err := validResponse.VisitDeleteGrantResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -7298,96 +7926,103 @@ func (sh *strictHandler) CreateSecret(w http.ResponseWriter, r *http.Request, wo
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"+7L6uvr/AAAA//8=",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

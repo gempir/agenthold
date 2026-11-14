@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/gempir/agenthold/internal/api/gen"
+	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/harness"
@@ -179,6 +180,7 @@ func (a *API) CreateSession(ctx context.Context, req gen.CreateSessionRequestObj
 	if err != nil {
 		return nil, err
 	}
+	a.record(ctx, mustAgent(ctx, a, s.AgentID), audit.SessionCreate, s.ID, nil)
 	g, err := a.apiSession(ctx, s)
 	if err != nil {
 		return nil, err
@@ -232,6 +234,7 @@ func (a *API) DeleteSession(ctx context.Context, req gen.DeleteSessionRequestObj
 		}
 		return nil, err
 	}
+	a.record(ctx, mustAgent(ctx, a, s.AgentID), audit.SessionDelete, s.ID, map[string]any{"title": s.Title})
 	return gen.DeleteSession204Response{}, nil
 }
 
@@ -252,6 +255,7 @@ func (a *API) PromptSession(ctx context.Context, req gen.PromptSessionRequestObj
 		}
 		return nil, err
 	}
+	a.record(ctx, mustAgent(ctx, a, s.AgentID), audit.Prompt, s.ID, map[string]any{"text": truncateRunes(text, 500), "session": s.Title})
 	return gen.PromptSession202Response{}, nil
 }
 
@@ -267,6 +271,7 @@ func (a *API) CancelSession(ctx context.Context, req gen.CancelSessionRequestObj
 		}
 		return nil, err
 	}
+	a.record(ctx, mustAgent(ctx, a, s.AgentID), audit.Cancel, s.ID, nil)
 	return gen.CancelSession202Response{}, nil
 }
 
@@ -282,6 +287,7 @@ func (a *API) AnswerPermission(ctx context.Context, req gen.AnswerPermissionRequ
 		}
 		return nil, err
 	}
+	a.record(ctx, mustAgent(ctx, a, s.AgentID), audit.Permission, s.ID, map[string]any{"requestId": req.RequestId, "optionId": req.Body.OptionId})
 	return gen.AnswerPermission204Response{}, nil
 }
 
@@ -333,6 +339,11 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
+	_, role, err := a.authz.AgentRoleOf(ctx, u.ID, mustAgent(ctx, a, s.AgentID))
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
 	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
 	ws, err := websocket.Accept(w, r, nil)
 	if err != nil {
@@ -341,7 +352,8 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = ws.CloseNow() }()
 	ctx = ws.CloseRead(ctx) // we only write; this also detects the client leaving
 
-	backlog, sub, err := a.Sessions.Subscribe(ctx, s.ID, after)
+	viewer := &session.Viewer{ID: u.ID, Name: u.Name, AvatarURL: u.AvatarUrl, Role: string(role)}
+	backlog, sub, err := a.Sessions.Subscribe(ctx, s.ID, after, viewer)
 	if err != nil {
 		return
 	}
@@ -372,6 +384,10 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 				running = now
 				_ = wsjson.Write(ctx, ws, map[string]any{"type": "status", "running": running})
 			}
+		case vs := <-sub.Presence:
+			if wsjson.Write(ctx, ws, map[string]any{"type": "presence", "viewers": vs}) != nil {
+				return
+			}
 		case <-sub.Lost():
 			// Too slow: the client reconnects with its last seq.
 			_ = ws.Close(websocket.StatusTryAgainLater, "resubscribe")
@@ -380,4 +396,17 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func mustAgent(ctx context.Context, a *API, agentID string) db.Agent {
+	ag, _ := a.Store.GetAgent(ctx, agentID)
+	return ag
+}
+
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
 }

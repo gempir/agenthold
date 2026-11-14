@@ -1,13 +1,14 @@
 import { lazy, Suspense, useLayoutEffect, useRef, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, ChevronRight, Circle, Loader2 } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
 import { ErrorText } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
 import { ToolCard } from '@/components/chat/ToolCard';
 import { useSessionStream } from '@/components/chat/useSessionStream';
-import type { SandboxState } from '@/api/queries';
-import type { ChatItem, PlanEntry } from '@/lib/session';
+import { meQuery, type SandboxState } from '@/api/queries';
+import { Avatar } from '@/components/MembersList';
+import type { ChatItem, PlanEntry, Viewer } from '@/lib/session';
 
 const Markdown = lazy(() => import('@/components/chat/Markdown'));
 
@@ -251,6 +252,27 @@ function Composer({
   );
 }
 
+function Presence({ viewers }: { viewers: Viewer[] }) {
+  const me = useQuery(meQuery);
+  const myId = me.data?.user.id;
+  if (viewers.length === 0) return null;
+  return (
+    <ul
+      aria-label="Viewers"
+      className="flex flex-wrap items-center justify-end gap-1"
+    >
+      {viewers.map((v) => {
+        const label = v.id === myId ? `${v.name} (you)` : v.name;
+        return (
+          <li key={v.id} title={label} aria-label={label}>
+            <Avatar name={v.name} url={v.avatarUrl} size="sm" />
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export default function ChatView({
   sessionId,
   operator,
@@ -262,7 +284,7 @@ export default function ChatView({
   agentState?: SandboxState;
   initialRunning?: boolean;
 }) {
-  const { state, running, connected } = useSessionStream(
+  const { state, running, connected, viewers } = useSessionStream(
     sessionId,
     initialRunning,
   );
@@ -276,6 +298,7 @@ export default function ChatView({
 
   return (
     <div className="flex h-[65vh] min-h-[400px] flex-col gap-2">
+      <Presence viewers={viewers} />
       <div
         ref={scroller}
         data-testid="chat-scroll"

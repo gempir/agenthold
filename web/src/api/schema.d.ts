@@ -745,9 +745,68 @@ export interface paths {
          * @description WebSocket. The server sends every event after `after` as a JSON text
          *     message (a SessionEvent), then live events as they happen. After a
          *     reconnect, pass the last seq received to continue without gaps.
-         *     `{"type":"status","running":bool}` messages report whether a turn runs.
+         *     `{"type":"status","running":bool}` messages report whether a turn runs;
+         *     `{"type":"presence","viewers":[{id,name,avatarUrl,role}]}` lists who is watching.
          */
         get: operations["streamSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description Who has access to the agent, including implicit access (owner, workspace owners and admins). */
+        get: operations["listGrants"];
+        put?: never;
+        /** @description Grant a role to a workspace member or to the whole workspace (agent admin). Replaces an existing grant for the same subject. */
+        post: operations["setGrant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/grants/{grantId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+                grantId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteGrant"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description Who did what to this agent (agent admin). Newest first. */
+        get: operations["listAgentAudit"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1051,6 +1110,45 @@ export interface components {
             type: "prompt" | "update" | "permission" | "permission_resolved" | "turn_end" | "error" | "notice";
             userId?: string;
             data: {
+                [key: string]: unknown;
+            };
+        };
+        GrantInput: {
+            /** @enum {string} */
+            subjectType: "user" | "workspace";
+            /** @description Required for subjectType user; must be a workspace member. */
+            userId?: string;
+            role: components["schemas"]["AgentRole"];
+        };
+        Grant: {
+            id: string;
+            /** @enum {string} */
+            subjectType: "user" | "workspace";
+            user?: components["schemas"]["User"];
+            role: components["schemas"]["AgentRole"];
+            /** Format: date-time */
+            createdAt: string;
+        };
+        AccessEntry: {
+            user: components["schemas"]["User"];
+            role: components["schemas"]["AgentRole"];
+            /** @enum {string} */
+            via: "owner" | "workspace_admin" | "grant" | "workspace_grant";
+        };
+        AccessList: {
+            grants: components["schemas"]["Grant"][];
+            /** @description Every workspace member with access and their effective role. */
+            effective: components["schemas"]["AccessEntry"][];
+        };
+        AuditEntry: {
+            /** Format: int64 */
+            id: number;
+            /** Format: date-time */
+            at: string;
+            user: components["schemas"]["User"];
+            action: string;
+            target: string;
+            details: {
                 [key: string]: unknown;
             };
         };
@@ -2521,6 +2619,108 @@ export interface operations {
                 };
                 content?: never;
             };
+            404: components["responses"]["Error"];
+        };
+    };
+    listGrants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Access list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessList"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    setGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GrantInput"];
+            };
+        };
+        responses: {
+            /** @description Saved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Grant"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+                grantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listAgentAudit: {
+        parameters: {
+            query?: {
+                before?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Audit entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditEntry"][];
+                };
+            };
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };
     };

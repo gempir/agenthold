@@ -54,7 +54,18 @@ func (c Checker) AgentRoleOf(ctx context.Context, userID string, a db.Agent) (Wo
 	if err != nil {
 		return WorkspaceNone, AgentNone, err
 	}
-	return ws, EffectiveAgentRole(ws, a.OwnerID == userID), nil
+	if !ws.Valid() {
+		return ws, AgentNone, nil
+	}
+	rows, err := c.Q.GrantRolesFor(ctx, db.GrantRolesForParams{AgentID: a.ID, SubjectID: userID})
+	if err != nil {
+		return ws, AgentNone, err
+	}
+	grants := make([]AgentRole, len(rows))
+	for i, r := range rows {
+		grants[i] = AgentRole(r)
+	}
+	return ws, EffectiveAgentRole(ws, a.OwnerID == userID, grants...), nil
 }
 
 // Agent loads an agent if userID may perform action on it. Users who cannot

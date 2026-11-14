@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -65,6 +66,7 @@ type Manager struct {
 type turn struct {
 	sessionID string
 	agentID   string
+	depth     int
 	acpID     string
 	conn      *harnessConn
 	perms     map[string]chan acp.PermissionOptionId // pending permission requests
@@ -108,7 +110,7 @@ func (m *Manager) AgentBusy(agentID string) bool {
 // Tools supplies what a session gets: MCP servers, and files to install
 // (skills) before the harness sees the session.
 type Tools interface {
-	MCPServers(ctx context.Context, agentID string, caps acp.McpCapabilities) ([]acp.McpServer, error)
+	MCPServers(ctx context.Context, agentID, sessionID string, caps acp.McpCapabilities) ([]acp.McpServer, error)
 	Prepare(ctx context.Context, agentID string, ts *tunnel.Session) error
 }
 
@@ -161,9 +163,36 @@ func (m *Manager) Running(sessionID string) bool {
 	return ok
 }
 
+// PromptOpts are optional settings of a turn.
+type PromptOpts struct {
+	// Depth counts how many agents are between a human (or trigger) and this
+	// turn: 0 for people, n+1 for a turn another agent's depth-n turn started.
+	Depth int
+	// Origin describes the agent that started the turn, shown in the log.
+	Origin map[string]string
+}
+
+// AgentDepth is the depth of the deepest turn the agent is running (0 if none).
+func (m *Manager) AgentDepth(agentID string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	d := 0
+	for _, t := range m.turns {
+		if t.agentID == agentID && t.depth > d {
+			d = t.depth
+		}
+	}
+	return d
+}
+
 // Prompt starts a turn. It returns once the turn has started; the turn
 // itself runs in the background and streams into the event log.
 func (m *Manager) Prompt(ctx context.Context, sessionID, userID, userName, text string, status func(string)) error {
+	return m.PromptWith(ctx, sessionID, userID, userName, text, status, PromptOpts{})
+}
+
+// PromptWith is Prompt with options.
+func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, text string, status func(string), opts PromptOpts) error {
 	sess, err := m.store.GetAgentSession(ctx, sessionID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
@@ -176,7 +205,7 @@ func (m *Manager) Prompt(ctx context.Context, sessionID, userID, userName, text 
 		m.mu.Unlock()
 		return ErrBusy
 	}
-	t := &turn{sessionID: sessionID, agentID: sess.AgentID, perms: map[string]chan acp.PermissionOptionId{}}
+	t := &turn{sessionID: sessionID, agentID: sess.AgentID, depth: opts.Depth, perms: map[string]chan acp.PermissionOptionId{}}
 	m.turns[sessionID] = t
 	m.mu.Unlock()
 	m.touch(sess.AgentID)
@@ -187,7 +216,12 @@ func (m *Manager) Prompt(ctx context.Context, sessionID, userID, userName, text 
 		m.touch(sess.AgentID)
 	}
 
-	if err := m.log.append(ctx, sessionID, EventPrompt, userID, map[string]any{"text": text, "user": map[string]string{"id": userID, "name": userName}}); err != nil {
+	promptData := map[string]any{"text": text, "user": map[string]string{"id": userID, "name": userName}}
+	if opts.Origin != nil {
+		promptData["origin"] = opts.Origin
+		promptData["depth"] = opts.Depth
+	}
+	if err := m.log.append(ctx, sessionID, EventPrompt, userID, promptData); err != nil {
 		release()
 		return err
 	}
@@ -274,7 +308,7 @@ func (m *Manager) activate(ctx context.Context, conn *harnessConn, sess db.Agent
 		if err := m.tools.Prepare(ctx, sess.AgentID, conn.ts); err != nil {
 			notice("Could not install the agent's skills: " + err.Error())
 		}
-		servers, err := m.tools.MCPServers(ctx, sess.AgentID, caps.McpCapabilities)
+		servers, err := m.tools.MCPServers(ctx, sess.AgentID, sess.ID, caps.McpCapabilities)
 		if err != nil {
 			notice("MCP servers are not available in this session: " + err.Error())
 		} else {
@@ -348,6 +382,67 @@ func (m *Manager) autoAuthenticate(ctx context.Context, conn *harnessConn, agent
 		}
 	}
 	return false
+}
+
+// Ask prompts a session and waits for the turn to end. It returns the
+// agent's final message (the text after its last tool call).
+func (m *Manager) Ask(ctx context.Context, sessionID, userID, userName, text string, opts PromptOpts) (string, error) {
+	seq, err := m.store.MaxSessionSeq(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	_, sub, err := m.log.subscribe(ctx, sessionID, seq, nil)
+	if err != nil {
+		return "", err
+	}
+	defer sub.Close()
+	if err := m.PromptWith(ctx, sessionID, userID, userName, text, nil, opts); err != nil {
+		return "", err
+	}
+	var answer strings.Builder
+	for {
+		select {
+		case ev := <-sub.C:
+			switch ev.Type {
+			case EventUpdate:
+				var u struct {
+					Kind    string `json:"sessionUpdate"`
+					Content struct {
+						Text string `json:"text"`
+					} `json:"content"`
+				}
+				if json.Unmarshal(ev.Data, &u) != nil {
+					continue
+				}
+				switch u.Kind {
+				case "agent_message_chunk":
+					answer.WriteString(u.Content.Text)
+				case "tool_call":
+					answer.Reset() // keep the final answer, not the narration before tools
+				}
+			case EventError:
+				var e struct {
+					Message string `json:"message"`
+				}
+				_ = json.Unmarshal(ev.Data, &e)
+				return answer.String(), errors.New(e.Message)
+			case EventTurnEnd:
+				var e struct {
+					StopReason string `json:"stopReason"`
+				}
+				_ = json.Unmarshal(ev.Data, &e)
+				if e.StopReason != "end_turn" && e.StopReason != "" {
+					return answer.String(), fmt.Errorf("the turn ended: %s", e.StopReason)
+				}
+				return strings.TrimSpace(answer.String()), nil
+			}
+		case <-sub.Lost():
+			return "", errors.New("lost the target session's events")
+		case <-ctx.Done():
+			_ = m.Cancel(context.WithoutCancel(ctx), sessionID)
+			return "", ctx.Err()
+		}
+	}
 }
 
 // Cancel asks the harness to stop the running turn.

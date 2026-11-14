@@ -29,6 +29,7 @@ import (
 	fakeharness "github.com/gempir/agenthold/internal/harness/fake"
 	_ "github.com/gempir/agenthold/internal/harness/opencode"
 	"github.com/gempir/agenthold/internal/idle"
+	"github.com/gempir/agenthold/internal/platform"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/docker"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
@@ -148,7 +149,12 @@ func run() error {
 	sessions := session.NewManager(st, nil, logger)
 	runner := &trigger.Runner{Store: st, Sessions: sessions, Audit: auditLog}
 	go (&trigger.Scheduler{Runner: runner, Log: logger}).Run(ctx)
-	sessions.SetTools(tools.Provider{Store: st})
+	platformCmd := sandbox.SandboxdDir + "/sandboxd"
+	if cfg.Sandbox.Driver == "fake" {
+		platformCmd = cfg.Sandbox.SandboxdPath
+	}
+	sessions.SetTools(tools.Provider{Store: st, PlatformCommand: platformCmd})
+	hub.HandleIncoming((&platform.Service{Store: st, Sessions: sessions, Audit: auditLog, Log: logger}).Handle)
 	defer sessions.Close()
 	tracker := idle.NewTracker()
 	sessions.OnActivity(tracker.Touch)

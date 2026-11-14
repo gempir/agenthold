@@ -30,6 +30,7 @@ import (
 	fakeharness "github.com/gempir/agenthold/internal/harness/fake"
 	_ "github.com/gempir/agenthold/internal/harness/opencode"
 	"github.com/gempir/agenthold/internal/idle"
+	"github.com/gempir/agenthold/internal/platform"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
 	"github.com/gempir/agenthold/internal/secrets"
@@ -72,6 +73,9 @@ type clock struct {
 func (c *clock) Now() time.Time          { c.mu.Lock(); defer c.mu.Unlock(); return c.t }
 func (c *clock) Advance(d time.Duration) { c.mu.Lock(); c.t = c.t.Add(d); c.mu.Unlock() }
 
+// sandboxdBin runs the platform MCP server ("sandboxd mcp") for fake sandboxes.
+var sandboxdBin string
+
 func TestMain(m *testing.M) {
 	// The scripted ACP agent runs as each fake sandbox's harness.
 	dir, err := os.MkdirTemp("", "fakeagent")
@@ -83,6 +87,10 @@ func TestMain(m *testing.M) {
 		panic(string(out))
 	}
 	fakeharness.Command = bin
+	sandboxdBin = filepath.Join(dir, "sandboxd")
+	if out, err := exec.Command("go", "build", "-o", sandboxdBin, "github.com/gempir/agenthold/cmd/sandboxd").CombinedOutput(); err != nil {
+		panic(string(out))
+	}
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
@@ -138,7 +146,8 @@ func newEnv(t *testing.T) *env {
 	e.directory = &egress.Directory{Store: st, Box: box}
 	e.store = st
 	e.sessions = session.NewManager(st, nil, nil)
-	e.sessions.SetTools(tools.Provider{Store: st})
+	e.sessions.SetTools(tools.Provider{Store: st, PlatformCommand: sandboxdBin})
+	e.hub.HandleIncoming((&platform.Service{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}).Handle)
 	e.clock = &clock{t: time.Now()}
 	e.tracker = idle.NewTracker()
 	e.tracker.SetClock(e.clock.Now)

@@ -1,6 +1,9 @@
 package tunnel
 
-import "os"
+import (
+	"encoding/json"
+	"os"
+)
 
 // Operations a stream can open.
 const (
@@ -11,9 +14,10 @@ const (
 	OpFSMkdir  = "fs.mkdir"
 	OpFSRemove = "fs.remove"
 	OpPing     = "ping"
-	OpStats    = "stats"   // resource usage, for idle detection
-	OpHarness  = "harness" // agent harness process speaking ACP on stdio
-	OpHello    = "hello"   // the server asks sandboxd who it is right after connecting
+	OpStats    = "stats"    // resource usage, for idle detection
+	OpHarness  = "harness"  // agent harness process speaking ACP on stdio
+	OpPlatform = "platform" // opened by sandboxd: a platform MCP tool call
+	OpHello    = "hello"    // the server asks sandboxd who it is right after connecting
 )
 
 // Open is the first frame on every stream.
@@ -31,6 +35,11 @@ type Open struct {
 	Mode os.FileMode `json:"mode,omitempty"`
 	// Recursive applies to fs.remove and fs.mkdir.
 	Recursive bool `json:"recursive,omitempty"`
+
+	// platform (opened by sandboxd): a platform tool call from an MCP client.
+	Tool    string          `json:"tool,omitempty"`
+	Session string          `json:"session,omitempty"`
+	Args    json.RawMessage `json:"args,omitempty"`
 }
 
 // OK is the generic success reply.

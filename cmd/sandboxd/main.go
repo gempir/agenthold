@@ -24,6 +24,9 @@ func main() {
 }
 
 func run(logger *slog.Logger) error {
+	if len(os.Args) > 1 && os.Args[1] == "mcp" {
+		return sandboxd.ServeMCP(os.Stdin, os.Stdout)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "net-setup" {
 		fs := flag.NewFlagSet("net-setup", flag.ExitOnError)
 		gw := fs.String("gateway", "", "address of the server on the agent network")

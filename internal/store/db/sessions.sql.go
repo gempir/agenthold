@@ -44,7 +44,7 @@ func (q *Queries) DeleteAgentSession(ctx context.Context, id string) error {
 }
 
 const getAgentSession = `-- name: GetAgentSession :one
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at FROM agent_sessions WHERE id = ?
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id FROM agent_sessions WHERE id = ?
 `
 
 func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession, error) {
@@ -59,6 +59,8 @@ func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession,
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OriginAgentID,
+		&i.OriginSessionID,
 	)
 	return i, err
 }
@@ -88,8 +90,52 @@ func (q *Queries) InsertSessionEvent(ctx context.Context, arg InsertSessionEvent
 	return err
 }
 
+const linkedSessions = `-- name: LinkedSessions :many
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id FROM agent_sessions WHERE agent_id = ? AND origin_agent_id = ? ORDER BY updated_at DESC
+`
+
+type LinkedSessionsParams struct {
+	AgentID       string
+	OriginAgentID string
+}
+
+// Sessions of an agent that another agent started, newest first.
+func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) ([]AgentSession, error) {
+	rows, err := q.db.QueryContext(ctx, linkedSessions, arg.AgentID, arg.OriginAgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentSession{}
+	for rows.Next() {
+		var i AgentSession
+		if err := rows.Scan(
+			&i.ID,
+			&i.AgentID,
+			&i.AcpSessionID,
+			&i.Title,
+			&i.Status,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.OriginAgentID,
+			&i.OriginSessionID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAgentSessions = `-- name: ListAgentSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at FROM agent_sessions WHERE agent_id = ? ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id FROM agent_sessions WHERE agent_id = ? ORDER BY updated_at DESC
 `
 
 func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]AgentSession, error) {
@@ -110,6 +156,8 @@ func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]Agen
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.OriginAgentID,
+			&i.OriginSessionID,
 		); err != nil {
 			return nil, err
 		}
@@ -256,6 +304,21 @@ type SetSessionACPIDParams struct {
 
 func (q *Queries) SetSessionACPID(ctx context.Context, arg SetSessionACPIDParams) error {
 	_, err := q.db.ExecContext(ctx, setSessionACPID, arg.AcpSessionID, arg.ID)
+	return err
+}
+
+const setSessionOrigin = `-- name: SetSessionOrigin :exec
+UPDATE agent_sessions SET origin_agent_id = ?, origin_session_id = ? WHERE id = ?
+`
+
+type SetSessionOriginParams struct {
+	OriginAgentID   string
+	OriginSessionID string
+	ID              string
+}
+
+func (q *Queries) SetSessionOrigin(ctx context.Context, arg SetSessionOriginParams) error {
+	_, err := q.db.ExecContext(ctx, setSessionOrigin, arg.OriginAgentID, arg.OriginSessionID, arg.ID)
 	return err
 }
 

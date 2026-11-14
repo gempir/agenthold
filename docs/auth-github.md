@@ -25,7 +25,14 @@ auth:
       name: GitHub
       client_id: ${GITHUB_CLIENT_ID}
       client_secret: ${GITHUB_CLIENT_SECRET}
+      # Optional: immutable GitHub user IDs allowed to sign in.
+      github_allowed_ids: ["9765622"]
 ```
+
+GitHub OAuth Apps do not provide a private-user setting. To restrict access, configure
+`github_allowed_ids`; the server rejects other accounts after GitHub identifies them and before
+creating a user or session. An empty or omitted list allows any GitHub account. Find a user's
+immutable numeric ID from their GitHub API profile (`https://api.github.com/users/<login>`).
 
 For `make dev`, export `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in your shell, uncomment the GitHub block
 in `deploy/dev/agenthold.yaml`, and restart the stack.

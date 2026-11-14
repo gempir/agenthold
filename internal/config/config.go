@@ -147,6 +147,9 @@ type Provider struct {
 	// GitHub: overrides for GitHub Enterprise Server. Defaults to github.com.
 	GitHubURL    string `yaml:"github_url"`
 	GitHubAPIURL string `yaml:"github_api_url"`
+	// GitHubAllowedIDs optionally restricts sign-in to these immutable GitHub user IDs.
+	// An empty list allows any GitHub account to sign in.
+	GitHubAllowedIDs []string `yaml:"github_allowed_ids"`
 }
 
 // Load reads the config file named by AGENTHOLD_CONFIG (optional) and applies

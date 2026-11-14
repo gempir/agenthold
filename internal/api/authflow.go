@@ -39,6 +39,9 @@ func (a *API) callback(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, auth.ErrInvalidState):
 		loginFailed(w, r, err.Error())
 		return
+	case errors.Is(err, auth.ErrNotAllowed):
+		loginFailed(w, r, err.Error())
+		return
 	case err != nil:
 		slog.WarnContext(r.Context(), "login failed", "provider", chi.URLParam(r, "provider"), "err", err)
 		loginFailed(w, r, "sign-in failed")

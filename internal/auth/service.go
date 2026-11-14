@@ -30,6 +30,7 @@ var (
 	ErrUnknownProvider = errors.New("unknown provider")
 	ErrInvalidState    = errors.New("login expired or invalid, please try again")
 	ErrUnauthenticated = errors.New("not signed in")
+	ErrNotAllowed      = errors.New("this account is not allowed to sign in")
 )
 
 // Service owns providers and sessions.
@@ -120,6 +121,10 @@ func (s *Service) FinishLogin(ctx context.Context, providerID, code, state, user
 	if err != nil {
 		return "", "", err
 	}
+	provider := p.Info()
+	if provider.Type == config.ProviderGitHub && len(provider.GitHubAllowedIDs) > 0 && !contains(provider.GitHubAllowedIDs, claims.Subject) {
+		return "", "", ErrNotAllowed
+	}
 	if claims.Subject == "" {
 		return "", "", errors.New("provider returned no subject")
 	}
@@ -132,6 +137,15 @@ func (s *Service) FinishLogin(ctx context.Context, providerID, code, state, user
 		return "", "", err
 	}
 	return token, ls.RedirectTo, nil
+}
+
+func contains(values []string, value string) bool {
+	for _, candidate := range values {
+		if strings.TrimSpace(candidate) == value {
+			return true
+		}
+	}
+	return false
 }
 
 // upsertUser maps (provider, subject) to a user. Users are never linked by

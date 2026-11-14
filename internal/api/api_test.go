@@ -36,6 +36,7 @@ import (
 	"github.com/gempir/agenthold/internal/server"
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store"
+	"github.com/gempir/agenthold/internal/tools"
 	"github.com/gempir/agenthold/internal/tunnel"
 )
 
@@ -130,6 +131,7 @@ func newEnv(t *testing.T) *env {
 	e.directory = &egress.Directory{Store: st, Box: box}
 	e.store = st
 	e.sessions = session.NewManager(st, nil, nil)
+	e.sessions.SetTools(tools.Provider{Store: st})
 	e.clock = &clock{t: time.Now()}
 	e.tracker = idle.NewTracker()
 	e.tracker.SetClock(e.clock.Now)

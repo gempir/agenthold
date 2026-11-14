@@ -93,3 +93,9 @@ func LoginCommand(ad Adapter, c Config, methods []acp.AuthMethod, methodID strin
 type AutoAuthenticator interface {
 	AutoAuthenticate() []string
 }
+
+// SkillsDirer is implemented by harnesses that read Agent Skills
+// (<dir>/<name>/SKILL.md). The directory is relative to the agent's home.
+type SkillsDirer interface {
+	SkillsDir() string
+}

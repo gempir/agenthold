@@ -1,3 +1,4 @@
+import { AgentToolsPanel } from '@/components/ToolsPanel';
 import { lazy, Suspense, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Moon } from 'lucide-react';
@@ -33,6 +34,7 @@ type Tab =
   | 'terminal'
   | 'files'
   | 'network'
+  | 'tools'
   | 'sharing'
   | 'activity';
 
@@ -156,6 +158,7 @@ export function AgentPage({
             ...(operator ? ['terminal'] : []),
             'files',
             'network',
+            'tools',
             'sharing',
             ...(admin ? ['activity'] : []),
           ] as Tab[]
@@ -283,6 +286,14 @@ export function AgentPage({
 
       {tab === 'network' && (
         <NetworkTab
+          agentId={agentId}
+          workspaceId={a.workspaceId}
+          admin={admin}
+        />
+      )}
+
+      {tab === 'tools' && (
+        <AgentToolsPanel
           agentId={agentId}
           workspaceId={a.workspaceId}
           admin={admin}

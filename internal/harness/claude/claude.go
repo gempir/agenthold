@@ -38,3 +38,6 @@ func (adapter) CredentialPaths() []string { return []string{".claude/.credential
 func (adapter) InstallHint() string {
 	return "Install Node.js 20+ and run: npm install -g @agentclientprotocol/claude-agent-acp@" + Version
 }
+
+// SkillsDir implements harness.SkillsDirer.
+func (adapter) SkillsDir() string { return ".claude/skills" }

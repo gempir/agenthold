@@ -17,3 +17,6 @@ func (adapter) Env(harness.Config) map[string]string { return nil }
 func (adapter) SecretPresets() []string              { return nil }
 func (adapter) CredentialPaths() []string            { return []string{".fakeagent/credentials"} }
 func (adapter) InstallHint() string                  { return "Shipped with agenthold for development." }
+
+// SkillsDir implements harness.SkillsDirer.
+func (adapter) SkillsDir() string { return ".fakeagent/skills" }

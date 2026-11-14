@@ -36,6 +36,11 @@ type AgentGrant struct {
 	CreatedAt   int64
 }
 
+type AgentMcpServer struct {
+	AgentID  string
+	ServerID string
+}
+
 type AgentSecret struct {
 	AgentID   string
 	SecretID  string
@@ -61,6 +66,11 @@ type AgentSessionEvent struct {
 	Type      string
 	UserID    string
 	Data      string
+}
+
+type AgentSkill struct {
+	AgentID string
+	SkillID string
 }
 
 type AuditLog struct {
@@ -125,6 +135,22 @@ type LoginState struct {
 	ExpiresAt  int64
 }
 
+type McpServer struct {
+	ID          string
+	WorkspaceID string
+	AgentID     string
+	Name        string
+	Transport   string
+	Command     string
+	Args        string
+	Env         string
+	Url         string
+	Headers     string
+	CreatedBy   string
+	CreatedAt   int64
+	UpdatedAt   int64
+}
+
 type Membership struct {
 	WorkspaceID string
 	UserID      string
@@ -167,6 +193,17 @@ type Session struct {
 	CreatedAt int64
 	ExpiresAt int64
 	UserAgent string
+}
+
+type Skill struct {
+	ID          string
+	WorkspaceID string
+	Name        string
+	Description string
+	Content     string
+	CreatedBy   string
+	CreatedAt   int64
+	UpdatedAt   int64
 }
 
 type User struct {

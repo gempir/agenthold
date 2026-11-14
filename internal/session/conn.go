@@ -25,6 +25,7 @@ type harnessConn struct {
 	m       *Manager
 	agentID string
 	proc    *tunnel.Process
+	ts      *tunnel.Session
 	acp     *acp.ClientSideConnection
 	init    acp.InitializeResponse
 

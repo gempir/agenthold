@@ -11,6 +11,7 @@ import (
 	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
+	"github.com/gempir/agenthold/internal/tools"
 )
 
 // Directory implements Agents from the database: it maps source addresses
@@ -91,13 +92,30 @@ func (d *Directory) Agent(ctx context.Context, agentID string) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, r := range rows {
-		inj, err := d.injection(r.Secret)
+	seen := map[string]bool{}
+	use := func(s db.Secret) {
+		if seen[s.ID] {
+			return
+		}
+		seen[s.ID] = true
+		inj, err := d.injection(s)
 		if err != nil {
-			d.logger().Error("egress: cannot use secret", "secret", r.Secret.ID, "err", err)
-			continue
+			d.logger().Error("egress: cannot use secret", "secret", s.ID, "err", err)
+			return
 		}
 		out.Injections = append(out.Injections, inj)
+	}
+	for _, r := range rows {
+		use(r.Secret)
+	}
+	// Secrets referenced by the agent's MCP servers ({{secret:NAME}}) are
+	// injected too: their placeholders are in the servers' headers or env.
+	if servers, err := tools.AgentServers(ctx, d.Store, agentID); err == nil {
+		if refs, err := tools.Secrets(ctx, d.Store, a.WorkspaceID, servers); err == nil {
+			for _, s := range refs {
+				use(s)
+			}
+		}
 	}
 	d.mu.Lock()
 	if d.agents == nil {

@@ -34,6 +34,11 @@ const (
 	PolicySet     = "network_policy.set"
 	SecretAttach  = "secret.attach"
 	SecretDetach  = "secret.detach"
+	MCPAdd        = "mcp.add"
+	MCPAttach     = "mcp.attach"
+	MCPDetach     = "mcp.detach"
+	SkillAttach   = "skill.attach"
+	SkillDetach   = "skill.detach"
 )
 
 // Entry is one audit record.

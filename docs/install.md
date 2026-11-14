@@ -6,8 +6,8 @@ This guide takes a fresh Linux server to a working agent. Everything runs in Doc
 
 - A Linux server (x86_64 or arm64) with at least 2 vCPUs, 4 GB RAM and 40 GB disk. Each agent needs its own
   resources on top, by default 2 CPUs and 4 GB RAM. Agents that sleep use only disk.
-- A domain name pointing at the server, and ports 80 and 443 reachable from the internet. Caddy gets a TLS
-  certificate automatically.
+- A domain name. Either point it at the server with ports 80 and 443 reachable (Caddy gets a TLS certificate
+  automatically), or use a Cloudflare Tunnel and open no inbound ports at all (see "Cloudflare Tunnel" below).
 - A way to sign in: a GitHub OAuth app ([auth-github.md](auth-github.md)) or any OpenID Connect provider
   ([auth-keycloak.md](auth-keycloak.md)).
 
@@ -57,6 +57,18 @@ the server refuses to start with a provider that has no client id. You can also 
 
 `agenthold.yaml` also sets the agent defaults and the address range for agent networks
 (`AGENTHOLD_NETWORK_POOL`, default `10.213.0.0/16`). Pick a range that does not overlap your LAN or VPN.
+
+### Cloudflare Tunnel (optional, instead of Caddy)
+
+With the domain on Cloudflare, the server can stay closed to the internet: `cloudflared` connects out to
+Cloudflare, and Cloudflare terminates TLS.
+
+1. In the Cloudflare Zero Trust dashboard, go to **Networks → Tunnels** and create a tunnel (type Cloudflared).
+   Copy its token.
+2. Add a public hostname: your domain, service **HTTP**, URL `agenthold:8080`. If an existing A or AAAA record
+   for the domain gets in the way, delete it; the tunnel creates its own CNAME.
+3. In `.env`, set `COMPOSE_FILE=docker-compose.yml:docker-compose.cloudflared.yml` and
+   `CLOUDFLARE_TUNNEL_TOKEN=<token>`. Caddy is then not started.
 
 ## 4. Start
 

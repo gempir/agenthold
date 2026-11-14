@@ -52,19 +52,32 @@ Such agents are marked "credentials inside sandbox", because the agent can read 
 
 An adapter (`internal/harness/<name>`) says how to start the harness in ACP mode, which environment it needs
 (never secret values), which secret presets fit it, where it keeps logins, and how to install it in a custom
-image.
+image. Optionally, it can name the terminal command for a login method the harness advertises without one
+(`TerminalLoginer`), and list login methods the server may call on its own when the harness asks for
+authentication, such as an API key provided as a secret (`AutoAuthenticator`). Nothing outside
+`internal/harness` knows about a particular harness.
 
 | Harness | ACP entry point | In the base image |
 | --- | --- | --- |
 | `claude-code` | `claude-agent-acp` ([@agentclientprotocol/claude-agent-acp](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp) 0.107.0, which bundles the Claude Agent SDK and Claude Code) | yes |
+| `opencode` | `opencode acp` (native ACP, [opencode-ai](https://www.npmjs.com/package/opencode-ai) 1.19.5) | yes |
+| `codex` | `codex-acp` ([@agentclientprotocol/codex-acp](https://www.npmjs.com/package/@agentclientprotocol/codex-acp) 2.6.0) | yes |
 | `fake` | `/opt/agenthold/fakeagent`, a scripted agent for tests and UI work (development only) | shipped with sandboxd |
+
+Signing in:
+
+- **Claude Code:** `claude /login` in the terminal (subscription), or an Anthropic API key secret as `ANTHROPIC_API_KEY`.
+- **OpenCode:** works without a login with OpenCode's free models. `opencode auth login` in the terminal, or
+  provider API keys as secrets (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`). The model is
+  `provider/model`, for example `anthropic/claude-sonnet-5-5`.
+- **Codex:** an OpenAI API key secret as `OPENAI_API_KEY`; the server then signs in with the key on its own.
 
 For a custom image, install the harness so that its command is on `PATH` for the `agent` user. For Claude Code:
 `npm install -g @agentclientprotocol/claude-agent-acp@0.107.0` (Node.js 20 or newer).
 
 ## Base image
 
-`images/base` (`make base-image`) is Debian trixie with Node.js 24, the Claude Code ACP adapter, git, Python 3,
+`images/base` (`make base-image`) is Debian trixie with Node.js 24, the Claude Code and Codex ACP adapters, OpenCode, git, Python 3,
 build tools, ripgrep, jq and headless Chromium (`CHROME_BIN`, Playwright and Puppeteer variables set). The
 `agent` user has passwordless sudo inside its own sandbox.
 
@@ -75,3 +88,5 @@ Against the dev stack (`make dev`, `make base-image`):
 - `scripts/e2e/sessions.sh`: the scripted harness edits files in a real sandbox, a reload mid-turn continues
   from the cursor, and a terminal login survives sleep.
 - `scripts/e2e/claude-harness.sh`: starts the real Claude Code harness and shows what it advertises.
+- `scripts/e2e/opencode.sh`: a real conversation with OpenCode (free model) that edits a file, replays from
+  the cursor, and survives sleep with its history.

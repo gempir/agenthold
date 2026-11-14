@@ -84,7 +84,7 @@ func (a *API) validateSettings(s *agentSettings) error {
 		return badRequest("idleMinutes must be between 1 and 10080")
 	}
 	if s.harness == "" {
-		s.harness = "claude-code"
+		s.harness = harness.Default
 	}
 	if _, ok := harness.Get(s.harness); !ok {
 		return badRequest("unknown harness")

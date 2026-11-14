@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	acp "github.com/coder/acp-go-sdk"
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/go-chi/chi/v5"
@@ -28,7 +27,7 @@ import (
 func (a *API) ListHarnesses(context.Context, gen.ListHarnessesRequestObject) (gen.ListHarnessesResponseObject, error) {
 	out := gen.ListHarnesses200JSONResponse{}
 	for _, h := range harness.List(a.ShowTestHarness) {
-		out = append(out, gen.HarnessType{Id: h.ID(), Name: h.Name(), SecretPresets: append([]string{}, h.SecretPresets()...), InstallHint: h.InstallHint()})
+		out = append(out, gen.HarnessType{Id: h.ID(), Name: h.Name(), Default: h.ID() == harness.Default, SecretPresets: append([]string{}, h.SecretPresets()...), InstallHint: h.InstallHint()})
 	}
 	return out, nil
 }
@@ -52,32 +51,16 @@ func (a *API) GetHarness(ctx context.Context, req gen.GetHarnessRequestObject) (
 		Harness: acc.Row.Agent.Harness, Connected: info.Connected, AgentName: info.AgentName,
 		AgentVersion: info.AgentVer, LoadSession: info.LoadSession, AuthMethods: []gen.AuthMethodInfo{},
 	}
+	ad, _ := harness.Get(acc.Row.Agent.Harness)
 	for _, m := range info.AuthMethods {
-		if am, ok := authMethodInfo(m); ok {
-			out.AuthMethods = append(out.AuthMethods, am)
+		if ad == nil {
+			break
+		}
+		if am, ok := harness.DescribeAuth(ad, m); ok {
+			out.AuthMethods = append(out.AuthMethods, gen.AuthMethodInfo{Id: am.ID, Name: am.Name, Description: am.Description, Type: am.Type})
 		}
 	}
 	return out, nil
-}
-
-func authMethodInfo(m acp.AuthMethod) (gen.AuthMethodInfo, bool) {
-	switch {
-	case m.Terminal != nil:
-		d := ""
-		if m.Terminal.Description != nil {
-			d = *m.Terminal.Description
-		}
-		return gen.AuthMethodInfo{Id: m.Terminal.Id, Name: m.Terminal.Name, Description: d, Type: "terminal"}, true
-	case m.Agent != nil:
-		d := ""
-		if m.Agent.Description != nil {
-			d = *m.Agent.Description
-		}
-		return gen.AuthMethodInfo{Id: m.Agent.Id, Name: m.Agent.Name, Description: d, Type: "agent"}, true
-	case m.EnvVar != nil:
-		return gen.AuthMethodInfo{Id: m.EnvVar.Id, Name: m.EnvVar.Name, Description: "Set as an environment variable (attach a secret)", Type: "env_var"}, true
-	}
-	return gen.AuthMethodInfo{}, false
 }
 
 // loginCommand returns the command that runs a terminal login method.
@@ -90,37 +73,11 @@ func (a *API) loginCommand(ctx context.Context, agent db.Agent, methodID string)
 	if !ok {
 		return nil, nil, errors.New("unknown harness")
 	}
-	for _, m := range info.AuthMethods {
-		t := m.Terminal
-		if t == nil || t.Id != methodID {
-			continue
-		}
-		env := map[string]string{}
-		for k, v := range ad.Env(harness.Config{Model: agent.Model}) {
-			env[k] = v
-		}
-		for k, v := range t.Env {
-			if s, ok := v.(string); ok {
-				env[k] = s
-			}
-		}
-		// Prefer the exact command the harness reports for terminal login.
-		if ta, ok := t.Meta["terminal-auth"].(map[string]any); ok {
-			if cmd, ok := ta["command"].(string); ok && cmd != "" {
-				argv := []string{cmd}
-				if args, ok := ta["args"].([]any); ok {
-					for _, x := range args {
-						if s, ok := x.(string); ok {
-							argv = append(argv, s)
-						}
-					}
-				}
-				return argv, env, nil
-			}
-		}
-		return append(ad.Command(harness.Config{Model: agent.Model}), t.Args...), env, nil
+	argv, env, ok := harness.LoginCommand(ad, harness.Config{Model: agent.Model}, info.AuthMethods, methodID)
+	if !ok {
+		return nil, nil, errStatus(http.StatusNotFound, "unknown login method")
 	}
-	return nil, nil, errStatus(http.StatusNotFound, "unknown login method")
+	return argv, env, nil
 }
 
 func (a *API) apiSession(ctx context.Context, s db.AgentSession) (gen.Session, error) {

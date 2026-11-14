@@ -277,6 +277,9 @@ func (m *Manager) activate(ctx context.Context, conn *harnessConn, sess db.Agent
 		}
 	}
 	res, err := conn.acp.NewSession(ctx, acp.NewSessionRequest{Cwd: HomeDir, McpServers: []acp.McpServer{}})
+	if err != nil && authRequired(err) && m.autoAuthenticate(ctx, conn, sess.AgentID) {
+		res, err = conn.acp.NewSession(ctx, acp.NewSessionRequest{Cwd: HomeDir, McpServers: []acp.McpServer{}})
+	}
 	if err != nil {
 		if authRequired(err) {
 			return "", errLoginNeeded
@@ -291,6 +294,37 @@ func (m *Manager) activate(ctx context.Context, conn *harnessConn, sess db.Agent
 	}
 	conn.markActive(string(res.SessionId))
 	return string(res.SessionId), nil
+}
+
+// autoAuthenticate tries the adapter's non-interactive login methods.
+func (m *Manager) autoAuthenticate(ctx context.Context, conn *harnessConn, agentID string) bool {
+	agent, err := m.store.GetAgent(ctx, agentID)
+	if err != nil {
+		return false
+	}
+	ad, ok := harness.Get(agent.Harness)
+	if !ok {
+		return false
+	}
+	aa, ok := ad.(harness.AutoAuthenticator)
+	if !ok {
+		return false
+	}
+	advertised := map[string]bool{}
+	for _, am := range conn.init.AuthMethods {
+		if am.Agent != nil {
+			advertised[am.Agent.Id] = true
+		}
+	}
+	for _, id := range aa.AutoAuthenticate() {
+		if !advertised[id] {
+			continue
+		}
+		if _, err := conn.acp.Authenticate(ctx, acp.AuthenticateRequest{MethodId: id}); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // Cancel asks the harness to stop the running turn.

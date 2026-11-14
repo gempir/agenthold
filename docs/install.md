@@ -34,10 +34,10 @@ Use published images (default) or build them from source:
 # Option A: published release images. Nothing to do; `docker compose up` pulls them.
 
 # Option B: build from source (takes a few minutes)
+echo 'AGENTHOLD_IMAGE=agenthold:local' >> .env
+echo 'AGENTHOLD_BASE_IMAGE=agenthold/base:local' >> .env
 docker compose build
 docker build -t agenthold/base:local ../../images/base
-echo 'AGENTHOLD_IMAGE=agenthold-agenthold' >> .env      # the image compose just built
-echo 'AGENTHOLD_BASE_IMAGE=agenthold/base:local' >> .env
 ```
 
 ## 3. Configure

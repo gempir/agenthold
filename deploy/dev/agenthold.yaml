@@ -1,0 +1,23 @@
+# Server config for `make dev` (mounted via AGENTHOLD_CONFIG).
+data_dir: /data
+public_url: http://localhost:8080
+dev_proxy: http://web:5173
+auth:
+  providers:
+    - id: keycloak
+      type: oidc
+      name: Keycloak (dev)
+      # Issuer and browser redirects use the host-visible name; the server
+      # fetches discovery, tokens and keys over the compose network.
+      issuer: http://localhost:8081/realms/agenthold
+      discovery_url: http://keycloak:8081/realms/agenthold
+      client_id: agenthold
+      client_secret: agenthold-dev-secret
+
+    # GitHub login: create an OAuth app (see docs/auth-github.md) and export
+    # GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET before `make dev`, then uncomment.
+    # - id: github
+    #   type: github
+    #   name: GitHub
+    #   client_id: ${GITHUB_CLIENT_ID}
+    #   client_secret: ${GITHUB_CLIENT_SECRET}

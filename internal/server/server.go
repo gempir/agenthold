@@ -14,8 +14,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-
-	"github.com/gempir/agenthold/internal/version"
 )
 
 // Config controls how the server is assembled.
@@ -25,7 +23,9 @@ type Config struct {
 	// DevProxy, when set, is the URL of a Vite dev server. Requests outside
 	// the API are proxied to it so the UI reloads live during development.
 	DevProxy *url.URL
-	Logger   *slog.Logger
+	// API mounts the /api routes.
+	API    func(chi.Router)
+	Logger *slog.Logger
 }
 
 // New returns the root HTTP handler.
@@ -41,14 +41,14 @@ func New(cfg Config) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	r.Route("/api", func(r chi.Router) {
-		r.Get("/v1/version", func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusOK, map[string]string{
-				"version": version.Version,
-				"commit":  version.Commit,
-			})
-		})
-		r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
+	r.Group(func(r chi.Router) {
+		// Browsers authenticate with a cookie, so reject cross-origin
+		// state-changing requests (CSRF).
+		r.Use(http.NewCrossOriginProtection().Handler)
+		if cfg.API != nil {
+			cfg.API(r)
+		}
+		r.HandleFunc("/api/*", func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		})
 	})

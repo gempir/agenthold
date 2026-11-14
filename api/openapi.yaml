@@ -1,0 +1,423 @@
+openapi: 3.0.3
+info:
+  title: agenthold API
+  version: 0.1.0
+  description: |
+    REST API of the agenthold server. Browser clients authenticate with the
+    session cookie set by the login flow. All paths are under /api/v1.
+servers:
+  - url: /api/v1
+tags:
+  - name: auth-flow
+    description: Browser redirects of the login flow. Not JSON endpoints.
+  - name: auth
+  - name: workspaces
+  - name: invites
+  - name: meta
+
+paths:
+  /version:
+    get:
+      operationId: getVersion
+      tags: [meta]
+      security: []
+      responses:
+        "200":
+          description: Build information.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Version" }
+
+  /auth/providers:
+    get:
+      operationId: listAuthProviders
+      tags: [auth]
+      security: []
+      responses:
+        "200":
+          description: Configured sign-in providers.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AuthProvider" }
+
+  /auth/login/{provider}:
+    get:
+      operationId: login
+      tags: [auth-flow]
+      security: []
+      parameters:
+        - { name: provider, in: path, required: true, schema: { type: string } }
+        - name: redirect
+          in: query
+          description: Local path to return to after login. Defaults to "/".
+          schema: { type: string }
+      responses:
+        "302": { description: Redirect to the identity provider. }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /auth/callback/{provider}:
+    get:
+      operationId: loginCallback
+      tags: [auth-flow]
+      security: []
+      parameters:
+        - { name: provider, in: path, required: true, schema: { type: string } }
+        - { name: code, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string } }
+        - { name: error, in: query, schema: { type: string } }
+      responses:
+        "302": { description: Session cookie set, redirect into the app. }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth-flow]
+      responses:
+        "204": { description: Session ended. }
+
+  /me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      responses:
+        "200":
+          description: The signed-in user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /workspaces:
+    get:
+      operationId: listWorkspaces
+      tags: [workspaces]
+      responses:
+        "200":
+          description: Workspaces the user is a member of.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Workspace" }
+    post:
+      operationId: createWorkspace
+      tags: [workspaces]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceInput" }
+      responses:
+        "201":
+          description: Created. The caller becomes its owner.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /workspaces/{workspaceId}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      operationId: getWorkspace
+      tags: [workspaces]
+      responses:
+        "200":
+          description: The workspace.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateWorkspace
+      tags: [workspaces]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceInput" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteWorkspace
+      tags: [workspaces]
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /workspaces/{workspaceId}/members:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      operationId: listMembers
+      tags: [workspaces]
+      responses:
+        "200":
+          description: Members of the workspace.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Member" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /workspaces/{workspaceId}/members/{userId}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - { name: userId, in: path, required: true, schema: { type: string } }
+    patch:
+      operationId: updateMember
+      tags: [workspaces]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { $ref: "#/components/schemas/WorkspaceRole" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Member" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: removeMember
+      tags: [workspaces]
+      description: Remove a member. Members may remove themselves (leave).
+      responses:
+        "204": { description: Removed. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /workspaces/{workspaceId}/invites:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      operationId: listInvites
+      tags: [invites]
+      responses:
+        "200":
+          description: Pending invites.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Invite" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createInvite
+      tags: [invites]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InviteInput" }
+      responses:
+        "201":
+          description: Created. The token is only returned once.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatedInvite" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /workspaces/{workspaceId}/invites/{inviteId}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - { name: inviteId, in: path, required: true, schema: { type: string } }
+    delete:
+      operationId: revokeInvite
+      tags: [invites]
+      responses:
+        "204": { description: Revoked. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /invites/{token}:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getInvite
+      tags: [invites]
+      responses:
+        "200":
+          description: What accepting this invite would do.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InvitePreview" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /invites/{token}/accept:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: acceptInvite
+      tags: [invites]
+      responses:
+        "200":
+          description: Joined. Returns the workspace.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+security:
+  - session: []
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: agenthold_session
+
+  parameters:
+    WorkspaceId:
+      name: workspaceId
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    Error:
+      description: Error.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
+    Version:
+      type: object
+      required: [version, commit]
+      properties:
+        version: { type: string }
+        commit: { type: string }
+
+    AuthProvider:
+      type: object
+      required: [id, name, type]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        type: { type: string, enum: [oidc, github] }
+
+    User:
+      type: object
+      required: [id, email, name, avatarUrl]
+      properties:
+        id: { type: string }
+        email: { type: string }
+        name: { type: string }
+        avatarUrl: { type: string }
+
+    Me:
+      type: object
+      required: [user, personalWorkspaceId]
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        personalWorkspaceId: { type: string }
+
+    WorkspaceRole:
+      type: string
+      enum: [owner, admin, member]
+
+    Workspace:
+      type: object
+      required: [id, name, personal, role, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        personal: { type: boolean }
+        role:
+          $ref: "#/components/schemas/WorkspaceRole"
+        createdAt: { type: string, format: date-time }
+
+    WorkspaceInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+
+    Member:
+      type: object
+      required: [user, role, joinedAt]
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        role: { $ref: "#/components/schemas/WorkspaceRole" }
+        joinedAt: { type: string, format: date-time }
+
+    InviteInput:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [admin, member]
+        email:
+          type: string
+          description: If set, only a user with this email can accept.
+        expiresInHours:
+          type: integer
+          minimum: 1
+          maximum: 720
+          description: Defaults to 168 (7 days).
+
+    Invite:
+      type: object
+      required: [id, role, email, createdAt, expiresAt, createdBy]
+      properties:
+        id: { type: string }
+        role: { type: string, enum: [admin, member] }
+        email: { type: string }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+
+    CreatedInvite:
+      allOf:
+        - $ref: "#/components/schemas/Invite"
+        - type: object
+          required: [token, url]
+          properties:
+            token: { type: string }
+            url: { type: string, description: Link to share with the invitee. }
+
+    InvitePreview:
+      type: object
+      required: [workspaceId, workspaceName, role, invitedBy, expiresAt, alreadyMember]
+      properties:
+        workspaceId: { type: string }
+        workspaceName: { type: string }
+        role: { type: string, enum: [admin, member] }
+        invitedBy: { type: string }
+        expiresAt: { type: string, format: date-time }
+        alreadyMember: { type: boolean }

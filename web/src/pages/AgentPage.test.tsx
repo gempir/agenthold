@@ -128,3 +128,67 @@ it('sleeping banner Wake now posts start', async () => {
     expect(calls.some((c) => c.key === 'POST /agents/a1/start')).toBe(true),
   );
 });
+
+const bob = { id: 'u2', email: 'b@x.io', name: 'Bob', avatarUrl: '' };
+const carol = { id: 'u3', email: 'c@x.io', name: 'Carol', avatarUrl: '' };
+
+it('sharing tab lists access and posts a user grant', async () => {
+  const { calls } = mockApi({
+    'GET /me': me,
+    'GET /workspaces': [ws],
+    'GET /agents/a1': agent({ role: 'admin' }),
+    'GET /agents/a1/sessions': [],
+    'GET /harnesses': [],
+    'GET /workspaces/w1/members': [
+      { user: me.user, role: 'owner', joinedAt: '2030-01-01T00:00:00Z' },
+      { user: bob, role: 'member', joinedAt: '2030-01-01T00:00:00Z' },
+      { user: carol, role: 'member', joinedAt: '2030-01-01T00:00:00Z' },
+    ],
+    'GET /agents/a1/grants': {
+      grants: [],
+      effective: [
+        { user: me.user, role: 'admin', via: 'owner' },
+        { user: bob, role: 'viewer', via: 'workspace_grant' },
+      ],
+    },
+    'POST /agents/a1/grants': {
+      id: 'g1',
+      subjectType: 'user',
+      role: 'operator',
+      createdAt: '2030-01-01T00:00:00Z',
+    },
+  });
+  renderApp('/a/a1');
+  await userEvent.click(await screen.findByRole('tab', { name: 'sharing' }));
+  expect(await screen.findByText('Owner')).toBeInTheDocument();
+  expect(screen.getByText('Everyone in workspace')).toBeInTheDocument();
+  const withSel = await screen.findByLabelText('With');
+  // Alice (owner) is excluded from the picker.
+  expect(within(withSel).queryByRole('option', { name: /Alice/ })).toBeNull();
+  await userEvent.selectOptions(withSel, 'u3');
+  await userEvent.selectOptions(screen.getByLabelText('Role'), 'operator');
+  await userEvent.click(screen.getByRole('button', { name: 'Share' }));
+  await vi.waitFor(() =>
+    expect(calls.find((c) => c.key === 'POST /agents/a1/grants')?.body).toEqual(
+      { subjectType: 'user', userId: 'u3', role: 'operator' },
+    ),
+  );
+});
+
+it('viewer sees no composer, terminal, activity or share form', async () => {
+  mockApi({
+    'GET /me': me,
+    'GET /workspaces': [ws],
+    'GET /agents/a1': agent({ role: 'viewer', state: 'running' }),
+    'GET /agents/a1/sessions': [],
+    'GET /agents/a1/grants': { grants: [], effective: [] },
+  });
+  renderApp('/a/a1');
+  await screen.findByRole('tab', { name: 'sharing' });
+  expect(screen.queryByRole('tab', { name: 'terminal' })).toBeNull();
+  expect(screen.queryByRole('tab', { name: 'activity' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'New session' })).toBeNull();
+  await userEvent.click(screen.getByRole('tab', { name: 'sharing' }));
+  await screen.findByText('People with access', { selector: 'h2' });
+  expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
+});

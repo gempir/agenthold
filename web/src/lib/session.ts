@@ -260,8 +260,17 @@ export function chatReducer(
     : applyEvent(s, action.event);
 }
 
+export interface Viewer {
+  id: string;
+  name: string;
+  avatarUrl: string;
+  role: string;
+}
+
 export type StreamMessage =
-  { type: 'status'; running: boolean } | { type: 'event'; event: SessionEvent };
+  | { type: 'status'; running: boolean }
+  | { type: 'presence'; viewers: Viewer[] }
+  | { type: 'event'; event: SessionEvent };
 
 /** Parses a stream text frame; null for anything unrecognised. */
 export function parseStreamMessage(text: string): StreamMessage | null {
@@ -270,6 +279,15 @@ export function parseStreamMessage(text: string): StreamMessage | null {
     if (!isObj(m)) return null;
     if (m.type === 'status' && typeof m.running === 'boolean')
       return { type: 'status', running: m.running };
+    if (m.type === 'presence' && Array.isArray(m.viewers)) {
+      const viewers = m.viewers.filter(isObj).map((v) => ({
+        id: str(v.id),
+        name: str(v.name),
+        avatarUrl: str(v.avatarUrl),
+        role: str(v.role),
+      }));
+      return { type: 'presence', viewers: viewers.filter((v) => v.id) };
+    }
     if (typeof m.seq === 'number' && typeof m.type === 'string')
       return { type: 'event', event: m as unknown as SessionEvent };
   } catch {

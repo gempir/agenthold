@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gempir/agenthold/internal/api/gen"
+	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/egress"
 	"github.com/gempir/agenthold/internal/id"
@@ -307,6 +308,7 @@ func (a *API) AttachSecret(ctx context.Context, req gen.AttachSecretRequestObjec
 		return nil, err
 	}
 	a.Egress.Invalidate()
+	a.record(ctx, acc.Row.Agent, audit.SecretAttach, s.Name, map[string]any{"secretId": s.ID, "envVar": envVar})
 	g, err := a.apiSecret(ctx, s, true)
 	if err != nil {
 		return nil, err
@@ -316,7 +318,8 @@ func (a *API) AttachSecret(ctx context.Context, req gen.AttachSecretRequestObjec
 
 // DetachSecret implements gen.StrictServerInterface.
 func (a *API) DetachSecret(ctx context.Context, req gen.DetachSecretRequestObject) (gen.DetachSecretResponseObject, error) {
-	if _, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentSecrets); err != nil {
+	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentSecrets)
+	if err != nil {
 		return nil, err
 	}
 	n, err := a.Store.DetachSecret(ctx, db.DetachSecretParams{AgentID: req.AgentId, SecretID: req.SecretId})
@@ -327,5 +330,6 @@ func (a *API) DetachSecret(ctx context.Context, req gen.DetachSecretRequestObjec
 		return nil, errNotFound
 	}
 	a.Egress.Invalidate()
+	a.record(ctx, acc.Row.Agent, audit.SecretDetach, req.SecretId, nil)
 	return gen.DetachSecret204Response{}, nil
 }

@@ -127,3 +127,24 @@ it('composer invites waking a sleeping agent', () => {
     screen.getByPlaceholderText('Send a message to wake the agent…'),
   ).toBeEnabled();
 });
+
+it('shows presence avatars and marks you', async () => {
+  mockApi({
+    'GET /me': {
+      user: { id: 'u1', email: 'a@x.io', name: 'Alice', avatarUrl: '' },
+      personalWorkspaceId: 'w1',
+    },
+  });
+  renderChat(true);
+  act(() =>
+    FakeSocket.all[0].emit({
+      type: 'presence',
+      viewers: [
+        { id: 'u1', name: 'Alice', avatarUrl: '', role: 'admin' },
+        { id: 'u2', name: 'Bob', avatarUrl: '', role: 'viewer' },
+      ],
+    }),
+  );
+  expect(await screen.findByTitle('Bob')).toBeInTheDocument();
+  expect(await screen.findByTitle('Alice (you)')).toBeInTheDocument();
+});

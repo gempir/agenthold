@@ -7,6 +7,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"sync"
 	"time"
 
@@ -75,12 +76,23 @@ func (l *log) append(ctx context.Context, sessionID, typ, userID string, data an
 	return nil
 }
 
+// Viewer is someone watching a session.
+type Viewer struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	AvatarURL string `json:"avatarUrl"`
+	Role      string `json:"role"`
+}
+
 // Subscription receives a session's events in order, starting after a cursor.
 type Subscription struct {
-	C       chan Event
-	l       *log
-	session string
-	once    sync.Once
+	C chan Event
+	// Presence receives the full list of viewers whenever it changes.
+	Presence chan []Viewer
+	viewer   *Viewer
+	l        *log
+	session  string
+	once     sync.Once
 	// lost is closed if the subscriber fell too far behind; it must resubscribe.
 	lost chan struct{}
 }
@@ -100,13 +112,45 @@ func (s *Subscription) Lost() <-chan struct{} { return s.lost }
 func (s *Subscription) Close() {
 	s.l.mu.Lock()
 	delete(s.l.subs[s.session], s)
+	if s.viewer != nil {
+		s.l.broadcastPresence(s.session)
+	}
 	s.l.mu.Unlock()
+}
+
+// viewers lists distinct viewers of a session. Callers hold l.mu.
+func (l *log) viewers(sessionID string) []Viewer {
+	seen := map[string]bool{}
+	out := []Viewer{}
+	for s := range l.subs[sessionID] {
+		if s.viewer != nil && !seen[s.viewer.ID] {
+			seen[s.viewer.ID] = true
+			out = append(out, *s.viewer)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// broadcastPresence sends the viewer list to every subscriber. Callers hold l.mu.
+func (l *log) broadcastPresence(sessionID string) {
+	vs := l.viewers(sessionID)
+	for s := range l.subs[sessionID] {
+		select {
+		case <-s.Presence: // drop a stale list; only the latest matters
+		default:
+		}
+		select {
+		case s.Presence <- vs:
+		default:
+		}
+	}
 }
 
 // subscribe returns stored events after `after` and a subscription for
 // everything later. There is no gap and no duplicate between the two.
-func (l *log) subscribe(ctx context.Context, sessionID string, after int64) ([]Event, *Subscription, error) {
-	s := &Subscription{C: make(chan Event, 1024), l: l, session: sessionID, lost: make(chan struct{})}
+func (l *log) subscribe(ctx context.Context, sessionID string, after int64, viewer *Viewer) ([]Event, *Subscription, error) {
+	s := &Subscription{C: make(chan Event, 1024), Presence: make(chan []Viewer, 1), viewer: viewer, l: l, session: sessionID, lost: make(chan struct{})}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var backlog []Event
@@ -127,6 +171,7 @@ func (l *log) subscribe(ctx context.Context, sessionID string, after int64) ([]E
 		l.subs[sessionID] = map[*Subscription]struct{}{}
 	}
 	l.subs[sessionID][s] = struct{}{}
+	l.broadcastPresence(sessionID)
 	return backlog, s, nil
 }
 

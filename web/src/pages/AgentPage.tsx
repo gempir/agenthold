@@ -19,13 +19,22 @@ import { Input } from '@/components/ui/input';
 import { FilesTab } from '@/components/FilesTab';
 import { NetworkTab } from '@/components/NetworkTab';
 import { ChatTab } from '@/components/ChatTab';
+import { SharingTab } from '@/components/SharingTab';
+import { ActivityTab } from '@/components/ActivityTab';
 import { HarnessPanel } from '@/components/HarnessPanel';
 
 const TerminalTab = lazy(() =>
   import('@/components/TerminalTab').then((m) => ({ default: m.TerminalTab })),
 );
 
-type Tab = 'chat' | 'overview' | 'terminal' | 'files' | 'network';
+type Tab =
+  | 'chat'
+  | 'overview'
+  | 'terminal'
+  | 'files'
+  | 'network'
+  | 'sharing'
+  | 'activity';
 
 export function AgentPage({
   agentId,
@@ -122,8 +131,10 @@ export function AgentPage({
         >
           <Moon className="size-4 shrink-0" aria-hidden />
           <p className="min-w-0 flex-1">
-            This agent is asleep. Its files and conversations are kept. Sending
-            a message or opening the terminal wakes it.
+            This agent is asleep. Its files and conversations are kept.
+            {operator
+              ? ' Sending a message or opening the terminal wakes it.'
+              : ' An operator can wake it.'}
           </p>
           {operator && (
             <Button
@@ -138,9 +149,16 @@ export function AgentPage({
       )}
 
       <div role="tablist" className="flex gap-1 border-b">
-        {(operator
-          ? (['chat', 'overview', 'terminal', 'files', 'network'] as const)
-          : (['chat', 'overview', 'files', 'network'] as const)
+        {(
+          [
+            'chat',
+            'overview',
+            ...(operator ? ['terminal'] : []),
+            'files',
+            'network',
+            'sharing',
+            ...(admin ? ['activity'] : []),
+          ] as Tab[]
         ).map((t) => (
           <button
             key={t}
@@ -270,6 +288,15 @@ export function AgentPage({
           admin={admin}
         />
       )}
+
+      {tab === 'sharing' && (
+        <SharingTab
+          agentId={agentId}
+          workspaceId={a.workspaceId}
+          admin={admin}
+        />
+      )}
+      {tab === 'activity' && admin && <ActivityTab agentId={agentId} />}
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>

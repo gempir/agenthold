@@ -26,6 +26,16 @@ type Agent struct {
 	CredentialsInSandbox int64
 }
 
+type AgentGrant struct {
+	ID          string
+	AgentID     string
+	SubjectType string
+	SubjectID   string
+	Role        string
+	CreatedBy   string
+	CreatedAt   int64
+}
+
 type AgentSecret struct {
 	AgentID   string
 	SecretID  string
@@ -51,6 +61,17 @@ type AgentSessionEvent struct {
 	Type      string
 	UserID    string
 	Data      string
+}
+
+type AuditLog struct {
+	ID          int64
+	At          int64
+	WorkspaceID string
+	AgentID     string
+	UserID      string
+	Action      string
+	Target      string
+	Details     string
 }
 
 type EgressEvent struct {

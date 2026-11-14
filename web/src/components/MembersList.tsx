@@ -4,20 +4,29 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 
-export function Avatar({ name, url }: { name: string; url?: string }) {
+export function Avatar({
+  name,
+  url,
+  size = 'md',
+}: {
+  name: string;
+  url?: string;
+  size?: 'sm' | 'md';
+}) {
+  const dim = size === 'sm' ? 'size-6' : 'size-8';
   if (url) {
     return (
       <img
         src={url}
         alt=""
-        className="size-8 rounded-full bg-muted object-cover"
+        className={`${dim} shrink-0 rounded-full bg-muted object-cover`}
       />
     );
   }
   return (
     <span
       aria-hidden
-      className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-medium"
+      className={`${dim} flex shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium`}
     >
       {name.slice(0, 1).toUpperCase()}
     </span>

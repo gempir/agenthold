@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gempir/agenthold/internal/api/gen"
+	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/egress"
 	"github.com/gempir/agenthold/internal/store/db"
@@ -35,7 +36,8 @@ func (a *API) GetNetworkPolicy(ctx context.Context, req gen.GetNetworkPolicyRequ
 
 // SetNetworkPolicy implements gen.StrictServerInterface.
 func (a *API) SetNetworkPolicy(ctx context.Context, req gen.SetNetworkPolicyRequestObject) (gen.SetNetworkPolicyResponseObject, error) {
-	if _, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentConfigure); err != nil {
+	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentConfigure)
+	if err != nil {
 		return nil, err
 	}
 	p := egress.Policy{Mode: string(req.Body.Mode)}
@@ -52,6 +54,7 @@ func (a *API) SetNetworkPolicy(ctx context.Context, req gen.SetNetworkPolicyRequ
 		return nil, err
 	}
 	a.Egress.Invalidate()
+	a.record(ctx, acc.Row.Agent, audit.PolicySet, "", map[string]any{"mode": p.Mode, "allow": p.Allow})
 	return gen.SetNetworkPolicy200JSONResponse(apiPolicy(p)), nil
 }
 

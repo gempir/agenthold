@@ -8,7 +8,9 @@ import (
 	"strconv"
 
 	"github.com/gempir/agenthold/internal/api/gen"
+	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
+	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/tunnel"
 )
 
@@ -17,9 +19,20 @@ const maxUpload = 1 << 30 // 1 GiB
 // connected returns the agent's tunnel session after an authorization check.
 // File operations do not wake sleeping agents.
 func (a *API) connected(ctx context.Context, agentID string, action authz.Action) (*tunnel.Session, error) {
-	if _, err := a.authz.Agent(ctx, me(ctx).ID, agentID, action); err != nil {
-		return nil, err
+	s, _, err := a.connectedAgent(ctx, agentID, action)
+	return s, err
+}
+
+func (a *API) connectedAgent(ctx context.Context, agentID string, action authz.Action) (*tunnel.Session, db.Agent, error) {
+	acc, err := a.authz.Agent(ctx, me(ctx).ID, agentID, action)
+	if err != nil {
+		return nil, db.Agent{}, err
 	}
+	s, err := a.session(agentID)
+	return s, acc.Row.Agent, err
+}
+
+func (a *API) session(agentID string) (*tunnel.Session, error) {
 	s, ok := a.Tunnel.Session(agentID)
 	if !ok {
 		return nil, tunnel.ErrNotConnected
@@ -117,7 +130,7 @@ func sanitizeFilename(n string) string {
 
 // UploadFile implements gen.StrictServerInterface.
 func (a *API) UploadFile(ctx context.Context, req gen.UploadFileRequestObject) (gen.UploadFileResponseObject, error) {
-	s, err := a.connected(ctx, req.AgentId, authz.AgentPrompt)
+	s, ag, err := a.connectedAgent(ctx, req.AgentId, authz.AgentPrompt)
 	if err != nil {
 		return nil, err
 	}
@@ -127,12 +140,13 @@ func (a *API) UploadFile(ctx context.Context, req gen.UploadFileRequestObject) (
 	if err := s.WriteFile(ctx, req.Params.Path, 0o644, limitReader(req.Body, maxUpload)); err != nil {
 		return nil, err
 	}
+	a.record(ctx, ag, audit.FileWrite, req.Params.Path, nil)
 	return gen.UploadFile204Response{}, nil
 }
 
 // MakeDirectory implements gen.StrictServerInterface.
 func (a *API) MakeDirectory(ctx context.Context, req gen.MakeDirectoryRequestObject) (gen.MakeDirectoryResponseObject, error) {
-	s, err := a.connected(ctx, req.AgentId, authz.AgentPrompt)
+	s, ag, err := a.connectedAgent(ctx, req.AgentId, authz.AgentPrompt)
 	if err != nil {
 		return nil, err
 	}
@@ -143,12 +157,13 @@ func (a *API) MakeDirectory(ctx context.Context, req gen.MakeDirectoryRequestObj
 	if err := s.Mkdir(ctx, p, true); err != nil {
 		return nil, err
 	}
+	a.record(ctx, ag, audit.FileMkdir, p, nil)
 	return gen.MakeDirectory204Response{}, nil
 }
 
 // DeleteFile implements gen.StrictServerInterface.
 func (a *API) DeleteFile(ctx context.Context, req gen.DeleteFileRequestObject) (gen.DeleteFileResponseObject, error) {
-	s, err := a.connected(ctx, req.AgentId, authz.AgentPrompt)
+	s, ag, err := a.connectedAgent(ctx, req.AgentId, authz.AgentPrompt)
 	if err != nil {
 		return nil, err
 	}
@@ -158,5 +173,6 @@ func (a *API) DeleteFile(ctx context.Context, req gen.DeleteFileRequestObject) (
 	if err := s.Remove(ctx, req.Params.Path, req.Params.Recursive != nil && *req.Params.Recursive); err != nil {
 		return nil, err
 	}
+	a.record(ctx, ag, audit.FileDelete, req.Params.Path, nil)
 	return gen.DeleteFile204Response{}, nil
 }

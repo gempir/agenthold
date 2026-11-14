@@ -233,6 +233,9 @@ func (a *API) RemoveMember(ctx context.Context, req gen.RemoveMemberRequestObjec
 		if err := authz.CanRemoveMember(actor, target, req.UserId == me(ctx).ID, owners); err != nil {
 			return err
 		}
+		if err := q.DeleteUserGrantsInWorkspace(ctx, db.DeleteUserGrantsInWorkspaceParams{UserID: req.UserId, WorkspaceID: req.WorkspaceId}); err != nil {
+			return err
+		}
 		return q.DeleteMembership(ctx, db.DeleteMembershipParams{WorkspaceID: req.WorkspaceId, UserID: req.UserId})
 	})
 	if err != nil {

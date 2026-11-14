@@ -20,6 +20,7 @@ import (
 
 	"github.com/gempir/agenthold/internal/api"
 	"github.com/gempir/agenthold/internal/api/gen"
+	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/auth/authtest"
 	"github.com/gempir/agenthold/internal/config"
@@ -134,7 +135,7 @@ func newEnv(t *testing.T) *env {
 	e.sleeper = &idle.Sleeper{Store: st, Sandboxes: e.sandboxes, Tracker: e.tracker, Busy: e.sessions.AgentBusy, Tunnel: e.hub, Now: e.clock.Now}
 	a := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Tunnel: e.hub, Limits: cfg.Sandbox,
-		Box: box, Egress: e.directory, CA: ca, Sessions: e.sessions, Idle: e.sleeper, ShowTestHarness: true,
+		Box: box, Egress: e.directory, CA: ca, Sessions: e.sessions, Idle: e.sleeper, Audit: &audit.Log{Store: st}, ShowTestHarness: true,
 	})
 	e.sessions.SetWaker(a.Wake)
 	e.sandboxes.OnChange(func(agentID string, p sandbox.Phase) {

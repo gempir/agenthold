@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/gempir/agenthold/internal/api"
+	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/egress"
@@ -161,7 +162,7 @@ func run() error {
 
 	apiSrv := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Tunnel: hub, Limits: cfg.Sandbox,
-		Box: box, Egress: directory, CA: ca, Sessions: sessions, Idle: sleeper,
+		Box: box, Egress: directory, CA: ca, Sessions: sessions, Idle: sleeper, Audit: &audit.Log{Store: st, Log: logger},
 		ShowTestHarness: cfg.Sandbox.Driver == "fake" || cfg.DevProxy != "",
 	})
 	sessions.SetWaker(apiSrv.Wake)

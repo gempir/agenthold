@@ -1064,6 +1064,8 @@ export interface components {
         };
         HarnessType: {
             id: string;
+            /** @description Used when an agent does not name a harness. */
+            default: boolean;
             name: string;
             secretPresets: string[];
             installHint: string;

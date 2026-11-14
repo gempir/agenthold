@@ -1,10 +1,13 @@
 # syntax=docker/dockerfile:1
-# Default agent image: Claude Code (through its ACP adapter), git, common
+# Default agent image: Claude Code and Codex (through their ACP adapters),
+# OpenCode (native ACP), git, common
 # runtimes, build tools and a headless browser. Agents run as "agent".
 FROM debian:trixie-slim
 
 ARG NODE_MAJOR=24
 ARG CLAUDE_AGENT_ACP_VERSION=0.107.0
+ARG OPENCODE_VERSION=1.19.5
+ARG CODEX_ACP_VERSION=2.6.0
 
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -20,7 +23,10 @@ RUN apt-get update \
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && rm -rf /var/lib/apt/lists/* \
- && npm install -g --no-fund --no-audit @agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_ACP_VERSION} \
+ && npm install -g --no-fund --no-audit \
+      @agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_ACP_VERSION} \
+      opencode-ai@${OPENCODE_VERSION} \
+      @agentclientprotocol/codex-acp@${CODEX_ACP_VERSION} \
  && npm cache clean --force
 
 # Headless browser for agents (Playwright and Puppeteer can use it).

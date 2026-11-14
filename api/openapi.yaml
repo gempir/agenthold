@@ -1330,9 +1330,10 @@ components:
 
     HarnessType:
       type: object
-      required: [id, name, secretPresets, installHint]
+      required: [id, name, default, secretPresets, installHint]
       properties:
         id: { type: string }
+        default: { type: boolean, description: Used when an agent does not name a harness. }
         name: { type: string }
         secretPresets:
           type: array

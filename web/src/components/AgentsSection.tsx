@@ -85,7 +85,10 @@ function NewAgentDialog({
   const limits = useQuery(sandboxLimitsQuery);
   const l = limits.data;
   const harnesses = useQuery(harnessesQuery);
-  const [harness, setHarness] = useState('claude-code');
+  // '' until the user picks one: the server's default harness.
+  const [picked, setHarness] = useState('');
+  const harness =
+    picked || harnesses.data?.find((h) => h.default)?.id || '';
   const [model, setModel] = useState('');
   const [name, setName] = useState('');
   const [image, setImage] = useState('');
@@ -104,7 +107,7 @@ function NewAgentDialog({
             cpus: Number(cpus || l?.defaultCpus),
             memoryMb: Number(mem || l?.defaultMemoryMb),
             idleMinutes: Number(idle),
-            harness,
+            ...(harness && { harness }),
             ...(model.trim() && { model: model.trim() }),
           },
         }),
@@ -188,9 +191,6 @@ function NewAgentDialog({
                 value={harness}
                 onChange={(e) => setHarness(e.target.value)}
               >
-                {!harnesses.data?.some((h) => h.id === 'claude-code') && (
-                  <option value="claude-code">claude-code</option>
-                )}
                 {harnesses.data?.map((h) => (
                   <option key={h.id} value={h.id}>
                     {h.name}

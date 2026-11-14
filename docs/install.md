@@ -52,7 +52,8 @@ Edit `.env`:
 
 For OpenID Connect instead (Keycloak, Authentik, Okta, Google, ...), uncomment the `oidc` provider in
 `agenthold.yaml`. Register the callback URL `https://<domain>/api/v1/auth/callback/oidc`, and add `OIDC_ISSUER`,
-`OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` to `.env`. You can keep both providers.
+`OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` to `.env`. Comment out the `github` provider if you do not use it:
+the server refuses to start with a provider that has no client id. You can also keep both.
 
 `agenthold.yaml` also sets the agent defaults and the address range for agent networks
 (`AGENTHOLD_NETWORK_POOL`, default `10.213.0.0/16`). Pick a range that does not overlap your LAN or VPN.

@@ -438,6 +438,154 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/egress/ca.pem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The installation's egress CA certificate (trusted inside sandboxes). */
+        get: operations["getEgressCA"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/secrets/presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listSecretPresets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{workspaceId}/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        /** @description Secrets the caller can attach (their own; all of them for workspace admins). Values are never returned. */
+        get: operations["listSecrets"];
+        put?: never;
+        post: operations["createSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/secrets/{secretId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteSecret"];
+        options?: never;
+        head?: never;
+        patch: operations["updateSecret"];
+        trace?: never;
+    };
+    "/agents/{agentId}/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get: operations["listAgentSecrets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/secrets/{secretId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * @description Attach a secret (agent admin; the secret's owner or a workspace admin).
+         *     Injection works immediately; a changed environment variable needs a rebuild.
+         */
+        put: operations["attachSecret"];
+        post?: never;
+        delete: operations["detachSecret"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/network-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get: operations["getNetworkPolicy"];
+        /** @description Takes effect within seconds, without a restart. */
+        put: operations["setNetworkPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/egress-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get: operations["listEgressLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -586,6 +734,79 @@ export interface components {
             /** @description Absolute path of the directory. */
             path: string;
             entries: components["schemas"]["FileEntry"][];
+        };
+        SecretRule: {
+            /** @description Exact host names or "*.example.com". */
+            hosts: string[];
+            header: string;
+            /** @description Header value; {{.Value}} is the secret. Function: base64. */
+            template: string;
+        };
+        SecretPreset: {
+            id: string;
+            name: string;
+            rule: components["schemas"]["SecretRule"];
+            envVar: string;
+            description: string;
+        };
+        Secret: {
+            id: string;
+            workspaceId: string;
+            name: string;
+            rule: components["schemas"]["SecretRule"];
+            /** @description What sandboxes see instead of the value. */
+            placeholder: string;
+            owner: components["schemas"]["User"];
+            canManage: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        SecretInput: {
+            name: string;
+            value: string;
+            /** @description Use a preset's rule. */
+            preset?: string;
+            rule?: components["schemas"]["SecretRule"];
+        };
+        SecretPatch: {
+            name?: string;
+            value?: string;
+            rule?: components["schemas"]["SecretRule"];
+        };
+        AttachedSecret: {
+            secret: components["schemas"]["Secret"];
+            envVar: string;
+        };
+        NetworkPolicy: {
+            /** @enum {string} */
+            mode: "open" | "allowlist";
+            /** @description Entries like "github.com", "*.npmjs.org", "github.com:22", "host:*", "1.2.3.0/24:443". Without a port: 80 and 443. */
+            allow: string[];
+        };
+        EgressEvent: {
+            /** Format: int64 */
+            id: number;
+            /** Format: date-time */
+            at: string;
+            /** @enum {string} */
+            kind: "https" | "http" | "tls" | "tcp" | "dns";
+            host: string;
+            ip: string;
+            port: number;
+            method: string;
+            path: string;
+            status: number;
+            allowed: boolean;
+            reason: string;
+            injected: boolean;
+            /** Format: int64 */
+            bytesUp: number;
+            /** Format: int64 */
+            bytesDown: number;
+            /** Format: int64 */
+            durationMs: number;
         };
     };
     responses: {
@@ -1445,6 +1666,307 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+        };
+    };
+    getEgressCA: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PEM certificate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-pem-file": string;
+                };
+            };
+        };
+    };
+    listSecretPresets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Injection rule presets for common providers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretPreset"][];
+                };
+            };
+        };
+    };
+    listSecrets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Secrets. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Secret"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretInput"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Secret"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    deleteSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted and detached from all agents. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    updateSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretPatch"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Secret"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listAgentSecrets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Secrets attached to the agent. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachedSecret"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    attachSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Variable that holds the placeholder in the sandbox. */
+                    envVar?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Attached. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachedSecret"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    detachSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Detached. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    getNetworkPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent's network policy. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NetworkPolicy"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    setNetworkPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NetworkPolicy"];
+            };
+        };
+        responses: {
+            /** @description Saved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NetworkPolicy"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listEgressLog: {
+        parameters: {
+            query?: {
+                /** @description Return entries older than this id. */
+                before?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EgressEvent"][];
+                };
+            };
+            404: components["responses"]["Error"];
         };
     };
 }

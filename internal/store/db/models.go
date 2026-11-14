@@ -9,18 +9,45 @@ import (
 )
 
 type Agent struct {
-	ID          string
-	WorkspaceID string
-	OwnerID     string
-	Name        string
-	Image       string
-	Harness     string
-	Model       string
-	Cpus        float64
-	MemoryMb    int64
-	IdleMinutes int64
-	CreatedAt   int64
-	UpdatedAt   int64
+	ID            string
+	WorkspaceID   string
+	OwnerID       string
+	Name          string
+	Image         string
+	Harness       string
+	Model         string
+	Cpus          float64
+	MemoryMb      int64
+	IdleMinutes   int64
+	CreatedAt     int64
+	UpdatedAt     int64
+	NetworkPolicy string
+}
+
+type AgentSecret struct {
+	AgentID   string
+	SecretID  string
+	EnvVar    string
+	CreatedAt int64
+}
+
+type EgressEvent struct {
+	ID         int64
+	AgentID    string
+	At         int64
+	Kind       string
+	Host       string
+	Ip         string
+	Port       int64
+	Method     string
+	Path       string
+	Status     int64
+	Allowed    int64
+	Reason     string
+	Injected   int64
+	BytesUp    int64
+	BytesDown  int64
+	DurationMs int64
 }
 
 type Identity struct {
@@ -76,6 +103,19 @@ type Sandbox struct {
 	AppliedSpec    string
 	StateChangedAt int64
 	BootTokenHash  string
+	Subnet         string
+}
+
+type Secret struct {
+	ID          string
+	WorkspaceID string
+	OwnerID     string
+	Name        string
+	Ciphertext  []byte
+	Rule        string
+	Placeholder string
+	CreatedAt   int64
+	UpdatedAt   int64
 }
 
 type Session struct {

@@ -82,6 +82,7 @@ func New(cfg Config) (*Daemon, error) {
 	}
 	d := &Daemon{cfg: cfg, log: cfg.Logger, acct: acct}
 	d.prepareHome()
+	d.installCA()
 	return d, nil
 }
 

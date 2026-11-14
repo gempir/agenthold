@@ -12,7 +12,9 @@ import (
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/config"
+	"github.com/gempir/agenthold/internal/egress"
 	"github.com/gempir/agenthold/internal/sandbox"
+	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/tunnel"
@@ -25,6 +27,9 @@ type Deps struct {
 	PublicURL string
 	Sandboxes *sandbox.Manager
 	Tunnel    *tunnel.Hub
+	Box       *secrets.Box
+	Egress    *egress.Directory
+	CA        *egress.CA
 	Limits    config.Sandbox
 	Now       func() time.Time
 }

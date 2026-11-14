@@ -15,6 +15,8 @@ tags:
   - name: invites
   - name: agents
   - name: files
+  - name: secrets
+  - name: egress
   - name: streams
     description: WebSocket endpoints. Not generated as JSON handlers.
   - name: meta
@@ -527,6 +529,195 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /egress/ca.pem:
+    get:
+      operationId: getEgressCA
+      tags: [egress]
+      description: The installation's egress CA certificate (trusted inside sandboxes).
+      responses:
+        "200":
+          description: PEM certificate.
+          content:
+            application/x-pem-file:
+              schema: { type: string }
+
+  /secrets/presets:
+    get:
+      operationId: listSecretPresets
+      tags: [secrets]
+      responses:
+        "200":
+          description: Injection rule presets for common providers.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SecretPreset" }
+
+  /workspaces/{workspaceId}/secrets:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      operationId: listSecrets
+      tags: [secrets]
+      description: Secrets the caller can attach (their own; all of them for workspace admins). Values are never returned.
+      responses:
+        "200":
+          description: Secrets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Secret" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createSecret
+      tags: [secrets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SecretInput" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Secret" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /secrets/{secretId}:
+    parameters:
+      - { name: secretId, in: path, required: true, schema: { type: string } }
+    patch:
+      operationId: updateSecret
+      tags: [secrets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SecretPatch" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Secret" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteSecret
+      tags: [secrets]
+      responses:
+        "204": { description: Deleted and detached from all agents. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/secrets:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listAgentSecrets
+      tags: [secrets]
+      responses:
+        "200":
+          description: Secrets attached to the agent.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AttachedSecret" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/secrets/{secretId}:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+      - { name: secretId, in: path, required: true, schema: { type: string } }
+    put:
+      operationId: attachSecret
+      tags: [secrets]
+      description: |
+        Attach a secret (agent admin; the secret's owner or a workspace admin).
+        Injection works immediately; a changed environment variable needs a rebuild.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                envVar: { type: string, description: Variable that holds the placeholder in the sandbox. }
+      responses:
+        "200":
+          description: Attached.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AttachedSecret" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: detachSecret
+      tags: [secrets]
+      responses:
+        "204": { description: Detached. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/network-policy:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: getNetworkPolicy
+      tags: [egress]
+      responses:
+        "200":
+          description: The agent's network policy.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NetworkPolicy" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      operationId: setNetworkPolicy
+      tags: [egress]
+      description: Takes effect within seconds, without a restart.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NetworkPolicy" }
+      responses:
+        "200":
+          description: Saved.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NetworkPolicy" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/egress-log:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listEgressLog
+      tags: [egress]
+      parameters:
+        - { name: before, in: query, description: Return entries older than this id., schema: { type: integer, format: int64 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500 } }
+      responses:
+        "200":
+          description: Newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/EgressEvent" }
+        "404": { $ref: "#/components/responses/Error" }
+
 security:
   - session: []
 
@@ -751,3 +942,91 @@ components:
         entries:
           type: array
           items: { $ref: "#/components/schemas/FileEntry" }
+
+    SecretRule:
+      type: object
+      required: [hosts, header, template]
+      properties:
+        hosts:
+          type: array
+          items: { type: string }
+          description: Exact host names or "*.example.com".
+        header: { type: string }
+        template: { type: string, description: 'Header value; {{.Value}} is the secret. Function: base64.' }
+
+    SecretPreset:
+      type: object
+      required: [id, name, rule, envVar, description]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        rule: { $ref: "#/components/schemas/SecretRule" }
+        envVar: { type: string }
+        description: { type: string }
+
+    Secret:
+      type: object
+      required: [id, workspaceId, name, rule, placeholder, owner, canManage, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        workspaceId: { type: string }
+        name: { type: string }
+        rule: { $ref: "#/components/schemas/SecretRule" }
+        placeholder: { type: string, description: What sandboxes see instead of the value. }
+        owner: { $ref: "#/components/schemas/User" }
+        canManage: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    SecretInput:
+      type: object
+      required: [name, value]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        value: { type: string, minLength: 1 }
+        preset: { type: string, description: Use a preset's rule. }
+        rule: { $ref: "#/components/schemas/SecretRule" }
+
+    SecretPatch:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        value: { type: string, minLength: 1 }
+        rule: { $ref: "#/components/schemas/SecretRule" }
+
+    AttachedSecret:
+      type: object
+      required: [secret, envVar]
+      properties:
+        secret: { $ref: "#/components/schemas/Secret" }
+        envVar: { type: string }
+
+    NetworkPolicy:
+      type: object
+      required: [mode, allow]
+      properties:
+        mode: { type: string, enum: [open, allowlist] }
+        allow:
+          type: array
+          items: { type: string }
+          description: 'Entries like "github.com", "*.npmjs.org", "github.com:22", "host:*", "1.2.3.0/24:443". Without a port: 80 and 443.'
+
+    EgressEvent:
+      type: object
+      required: [id, at, kind, host, ip, port, method, path, status, allowed, reason, injected, bytesUp, bytesDown, durationMs]
+      properties:
+        id: { type: integer, format: int64 }
+        at: { type: string, format: date-time }
+        kind: { type: string, enum: [https, http, tls, tcp, dns] }
+        host: { type: string }
+        ip: { type: string }
+        port: { type: integer }
+        method: { type: string }
+        path: { type: string }
+        status: { type: integer }
+        allowed: { type: boolean }
+        reason: { type: string }
+        injected: { type: boolean }
+        bytesUp: { type: integer, format: int64 }
+        bytesDown: { type: integer, format: int64 }
+        durationMs: { type: integer, format: int64 }

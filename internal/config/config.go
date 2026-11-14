@@ -28,6 +28,30 @@ type Config struct {
 	DevProxy string  `yaml:"dev_proxy"`
 	Auth     Auth    `yaml:"auth"`
 	Sandbox  Sandbox `yaml:"sandbox"`
+	Egress   Egress  `yaml:"egress"`
+	Secrets  Secrets `yaml:"secrets"`
+}
+
+// Egress configures the proxy that is the sandboxes' only way out.
+type Egress struct {
+	// Disabled turns interception off: sandboxes then have no network access at all.
+	Disabled bool `yaml:"disabled"`
+	// Ports the server listens on (inside its own container).
+	ProxyPort    int `yaml:"proxy_port"`    // transparent, receives redirected TCP
+	ExplicitPort int `yaml:"explicit_port"` // HTTP proxy for HTTPS_PROXY
+	DNSPort      int `yaml:"dns_port"`      // receives redirected DNS
+	// DNSUpstream is the resolver used for sandboxes' queries. Default: the
+	// first nameserver in the server's /etc/resolv.conf.
+	DNSUpstream string `yaml:"dns_upstream"`
+	// LogKeep is how many request log entries are kept per agent.
+	LogKeep int `yaml:"log_keep"`
+}
+
+// Secrets configures secret storage.
+type Secrets struct {
+	// MasterKeyFile holds the base64 master key. AGENTHOLD_MASTER_KEY takes
+	// precedence. Default <data_dir>/master.key, created on first start.
+	MasterKeyFile string `yaml:"master_key_file"`
 }
 
 // Sandbox configures agent sandboxes.
@@ -230,6 +254,22 @@ func ApplyDefaults(cfg *Config) {
 	}
 	if sb.Docker.SubnetBits == 0 {
 		sb.Docker.SubnetBits = 28
+	}
+	eg := &cfg.Egress
+	if eg.ProxyPort == 0 {
+		eg.ProxyPort = 15001
+	}
+	if eg.ExplicitPort == 0 {
+		eg.ExplicitPort = 15002
+	}
+	if eg.DNSPort == 0 {
+		eg.DNSPort = 15053
+	}
+	if eg.LogKeep == 0 {
+		eg.LogKeep = 5000
+	}
+	if cfg.Secrets.MasterKeyFile == "" {
+		cfg.Secrets.MasterKeyFile = filepath.Join(cfg.DataDir, "master.key")
 	}
 	if cfg.Auth.SessionTTL == 0 {
 		cfg.Auth.SessionTTL = 30 * 24 * time.Hour

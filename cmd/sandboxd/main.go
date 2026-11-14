@@ -24,6 +24,12 @@ func main() {
 }
 
 func run(logger *slog.Logger) error {
+	if len(os.Args) > 1 && os.Args[1] == "net-setup" {
+		fs := flag.NewFlagSet("net-setup", flag.ExitOnError)
+		gw := fs.String("gateway", "", "address of the server on the agent network")
+		_ = fs.Parse(os.Args[2:])
+		return sandboxd.NetSetup(*gw)
+	}
 	showVersion := flag.Bool("version", false, "print version and exit")
 	bootPath := flag.String("boot", envOr("AGENTHOLD_BOOT", sandboxd.BootFile), "boot configuration written by the server")
 	flag.Parse()

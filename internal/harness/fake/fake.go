@@ -20,3 +20,6 @@ func (adapter) InstallHint() string                  { return "Shipped with agen
 
 // SkillsDir implements harness.SkillsDirer.
 func (adapter) SkillsDir() string { return ".fakeagent/skills" }
+
+// Hidden keeps the scripted agent out of production (it is not in the image).
+func (adapter) Hidden() bool { return true }

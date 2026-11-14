@@ -27,6 +27,7 @@ host kernel. It costs some performance on I/O-heavy work.
 
 ```sh
 # Install (Debian/Ubuntu), see https://gvisor.dev/docs/user_guide/install/
+sudo apt-get install -y curl gnupg
 curl -fsSL https://gvisor.dev/archive.key | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" \
   | sudo tee /etc/apt/sources.list.d/gvisor.list
@@ -37,6 +38,10 @@ docker run --rm --runtime=runsc hello-world
 ```
 
 Then set `runtime: runsc` and rebuild agents.
+
+Tested: on Ubuntu 24.04 (arm64) with Docker 29.9 and gVisor (`runsc version release-20261109.0`), agents run under `runsc` with
+working network setup, egress through the proxy (private addresses still blocked), terminals, files and
+harness sessions (OpenCode).
 
 ## Sysbox (sysbox-runc)
 
@@ -49,7 +54,7 @@ docker run --rm --runtime=sysbox-runc alpine id
 ```
 
 Set `runtime: sysbox-runc` and rebuild agents. Docker-in-Docker inside an agent needs the Docker engine in its
-image (the base image does not include one).
+image (the base image does not include one). Sysbox has not been tested with agenthold yet.
 
 ## Checking
 

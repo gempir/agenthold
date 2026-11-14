@@ -38,6 +38,18 @@ type agent struct {
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc
 	mcp     map[string][]string // session -> MCP servers it was given
+	servers map[string][]acp.McpServer
+}
+
+func (a *agent) platformServer(sid acp.SessionId) *acp.McpServerStdio {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, s := range a.servers[string(sid)] {
+		if s.Stdio != nil && s.Stdio.Name == "agenthold" {
+			return s.Stdio
+		}
+	}
+	return nil
 }
 
 func mcpNames(servers []acp.McpServer) []string {
@@ -74,7 +86,7 @@ func main() {
 		login(dir)
 		return
 	}
-	a := &agent{dir: dir, cancels: map[string]context.CancelFunc{}, mcp: map[string][]string{}}
+	a := &agent{dir: dir, cancels: map[string]context.CancelFunc{}, mcp: map[string][]string{}, servers: map[string][]acp.McpServer{}}
 	a.conn = acp.NewAgentSideConnection(a, os.Stdout, os.Stdin)
 	fmt.Fprintln(os.Stderr, "fakeagent ready")
 	<-a.conn.Done()
@@ -146,6 +158,7 @@ func (a *agent) NewSession(_ context.Context, p acp.NewSessionRequest) (acp.NewS
 	_ = os.WriteFile(a.path(id), []byte("[]"), 0o644)
 	a.mu.Lock()
 	a.mcp[id] = mcpNames(p.McpServers)
+	a.servers[id] = p.McpServers
 	a.mu.Unlock()
 	return acp.NewSessionResponse{SessionId: acp.SessionId(id)}, nil
 }
@@ -156,6 +169,7 @@ func (a *agent) LoadSession(ctx context.Context, p acp.LoadSessionRequest) (acp.
 	}
 	a.mu.Lock()
 	a.mcp[string(p.SessionId)] = mcpNames(p.McpServers)
+	a.servers[string(p.SessionId)] = p.McpServers
 	a.mu.Unlock()
 	for _, t := range a.history(string(p.SessionId)) {
 		u := acp.UpdateAgentMessageText(t.Text)
@@ -244,6 +258,33 @@ func (a *agent) Prompt(_ context.Context, p acp.PromptRequest) (acp.PromptRespon
 			_ = a.say(ctx, sid, fmt.Sprintf("chunk %d ", i))
 		}
 		answer = "done"
+	case len(fields) >= 1 && (fields[0] == "ask" || fields[0] == "send" || fields[0] == "agents"):
+		// Agent-to-agent through the platform MCP server, like a real harness would.
+		srv := a.platformServer(sid)
+		if srv == nil {
+			answer = "no agenthold MCP server in this session"
+			break
+		}
+		tool, args := "list_agents", map[string]any{}
+		if fields[0] != "agents" {
+			if len(fields) < 3 {
+				answer = "usage: ask|send <agent> <text>"
+				break
+			}
+			tool = map[string]string{"ask": "ask", "send": "send_message"}[fields[0]]
+			args = map[string]any{"agent": fields[1], "text": strings.Join(fields[2:], " ")}
+		}
+		call := acp.ToolCallId("mcp-" + strconv.FormatInt(time.Now().UnixNano(), 36))
+		_ = a.conn.SessionUpdate(ctx, acp.SessionNotification{SessionId: sid, Update: acp.StartToolCall(call, "agenthold: "+tool,
+			acp.WithStartKind(acp.ToolKindFetch), acp.WithStartStatus(acp.ToolCallStatusInProgress), acp.WithStartRawInput(args))})
+		out, err := callMCP(srv, tool, args)
+		status := acp.ToolCallStatusCompleted
+		if err != nil {
+			status, out = acp.ToolCallStatusFailed, err.Error()
+		}
+		_ = a.conn.SessionUpdate(ctx, acp.SessionNotification{SessionId: sid, Update: acp.UpdateToolCall(call, acp.WithUpdateStatus(status),
+			acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolContent(acp.TextBlock(out))}))})
+		answer = tool + " -> " + out
 	case len(fields) == 1 && fields[0] == "tools":
 		a.mu.Lock()
 		servers := a.mcp[string(sid)]

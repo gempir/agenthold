@@ -85,10 +85,22 @@ func (a *API) apiSession(ctx context.Context, s db.AgentSession) (gen.Session, e
 	if err != nil {
 		return gen.Session{}, err
 	}
-	return gen.Session{
+	out := gen.Session{
 		Id: s.ID, AgentId: s.AgentID, Title: s.Title, Running: a.Sessions.Running(s.ID),
 		CreatedBy: apiUser(u), CreatedAt: ts(s.CreatedAt), UpdatedAt: ts(s.UpdatedAt),
-	}, nil
+	}
+	if s.OriginAgentID != "" {
+		name := "(deleted agent)"
+		if ag, err := a.Store.GetAgent(ctx, s.OriginAgentID); err == nil {
+			name = ag.Name
+		}
+		out.Origin = &struct {
+			AgentId   string `json:"agentId"`
+			AgentName string `json:"agentName"`
+			SessionId string `json:"sessionId"`
+		}{s.OriginAgentID, name, s.OriginSessionID}
+	}
+	return out, nil
 }
 
 // sessionAccess loads a session after checking action on its agent.

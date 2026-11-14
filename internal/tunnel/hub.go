@@ -36,6 +36,38 @@ type Hub struct {
 	sessions map[string]*Session
 	waiters  map[string][]chan struct{}
 	onChange []func(agentID string, connected bool)
+	incoming IncomingHandler
+}
+
+// IncomingHandler serves a stream that sandboxd opened (platform calls).
+// The Open frame has been read; s identifies the calling agent.
+type IncomingHandler func(ctx context.Context, s *Session, stream net.Conn, o Open)
+
+// HandleIncoming sets the handler for streams opened by sandboxes.
+func (h *Hub) HandleIncoming(fn IncomingHandler) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.incoming = fn
+}
+
+func (h *Hub) acceptIncoming(s *Session) {
+	for {
+		st, err := s.mux.AcceptStream()
+		if err != nil {
+			return
+		}
+		h.mu.Lock()
+		fn := h.incoming
+		h.mu.Unlock()
+		go func() {
+			defer st.Close()
+			var o Open
+			if err := ReadJSON(st, &o); err != nil || fn == nil {
+				return
+			}
+			fn(context.Background(), s, st, o)
+		}()
+	}
 }
 
 // Session is one connected sandboxd.
@@ -100,6 +132,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.register(s)
 	h.log.Info("tunnel: connected", "agent", agentID, "user", s.Hello.User, "sandboxd", s.Hello.Version)
+	go h.acceptIncoming(s)
 	<-mux.CloseChan()
 	h.unregister(s)
 	h.log.Info("tunnel: disconnected", "agent", agentID)

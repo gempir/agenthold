@@ -52,13 +52,17 @@ type Config struct {
 	// account exists and we are root, otherwise the current user.
 	RunAs  string
 	Logger *slog.Logger
+	// PlatformSocket overrides the platform socket path (default
+	// <home>/.agenthold/platform.sock).
+	PlatformSocket string
 }
 
 // Daemon is a running sandboxd.
 type Daemon struct {
-	cfg  Config
-	log  *slog.Logger
-	acct account
+	cfg    Config
+	log    *slog.Logger
+	acct   account
+	opener opener
 }
 
 type account struct {
@@ -125,10 +129,11 @@ func (d *Daemon) prepareHome() {
 
 // Run dials the server and serves until ctx ends, reconnecting with backoff.
 func (d *Daemon) Run(ctx context.Context) error {
+	go d.servePlatform(ctx)
 	backoff := 250 * time.Millisecond
 	for {
 		start := time.Now()
-		err := tunnel.Dial(ctx, d.cfg.Boot.TunnelURL, d.cfg.Boot.AgentID, d.cfg.Boot.Token, d.handle)
+		err := tunnel.Dial(ctx, d.cfg.Boot.TunnelURL, d.cfg.Boot.AgentID, d.cfg.Boot.Token, d.handle, d.opener.set)
 		if ctx.Err() != nil {
 			return nil
 		}

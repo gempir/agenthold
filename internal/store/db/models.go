@@ -49,14 +49,16 @@ type AgentSecret struct {
 }
 
 type AgentSession struct {
-	ID           string
-	AgentID      string
-	AcpSessionID string
-	Title        string
-	Status       string
-	CreatedBy    string
-	CreatedAt    int64
-	UpdatedAt    int64
+	ID              string
+	AgentID         string
+	AcpSessionID    string
+	Title           string
+	Status          string
+	CreatedBy       string
+	CreatedAt       int64
+	UpdatedAt       int64
+	OriginAgentID   string
+	OriginSessionID string
 }
 
 type AgentSessionEvent struct {

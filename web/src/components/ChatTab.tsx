@@ -1,4 +1,6 @@
 import { lazy, Suspense } from 'react';
+import { Bot } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrap } from '@/api/client';
 import { sessionsQuery, type SandboxState } from '@/api/queries';
@@ -68,6 +70,12 @@ export function ChatTab({
                   s.id === sessionId ? 'bg-accent font-medium' : ''
                 }`}
               >
+                {s.origin && (
+                  <Bot
+                    aria-label={`started by agent ${s.origin.agentName}`}
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                  />
+                )}
                 <span className="min-w-0 flex-1 truncate">
                   {s.title || new Date(s.createdAt).toLocaleString()}
                 </span>
@@ -84,6 +92,23 @@ export function ChatTab({
         </ul>
       </aside>
       <section className="min-w-0">
+        {selected?.origin && (
+          <p
+            role="note"
+            className="mb-3 flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm"
+          >
+            <Bot className="size-4" />
+            Started by agent <strong>{selected.origin.agentName}</strong>.
+            <Link
+              to="/a/$agentId"
+              params={{ agentId: selected.origin.agentId }}
+              search={{ s: selected.origin.sessionId }}
+              className="underline"
+            >
+              Open its session
+            </Link>
+          </p>
+        )}
         {sessionId ? (
           <Suspense fallback={<Loading />}>
             <ChatView

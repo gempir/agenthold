@@ -1396,6 +1396,13 @@ export interface components {
         Session: {
             id: string;
             agentId: string;
+            /** @description Set when another agent started the session (send_message or ask). */
+            origin?: {
+                agentId: string;
+                agentName: string;
+                /** @description The other agent's session that sent the messages. */
+                sessionId: string;
+            };
             title: string;
             running: boolean;
             createdBy: components["schemas"]["User"];

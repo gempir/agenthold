@@ -2,8 +2,12 @@ package fake
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/gempir/agenthold/internal/sandbox"
@@ -35,6 +39,8 @@ func (d *Driver) RunSandboxd(host string, log *slog.Logger) {
 				TunnelURL: fmt.Sprintf("ws://%s:%d/tunnel", host, boot.TunnelPort),
 			},
 			Home: sb.HomeDir, Version: "fake", Logger: log,
+			// Unix socket paths are short (about 104 bytes on macOS).
+			PlatformSocket: filepath.Join(os.TempDir(), "ah-"+shortHash(string(id))+".sock"),
 		})
 		if err != nil {
 			if log != nil {
@@ -49,4 +55,9 @@ func (d *Driver) RunSandboxd(host string, log *slog.Logger) {
 		go func() { _ = dmn.Run(ctx) }()
 	}
 	d.OnStop = stop
+}
+
+func shortHash(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:6])
 }

@@ -13,9 +13,13 @@ import (
 // Handler serves one stream opened by the server. The Open frame has already been read.
 type Handler func(ctx context.Context, stream net.Conn, o Open)
 
+// Opener opens a stream to the other side and sends o as its first frame.
+type Opener func(ctx context.Context, o Open) (net.Conn, error)
+
 // Dial connects to the server's tunnel endpoint and serves streams until the
-// connection ends or ctx is cancelled.
-func Dial(ctx context.Context, url, agentID, token string, handle Handler) error {
+// connection ends or ctx is cancelled. onConnect (optional) receives an Opener
+// for streams to the server while connected, and nil after disconnecting.
+func Dial(ctx context.Context, url, agentID, token string, handle Handler, onConnect ...func(Opener)) error {
 	hdr := http.Header{}
 	hdr.Set(HeaderAgent, agentID)
 	hdr.Set("Authorization", "Bearer "+token)
@@ -41,6 +45,10 @@ func Dial(ctx context.Context, url, agentID, token string, handle Handler) error
 		case <-mux.CloseChan():
 		}
 	}()
+	for _, fn := range onConnect {
+		fn(muxOpener(mux))
+		defer fn(nil)
+	}
 	for {
 		st, err := mux.AcceptStream()
 		if err != nil {
@@ -57,5 +65,34 @@ func Dial(ctx context.Context, url, agentID, token string, handle Handler) error
 			}
 			handle(ctx, st, o)
 		}()
+	}
+}
+
+func muxOpener(mux *yamux.Session) Opener {
+	return func(ctx context.Context, o Open) (net.Conn, error) {
+		type res struct {
+			c   net.Conn
+			err error
+		}
+		ch := make(chan res, 1)
+		go func() {
+			st, err := mux.OpenStream()
+			if err != nil {
+				ch <- res{nil, err}
+				return
+			}
+			if err := WriteJSON(st, o); err != nil {
+				_ = st.Close()
+				ch <- res{nil, err}
+				return
+			}
+			ch <- res{st, nil}
+		}()
+		select {
+		case r := <-ch:
+			return r.c, r.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 }

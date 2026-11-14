@@ -40,3 +40,10 @@ UPDATE agents SET harness = ?, model = ?, updated_at = ? WHERE id = ?;
 
 -- name: MarkCredentialsInSandbox :exec
 UPDATE agents SET credentials_in_sandbox = 1 WHERE id = ?;
+
+-- name: SetSessionOrigin :exec
+UPDATE agent_sessions SET origin_agent_id = ?, origin_session_id = ? WHERE id = ?;
+
+-- name: LinkedSessions :many
+-- Sessions of an agent that another agent started, newest first.
+SELECT * FROM agent_sessions WHERE agent_id = ? AND origin_agent_id = ? ORDER BY updated_at DESC;

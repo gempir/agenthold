@@ -1803,6 +1803,14 @@ components:
       properties:
         id: { type: string }
         agentId: { type: string }
+        origin:
+          type: object
+          description: Set when another agent started the session (send_message or ask).
+          required: [agentId, agentName, sessionId]
+          properties:
+            agentId: { type: string }
+            agentName: { type: string }
+            sessionId: { type: string, description: The other agent's session that sent the messages. }
         title: { type: string }
         running: { type: boolean }
         createdBy: { $ref: "#/components/schemas/User" }

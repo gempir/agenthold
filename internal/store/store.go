@@ -84,3 +84,10 @@ func (s *Store) Close() error { return s.DB.Close() }
 func (s *Store) RenameAgentSessionTitle(ctx context.Context, id, title string) error {
 	return s.RenameSession(ctx, db.RenameSessionParams{Title: title, UpdatedAt: time.Now().Unix(), ID: id})
 }
+
+// Snapshot writes a consistent copy of the database to path while the
+// server keeps running (VACUUM INTO). path must not exist.
+func (s *Store) Snapshot(ctx context.Context, path string) error {
+	_, err := s.DB.ExecContext(ctx, "VACUUM INTO ?", path)
+	return err
+}

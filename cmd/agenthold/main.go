@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -45,6 +46,25 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		var err error
+		switch os.Args[1] {
+		case "backup":
+			err = runBackup(os.Args[2:])
+		case "restore":
+			err = runRestore(os.Args[2:])
+		case "healthcheck":
+			err = healthcheck()
+		default:
+			goto server
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
+	}
+server:
 	if err := run(); err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
@@ -177,7 +197,7 @@ func run() error {
 	apiSrv := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Tunnel: hub, Limits: cfg.Sandbox,
 		Box: box, Egress: directory, CA: ca, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner,
-		ShowTestHarness: cfg.Sandbox.Driver == "fake" || cfg.DevProxy != "",
+		ShowTestHarness: cfg.TestHarness || cfg.Sandbox.Driver == "fake",
 	})
 	sessions.SetWaker(apiSrv.Wake)
 
@@ -337,4 +357,34 @@ func portOf(addr string) (int, error) {
 		return 0, err
 	}
 	return strconv.Atoi(p)
+}
+
+// healthcheck is for container health checks (the image has no curl).
+func healthcheck() error {
+	addr := envOr("AGENTHOLD_LISTEN", ":8080")
+	if strings.HasPrefix(addr, ":") {
+		addr = "127.0.0.1" + addr
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/healthz", nil)
+	if err != nil {
+		return err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("status %d", res.StatusCode)
+	}
+	return nil
+}
+
+func envOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
 }

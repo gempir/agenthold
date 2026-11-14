@@ -2,6 +2,8 @@
 # Helpers for end-to-end checks against the dev compose stack (make dev).
 set -euo pipefail
 BASE=${BASE:-http://localhost:8080}
+# Image for agents in the end-to-end checks (CI uses a plain Debian image).
+IMG=${E2E_IMAGE:-agenthold/base:dev}
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 pass() { printf '  \033[32mok\033[0m   %s\n' "$*"; }
@@ -38,7 +40,7 @@ wait_running() {
   return 1
 }
 # in_sandbox AGENT CMD: runs CMD as the agent user inside the sandbox.
-in_sandbox() { docker exec -u agent "agenthold-dev-$1" bash -c "$2" 2>&1 || true; }
+in_sandbox() { docker exec -u "${E2E_USER:-agent}" "agenthold-dev-$1" bash -c "$2" 2>&1 || true; }
 json_lines_text() { python3 -c '
 import json,sys
 for l in sys.stdin:

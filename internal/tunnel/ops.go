@@ -23,8 +23,8 @@ func (s *Session) List(ctx context.Context, path string) (ListReply, error) {
 
 // ReadFile streams a file out of the sandbox. size is called with the file
 // size before any data is written to w.
-func (s *Session) ReadFile(ctx context.Context, path string, size func(int64), w io.Writer) error {
-	c, err := s.Open(ctx, Open{Op: OpFSRead, Path: path})
+func (s *Session) ReadFile(ctx context.Context, path string, size func(int64), w io.Writer, deny ...string) error {
+	c, err := s.Open(ctx, Open{Op: OpFSRead, Path: path, Deny: deny})
 	if err != nil {
 		return err
 	}

@@ -470,6 +470,17 @@ func (d *Driver) netSetup(ctx context.Context, id sandbox.ID, server string) err
 	return nil
 }
 
+// Attach implements sandbox.Attacher: it reconnects the server container to
+// a running sandbox's network (after the server container was recreated).
+func (d *Driver) Attach(ctx context.Context, id sandbox.ID) error {
+	agentID, err := d.agentOf(ctx, id)
+	if err != nil {
+		return err
+	}
+	_, err = d.attachServer(ctx, d.networkName(agentID))
+	return err
+}
+
 // Stop implements sandbox.Driver.
 func (d *Driver) Stop(ctx context.Context, id sandbox.ID) error {
 	timeout := 10

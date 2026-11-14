@@ -25,11 +25,14 @@ type Config struct {
 	PublicURL string `yaml:"public_url"`
 	DataDir   string `yaml:"data_dir"`
 	// DevProxy is the Vite dev server URL used in development.
-	DevProxy string  `yaml:"dev_proxy"`
-	Auth     Auth    `yaml:"auth"`
-	Sandbox  Sandbox `yaml:"sandbox"`
-	Egress   Egress  `yaml:"egress"`
-	Secrets  Secrets `yaml:"secrets"`
+	DevProxy string `yaml:"dev_proxy"`
+	// TestHarness offers the scripted test harness (development and tests;
+	// its binary is not in the production image).
+	TestHarness bool    `yaml:"test_harness"`
+	Auth        Auth    `yaml:"auth"`
+	Sandbox     Sandbox `yaml:"sandbox"`
+	Egress      Egress  `yaml:"egress"`
+	Secrets     Secrets `yaml:"secrets"`
 }
 
 // Egress configures the proxy that is the sandboxes' only way out.
@@ -170,6 +173,13 @@ func Parse(data []byte, cfg *Config) error {
 		if k == "$" {
 			return "$"
 		}
+		// ${VAR:-default}
+		if name, def, ok := strings.Cut(k, ":-"); ok {
+			if v := os.Getenv(name); v != "" {
+				return v
+			}
+			return def
+		}
 		return os.Getenv(k)
 	})
 	dec := yaml.NewDecoder(strings.NewReader(expanded))
@@ -190,6 +200,9 @@ func applyEnv(cfg *Config) {
 	set(&cfg.PublicURL, "AGENTHOLD_PUBLIC_URL")
 	set(&cfg.DataDir, "AGENTHOLD_DATA_DIR")
 	set(&cfg.DevProxy, "AGENTHOLD_DEV_PROXY")
+	if cfg.DevProxy == "off" { // serve the embedded build even if the file sets a dev proxy
+		cfg.DevProxy = ""
+	}
 }
 
 // ApplyDefaults fills unset fields with defaults.

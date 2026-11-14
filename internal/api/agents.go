@@ -86,7 +86,7 @@ func (a *API) validateSettings(s *agentSettings) error {
 	if s.harness == "" {
 		s.harness = harness.Default
 	}
-	if _, ok := harness.Get(s.harness); !ok {
+	if ad, ok := harness.Get(s.harness); !ok || (isHidden(ad) && !a.ShowTestHarness) {
 		return badRequest("unknown harness")
 	}
 	s.model = strings.TrimSpace(s.model)
@@ -332,4 +332,9 @@ func (a *API) RebuildAgent(ctx context.Context, req gen.RebuildAgentRequestObjec
 		return nil, err
 	}
 	return gen.RebuildAgent202JSONResponse(g), nil
+}
+
+func isHidden(ad harness.Adapter) bool {
+	h, ok := ad.(interface{ Hidden() bool })
+	return ok && h.Hidden()
 }

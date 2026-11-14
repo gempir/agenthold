@@ -112,5 +112,11 @@ type Driver interface {
 	Rebuild(ctx context.Context, id ID, spec Spec) error
 }
 
+// Attacher is implemented by drivers that must reconnect the server to a
+// running sandbox after the server itself was restarted or recreated.
+type Attacher interface {
+	Attach(ctx context.Context, id ID) error
+}
+
 // ErrNotFound is returned by Start and Stop for unknown sandboxes.
 var ErrNotFound = errors.New("sandbox not found")

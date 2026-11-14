@@ -25,6 +25,11 @@ export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
+  // Scan every source file up front, so lazily imported chunks never make the
+  // dev server discover new dependencies and reload the page mid-session.
+  optimizeDeps: {
+    entries: ['index.html', 'src/**/*.{ts,tsx}', '!src/**/*.test.{ts,tsx}'],
+  },
   server: {
     host: true,
     port: 5173,
@@ -36,5 +41,6 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
+    exclude: ['e2e/**', 'node_modules/**'],
   },
 });

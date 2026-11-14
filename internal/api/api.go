@@ -4,6 +4,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -79,7 +80,7 @@ func (a *API) Mount(r chi.Router) {
 
 func (a *API) mountAuthenticated(r chi.Router) {
 	{
-		r.Use(a.Auth.Middleware)
+		r.Use(a.Auth.Middleware, limitBodies)
 		r.Get("/auth/login/{provider}", a.login)
 		r.Get("/auth/callback/{provider}", a.callback)
 		r.Post("/auth/logout", a.logout)
@@ -119,4 +120,15 @@ func ts(unix int64) time.Time { return time.Unix(unix, 0).UTC() }
 
 func apiUser(u db.User) gen.User {
 	return gen.User{Id: u.ID, Email: u.Email, Name: u.Name, AvatarUrl: u.AvatarUrl}
+}
+
+// limitBodies caps request bodies. File uploads have their own, larger limit.
+func limitBodies(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upload := r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/files/content")
+		if r.Body != nil && !upload {
+			r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
+		}
+		next.ServeHTTP(w, r)
+	})
 }

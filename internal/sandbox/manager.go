@@ -432,6 +432,12 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 		switch st.State {
 		case StateRunning:
 			actual = PhaseRunning
+			// A recreated server container is not on the agent's network yet.
+			if at, ok := m.driver.(Attacher); ok {
+				if err := at.Attach(ctx, ID(sb.DriverID)); err != nil {
+					m.log.Warn("reconcile: reattach", "agent", sb.AgentID, "err", err)
+				}
+			}
 		case StateCreated, StateStopped:
 			actual = PhaseSleeping
 		case StateMissing:

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/gempir/agenthold/internal/tunnel"
 )
@@ -67,8 +68,34 @@ func (d *Daemon) fsList(st net.Conn, o tunnel.Open) error {
 	return tunnel.WriteJSON(st, out)
 }
 
+// denied reports whether path (after resolving symlinks) is under a denied path.
+func (d *Daemon) denied(path string, deny []string) bool {
+	if len(deny) == 0 {
+		return false
+	}
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		real = path
+	}
+	for _, p := range deny {
+		p = d.resolve(p)
+		if rp, err := filepath.EvalSymlinks(p); err == nil {
+			p = rp
+		}
+		if real == p || strings.HasPrefix(real, p+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+var errDenied = errors.New("access to this path is restricted to agent admins")
+
 func (d *Daemon) fsRead(st net.Conn, o tunnel.Open) error {
 	path := d.resolve(o.Path)
+	if d.denied(path, o.Deny) {
+		return errDenied
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return err

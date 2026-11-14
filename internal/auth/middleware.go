@@ -15,6 +15,14 @@ func WithUser(ctx context.Context, u *db.User) context.Context {
 	return context.WithValue(ctx, ctxKey{}, u)
 }
 
+type viaTokenKey struct{}
+
+// ViaToken reports whether the request was authenticated with an API token.
+func ViaToken(ctx context.Context) bool {
+	v, _ := ctx.Value(viaTokenKey{}).(bool)
+	return v
+}
+
 // UserFrom returns the authenticated user, or nil.
 func UserFrom(ctx context.Context) *db.User {
 	u, _ := ctx.Value(ctxKey{}).(*db.User)
@@ -35,7 +43,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 				_, _ = w.Write([]byte(`{"error":"invalid or expired token"}` + "\n"))
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), u)))
+			next.ServeHTTP(w, r.WithContext(context.WithValue(WithUser(r.Context(), u), viaTokenKey{}, true)))
 			return
 		}
 		if c, err := r.Cookie(CookieName); err == nil && c.Value != "" {

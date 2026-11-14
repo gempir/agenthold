@@ -7,7 +7,7 @@ JAR=$(login alice alice)
 COOKIE=$(awk '/agenthold_session/{print $7}' "$JAR")
 WSURL=${BASE/http/ws}
 WS=$(api "$JAR" "$BASE/api/v1/me" | json 'd["personalWorkspaceId"]')
-AG=$(api "$JAR" -X POST "$BASE/api/v1/workspaces/$WS/agents" -d '{"name":"e2e-chat","image":"agenthold/base:dev","harness":"fake","memoryMb":512}' | json 'd["id"]')
+AG=$(api "$JAR" -X POST "$BASE/api/v1/workspaces/$WS/agents" -d '{"name":"e2e-chat","image":"'"$IMG"'","harness":"fake","memoryMb":512}' | json 'd["id"]')
 wait_running "$JAR" "$AG"
 echo "agent $AG"
 SES=$(api "$JAR" -X POST "$BASE/api/v1/agents/$AG/sessions" -d '{}' | json 'd["id"]')
@@ -17,7 +17,7 @@ api "$JAR" -X POST "$BASE/api/v1/sessions/$SES/prompt" -d '{"text":"write projec
 node "$D/ws.mjs" "$WSURL/api/v1/sessions/$SES/stream?after=0" "$COOKIE" events 0 turn_end > "$WORK/t1"
 grep -q '"type":"diff"' "$WORK/t1" && pass "tool call with a diff streamed" || fail "no diff"
 [[ $(in_sandbox "$AG" 'cat /home/agent/project/hello.py') == 'print("hello")' ]] && pass "file written in /home/agent" || fail "file: $(in_sandbox "$AG" 'cat /home/agent/project/hello.py')"
-[[ $(docker exec "agenthold-dev-$AG" stat -c %U /home/agent/project/hello.py) == agent ]] && pass "harness runs as the agent user" || fail "owner"
+[[ $(docker exec "agenthold-dev-$AG" stat -c %U /home/agent/project/hello.py) == ${E2E_USER:-agent} ]] && pass "harness runs as the agent user" || fail "owner"
 LAST=$(tail -1 "$WORK/t1" | json 'd["seq"]')
 
 echo "Reload mid-turn"
@@ -43,7 +43,7 @@ api "$JAR" -X POST "$BASE/api/v1/agents/$AG/stop" >/dev/null
 for _ in $(seq 1 30); do [[ $(api "$JAR" "$BASE/api/v1/agents/$AG" | json 'd["state"]') == sleeping ]] && break; sleep 1; done
 api "$JAR" -X POST "$BASE/api/v1/sessions/$SES/prompt" -d '{"text":"still there?"}' >/dev/null
 node "$D/ws.mjs" "$WSURL/api/v1/sessions/$SES/stream?after=0" "$COOKIE" events 0 none 90000 "echo: still there?" > "$WORK/t4" && pass "prompt woke the agent and the conversation continued" || fail "no answer after wake"
-[[ $(in_sandbox "$AG" 'cat ~/.fakeagent/credentials') == fake-subscription-token ]] && pass "login still on the agent's disk after sleep" || fail "credentials gone"
+[[ $(in_sandbox "$AG" 'cat /home/agent/.fakeagent/credentials') == fake-subscription-token ]] && pass "login still on the agent's disk after sleep" || fail "credentials gone"
 
 api "$JAR" -X DELETE "$BASE/api/v1/agents/$AG" >/dev/null
 exit $FAILED

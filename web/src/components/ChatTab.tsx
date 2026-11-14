@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrap } from '@/api/client';
-import { sessionsQuery } from '@/api/queries';
+import { sessionsQuery, type SandboxState } from '@/api/queries';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
 
@@ -11,11 +11,13 @@ export function ChatTab({
   agentId,
   operator,
   sessionId,
+  agentState,
   onSelect,
 }: {
   agentId: string;
   operator: boolean;
   sessionId?: string;
+  agentState?: SandboxState;
   onSelect: (id: string) => void;
 }) {
   const qc = useQueryClient();
@@ -88,6 +90,7 @@ export function ChatTab({
               key={sessionId}
               sessionId={sessionId}
               operator={operator}
+              agentState={agentState}
               initialRunning={selected?.running}
             />
           </Suspense>

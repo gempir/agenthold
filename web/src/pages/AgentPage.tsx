@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Moon } from 'lucide-react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { api, ApiError, unwrap } from '@/api/client';
 import { agentQuery, type Agent } from '@/api/queries';
@@ -102,7 +103,7 @@ export function AgentPage({
       </Link>
       <header className="flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-semibold">{a.name}</h1>
-        <AgentStateBadge state={a.state} />
+        <AgentStateBadge state={a.state} sleepsAt={a.sleepsAt} />
       </header>
 
       {a.state === 'error' && a.stateError && (
@@ -112,6 +113,28 @@ export function AgentPage({
         >
           {a.stateError}
         </p>
+      )}
+
+      {a.state === 'sleeping' && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-3 rounded-md border bg-muted p-3 text-sm"
+        >
+          <Moon className="size-4 shrink-0" aria-hidden />
+          <p className="min-w-0 flex-1">
+            This agent is asleep. Its files and conversations are kept. Sending
+            a message or opening the terminal wakes it.
+          </p>
+          {operator && (
+            <Button
+              size="sm"
+              disabled={busy}
+              onClick={() => action.mutate('start')}
+            >
+              Wake now
+            </Button>
+          )}
+        </div>
       )}
 
       <div role="tablist" className="flex gap-1 border-b">
@@ -141,6 +164,7 @@ export function AgentPage({
           agentId={agentId}
           operator={operator}
           sessionId={sessionId}
+          agentState={a.state}
           onSelect={(id) => onSelectSession?.(id)}
         />
       )}
@@ -219,9 +243,16 @@ export function AgentPage({
         </>
       )}
       {tab === 'terminal' && operator && (
-        <Suspense fallback={<Loading />}>
-          <TerminalTab agentId={agentId} />
-        </Suspense>
+        <>
+          {a.state === 'sleeping' && (
+            <p className="mb-2 text-sm text-muted-foreground">
+              Opening the terminal wakes the agent
+            </p>
+          )}
+          <Suspense fallback={<Loading />}>
+            <TerminalTab agentId={agentId} />
+          </Suspense>
+        </>
       )}
       {tab === 'files' && (
         <FilesTab

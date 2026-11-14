@@ -862,6 +862,16 @@ export interface components {
             permissionPolicy: "auto-approve" | "ask";
             /** @description A harness login was completed inside the sandbox; the agent can read its own credentials. */
             credentialsInSandbox: boolean;
+            /**
+             * Format: date-time
+             * @description Last activity while running (prompts, terminals, files, CPU use in the sandbox).
+             */
+            lastActivityAt?: string;
+            /**
+             * Format: date-time
+             * @description When the agent goes to sleep if nothing happens. Absent while busy or not running.
+             */
+            sleepsAt?: string;
             role: components["schemas"]["AgentRole"];
             /** Format: date-time */
             createdAt: string;

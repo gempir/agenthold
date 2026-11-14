@@ -72,6 +72,8 @@ type Sandbox struct {
 	// TunnelListen is the address sandboxd connects to (only reachable from
 	// agent networks in a normal deployment). Default ":8090".
 	TunnelListen string `yaml:"tunnel_listen"`
+	// IdleCheckInterval is how often idle agents are looked for. Default 30s.
+	IdleCheckInterval time.Duration `yaml:"idle_check_interval"`
 	// SandboxdPath is the Linux sandboxd binary handed to sandboxes. Default:
 	// "sandboxd" next to the server binary, else /usr/local/lib/agenthold/sandboxd.
 	SandboxdPath string `yaml:"sandboxd_path"`
@@ -237,6 +239,9 @@ func ApplyDefaults(cfg *Config) {
 		// In a container the server cannot bind-mount its own files into
 		// sandboxes; it shares sandboxd through a volume mounted here.
 		sb.Docker.SandboxdVolumeDir = "/var/lib/agenthold/bin"
+	}
+	if sb.IdleCheckInterval == 0 {
+		sb.IdleCheckInterval = 30 * time.Second
 	}
 	if sb.TunnelListen == "" {
 		sb.TunnelListen = ":8090"

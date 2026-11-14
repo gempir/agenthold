@@ -25,10 +25,10 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-const renderChat = (operator: boolean) =>
+const renderChat = (operator: boolean, agentState?: 'sleeping') =>
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <ChatView sessionId="s1" operator={operator} />
+      <ChatView sessionId="s1" operator={operator} agentState={agentState} />
     </QueryClientProvider>,
   );
 
@@ -118,4 +118,12 @@ it('hides the composer for viewers', () => {
   renderChat(false);
   expect(screen.queryByLabelText('Message')).toBeNull();
   expect(screen.getByText(/read-only/)).toBeInTheDocument();
+});
+
+it('composer invites waking a sleeping agent', () => {
+  mockApi({});
+  renderChat(true, 'sleeping');
+  expect(
+    screen.getByPlaceholderText('Send a message to wake the agent…'),
+  ).toBeEnabled();
 });

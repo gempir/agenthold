@@ -22,6 +22,25 @@ example `docker stop`) are picked up.
 
 Changing an agent's image or resources marks it as `needsRebuild`; the change applies on the next rebuild.
 
+## Sleep and wake
+
+Agents sleep when nobody uses them. An agent is idle when, for its idle timeout (`idleMinutes`, default 15):
+
+- no turn is running in any of its sessions,
+- no terminal is open,
+- nobody prompted it, opened a terminal or used its files, and
+- the processes in its sandbox used less than 5% of a CPU core. sandboxd reports their CPU time, so a long build
+  or test run keeps the agent awake.
+
+The sleeper checks every `sandbox.idle_check_interval` (default 30s) and stops idle sandboxes. The disk and the
+conversations survive; running processes do not. Any prompt, terminal or Start request wakes the agent again.
+When a prompt wakes an agent, the session log shows it ("Starting the sandbox…"). The harness then restores the
+conversation with `session/load` or `session/resume` (see [sessions.md](sessions.md)). If the harness can do
+neither, a notice says that the context was reset.
+
+While an agent runs, the API reports `lastActivityAt` and `sleepsAt`, and the UI shows when it will fall asleep.
+After a server restart, the idle clock of running agents starts again.
+
 ## Docker driver
 
 For each agent the Docker driver creates:

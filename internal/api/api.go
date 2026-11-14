@@ -13,6 +13,7 @@ import (
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/egress"
+	"github.com/gempir/agenthold/internal/idle"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/session"
@@ -32,6 +33,7 @@ type Deps struct {
 	Egress    *egress.Directory
 	CA        *egress.CA
 	Sessions  *session.Manager
+	Idle      *idle.Sleeper
 	// ShowTestHarness lists the scripted test harness (development).
 	ShowTestHarness bool
 	Limits          config.Sandbox

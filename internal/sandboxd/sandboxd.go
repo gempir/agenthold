@@ -152,6 +152,8 @@ func (d *Daemon) handle(ctx context.Context, st net.Conn, o tunnel.Open) {
 		err = tunnel.WriteJSON(st, tunnel.Hello{Version: d.cfg.Version, User: d.acct.name, Home: d.acct.home})
 	case tunnel.OpPing:
 		err = tunnel.WriteJSON(st, tunnel.OK{OK: true})
+	case tunnel.OpStats:
+		err = tunnel.WriteJSON(st, stats())
 	case tunnel.OpPTY:
 		err = d.pty(ctx, st, o)
 	case tunnel.OpHarness:

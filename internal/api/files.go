@@ -24,6 +24,9 @@ func (a *API) connected(ctx context.Context, agentID string, action authz.Action
 	if !ok {
 		return nil, tunnel.ErrNotConnected
 	}
+	if a.Idle != nil {
+		a.Idle.Tracker.Touch(agentID)
+	}
 	return s, nil
 }
 

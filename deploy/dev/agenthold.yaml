@@ -26,6 +26,7 @@ sandbox:
   driver: docker
   # Build it with: make base-image
   default_image: agenthold/base:dev
+  idle_check_interval: 10s
   sandboxd_path: /src/tmp/sandboxd
   docker:
     name_prefix: agenthold-dev

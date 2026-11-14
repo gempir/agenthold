@@ -141,7 +141,7 @@ func TestWebhookWakesSleepingAgent(t *testing.T) {
 	e.sandboxes.Wait()
 
 	post := func(body []byte, header map[string]string) int {
-		req, _ := http.NewRequestWithContext(t.Context(), "POST", hook.Url, bytes.NewReader(body))
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, hook.Url, bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		for k, v := range header {
 			req.Header.Set(k, v)
@@ -175,7 +175,7 @@ func TestWebhookWakesSleepingAgent(t *testing.T) {
 	}
 
 	unknown := strings.Replace(hook.Url, "/hooks/", "/hooks/x", 1)
-	req, _ := http.NewRequestWithContext(t.Context(), "POST", unknown, nil)
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, unknown, nil)
 	res, _ := http.DefaultClient.Do(req)
 	res.Body.Close()
 	expect(t, "unknown hook", res.StatusCode, 404)

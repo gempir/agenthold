@@ -308,3 +308,29 @@ export function sessionStreamUrl(
 /** Reconnect delay: 500ms doubling up to 10s. */
 export const backoffMs = (attempt: number) =>
   Math.min(10_000, 500 * 2 ** attempt);
+
+export type ChatGroup =
+  { kind: 'work'; items: ChatItem[] } | { kind: 'item'; item: ChatItem };
+
+const isWork = (i: ChatItem) => i.kind === 'tool' || i.kind === 'thought';
+
+/** Folds runs of two or more consecutive tool calls and thoughts into one
+ * "work" group so the conversation reads as messages, not as a log. */
+export function groupItems(items: ChatItem[]): ChatGroup[] {
+  const out: ChatGroup[] = [];
+  let run: ChatItem[] = [];
+  const flush = () => {
+    if (run.length === 1) out.push({ kind: 'item', item: run[0] });
+    else if (run.length > 1) out.push({ kind: 'work', items: run });
+    run = [];
+  };
+  for (const i of items) {
+    if (isWork(i)) run.push(i);
+    else {
+      flush();
+      out.push({ kind: 'item', item: i });
+    }
+  }
+  flush();
+  return out;
+}

@@ -74,7 +74,7 @@ it('lists secrets and creates one from a preset', async () => {
     'POST /workspaces/w1/secrets': { status: 201, body: secret },
   });
   renderApp('/w/w1');
-  await userEvent.click(await screen.findByRole('tab', { name: 'Secrets' }));
+  await userEvent.click(await screen.findByRole('link', { name: 'Secrets' }));
   expect(await screen.findByText('ah_placeholder_123')).toBeVisible();
   expect(screen.getByText(/api\.github\.com/)).toBeVisible();
 
@@ -131,8 +131,7 @@ function networkMocks(extra: Record<string, unknown> = {}) {
 
 it('network tab saves allowlist lines as an array', async () => {
   const { calls } = networkMocks();
-  renderApp('/a/a1');
-  await userEvent.click(await screen.findByRole('tab', { name: 'network' }));
+  renderApp('/a/a1/settings?tab=network');
   const box = await screen.findByLabelText(/Allowed destinations/);
   expect(box).toHaveValue('github.com');
   await userEvent.type(box, '{Enter}*.npmjs.org{Enter}');
@@ -147,8 +146,7 @@ it('network tab saves allowlist lines as an array', async () => {
 
 it('request log renders denied entries with reason', async () => {
   networkMocks();
-  renderApp('/a/a1');
-  await userEvent.click(await screen.findByRole('tab', { name: 'network' }));
+  renderApp('/a/a1/settings?tab=network');
   expect(await screen.findByText('evil.example:443')).toBeVisible();
   expect(screen.getByText('denied')).toHaveAttribute(
     'title',

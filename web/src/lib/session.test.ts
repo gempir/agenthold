@@ -1,6 +1,8 @@
-import { expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   applyEvent,
+  groupItems,
+  type ChatItem,
   initialChatState,
   parseStreamMessage,
   type ChatState,
@@ -140,5 +142,39 @@ it('parses stream messages', () => {
   ).toEqual({
     type: 'presence',
     viewers: [{ id: 'u1', name: 'A', avatarUrl: '', role: 'admin' }],
+  });
+});
+
+describe('groupItems', () => {
+  const tool = (seq: number): ChatItem => ({
+    kind: 'tool',
+    id: `t${seq}`,
+    seq,
+    title: 'Run',
+    toolKind: 'execute',
+    status: 'completed',
+    content: [],
+    locations: [],
+  });
+  it('folds runs of work and keeps single steps and messages apart', () => {
+    const items: ChatItem[] = [
+      { kind: 'user', seq: 1, text: 'hi', chunked: false },
+      tool(2),
+      { kind: 'agent', seq: 3, text: 'one' },
+      { kind: 'thought', seq: 4, text: 'hmm' },
+      tool(5),
+      tool(6),
+      { kind: 'agent', seq: 7, text: 'done' },
+    ];
+    const g = groupItems(items);
+    expect(g.map((x) => x.kind)).toEqual([
+      'item',
+      'item',
+      'item',
+      'work',
+      'item',
+    ]);
+    expect(g[3]).toMatchObject({ kind: 'work' });
+    expect((g[3] as { items: ChatItem[] }).items).toHaveLength(3);
   });
 });

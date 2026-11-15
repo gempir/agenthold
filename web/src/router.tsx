@@ -1,28 +1,27 @@
 import { TokensPage } from '@/pages/TokensPage';
-import { useEffect } from 'react';
-import {
-  MutationCache,
-  QueryCache,
-  QueryClient,
-  useQuery,
-} from '@tanstack/react-query';
+import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query';
 import {
   createMemoryHistory,
   createRootRoute,
   createRoute,
   createRouter,
   Outlet,
+  redirect,
   useNavigate,
   type RouterHistory,
 } from '@tanstack/react-router';
 import { ApiError } from '@/api/client';
-import { meQuery } from '@/api/queries';
 import { AppShell } from '@/components/AppShell';
-import { Loading } from '@/components/Spinner';
+import { isPanelTab, type PanelTab } from '@/components/agent/AgentPanel';
+import { isAgentSection, type AgentSection } from '@/components/agent/sections';
+import { AccountSettings } from '@/pages/AccountSettings';
 import { AgentPage } from '@/pages/AgentPage';
+import { AgentSettingsPage } from '@/pages/AgentSettingsPage';
+import { HomePage } from '@/pages/HomePage';
 import { InvitePage } from '@/pages/InvitePage';
 import { LoginPage } from '@/pages/LoginPage';
-import { WorkspacePage } from '@/pages/WorkspacePage';
+import { NewChatPage } from '@/pages/NewChatPage';
+import { WorkspacePage, type WorkspaceTab } from '@/pages/WorkspacePage';
 
 const str = (v: unknown) => (v == null || v === '' ? undefined : String(v));
 
@@ -58,56 +57,58 @@ const appRoute = createRoute({
   component: AppShell,
 });
 
-function HomeRedirect() {
-  const me = useQuery(meQuery);
-  const navigate = useNavigate();
-  const id = me.data?.personalWorkspaceId;
-  useEffect(() => {
-    if (id)
-      void navigate({
-        to: '/w/$workspaceId',
-        params: { workspaceId: id },
-        replace: true,
-      });
-  }, [id, navigate]);
-  return <Loading />;
-}
-
 const indexRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/',
-  component: HomeRedirect,
+  component: HomePage,
+});
+
+const newChatRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/new',
+  component: NewChatPage,
 });
 
 const workspaceRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/w/$workspaceId',
+  validateSearch: (s: Record<string, unknown>): { tab?: WorkspaceTab } => ({
+    ...(str(s.tab) && { tab: str(s.tab) as WorkspaceTab }),
+  }),
   component: function Workspace() {
     const { workspaceId } = workspaceRoute.useParams();
-    return <WorkspacePage key={workspaceId} workspaceId={workspaceId} />;
+    const { tab } = workspaceRoute.useSearch();
+    return (
+      <WorkspacePage key={workspaceId} workspaceId={workspaceId} tab={tab} />
+    );
   },
 });
 
 const agentRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/a/$agentId',
-  validateSearch: (s: Record<string, unknown>): { s?: string } => ({
+  validateSearch: (
+    s: Record<string, unknown>,
+  ): { s?: string; panel?: PanelTab } => ({
     ...(str(s.s) && { s: str(s.s) }),
+    ...(isPanelTab(s.panel) && { panel: s.panel }),
   }),
   component: function Agent() {
     const { agentId } = agentRoute.useParams();
-    const { s } = agentRoute.useSearch();
+    const { s, panel } = agentRoute.useSearch();
     const navigate = useNavigate();
     return (
       <AgentPage
         key={agentId}
         agentId={agentId}
         sessionId={s}
-        onSelectSession={(id) =>
+        panel={panel}
+        onPanel={(p) =>
           void navigate({
             to: '/a/$agentId',
             params: { agentId },
-            search: { s: id },
+            search: { s, panel: p },
+            replace: true,
           })
         }
       />
@@ -115,16 +116,51 @@ const agentRoute = createRoute({
   },
 });
 
-const tokensRoute = createRoute({
+const agentSettingsRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: '/settings/tokens',
+  path: '/a/$agentId/settings',
+  validateSearch: (s: Record<string, unknown>): { tab?: AgentSection } => ({
+    ...(isAgentSection(s.tab) && { tab: s.tab }),
+  }),
+  component: function AgentSettings() {
+    const { agentId } = agentSettingsRoute.useParams();
+    const { tab } = agentSettingsRoute.useSearch();
+    return <AgentSettingsPage key={agentId} agentId={agentId} tab={tab} />;
+  },
+});
+
+// Account settings: /settings/<page>, framed by AccountSettings' nav.
+const settingsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/settings',
+  component: AccountSettings,
+});
+
+const settingsIndexRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/',
+  beforeLoad: () => {
+    throw redirect({ to: '/settings/tokens', replace: true });
+  },
+});
+
+const tokensRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/tokens',
   component: TokensPage,
 });
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
   inviteRoute,
-  appRoute.addChildren([indexRoute, workspaceRoute, agentRoute, tokensRoute]),
+  appRoute.addChildren([
+    indexRoute,
+    newChatRoute,
+    workspaceRoute,
+    agentRoute,
+    agentSettingsRoute,
+    settingsRoute.addChildren([settingsIndexRoute, tokensRoute]),
+  ]),
 ]);
 
 export function createAppRouter(

@@ -1006,6 +1006,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/provider-logins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Harnesses whose login can live on your account, whether you connected
+         *     each, and which agents use your logins. Credentials are never returned.
+         */
+        get: operations["listProviderLogins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/provider-logins/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Harness id (claude-code */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * @description Connect (or replace) your login for a harness. The credential is
+         *     checked, stored encrypted and never shown again. Only from a browser
+         *     session, not with an API token.
+         */
+        put: operations["connectProviderLogin"];
+        post?: never;
+        /** @description Delete your login for a harness. Agents using it lose access at once. */
+        delete: operations["disconnectProviderLogin"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * @description Make the agent's harness use your account logins. Agent admins only,
+         *     and only for themselves. Everyone who can prompt the agent then uses
+         *     your login through it.
+         */
+        put: operations["useMyLogins"];
+        post?: never;
+        /**
+         * @description Stop using account logins: the harness then uses what is signed in
+         *     inside its sandbox. Agent admins, and the login's owner.
+         */
+        delete: operations["stopUsingLogins"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agentId}/schedules": {
         parameters: {
             query?: never;
@@ -1229,6 +1301,7 @@ export interface components {
             permissionPolicy: "auto-approve" | "ask";
             /** @description A harness login was completed inside the sandbox; the agent can read its own credentials. */
             credentialsInSandbox: boolean;
+            login: components["schemas"]["AgentLogin"];
             /**
              * Format: date-time
              * @description Last activity while running (prompts, terminals, files, CPU use in the sandbox).
@@ -1372,11 +1445,76 @@ export interface components {
         };
         HarnessType: {
             id: string;
+            /** @description Its login can live on the user's account (/me/provider-logins). */
+            accountLogins: boolean;
             /** @description Used when an agent does not name a harness. */
             default: boolean;
             name: string;
             secretPresets: string[];
             installHint: string;
+        };
+        /** @description Which login the agent's harness uses. */
+        AgentLogin: {
+            /**
+             * @description account: the account login of `user`. secret: an API key secret attached to the agent wins.
+             *     sandbox: whatever is signed in inside the sandbox. unsupported: the harness has no account logins.
+             * @enum {string}
+             */
+            source: "account" | "secret" | "sandbox" | "unsupported";
+            /** @description Whose account logins the agent uses. */
+            user?: components["schemas"]["User"];
+            /** @description You are that user. */
+            mine: boolean;
+            /** @description That user has connected a login for the agent's harness. */
+            connected: boolean;
+            /** @description How that login was connected. */
+            kind?: string;
+            /** @enum {string} */
+            status?: "ok" | "error";
+            /** @description Why the account login is not used although a user is set. */
+            reason?: string;
+        };
+        ProviderLoginKind: {
+            id: string;
+            name: string;
+            description: string;
+            /** @description What to run on your own computer to get the credential. */
+            command?: string;
+            inputLabel: string;
+            multiline: boolean;
+        };
+        ProviderLogin: {
+            kind: string;
+            /** @description Describes the login without revealing it. */
+            label: string;
+            /** @enum {string} */
+            status: "ok" | "error";
+            statusMessage: string;
+            /** Format: date-time */
+            expiresAt?: string;
+            /** Format: date-time */
+            connectedAt: string;
+            /** Format: date-time */
+            lastUsedAt?: string;
+        };
+        ProviderLoginInfo: {
+            /** @description Harness id. */
+            provider: string;
+            name: string;
+            kinds: components["schemas"]["ProviderLoginKind"][];
+            login?: components["schemas"]["ProviderLogin"];
+            /** @description Agents with this harness that use your logins. */
+            agents: components["schemas"]["LoginAgent"][];
+        };
+        LoginAgent: {
+            id: string;
+            name: string;
+            workspaceId: string;
+        };
+        ProviderLoginInput: {
+            kind: string;
+            /** @description The token */
+            credential: string;
         };
         AuthMethodInfo: {
             id: string;
@@ -3597,6 +3735,126 @@ export interface operations {
                 };
                 content?: never;
             };
+            404: components["responses"]["Error"];
+        };
+    };
+    listProviderLogins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One entry per harness with account logins. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderLoginInfo"][];
+                };
+            };
+        };
+    };
+    connectProviderLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Harness id (claude-code */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderLoginInput"];
+            };
+        };
+        responses: {
+            /** @description Connected. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderLoginInfo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    disconnectProviderLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Harness id (claude-code */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disconnected. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    useMyLogins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    stopUsingLogins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };
     };

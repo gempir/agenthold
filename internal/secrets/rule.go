@@ -104,13 +104,46 @@ type Injection struct {
 	Rule        Rule
 	Value       string
 	Placeholder string
+	// HeaderOnly replaces the placeholder inside Rule.Header and nowhere
+	// else; the header is never added and the URL is not touched. Account
+	// logins use it: the value only goes where the harness put its placeholder.
+	HeaderOnly bool
+	// PathPrefixes, if set, limits injection to URL paths starting with one of them.
+	PathPrefixes []string
+}
+
+func (inj Injection) matchPath(p string) bool {
+	if len(inj.PathPrefixes) == 0 {
+		return true
+	}
+	for _, pre := range inj.PathPrefixes {
+		if strings.HasPrefix(p, pre) {
+			return true
+		}
+	}
+	return false
 }
 
 // Apply sets the rule's header and replaces the placeholder anywhere in the
-// request's headers and URL. It returns whether anything was injected.
+// request's headers and URL (only in the rule's header with HeaderOnly). It
+// returns whether anything was injected.
 func (inj Injection) Apply(req *http.Request) (bool, error) {
-	if !inj.Rule.MatchHost(req.URL.Hostname()) {
+	if !inj.Rule.MatchHost(req.URL.Hostname()) || !inj.matchPath(req.URL.Path) {
 		return false, nil
+	}
+	if inj.HeaderOnly {
+		if inj.Placeholder == "" || inj.Rule.Header == "" || strings.ContainsAny(inj.Value, "\r\n") {
+			return false, nil
+		}
+		key := http.CanonicalHeaderKey(inj.Rule.Header)
+		done := false
+		for i, v := range req.Header[key] {
+			if strings.Contains(v, inj.Placeholder) {
+				req.Header[key][i] = strings.ReplaceAll(v, inj.Placeholder, inj.Value)
+				done = true
+			}
+		}
+		return done, nil
 	}
 	val, err := inj.Rule.Render(inj.Value)
 	if err != nil {

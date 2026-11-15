@@ -121,3 +121,39 @@ func TestPresetsAndValidation(t *testing.T) {
 		t.Fatal("header injection via value")
 	}
 }
+
+func TestInjectionHeaderOnly(t *testing.T) {
+	inj := Injection{
+		Rule:        Rule{Hosts: []string{"chatgpt.com"}, Header: "Authorization"},
+		Value:       "real-access",
+		Placeholder: "agenthold-placeholder-xyz",
+		HeaderOnly:  true, PathPrefixes: []string{"/backend-api/"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "https://chatgpt.com/backend-api/codex/responses?q=agenthold-placeholder-xyz", nil)
+	req.Header.Set("Authorization", "Bearer agenthold-placeholder-xyz")
+	req.Header.Set("X-Echo", "agenthold-placeholder-xyz")
+	if ok, err := inj.Apply(req); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	if req.Header.Get("Authorization") != "Bearer real-access" {
+		t.Fatalf("authorization %q", req.Header.Get("Authorization"))
+	}
+	// Nowhere else: not in other headers, not in the URL.
+	if req.Header.Get("X-Echo") != "agenthold-placeholder-xyz" || req.URL.Query().Get("q") != "agenthold-placeholder-xyz" {
+		t.Fatalf("replaced outside its header: %v %s", req.Header, req.URL)
+	}
+
+	// No placeholder in the header: nothing is added.
+	plain := httptest.NewRequest(http.MethodGet, "https://chatgpt.com/backend-api/x", nil)
+	if ok, _ := inj.Apply(plain); ok || plain.Header.Get("Authorization") != "" {
+		t.Fatal("header-only injection added a header")
+	}
+	// Other paths and hosts: untouched.
+	for _, u := range []string{"https://chatgpt.com/other", "https://evil.example/backend-api/x"} {
+		r := httptest.NewRequest(http.MethodGet, u, nil)
+		r.Header.Set("Authorization", "Bearer agenthold-placeholder-xyz")
+		if ok, _ := inj.Apply(r); ok || r.Header.Get("Authorization") != "Bearer agenthold-placeholder-xyz" {
+			t.Fatalf("injected into %s", u)
+		}
+	}
+}

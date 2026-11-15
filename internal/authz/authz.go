@@ -226,3 +226,21 @@ func CanInvite(actor, role WorkspaceRole) error {
 	}
 	return nil
 }
+
+// CanBindLogin decides whether actor may make an agent use loginUser's
+// account logins (Claude Code, Codex). Only for themselves: nobody can make
+// an agent use someone else's login. And only on agents they administer,
+// because the choice changes the agent's configuration.
+func CanBindLogin(actorID, loginUserID string, role AgentRole) bool {
+	return actorID != "" && actorID == loginUserID && CanAgent(role, AgentConfigure)
+}
+
+// CanUnbindLogin decides whether actor may make an agent stop using
+// loginUser's account logins: the agent's admins, and the login's owner, who
+// can always withdraw it from any agent they can see.
+func CanUnbindLogin(actorID, loginUserID string, role AgentRole) bool {
+	if actorID != "" && actorID == loginUserID && CanAgent(role, AgentRead) {
+		return true
+	}
+	return CanAgent(role, AgentConfigure)
+}

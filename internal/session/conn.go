@@ -28,6 +28,8 @@ type harnessConn struct {
 	ts      *tunnel.Session
 	acp     *acp.ClientSideConnection
 	init    acp.InitializeResponse
+	// stale: restart once no turn uses it (guarded by Manager.mu).
+	stale bool
 
 	mu       sync.Mutex
 	sessions map[string]string // ACP session id -> our session id

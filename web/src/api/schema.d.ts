@@ -1235,6 +1235,11 @@ export interface components {
             maxCpus: number;
             /** Format: int64 */
             maxMemoryMb: number;
+            /**
+             * Format: int64
+             * @description Smallest memory an agent can be given; smaller guests cannot run a harness.
+             */
+            minMemoryMb: number;
         };
         FileEntry: {
             name: string;

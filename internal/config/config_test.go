@@ -69,6 +69,10 @@ func TestValidate(t *testing.T) {
 		{"no client id", "auth: {providers: [{id: a, type: github}]}", "client_id is required"},
 		{"bad id", "auth: {providers: [{id: a/b, type: github, client_id: c}]}", "path segment"},
 		{"reserved id", "auth: {providers: [{id: local, type: github, client_id: c}]}", "reserved"},
+		{"default memory below floor", "sandbox: {default_memory_mb: 128}", "at least 1024"},
+		{"max memory below floor", "sandbox: {default_memory_mb: 1024, max_memory_mb: 512}", "at least 1024"},
+		{"default memory above max", "sandbox: {default_memory_mb: 8192, max_memory_mb: 4096}", "must not exceed max_memory_mb"},
+		{"default cpus below one", "sandbox: {default_cpus: 0.5}", "at least 1"},
 		{"local without username", "auth: {local: {password_hash: x}}", "auth.local.username"},
 		{"local with plaintext password", "auth: {local: {username: admin, password_hash: hunter2}}", "not an argon2id hash"},
 	}

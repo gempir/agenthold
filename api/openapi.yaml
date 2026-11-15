@@ -1500,13 +1500,14 @@ components:
 
     SandboxLimits:
       type: object
-      required: [defaultCpus, defaultMemoryMb, maxCpus, maxMemoryMb, driver]
+      required: [defaultCpus, defaultMemoryMb, maxCpus, maxMemoryMb, minMemoryMb, driver]
       properties:
         driver: { type: string }
         defaultCpus: { type: number }
         defaultMemoryMb: { type: integer, format: int64 }
         maxCpus: { type: number }
         maxMemoryMb: { type: integer, format: int64 }
+        minMemoryMb: { type: integer, format: int64, description: Smallest memory an agent can be given; smaller guests cannot run a harness. }
 
     FileEntry:
       type: object

@@ -3,12 +3,14 @@ package api
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gempir/agenthold/internal/api/gen"
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
+	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/harness"
 	"github.com/gempir/agenthold/internal/id"
 	"github.com/gempir/agenthold/internal/node"
@@ -23,6 +25,7 @@ func (a *API) GetSandboxLimits(context.Context, gen.GetSandboxLimitsRequestObjec
 	return gen.GetSandboxLimits200JSONResponse{
 		Driver: l.Driver, DefaultCpus: float32(l.DefaultCPUs),
 		DefaultMemoryMb: l.DefaultMemoryMB, MaxCpus: float32(l.MaxCPUs), MaxMemoryMb: l.MaxMemoryMB,
+		MinMemoryMb: config.MinMemoryMB,
 	}, nil
 }
 
@@ -80,11 +83,11 @@ func (a *API) validateSettings(s *agentSettings) error {
 	if s.name, err = validName(s.name); err != nil {
 		return err
 	}
-	if s.cpus <= 0 || s.cpus > a.Limits.MaxCPUs {
-		return badRequest(fmt.Sprintf("cpus must be greater than 0 and at most %g", a.Limits.MaxCPUs))
+	if s.cpus < 1 || s.cpus > a.Limits.MaxCPUs {
+		return badRequest(fmt.Sprintf("cpus must be between 1 and %g", a.Limits.MaxCPUs))
 	}
-	if s.memoryMB < 64 || s.memoryMB > a.Limits.MaxMemoryMB {
-		return badRequest(fmt.Sprintf("memoryMb must be between 64 and %d", a.Limits.MaxMemoryMB))
+	if s.memoryMB < config.MinMemoryMB || s.memoryMB > a.Limits.MaxMemoryMB {
+		return badRequest(fmt.Sprintf("memoryMb must be between %d and %d", config.MinMemoryMB, a.Limits.MaxMemoryMB))
 	}
 	if s.idleMinutes < 1 || s.idleMinutes > 10080 {
 		return badRequest("idleMinutes must be between 1 and 10080")
@@ -136,10 +139,10 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 	u := me(ctx)
 	b := req.Body
 	s := agentSettings{name: b.Name, cpus: a.Limits.DefaultCPUs, memoryMB: a.Limits.DefaultMemoryMB, idleMinutes: 15}
-	if b.Cpus != nil {
+	if b.Cpus != nil && *b.Cpus != 0 {
 		s.cpus = float64(*b.Cpus)
 	}
-	if b.MemoryMb != nil {
+	if b.MemoryMb != nil && *b.MemoryMb != 0 {
 		s.memoryMB = *b.MemoryMb
 	}
 	if b.IdleMinutes != nil {
@@ -234,10 +237,10 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	if b.Name != nil {
 		s.name = *b.Name
 	}
-	if b.Cpus != nil {
+	if b.Cpus != nil && *b.Cpus != 0 {
 		s.cpus = float64(*b.Cpus)
 	}
-	if b.MemoryMb != nil {
+	if b.MemoryMb != nil && *b.MemoryMb != 0 {
 		s.memoryMB = *b.MemoryMb
 	}
 	if b.IdleMinutes != nil {
@@ -312,7 +315,7 @@ func (a *API) lifecycle(ctx context.Context, agentID string, need authz.Action, 
 
 // StartAgent implements gen.StrictServerInterface.
 func (a *API) StartAgent(ctx context.Context, req gen.StartAgentRequestObject) (gen.StartAgentResponseObject, error) {
-	g, err := a.lifecycle(ctx, req.AgentId, authz.AgentLifecycle, audit.AgentStart, a.Sandboxes.Start)
+	g, err := a.lifecycle(ctx, req.AgentId, authz.AgentLifecycle, audit.AgentStart, a.startChecked)
 	if err != nil {
 		return nil, err
 	}
@@ -340,4 +343,31 @@ func (a *API) RebuildAgent(ctx context.Context, req gen.RebuildAgentRequestObjec
 func isHidden(ad harness.Adapter) bool {
 	h, ok := ad.(interface{ Hidden() bool })
 	return ok && h.Hidden()
+}
+
+// errMemoryTooSmall is the error for an agent whose stored memory predates the
+// floor: such a guest is OOM-killed, so it is not booted.
+func errMemoryTooSmall(mb int64) error {
+	return errStatus(http.StatusConflict, fmt.Sprintf(
+		"this agent has only %d MB of memory, too little to run a harness; raise it to at least %d MB in the agent's settings, then start it",
+		mb, config.MinMemoryMB))
+}
+
+// checkMemory refuses to boot an agent whose memory is below the floor.
+func (a *API) checkMemory(ctx context.Context, agentID string) error {
+	ag, err := a.Store.GetAgent(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	if ag.MemoryMb < config.MinMemoryMB {
+		return errMemoryTooSmall(ag.MemoryMb)
+	}
+	return nil
+}
+
+func (a *API) startChecked(ctx context.Context, agentID string) error {
+	if err := a.checkMemory(ctx, agentID); err != nil {
+		return err
+	}
+	return a.Sandboxes.Start(ctx, agentID)
 }

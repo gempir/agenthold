@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, RefreshCw } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
-import { agentsQuery, type Agent } from '@/api/queries';
+import { agentsQuery, sandboxLimitsQuery, type Agent } from '@/api/queries';
 import { AgentStateBadge } from '@/components/AgentStateBadge';
 import { ErrorText } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,8 @@ export function AgentControls({
   compact?: boolean;
 }) {
   const { action, busy } = useAgentActions(a);
+  const limits = useQuery(sandboxLimitsQuery).data;
+  const tooSmall = !!limits && a.memoryMb < limits.minMemoryMb;
   return (
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -47,6 +49,16 @@ export function AgentControls({
         >
           <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
           {a.stateError}
+        </p>
+      )}
+      {tooSmall && (
+        <p
+          role="alert"
+          className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 text-sm text-destructive"
+        >
+          <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+          This agent has only {a.memoryMb} MB of memory, too little to run a
+          harness. Raise it to at least {limits.minMemoryMb} MB in settings.
         </p>
       )}
       {a.needsRebuild && (
@@ -149,6 +161,7 @@ export function AgentSettingsForm({
   onSaved: (a: Agent) => void;
 }) {
   const qc = useQueryClient();
+  const limits = useQuery(sandboxLimitsQuery).data;
   const [name, setName] = useState(agent.name);
   const [cpus, setCpus] = useState(String(agent.cpus));
   const [mem, setMem] = useState(String(agent.memoryMb));
@@ -196,6 +209,7 @@ export function AgentSettingsForm({
           <Input
             type="number"
             min={1}
+            max={limits?.maxCpus}
             value={cpus}
             onChange={(e) => setCpus(e.target.value)}
           />
@@ -204,7 +218,8 @@ export function AgentSettingsForm({
           Memory (MB)
           <Input
             type="number"
-            min={128}
+            min={limits?.minMemoryMb}
+            max={limits?.maxMemoryMb}
             value={mem}
             onChange={(e) => setMem(e.target.value)}
           />
@@ -221,7 +236,10 @@ export function AgentSettingsForm({
       </div>
       <ErrorText error={save.error} />
       <div>
-        <Button type="submit" disabled={!name.trim() || save.isPending}>
+        <Button
+          type="submit"
+          disabled={!name.trim() || !limits || save.isPending}
+        >
           Save
         </Button>
       </div>

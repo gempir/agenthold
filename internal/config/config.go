@@ -93,6 +93,11 @@ type Secrets struct {
 	MasterKeyFile string `yaml:"master_key_file"`
 }
 
+// MinMemoryMB is the smallest guest memory that can run an agent harness;
+// smaller guests are OOM-killed. API validation, config validation and the
+// start check all use it.
+const MinMemoryMB = 1024
+
 // Sandbox configures agent sandboxes.
 type Sandbox struct {
 	// Driver selects the built-in local node: "auto" (default: firecracker
@@ -385,6 +390,17 @@ func ApplyDefaults(cfg *Config) {
 // Validate reports configuration errors.
 func (c *Config) Validate() error {
 	var errs []error
+	sb := c.Sandbox
+	if sb.DefaultMemoryMB < MinMemoryMB || sb.MaxMemoryMB < MinMemoryMB {
+		errs = append(errs, fmt.Errorf("sandbox.default_memory_mb and max_memory_mb: must be at least %d", MinMemoryMB))
+	} else if sb.DefaultMemoryMB > sb.MaxMemoryMB {
+		errs = append(errs, errors.New("sandbox.default_memory_mb: must not exceed max_memory_mb"))
+	}
+	if sb.DefaultCPUs < 1 || sb.MaxCPUs < 1 {
+		errs = append(errs, errors.New("sandbox.default_cpus and max_cpus: must be at least 1"))
+	} else if sb.DefaultCPUs > sb.MaxCPUs {
+		errs = append(errs, errors.New("sandbox.default_cpus: must not exceed max_cpus"))
+	}
 	databaseURL, parseErr := url.Parse(c.Database.URL)
 	if parseErr != nil {
 		errs = append(errs, errors.New("database.url: invalid URL"))

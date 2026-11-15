@@ -38,6 +38,9 @@ func (a *API) Wake(ctx context.Context, agentID string, status func(string)) (*t
 	}
 	switch sandbox.Phase(row.State) {
 	case sandbox.PhaseSleeping, sandbox.PhaseError:
+		if err := a.checkMemory(ctx, agentID); err != nil {
+			return nil, err
+		}
 		status("Starting the sandbox…")
 		if err := a.Sandboxes.Start(ctx, agentID); err != nil && !errors.Is(err, sandbox.ErrConflict) {
 			return nil, err

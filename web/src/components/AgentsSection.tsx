@@ -81,8 +81,21 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
   const harness = picked || harnesses.data?.find((h) => h.default)?.id || '';
   const [model, setModel] = useState('');
   const [name, setName] = useState('');
-  const [cpus, setCpus] = useState<string>('');
-  const [mem, setMem] = useState<string>('');
+  // undefined until the user edits the field: the server's default.
+  const [cpusEdit, setCpus] = useState<string>();
+  const [memEdit, setMem] = useState<string>();
+  const cpus = cpusEdit ?? (l ? String(l.defaultCpus) : '');
+  const mem = memEdit ?? (l ? String(l.defaultMemoryMb) : '');
+  const cpusN = Number(cpus);
+  const memN = Number(mem);
+  const resourcesValid =
+    !!l &&
+    cpus !== '' &&
+    mem !== '' &&
+    cpusN >= 1 &&
+    cpusN <= l.maxCpus &&
+    memN >= l.minMemoryMb &&
+    memN <= l.maxMemoryMb;
   const [idle, setIdle] = useState('15');
 
   const create = useMutation({
@@ -91,8 +104,8 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
         api.POST('/agents', {
           body: {
             name: name.trim(),
-            cpus: Number(cpus || l?.defaultCpus),
-            memoryMb: Number(mem || l?.defaultMemoryMb),
+            cpus: cpusN,
+            memoryMb: memN,
             idleMinutes: Number(idle),
             ...(harness && { harness }),
             ...(model.trim() && { model: model.trim() }),
@@ -138,7 +151,8 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
                 type="number"
                 min={1}
                 max={l?.maxCpus}
-                value={cpus || (l?.defaultCpus ?? '')}
+                value={cpus}
+                disabled={!l}
                 onChange={(e) => setCpus(e.target.value)}
               />
             </label>
@@ -146,9 +160,10 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
               Memory (MB)
               <Input
                 type="number"
-                min={128}
+                min={l?.minMemoryMb}
                 max={l?.maxMemoryMb}
-                value={mem || (l?.defaultMemoryMb ?? '')}
+                value={mem}
+                disabled={!l}
                 onChange={(e) => setMem(e.target.value)}
               />
             </label>
@@ -190,7 +205,10 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!name.trim() || create.isPending}>
+            <Button
+              type="submit"
+              disabled={!name.trim() || !resourcesValid || create.isPending}
+            >
               Create
             </Button>
           </DialogFooter>

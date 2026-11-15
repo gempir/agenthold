@@ -64,7 +64,7 @@ provision:
       apt-get update
       apt-get install -y --no-install-recommends \
         ca-certificates curl jq nftables iproute2 e2fsprogs squashfs-tools netcat-openbsd \
-        procps make git build-essential
+        procps make git build-essential zstd
 
   # Go: same toolchain as go.mod's `toolchain` line (go1.26.11).
   - mode: system

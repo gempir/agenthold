@@ -18,6 +18,11 @@ http://localhost:8080 and restarts the Go server when its source changes. Run `m
 rebuild the base with `make guest-base` when changing sandboxd or guest contents. The development-only local
 administrator is `admin` / `admin` in `deploy/dev/agenthold.yaml`; do not use those credentials elsewhere.
 
+The VM mounts only the checkout it was created from (`make dev-vm` creates it, and it keeps that path). Guest
+and release scripts re-run inside the VM at the same path as on the Mac, so run them from that checkout. A
+second `git worktree` is not mounted; copy it into the VM or create another VM from it. A release build is
+`VERSION=sha-$(git rev-parse HEAD) scripts/release/build.sh` after `make web`; see [deployment](/deploy/).
+
 `make dev-vm-shell` opens a shell in the checkout inside the VM; `make dev-vm-delete` removes the VM. The
 checkout is writable through virtiofs, port 8080 is forwarded, and guest listeners stay inside the VM.
 The template installs Go, nftables and build tools and fails its startup probe if `/dev/kvm` is missing.

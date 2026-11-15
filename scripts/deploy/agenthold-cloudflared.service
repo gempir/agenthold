@@ -1,0 +1,20 @@
+[Unit]
+Description=agenthold Cloudflare Tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+# Root-only file with a single TUNNEL_TOKEN=... line for a remotely managed tunnel.
+EnvironmentFile=/etc/agenthold/cloudflared.env
+ExecStart=/usr/bin/cloudflared tunnel --no-autoupdate run
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -7,9 +7,10 @@ agenthold runs as a single foreground process on a Linux x86_64 or arm64 host wi
 needs root for the Firecracker jailer, tap devices and nftables. It serves plain HTTP; put a reverse proxy
 or a tunnel that provides HTTPS in front of it. A host without KVM cannot run agents.
 
-Native release packaging is in progress. The instructions below describe the intended release installation;
-use the [development guide](/development/) to build and test the current checkout. There is no migration
-from the former container-based installation.
+A release consists of `agenthold-linux-<arch>`, `base-<arch>.ext4.zst`, `runtime-linux-<arch>.manifest.json`
+and a checksum file. `scripts/release/build.sh` produces them for the host architecture (see the
+[development guide](/development/) and [guest artifacts](/guest-artifacts/)). There is no migration from the
+former container-based installation.
 
 ## Configure
 
@@ -51,9 +52,23 @@ startup. See [database configuration and backups](/database/) for PostgreSQL set
 ## Runtime artifacts
 
 A release binary contains the architecture-matched Firecracker runtime, kernel and guest daemon. The shared
-base disk is a separate release asset: on first start the server fetches the pinned asset and verifies its
-SHA-256. For an offline installation, place the verified base image in the data directory before starting.
-Release URLs and exact offline placement will be published with the release assets.
+base disk is a separate release asset: on first start the server fetches the pinned asset from the URL in
+the runtime manifest and verifies its SHA-256. The verified, uncompressed base lives at
+`<data_dir>/base/<sha256>.ext4` (the SHA-256 of the *uncompressed* image, `base.sha256` in the manifest),
+mode `0644`, in a `0700` directory owned by root. The server uses a file that is already there without
+network access, so an offline installation places it before the first start:
+
+```sh
+sha=$(jq -er .base.sha256 runtime-linux-arm64.manifest.json)
+sudo install -d -m 0700 /var/lib/agenthold /var/lib/agenthold/base
+sudo zstd -d --long=27 --sparse base-arm64.ext4.zst -o "/var/lib/agenthold/base/$sha.ext4"
+echo "$sha  /var/lib/agenthold/base/$sha.ext4" | sudo sha256sum --check
+sudo chown root:root "/var/lib/agenthold/base/$sha.ext4" && sudo chmod 0644 "/var/lib/agenthold/base/$sha.ext4"
+```
+
+The `chown` matters: `zstd` copies the owner of the compressed file onto its output. The base needs about
+2.5 GiB (arm64) of free space; every release carries its own base. A mismatching or corrupt file stops the
+server at startup instead of being replaced.
 
 Point `AGENTHOLD_CONFIG` at the YAML file and run `agenthold` as root in the foreground. To install a
 systemd service instead, use:

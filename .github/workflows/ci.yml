@@ -165,3 +165,5 @@ jobs:
         run: make test-kvm
       - name: Deployment pull and rollback tests
         run: bash scripts/deploy/pull_test.sh
+      - name: Deployment bootstrap tests
+        run: bash scripts/deploy/bootstrap_test.sh

@@ -21,10 +21,65 @@ content-addressed base cache. It rechecks main before switching `/opt/agenthold/
 service and checks both health and the expected version. A failed or interrupted switch restores and restarts
 the previous release. Previous base disks remain available for rollback.
 
-The updater refuses to bootstrap an empty installation: an operator must first install and validate a bundled
-release under `/opt/agenthold/releases/<full-commit>/agenthold`, set `/opt/agenthold/current` to that
-release, and start the prepared `agenthold.service`. Only after that initial validation and explicit approval
-should the timer be enabled:
+The updater refuses to bootstrap an empty installation. The first release is installed by hand, validated,
+and only then handed over to the timer.
+
+### Bootstrap the first release
+
+The VM needs `jq`, `zstd`, `curl`, `nftables` and `flock` (the Lima template installs them), `/dev/kvm`, and
+about 3 GiB free for the first base image. Build a `sha-<commit>` release (the pull channel only accepts
+full-commit versions), copy `build/release/arm64` and `scripts/deploy` into the VM and run the bootstrap:
+
+```sh
+# On the Mac or any Linux arm64 host with the repository checked out; make web first.
+VERSION=sha-$(git rev-parse HEAD) scripts/release/build.sh
+# Inside the demo VM, as root:
+scripts/deploy/bootstrap.sh /path/to/arm64
+```
+
+`bootstrap.sh` verifies the checksums, creates `/opt/agenthold/releases/<full-commit>/`, points
+`/opt/agenthold/current` at it, unpacks and verifies the base into `/var/lib/agenthold/base/<sha256>.ext4`
+and installs `pull.sh` and the four units (agenthold, pull service and timer, cloudflared) without starting
+or enabling them. Then write `/etc/agenthold/agenthold.yaml` (mode `0600`) and start the service:
+
+```yaml
+listen: 127.0.0.1:8080
+public_url: https://demo.agenthold.dev
+data_dir: /var/lib/agenthold
+auth:
+  providers:
+    - id: github
+      type: github
+      name: GitHub
+      client_id: ...
+      client_secret: ...
+      github_allowed_ids: ["9765622"]
+```
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now agenthold
+curl -fsS http://127.0.0.1:8080/healthz
+curl -fsS http://127.0.0.1:8080/api/v1/version   # {"version":"sha-<commit>",...}
+```
+
+To exercise a real microVM before publishing, temporarily add `test_harness: true` and an `auth.local` admin
+(a throwaway password hashed with `agenthold hash-password`) in a separate config file selected through a
+systemd drop-in, and run the repository's API smoke test inside the VM against `http://127.0.0.1:8080`:
+
+```sh
+go build -o /tmp/native ./scripts/e2e/native
+go build -o /tmp/fakeagent ./internal/harness/fakeagent
+AGENTHOLD_SMOKE_PASSWORD=... /tmp/native -base http://127.0.0.1:8080 -fakeagent /tmp/fakeagent
+```
+
+It creates an agent, boots its microVM, uses the terminal and file API, chats with the scripted harness,
+sleeps and wakes it, resets its system and deletes it. Remove the drop-in, the extra config and its password
+afterwards, and start with a fresh database if the test admin should not remain.
+
+### Hand over to the timer and publish
+
+Only after the initial validation and explicit approval should the timer be enabled:
 
 ```sh
 sudo systemctl enable --now agenthold-pull.timer
@@ -32,17 +87,40 @@ sudo systemctl status agenthold-pull.timer
 sudo journalctl -u agenthold-pull.service -f
 ```
 
-The timer, agenthold service and Cloudflare Tunnel service are currently stopped and disabled. The existing
-GitHub sign-in and tunnel configuration are staged in root-only files under `/etc/agenthold`; the tunnel token
-is not stored in the workflow. Before a later cutover, verify that the tunnel's remotely managed origin points
-to the new VM's local service. Do not run both connectors unless the origin routes correctly on both hosts.
+The GitHub sign-in configuration and the tunnel token are root-only files under `/etc/agenthold`
+(`agenthold.yaml`, and `cloudflared.env` containing one `TUNNEL_TOKEN=` line); the token is not stored in the
+workflow. Switching the public demo to the new VM:
+
+1. In the Cloudflare dashboard, check that the remotely managed tunnel's public hostname
+   (`demo.agenthold.dev`) uses the service `http://127.0.0.1:8080`. That address is local to whichever host runs
+   the connector, so it routes correctly on the new VM.
+2. Start the connector in the VM: `sudo systemctl enable --now agenthold-cloudflared`.
+3. Stop the old connector on the previous host *after* the new one shows as healthy in the dashboard. Do not
+   leave both connectors running unless the origin routes correctly on both hosts.
+4. Enable the pull timer as above.
 
 Back up the database, master key, CA and agent disks before upgrading. Binary rollback does not reverse database
-migrations. The shared base and the per-agent disks can consume substantial host storage; a sparse Lima disk
-may report more free space than the Mac actually has. Before downloading a new base the puller checks both
-the guest filesystem and the Mac filesystem reported through the shared checkout mount. Continue to monitor
-host storage as agent disks grow.
+migrations.
 
+## Disk usage
+
+The shared base and the per-agent disks can consume substantial host storage. A sparse Lima disk reports its
+full configured size to the guest while the Mac only pays for the blocks that were written, so the guest can
+show tens of GiB free that the Mac does not have. Measured on the Scarif demo VM:
+
+- One base image is about 2.4 GiB. The embedded guest daemon differs per release, so every deployed commit
+  brings a new base, and the puller keeps the old ones for rollback and for agents that have not been reset
+  yet. Plan for about 2.4 GiB per deployed commit under `<data_dir>/base/` and prune bases that no agent uses
+  by hand; nothing removes them automatically.
+- A fresh agent has an 8 GiB overlay and a 10 GiB home disk as sparse files; right after boot they occupy
+  only a few MiB. The limits are what an agent can grow to, 18 GiB at most with the defaults.
+- Before downloading a new base the puller checks free space on the guest filesystem and, through the shared
+  checkout mount (`AGENTHOLD_DEPLOY_HOST_MOUNT`, default `/Users/gempir/dev/agenthold`), on the Mac volume
+  that backs the VM. `df` on the Mac and on that mount report the APFS container's free space, which also
+  changes with other workloads on the Mac.
+
+Free space freed inside the guest is returned to the Mac (the Lima disk shrinks after deletion), but keep
+substantial headroom on the Mac volume: it is shared with everything else on the host.
 ## HTTPS examples
 
 Choose one of these approaches. Each assumes agenthold listens on `127.0.0.1:8080` and

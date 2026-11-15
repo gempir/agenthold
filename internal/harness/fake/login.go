@@ -20,9 +20,11 @@ import (
 // TokenURL is where "refreshing" logins are renewed (tests set it).
 var TokenURL = ""
 
-// Hosts the scripted agent's logins are injected into.
+// Hosts the scripted agent's logins are injected into. APIHost is an echo
+// service, so end-to-end checks can see what the proxy put into a request
+// (development only: these are fake logins).
 const (
-	APIHost  = "api.fake.example"
+	APIHost  = "postman-echo.com"
 	AuthHost = "auth.fake.example"
 )
 

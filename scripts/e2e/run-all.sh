@@ -4,7 +4,7 @@
 #   SKIP_BASE=1        skip checks that need the base image (egress, OpenCode)
 set -uo pipefail
 cd "$(dirname "$0")"
-checks=(sessions sleep api agents)
+checks=(sessions provider-logins sleep api agents)
 [[ -n ${SKIP_BASE:-} ]] || checks=(egress "${checks[@]}")
 [[ -n ${SKIP_BASE:-} || -n ${SKIP_REAL_MODEL:-} ]] || checks+=(opencode tools)
 failed=()

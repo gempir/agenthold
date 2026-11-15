@@ -17,7 +17,7 @@ api "$JAR" -X POST "$BASE/api/v1/sessions/$SES/prompt" -d '{"text":"write projec
 node "$D/ws.mjs" "$WSURL/api/v1/sessions/$SES/stream?after=0" "$COOKIE" events 0 turn_end > "$WORK/t1"
 grep -q '"type":"diff"' "$WORK/t1" && pass "tool call with a diff streamed" || fail "no diff"
 [[ $(in_sandbox "$AG" 'cat /home/agent/project/hello.py') == 'print("hello")' ]] && pass "file written in /home/agent" || fail "file: $(in_sandbox "$AG" 'cat /home/agent/project/hello.py')"
-[[ $(docker exec "agenthold-dev-$AG" stat -c %U /home/agent/project/hello.py) == ${E2E_USER:-agent} ]] && pass "harness runs as the agent user" || fail "owner"
+[[ $(docker exec "${E2E_PREFIX:-agenthold-dev}-$AG" stat -c %U /home/agent/project/hello.py) == ${E2E_USER:-agent} ]] && pass "harness runs as the agent user" || fail "owner"
 LAST=$(tail -1 "$WORK/t1" | json 'd["seq"]')
 
 echo "Reload mid-turn"

@@ -39,14 +39,66 @@ Each agent has a permission policy:
 
 ## Signing in a harness
 
-API keys go through the egress proxy: create a secret (for example the Anthropic preset), attach it to the agent
-with an environment variable (`ANTHROPIC_API_KEY`), and rebuild. The sandbox only ever sees a placeholder.
+### Account logins (the normal way)
 
-Subscription logins use the harness's own login. Agent admins open **Overview → Sign in**. The server starts the
-harness, reads the login methods it advertises in `initialize`, and runs the chosen method in the agent's web
-terminal. For Claude Code that is `claude /login`: the terminal shows the login URL, and the code is pasted back
-into it. The harness stores the resulting token on the agent's home volume, so it survives sleep and rebuilds.
-Such agents are marked "credentials inside sandbox", because the agent can read its own login.
+Claude Code and Codex logins live on your account, under **Provider logins** (`/settings/providers`). Connect
+each once; every agent that uses your logins then has them when its harness starts, and switching an agent between
+Claude Code and Codex needs no new sign-in.
+
+| Harness | What you connect | How the harness gets it | Refresh |
+| --- | --- | --- | --- |
+| Claude Code | **Subscription:** the token `claude setup-token` prints (Claude Pro/Max, valid for a year) | `CLAUDE_CODE_OAUTH_TOKEN` holds a placeholder; the proxy puts the token into the `Authorization` header of requests to `api.anthropic.com` | none needed |
+| Claude Code | **API key** | `ANTHROPIC_API_KEY` placeholder, swapped in `x-api-key` | none |
+| Codex | **ChatGPT login:** the `auth.json` that `codex login` writes (run it with a temporary `CODEX_HOME`, the page shows the command) | `~/.codex/auth.json` with placeholder tokens; the proxy puts the access token into requests to `chatgpt.com/backend-api/` | by the server, see below |
+| Codex | **ChatGPT access token** (`at-…`, if your ChatGPT workspace issues them) | `CODEX_ACCESS_TOKEN` placeholder, swapped for `auth.openai.com` (whoami only) and `chatgpt.com/backend-api/` | none |
+| Codex | **API key** | `OPENAI_API_KEY` placeholder (and an `auth.json` naming it), swapped for `api.openai.com` | none |
+
+The real values are encrypted at rest with the master key, never returned by the API and never enter the
+sandbox. The proxy replaces a placeholder only inside the one header the harness sends it in, only for the hosts
+(and paths) above. Agents using account logins are therefore not marked "credentials inside sandbox".
+
+**Refresh.** A ChatGPT login has a short-lived access token and a refresh token that changes on every refresh
+(reusing an old one fails). If every sandbox refreshed on its own, the first would log all the others out. So the
+server is the only place that refreshes: it renews the access token an hour before it expires (checked every five
+minutes) and stores the new refresh token. Sandboxes get an access-token placeholder shaped like a JWT that never
+expires, so Codex does not refresh by itself; if it still tries (after a 401), the proxy answers its request to
+`auth.openai.com/oauth/token` locally: the server refreshes, at most once a minute however many sandboxes ask, and
+replies with the same placeholders. Connecting a ChatGPT login refreshes it once at once, which checks it and
+takes it over: Codex on the computer you copied it from would have to sign in again, which is why the page
+suggests a temporary `CODEX_HOME`. If the provider rejects the refresh token, the login is marked
+**connect again** on the settings page and the agent's overview.
+
+**Whose login.** Each agent uses the account logins of one user, shown on its **Overview**: by default whoever
+created it. Only you can make an agent use your logins (**Use my logins**), and only for agents you administer.
+Everyone who can prompt that agent (operators, schedules, webhooks, other agents) then uses your login through it,
+which is why the choice is explicit and visible. Agent admins and you can stop it at any time (**Stop using**), you
+also from the settings page, which lists the agents using your logins. Your login is only delivered while you can
+still see the agent, and it is detached from a workspace's agents when you leave the workspace. An API key secret
+attached to the agent for its harness (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) takes precedence over the account
+login.
+
+Connecting, disconnecting and refresh failures are recorded in the audit log of your personal workspace; using a
+login (once per harness start), attaching and detaching it are recorded on the agent.
+
+Changes take effect without a rebuild: the proxy picks them up within seconds, and the harness restarts with the
+new login once its running turns have finished.
+
+### API keys as secrets
+
+API keys can also go through the egress proxy as ordinary secrets: create a secret (for example the Anthropic
+preset), attach it to the agent with an environment variable (`ANTHROPIC_API_KEY`), and rebuild. The sandbox only
+ever sees a placeholder.
+
+### Signing in inside one sandbox
+
+The per-agent sign-in is a secondary override, under **Overview → Sign in inside this sandbox instead**. The server
+starts the harness, reads the login methods it advertises in `initialize`, and runs the chosen method in the agent's
+web terminal (for Claude Code `claude /login`). The harness stores the resulting token on the agent's home volume,
+so it survives sleep and rebuilds. Such agents are marked "credentials inside sandbox", because the agent can read
+its own login. A connected account login takes precedence over it (for Codex, a ChatGPT login delivered from the
+account replaces `~/.codex/auth.json`; the previous file is kept as `auth.json.agenthold-backup`). Agents that were
+signed in this way before account logins existed keep their sandbox login: they do not use anyone's account logins
+until an admin chooses **Use my logins**.
 
 ## Harness adapters
 
@@ -54,7 +106,9 @@ An adapter (`internal/harness/<name>`) says how to start the harness in ACP mode
 (never secret values), which secret presets fit it, where it keeps logins, and how to install it in a custom
 image. Optionally, it can name the terminal command for a login method the harness advertises without one
 (`TerminalLoginer`), and list login methods the server may call on its own when the harness asks for
-authentication, such as an API key provided as a secret (`AutoAuthenticator`). Nothing outside
+authentication, such as an API key provided as a secret (`AutoAuthenticator`). Adapters whose login can live on the
+account implement `AccountLoginer` (what can be connected, how it is validated, and how it reaches the harness as
+placeholders, files and proxy injections) and, for expiring logins, `Refresher`. Nothing outside
 `internal/harness` knows about a particular harness.
 
 | Harness | ACP entry point | In the base image |
@@ -66,11 +120,15 @@ authentication, such as an API key provided as a secret (`AutoAuthenticator`). N
 
 Signing in:
 
-- **Claude Code:** `claude /login` in the terminal (subscription), or an Anthropic API key secret as `ANTHROPIC_API_KEY`.
+- **Claude Code:** an account login (subscription token from `claude setup-token`, or an API key), an Anthropic
+  API key secret as `ANTHROPIC_API_KEY`, or `claude /login` in the agent's terminal.
 - **OpenCode:** works without a login with OpenCode's free models. `opencode auth login` in the terminal, or
   provider API keys as secrets (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`). The model is
   `provider/model`, for example `anthropic/claude-sonnet-5-5`.
-- **Codex:** an OpenAI API key secret as `OPENAI_API_KEY`; the server then signs in with the key on its own.
+- **Codex:** an account login (ChatGPT login, ChatGPT access token or API key), or an OpenAI API key secret as
+  `OPENAI_API_KEY`; the server then signs in with the key on its own.
+- **OpenCode** has no account logins: it supports many providers with its own login file, which does not fit one
+  login per harness. Use secrets or its terminal login.
 
 For a custom image, install the harness so that its command is on `PATH` for the `agent` user. For Claude Code:
 `npm install -g @agentclientprotocol/claude-agent-acp@0.107.0` (Node.js 20 or newer).
@@ -87,6 +145,8 @@ Against the dev stack (`make dev`, `make base-image`):
 
 - `scripts/e2e/sessions.sh`: the scripted harness edits files in a real sandbox, a reload mid-turn continues
   from the cursor, and a terminal login survives sleep.
+- `scripts/e2e/provider-logins.sh`: an account login reaches a real sandbox as a placeholder only, the proxy
+  injects the value, and disconnecting takes it away.
 - `scripts/e2e/claude-harness.sh`: starts the real Claude Code harness and shows what it advertises.
 - `scripts/e2e/opencode.sh`: a real conversation with OpenCode (free model) that edits a file, replays from
   the cursor, and survives sleep with its history.

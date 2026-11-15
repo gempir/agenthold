@@ -17,7 +17,8 @@ agenthold runs code that AI agents decide to run, on behalf of many users. It as
 | Sandbox ↔ host | Docker containers with default capabilities, no privileged mode, CPU, memory and PID limits, no Docker socket. Optional gVisor or Sysbox ([hardening.md](hardening.md)). The only privileged step, `sandboxd net-setup`, runs a read-only, statically linked binary as a short exec. |
 | Sandbox ↔ network | Internal Docker network in isolated gateway mode: no route to the host or the internet. All TCP and DNS are redirected to the egress proxy by nftables in the server's namespace. Private, loopback, link-local (metadata), CGNAT and multicast destinations are never reachable. The proxy resolves names itself, so a forged SNI or Host header cannot reach a different address. Optional allowlist per agent; disallowed names get NXDOMAIN. |
 | Sandbox ↔ server | Sandboxes can reach only the tunnel and the explicit proxy port on the server. The tunnel authenticates each boot with a fresh 256-bit token (only its hash is stored, accepted only while the sandbox runs). The server identifies the agent behind every call by its tunnel, never by what the sandbox says. |
-| Sandbox ↔ secrets | Secret values never enter a sandbox: it sees placeholders, and the proxy injects values into HTTPS requests to the hosts in the secret's rule only. TLS is intercepted only for those hosts. Values are encrypted at rest (XChaCha20-Poly1305, AAD bound to the secret id) and never returned by the API. |
+| Sandbox ↔ secrets | Secret values never enter a sandbox: it sees placeholders, and the proxy injects values into HTTPS requests to the hosts in the secret's rule only. TLS is intercepted only for those hosts. Values are encrypted at rest (XChaCha20-Poly1305, AAD bound to the secret id) and never returned by the API. Account provider logins work the same way, with injection limited to one header (and for some, URL paths); refresh tokens stay on the server, which answers sandboxes' refresh requests itself. |
+| User ↔ user logins | A provider login belongs to one user; the API only ever acts on the caller's own. An agent uses a user's logins only if that user chose it on an agent they administer, it is shown on the agent, it stops when they lose access to the agent or leave the workspace, and they can withdraw it at any time. Connecting needs a browser session, not an API token. |
 | Agent ↔ agent | Separate networks, volumes and tunnels. Agent-to-agent messages need the same workspace and operator rights of the calling agent's owner, are audited, and stop at depth 4. |
 | User ↔ user | Every handler asks `internal/authz` (workspace roles, agent grants). Non-members get 404. A table-driven test checks all agent endpoints for every role. |
 | Browser ↔ server | OIDC or GitHub OAuth with PKCE, state and nonce. Session cookies are `HttpOnly`, `SameSite=Lax` and `Secure` on HTTPS, and stored hashed. Cross-origin state-changing requests are rejected (`http.CrossOriginProtection`). WebSockets check the Origin. The UI gets a strict CSP, `X-Frame-Options: DENY`, `nosniff` and a referrer policy. Login redirects only go to local paths. |
@@ -27,7 +28,10 @@ agenthold runs code that AI agents decide to run, on behalf of many users. It as
 ## Known limits and accepted risks
 
 - **Kernel sharing.** Without gVisor or Sysbox, a kernel exploit in a sandbox reaches the host.
-- **Harness logins inside the sandbox.** Subscription logins (for example Claude) are stored on the agent's disk,
+- **Shared provider logins.** Everyone who can prompt an agent that uses someone's account login spends that
+  login (subscription limits or API bill), and an agent can send any request its harness could to the injected
+  hosts while it runs (for a ChatGPT login: `chatgpt.com/backend-api/`). It cannot read the credential itself.
+- **Harness logins inside the sandbox.** Logins made in an agent's terminal are stored on the agent's disk,
   so the agent and its operators can read them. Such agents are marked "credentials inside sandbox". Viewers
   cannot download these files or sandboxd's boot file through the file API: the check resolves symlinks.
 - **Services that echo requests.** If a secret's hosts include a service that reflects request headers back,

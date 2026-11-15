@@ -46,7 +46,7 @@ turns out to be unworkable, stop and report instead of silently choosing somethi
 | Auth | Generic OIDC, plus a built-in GitHub OAuth provider (GitHub user login is plain OAuth2, not OIDC). No passwords. Documented examples for GitHub and Keycloak. |
 | Sharing | Workspace membership plus per-agent roles: viewer, operator, admin. |
 | Secrets | Never enter the sandbox. A host-side egress proxy injects them into outgoing requests. |
-| Harness logins | API keys go through the proxy. Subscription logins (Claude, ChatGPT plans) use the harness's own login, triggered through ACP authentication. Those tokens live on the agent's disk, an accepted exception to the secrets rule. |
+| Harness logins | Account level: a user connects Claude Code and Codex once (subscription token, ChatGPT login or API key); agents that use that user's logins get placeholders and the proxy injects the values. The server alone refreshes expiring logins. A login made inside one sandbox (ACP authentication in the terminal) remains as an override; those tokens live on the agent's disk, an accepted exception to the secrets rule. |
 | Network | Transparent interception in v1: all sandbox traffic goes through the proxy, including tools that ignore proxy settings. |
 | License | MIT. |
 | Sandbox images | Ordinary OCI images. With the Docker driver they are used as they are. |
@@ -187,6 +187,9 @@ the turn waits.
 supplied to the server. Inside the sandbox the harness gets a placeholder value. The proxy replaces it.
 The CA certificate is installed into the sandbox and exported through the usual variables
 (`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, ...), together with `HTTPS_PROXY`.
+
+**Account logins.** Provider logins live on the user's account and reach the harnesses of the agents that
+use that user's logins as placeholders; see `docs/sessions.md`. The flow below is the per-sandbox override.
 
 **Subscription logins.** When the harness advertises auth methods in the ACP `initialize` response,
 the UI offers them to agent admins and calls ACP `authenticate`. Any login URL or device code the

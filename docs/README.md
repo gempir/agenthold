@@ -20,8 +20,8 @@ The slug `api` belongs to the generated API reference, so the page about tokens,
 
 ## Publishing
 
-Cloudflare Workers Builds deploys the site from `main`: a Worker with static assets (`wrangler.jsonc`, name
-`agenthold-docs`). `.github/workflows/docs.yml` only builds, checks and lints it, for pull requests and `main`.
+Cloudflare Workers Builds builds and deploys the site from `main`: a Worker with static assets (`wrangler.jsonc`,
+name `agenthold-docs`). There is no GitHub Actions workflow for the docs; the checks run inside that build.
 
 The Worker project is connected to this repository with these settings:
 
@@ -29,7 +29,7 @@ The Worker project is connected to this repository with these settings:
 | --- | --- |
 | Project name | `agenthold-docs` (must match `name` in `wrangler.jsonc`) |
 | Root directory | `docs` |
-| Build command | `pnpm run build` |
+| Build command | `pnpm run build && pnpm run lint:docs && pnpm run typecheck` |
 | Deploy command | `npx wrangler deploy` |
 | Variable `NODE_VERSION` | `26` (Nimbus needs Node 22.23.4 or later) |
 

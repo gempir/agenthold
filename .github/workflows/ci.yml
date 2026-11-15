@@ -3,7 +3,7 @@ name: ci
 on:
   push:
     branches: [main]
-    # The documentation site has its own workflow (docs.yml); a docs change
+    # The documentation site is built by Cloudflare Workers Builds; a docs change
     # should neither run the whole suite nor redeploy the app.
     paths-ignore: ["docs/**", "**.md"]
   pull_request:

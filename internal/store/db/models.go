@@ -24,6 +24,7 @@ type Agent struct {
 	NetworkPolicy        string
 	PermissionPolicy     string
 	CredentialsInSandbox int64
+	LoginUserID          string
 }
 
 type AgentGrant struct {
@@ -174,6 +175,23 @@ type Membership struct {
 type PersonalWorkspace struct {
 	UserID      string
 	WorkspaceID string
+}
+
+type ProviderLogin struct {
+	ID            string
+	UserID        string
+	Provider      string
+	Kind          string
+	Ciphertext    []byte
+	Seed          string
+	Label         string
+	ExpiresAt     int64
+	RefreshedAt   int64
+	Status        string
+	StatusMessage string
+	LastUsedAt    int64
+	CreatedAt     int64
+	UpdatedAt     int64
 }
 
 type Sandbox struct {

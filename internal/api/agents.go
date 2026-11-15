@@ -30,6 +30,10 @@ func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role aut
 	if err != nil {
 		return gen.Agent{}, err
 	}
+	login, err := a.agentLogin(ctx, ag)
+	if err != nil {
+		return gen.Agent{}, err
+	}
 	var lastActivity, sleepsAt *time.Time
 	if a.Idle != nil && sandbox.Phase(sb.State) == sandbox.PhaseRunning {
 		if l := a.Idle.Tracker.Last(ag.ID); !l.IsZero() {
@@ -46,8 +50,8 @@ func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role aut
 		State: gen.SandboxState(sb.State), StateError: sb.Error, StateChangedAt: ts(sb.StateChangedAt),
 		NeedsRebuild: a.Sandboxes.NeedsRebuild(ag, sb), Role: gen.AgentRole(role),
 		Model: ag.Model, PermissionPolicy: gen.AgentPermissionPolicy(ag.PermissionPolicy),
-		CredentialsInSandbox: ag.CredentialsInSandbox == 1,
-		CreatedAt:            ts(ag.CreatedAt), UpdatedAt: ts(ag.UpdatedAt),
+		CredentialsInSandbox: ag.CredentialsInSandbox == 1, Login: login,
+		CreatedAt: ts(ag.CreatedAt), UpdatedAt: ts(ag.UpdatedAt),
 	}, nil
 }
 
@@ -176,6 +180,10 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 		if err := q.SetPermissionPolicy(ctx, db.SetPermissionPolicyParams{PermissionPolicy: s.policy, UpdatedAt: now, ID: agentID}); err != nil {
 			return err
 		}
+		// New agents use their creator's account logins (shown on the agent).
+		if err := q.SetAgentLoginUser(ctx, db.SetAgentLoginUserParams{LoginUserID: u.ID, ID: agentID}); err != nil {
+			return err
+		}
 		var err error
 		provision, err = a.Sandboxes.Provision(ctx, q, agentID)
 		return err
@@ -262,6 +270,7 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 			return nil, err
 		}
 		a.Sessions.Disconnect(ag.ID) // the next prompt starts the new harness
+		a.Egress.Invalidate()        // and the proxy injects that harness's login
 	}
 	g, err := a.reloadAgent(ctx, ag.ID, acc.Role)
 	if err != nil {

@@ -9,7 +9,7 @@ role for every member:
 | --- | --- |
 | `viewer` | read sessions (live), files, the request log, the network policy and who has access |
 | `operator` | everything a viewer can, plus prompt, cancel, answer permission requests, open terminals, change files, start and stop |
-| `admin` | everything an operator can, plus change settings, secrets, the network policy and grants, read the audit log, run harness logins, delete |
+| `admin` | everything an operator can, plus change settings, secrets, the network policy and grants, read the audit log, run harness logins, make the agent use their own provider logins, delete |
 
 The effective role is the highest of:
 
@@ -21,7 +21,15 @@ Members without any of these do not see the agent at all (API requests about it 
 on the server, in `internal/authz`. The UI only hides what a role cannot do.
 
 Grants are managed on the agent's **Sharing** tab by its admins. Only workspace members can be granted access.
-When someone leaves a workspace, their grants on its agents are removed.
+When someone leaves a workspace, their grants on its agents are removed, and those agents stop using their provider
+logins.
+
+## Provider logins in shared workspaces
+
+An agent uses the Claude Code or Codex login of one user (its creator by default), shown on its Overview. Nobody can
+make an agent use another person's login: an agent admin can only choose their own, and can detach anyone's. The
+login's owner can withdraw it from any agent they can see, and it is only used while they still have access to the
+agent. See [sessions.md](sessions.md#account-logins-the-normal-way).
 
 ## Watching together
 
@@ -32,6 +40,7 @@ it.
 ## Audit log
 
 Agent admins see an agent's **Activity** tab: who did what, and when. It records prompts (with the prompt
-text), cancels, permission answers, sessions created and deleted, terminals opened, harness logins, file
+text), cancels, permission answers, sessions created and deleted, terminals opened, harness logins, provider logins
+attached, detached and used, file
 uploads, folders and deletions, starts, stops, rebuilds, setting changes, network policy changes, secrets
 attached and detached, grants and deletions.

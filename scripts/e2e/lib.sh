@@ -40,7 +40,7 @@ wait_running() {
   return 1
 }
 # in_sandbox AGENT CMD: runs CMD as the agent user inside the sandbox.
-in_sandbox() { docker exec -u "${E2E_USER:-agent}" "agenthold-dev-$1" bash -c "$2" 2>&1 || true; }
+in_sandbox() { docker exec -u "${E2E_USER:-agent}" "${E2E_PREFIX:-agenthold-dev}-$1" bash -c "$2" 2>&1 || true; }
 json_lines_text() { python3 -c '
 import json,sys
 for l in sys.stdin:

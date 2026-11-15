@@ -85,9 +85,11 @@ If you use the published base image, pull it now, so creating the first agent do
 1. Open `https://<domain>` and sign in. The first login creates your user and a personal workspace.
 2. **New agent**: give it a name and keep the defaults (base image, Claude Code). Wait until it shows
    *running*.
-3. Sign the harness in. Either open **Overview → Sign in** and follow the login in the terminal (for example a
-   Claude subscription), or add an API key under the workspace's **Secrets** (preset "Anthropic API key"), attach it
-   to the agent with the variable `ANTHROPIC_API_KEY` on the **Network** tab, and rebuild the agent.
+3. Sign the harness in once for all your agents: open **Provider logins** (top right), choose **Claude Code →
+   Connect**, run `claude setup-token` on your computer and paste the token (or paste an Anthropic API key). Your
+   agents use it from their next turn. Alternatively add an API key under the workspace's **Secrets** (preset
+   "Anthropic API key") and attach it to the agent as `ANTHROPIC_API_KEY`, or sign in inside one agent under
+   **Overview → Sign in inside this sandbox instead**.
    To try it without an account, set the agent's harness to **OpenCode**, which has free models.
 4. Open **Chat**, start a session and ask it to do something, for example "create hello.txt with a haiku".
 
@@ -126,7 +128,8 @@ docker compose start agenthold
 ```
 
 Store backups somewhere other than this server, and treat them as secret: they contain the master key, and
-harness logins can be inside agent volumes.
+harness logins can be inside agent volumes. Account provider logins are in the database, encrypted with the
+master key.
 
 ## Restore
 

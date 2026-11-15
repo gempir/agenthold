@@ -30,7 +30,7 @@ var (
 	ErrUnknownPermission = errors.New("permission request not found or already answered")
 )
 
-var errLoginNeeded = errors.New("the harness is not signed in: sign in from the agent's Overview tab, or attach an API key secret and rebuild")
+var errLoginNeeded = errors.New("the harness is not signed in: connect it under Settings → Provider logins and let the agent use your logins (Overview tab), or attach an API key secret and rebuild")
 
 func authRequired(err error) bool {
 	var re *acp.RequestError
@@ -61,6 +61,36 @@ type Manager struct {
 	starting map[string]*sync.Mutex
 	activity func(agentID string)
 	tools    Tools
+	logins   Logins
+}
+
+// Logins supplies the account login of an agent's harness: files are written
+// into the sandbox, the returned environment is added to the harness.
+type Logins interface {
+	Prepare(ctx context.Context, agent db.Agent, ts *tunnel.Session) (map[string]string, error)
+}
+
+// SetLogins sets the account logins provider.
+func (m *Manager) SetLogins(l Logins) { m.logins = l }
+
+// Restart stops the agent's harness so the next turn starts it with current
+// settings (an account login changed). Running turns finish first.
+func (m *Manager) Restart(agentID string) {
+	m.mu.Lock()
+	c := m.conns[agentID]
+	busy := false
+	for _, t := range m.turns {
+		if t.agentID == agentID {
+			busy = true
+		}
+	}
+	if c != nil && busy {
+		c.stale = true
+	}
+	m.mu.Unlock()
+	if c != nil && !busy {
+		c.close()
+	}
 }
 
 type turn struct {
@@ -269,7 +299,9 @@ func (m *Manager) run(ctx context.Context, t *turn, sess db.AgentSession, text s
 	if err != nil {
 		return err
 	}
+	m.mu.Lock()
 	t.conn = conn
+	m.mu.Unlock()
 	acpID, err := m.activate(ctx, conn, sess, notice)
 	if err != nil {
 		return err
@@ -534,7 +566,7 @@ func (m *Manager) Disconnect(agentID string) {
 // connection returns the agent's live harness connection, starting it if needed.
 func (m *Manager) connection(ctx context.Context, agentID string, notice func(string)) (*harnessConn, error) {
 	m.mu.Lock()
-	if c := m.conns[agentID]; c != nil && !c.closed() {
+	if c := m.conns[agentID]; c != nil && !c.closed() && !m.restartable(c) {
 		m.mu.Unlock()
 		return c, nil
 	}
@@ -547,11 +579,18 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 	lock.Lock()
 	defer lock.Unlock()
 	m.mu.Lock()
+	var stale *harnessConn
 	if c := m.conns[agentID]; c != nil && !c.closed() {
-		m.mu.Unlock()
-		return c, nil
+		if !m.restartable(c) {
+			m.mu.Unlock()
+			return c, nil
+		}
+		stale = c
 	}
 	m.mu.Unlock()
+	if stale != nil {
+		stale.close()
+	}
 
 	agent, err := m.store.GetAgent(ctx, agentID)
 	if err != nil {
@@ -572,7 +611,23 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 	}
 	hc := &harnessConn{m: m, agentID: agentID, sessions: map[string]string{}, active: map[string]bool{}, loading: map[string]bool{}, done: make(chan struct{})}
 	cfg := harness.Config{Model: agent.Model}
-	proc, err := ts.StartHarness(m.ctx, ad.Command(cfg), ad.Env(cfg), func(line string) {
+	env := ad.Env(cfg)
+	if m.logins != nil {
+		extra, err := m.logins.Prepare(ctx, agent, ts)
+		if err != nil {
+			m.lg.Warn("account login unavailable", "agent", agentID, "err", err)
+			status("The account login could not be prepared: " + err.Error())
+		}
+		if len(extra) > 0 {
+			if env == nil {
+				env = map[string]string{}
+			}
+			for k, v := range extra {
+				env[k] = v
+			}
+		}
+	}
+	proc, err := ts.StartHarness(m.ctx, ad.Command(cfg), env, func(line string) {
 		m.lg.Debug("harness stderr", "agent", agentID, "line", line)
 		hc.stderr(line)
 	})
@@ -611,6 +666,19 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 	m.mu.Unlock()
 	m.lg.Info("harness connected", "agent", agentID, "harness", ad.ID())
 	return hc, nil
+}
+
+// restartable reports whether c is stale and no turn uses it (m.mu held).
+func (m *Manager) restartable(c *harnessConn) bool {
+	if !c.stale {
+		return false
+	}
+	for _, t := range m.turns {
+		if t.conn == c {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *Manager) dropConn(hc *harnessConn) {

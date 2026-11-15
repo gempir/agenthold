@@ -29,6 +29,26 @@ type Agent struct {
 	ID         string
 	Policy     Policy
 	Injections []secrets.Injection
+	// Responders answer some HTTPS requests themselves (account logins'
+	// token refresh), instead of forwarding them.
+	Responders []Responder
+}
+
+// Responder may answer HTTPS requests to Host. Handle returns false to let
+// the request through; it must then leave the request body readable.
+type Responder struct {
+	Host   string
+	Handle func(w http.ResponseWriter, r *http.Request) bool
+}
+
+func (a *Agent) respondersFor(host string) []Responder {
+	var out []Responder
+	for _, r := range a.Responders {
+		if strings.EqualFold(r.Host, host) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // Agents finds the agent behind a source address.
@@ -329,7 +349,7 @@ func (p *Proxy) handleTLS(ctx context.Context, c net.Conn, agent *Agent, dst net
 		p.log(Event{AgentID: agent.ID, Kind: "tls", Host: sni, IP: dst.Addr().String(), Port: port, Reason: "not in allowlist"})
 		return
 	}
-	if len(p.injectionsFor(agent, sni)) == 0 || p.CA == nil {
+	if (len(p.injectionsFor(agent, sni)) == 0 && len(agent.respondersFor(sni)) == 0) || p.CA == nil {
 		// Nothing to inject: pass the TLS session through untouched.
 		up, addr, err := p.dialUpstream(ctx, sni, netip.Addr{}, port)
 		ev := Event{AgentID: agent.ID, Kind: "tls", Host: sni, IP: addr.String(), Port: port}
@@ -492,10 +512,29 @@ func (p *Proxy) forwarder() http.Handler {
 			return
 		}
 		ev.Allowed = true
+		if base.scheme == "https" {
+			for _, res := range base.agent.respondersFor(host) {
+				sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+				if res.Handle(sw, r) {
+					ev.Status, ev.Reason = sw.status, "answered by agenthold"
+					return
+				}
+			}
+		}
 		info := *base
 		info.ev = ev
 		rp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), reqInfoKey, &info)))
 	})
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusWriter) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
 }
 
 func hostWithPort(host string, port int, scheme string) string {

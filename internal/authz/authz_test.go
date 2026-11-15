@@ -165,3 +165,28 @@ func TestCanInvite(t *testing.T) {
 		}
 	}
 }
+
+func TestLoginBinding(t *testing.T) {
+	tests := []struct {
+		actor, loginUser string
+		role             AgentRole
+		bind, unbind     bool
+	}{
+		{"alice", "alice", AgentAdmin, true, true},
+		{"alice", "alice", AgentOperator, false, true}, // may withdraw, not bind
+		{"alice", "alice", AgentViewer, false, true},
+		{"alice", "alice", AgentNone, false, false},
+		{"alice", "bob", AgentAdmin, false, true}, // admins detach others' logins, never attach them
+		{"alice", "bob", AgentOperator, false, false},
+		{"alice", "bob", AgentViewer, false, false},
+		{"", "", AgentAdmin, false, true},
+	}
+	for _, tt := range tests {
+		if got := CanBindLogin(tt.actor, tt.loginUser, tt.role); got != tt.bind {
+			t.Errorf("CanBindLogin(%s, %s, %s) = %v", tt.actor, tt.loginUser, tt.role, got)
+		}
+		if got := CanUnbindLogin(tt.actor, tt.loginUser, tt.role); got != tt.unbind {
+			t.Errorf("CanUnbindLogin(%s, %s, %s) = %v", tt.actor, tt.loginUser, tt.role, got)
+		}
+	}
+}

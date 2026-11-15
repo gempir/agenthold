@@ -18,6 +18,8 @@ tags:
   - name: sessions
   - name: sharing
   - name: tokens
+  - name: provider-logins
+    description: Claude Code and Codex logins kept on your account and used by your agents.
   - name: triggers
     description: Schedules and webhooks.
   - name: tools
@@ -1261,6 +1263,87 @@ paths:
         "204": { description: Revoked. }
         "404": { $ref: "#/components/responses/Error" }
 
+  /me/provider-logins:
+    get:
+      operationId: listProviderLogins
+      tags: [provider-logins]
+      description: |
+        Harnesses whose login can live on your account, whether you connected
+        each, and which agents use your logins. Credentials are never returned.
+      responses:
+        "200":
+          description: One entry per harness with account logins.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ProviderLoginInfo" }
+
+  /me/provider-logins/{provider}:
+    parameters:
+      - { name: provider, in: path, required: true, schema: { type: string }, description: Harness id (claude-code, codex). }
+    put:
+      operationId: connectProviderLogin
+      tags: [provider-logins]
+      description: |
+        Connect (or replace) your login for a harness. The credential is
+        checked, stored encrypted and never shown again. Only from a browser
+        session, not with an API token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProviderLoginInput" }
+      responses:
+        "200":
+          description: Connected.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProviderLoginInfo" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: disconnectProviderLogin
+      tags: [provider-logins]
+      description: Delete your login for a harness. Agents using it lose access at once.
+      responses:
+        "204": { description: Disconnected. }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/login:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    put:
+      operationId: useMyLogins
+      tags: [provider-logins]
+      description: |
+        Make the agent's harness use your account logins. Agent admins only,
+        and only for themselves. Everyone who can prompt the agent then uses
+        your login through it.
+      responses:
+        "200":
+          description: The agent.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: stopUsingLogins
+      tags: [provider-logins]
+      description: |
+        Stop using account logins: the harness then uses what is signed in
+        inside its sandbox. Agent admins, and the login's owner.
+      responses:
+        "200":
+          description: The agent.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
   /agents/{agentId}/schedules:
     parameters:
       - $ref: "#/components/parameters/AgentId"
@@ -1584,7 +1667,7 @@ components:
 
     Agent:
       type: object
-      required: [id, workspaceId, name, owner, image, harness, model, permissionPolicy, credentialsInSandbox, cpus, memoryMb, idleMinutes, state, stateError, stateChangedAt, needsRebuild, role, createdAt, updatedAt]
+      required: [id, workspaceId, name, owner, image, harness, model, permissionPolicy, credentialsInSandbox, login, cpus, memoryMb, idleMinutes, state, stateError, stateChangedAt, needsRebuild, role, createdAt, updatedAt]
       properties:
         id: { type: string }
         workspaceId: { type: string }
@@ -1606,6 +1689,7 @@ components:
         credentialsInSandbox:
           type: boolean
           description: A harness login was completed inside the sandbox; the agent can read its own credentials.
+        login: { $ref: "#/components/schemas/AgentLogin" }
         lastActivityAt:
           type: string
           format: date-time
@@ -1765,15 +1849,89 @@ components:
 
     HarnessType:
       type: object
-      required: [id, name, default, secretPresets, installHint]
+      required: [id, name, default, secretPresets, installHint, accountLogins]
       properties:
         id: { type: string }
+        accountLogins: { type: boolean, description: Its login can live on the user's account (/me/provider-logins). }
         default: { type: boolean, description: Used when an agent does not name a harness. }
         name: { type: string }
         secretPresets:
           type: array
           items: { type: string }
         installHint: { type: string }
+
+    AgentLogin:
+      type: object
+      description: Which login the agent's harness uses.
+      required: [source, connected, mine]
+      properties:
+        source:
+          type: string
+          enum: [account, secret, sandbox, unsupported]
+          description: |
+            account: the account login of `user`. secret: an API key secret attached to the agent wins.
+            sandbox: whatever is signed in inside the sandbox. unsupported: the harness has no account logins.
+        user:
+          $ref: "#/components/schemas/User"
+          description: Whose account logins the agent uses.
+        mine: { type: boolean, description: You are that user. }
+        connected: { type: boolean, description: That user has connected a login for the agent's harness. }
+        kind: { type: string, description: How that login was connected. }
+        status: { type: string, enum: [ok, error] }
+        reason: { type: string, description: Why the account login is not used although a user is set. }
+
+    ProviderLoginKind:
+      type: object
+      required: [id, name, description, inputLabel, multiline]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        command: { type: string, description: What to run on your own computer to get the credential. }
+        inputLabel: { type: string }
+        multiline: { type: boolean }
+
+    ProviderLogin:
+      type: object
+      required: [kind, label, status, statusMessage, connectedAt]
+      properties:
+        kind: { type: string }
+        label: { type: string, description: Describes the login without revealing it. }
+        status: { type: string, enum: [ok, error] }
+        statusMessage: { type: string }
+        expiresAt: { type: string, format: date-time }
+        connectedAt: { type: string, format: date-time }
+        lastUsedAt: { type: string, format: date-time }
+
+    ProviderLoginInfo:
+      type: object
+      required: [provider, name, kinds, agents]
+      properties:
+        provider: { type: string, description: Harness id. }
+        name: { type: string }
+        kinds:
+          type: array
+          items: { $ref: "#/components/schemas/ProviderLoginKind" }
+        login: { $ref: "#/components/schemas/ProviderLogin" }
+        agents:
+          type: array
+          description: Agents with this harness that use your logins.
+          items: { $ref: "#/components/schemas/LoginAgent" }
+
+    LoginAgent:
+      type: object
+      required: [id, name, workspaceId]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        workspaceId: { type: string }
+
+    ProviderLoginInput:
+      type: object
+      required: [kind, credential]
+      properties:
+        kind: { type: string }
+        credential: { type: string, minLength: 1, maxLength: 65536, description: The token, key or file contents. Never returned. }
 
     AuthMethodInfo:
       type: object

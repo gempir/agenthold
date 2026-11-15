@@ -263,6 +263,35 @@ it('lands in the most recent chat across agents', async () => {
   expect(within(chats).getAllByRole('link')).toHaveLength(1);
 });
 
+it('does not land in an agent that is being deleted', async () => {
+  vi.stubGlobal('WebSocket', FakeSocket);
+  mockApi({
+    'GET /me': me,
+    'GET /workspaces': [ws],
+    'GET /harnesses': [],
+    'GET /workspaces/w1/agents': [
+      agent({ id: 'a1', name: 'one', state: 'running' }),
+      agent({ id: 'a2', name: 'two', state: 'destroying' }),
+    ],
+    'GET /agents/a1/sessions': [
+      session({ id: 's1', title: 'Older', updatedAt: '2030-01-01T00:00:00Z' }),
+    ],
+    'GET /agents/a2/sessions': [
+      session({
+        id: 's2',
+        agentId: 'a2',
+        title: 'Newest',
+        updatedAt: '2030-01-02T00:00:00Z',
+      }),
+    ],
+    'GET /agents/a1': agent({ id: 'a1', name: 'one', state: 'running' }),
+  });
+  const { router } = renderApp('/');
+  await vi.waitFor(() => expect(router.state.location.href).toBe('/a/a1?s=s1'));
+  const chats = await screen.findByRole('list', { name: 'Chats' });
+  expect(within(chats).queryByText('Newest')).not.toBeInTheDocument();
+});
+
 it('starts a chat from the draft composer', async () => {
   vi.stubGlobal('WebSocket', FakeSocket);
   const { calls } = mockApi({

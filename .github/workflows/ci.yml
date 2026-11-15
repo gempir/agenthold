@@ -3,7 +3,11 @@ name: ci
 on:
   push:
     branches: [main]
+    # The documentation site has its own workflow (docs.yml); a docs change
+    # should neither run the whole suite nor redeploy the app.
+    paths-ignore: ["docs/**", "**.md"]
   pull_request:
+    paths-ignore: ["docs/**", "**.md"]
 
 permissions:
   contents: read
@@ -101,9 +105,22 @@ jobs:
           cache-from: type=gha,scope=base-image
           cache-to: type=gha,mode=max,scope=base-image
 
+  # The end-to-end checks run as parallel shards, each on its own stack, so the
+  # slowest single check (sleep, ~3 minutes by nature) sets the wall time.
   e2e:
+    name: e2e (${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: sleep
+            checks: sleep
+          - shard: api
+            checks: sessions api agents
+          - shard: ui
+            checks: ""
     env:
       E2E_IMAGE: debian:trixie-slim
       E2E_USER: root
@@ -123,10 +140,21 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - name: Build the UI
         run: make web
+      - uses: docker/setup-buildx-action@v4
+      # The server image only holds the Go toolchain and air; cache it.
+      - uses: docker/build-push-action@v7
+        with:
+          context: deploy
+          file: deploy/Dockerfile.dev
+          load: true
+          tags: agenthold-dev-server
+          cache-from: type=gha,scope=dev-server
+          cache-to: type=gha,mode=max,scope=dev-server
       - name: Start the dev stack
         run: |
           docker pull "$E2E_IMAGE"
-          docker compose -f deploy/docker-compose.dev.yml up -d --build
+          # The UI is served from the embedded build, so Vite (the web service) is not needed.
+          docker compose -f deploy/docker-compose.dev.yml up -d --no-build --no-deps server keycloak
           for i in $(seq 1 120); do
             curl -sf localhost:8081/realms/agenthold/.well-known/openid-configuration >/dev/null &&
             curl -sf localhost:8080/api/v1/auth/providers | grep -q keycloak && break
@@ -134,8 +162,10 @@ jobs:
           done
           sleep 5
       - name: End-to-end checks
-        run: scripts/e2e/run-all.sh
+        if: matrix.checks != ''
+        run: scripts/e2e/run-all.sh ${{ matrix.checks }}
       - name: UI tests (Playwright)
+        if: matrix.shard == 'ui'
         working-directory: web
         run: |
           pnpm exec playwright install --with-deps chromium
@@ -144,9 +174,10 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: web/test-results
+          if-no-files-found: ignore
           retention-days: 7
       - name: Logs
         if: failure()
-        run: docker compose -f deploy/docker-compose.dev.yml logs --tail 200 server web
+        run: docker compose -f deploy/docker-compose.dev.yml logs --tail 200 server keycloak

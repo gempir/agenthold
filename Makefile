@@ -86,3 +86,20 @@ gen-go-api:
 ## gen-api: regenerate web/src/api/schema.d.ts from api/openapi.yaml
 gen-api: web-deps
 	cd web && $(PNPM) gen:api
+
+.PHONY: dev-vm dev-vm-shell dev-vm-delete
+
+## dev-vm: create/start the Lima dev VM "agenthold" (nested virtualization, /dev/kvm)
+dev-vm:
+	@command -v limactl >/dev/null || { echo "limactl not found: brew install lima"; exit 1; }
+	@limactl list -q 2>/dev/null | grep -qx agenthold || \
+		limactl create --tty=false --name=agenthold --mount-only '$(CURDIR):w' deploy/dev/lima.yaml
+	@limactl list --format '{{.Status}}' agenthold 2>/dev/null | grep -qx Running || limactl start agenthold
+
+## dev-vm-shell: open a shell in the dev VM, in the repo directory
+dev-vm-shell: dev-vm
+	limactl shell --workdir '$(CURDIR)' agenthold
+
+## dev-vm-delete: destroy the dev VM and its disk
+dev-vm-delete:
+	limactl delete --force agenthold

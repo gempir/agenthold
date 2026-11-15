@@ -1,0 +1,107 @@
+# Dev VM for agenthold: Ubuntu 24.04 (arm64) under Apple Virtualization.framework
+# with nested virtualization, so Firecracker gets a real /dev/kvm.
+#
+#   make dev-vm          create/start the instance "agenthold"
+#   make dev-vm-shell    shell inside it
+#   make dev-vm-delete   destroy it
+#
+# Needs an Apple M3 or newer and macOS 15 or newer (nested virtualization).
+# OrbStack machines have no /dev/kvm; this is why Lima is used.
+#
+# The mount below assumes the repo lives at ~/dev/agenthold. `make dev-vm` overrides it with the
+# real checkout path (--mount-only), so the repo is always mounted at the same path as on the Mac.
+
+minimumLimaVersion: 2.0.0
+
+base:
+  - template:_images/ubuntu-24.04
+
+vmType: vz
+nestedVirtualization: true
+
+arch: aarch64
+cpus: 6
+memory: 8GiB
+disk: 40GiB
+
+mountType: virtiofs
+mounts:
+  - location: "~/dev/agenthold"
+    writable: true
+
+# Only the dev server port is forwarded to the Mac; guest-side listeners (spike, Firecracker
+# API sockets, proxies) stay inside the VM.
+portForwards:
+  - guestPort: 8080
+    hostPort: 8080
+  - guestPortRange: [1, 65535]
+    ignore: true
+
+containerd:
+  system: false
+  user: false
+
+# Fail `limactl start` with a clear message when nested virtualization is not available.
+probes:
+  - description: "/dev/kvm is present (nested virtualization)"
+    script: |
+      #!/bin/bash
+      set -eu
+      if [ ! -c /dev/kvm ]; then
+        echo >&2 "/dev/kvm is missing: nested virtualization needs an Apple M3+ and macOS 15+"
+        exit 1
+      fi
+    hint: "Nested virtualization is unavailable on this Mac (needs Apple M3 or newer, macOS 15 or newer)."
+
+provision:
+  # Host-side packages the later milestones need (nftables for guest isolation, iproute2 for
+  # tap devices, e2fsprogs/squashfs-tools for building rootfs images).
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y --no-install-recommends \
+        ca-certificates curl jq nftables iproute2 e2fsprogs squashfs-tools netcat-openbsd \
+        procps make git build-essential
+
+  # Go: same toolchain as go.mod's `toolchain` line (go1.26.11).
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      GO_VERSION=1.26.11
+      GO_SHA256=6c2f29b458b5add0835f18b776f69c8881a6d88428f1484a6da55755e620757e
+      if [ -x /usr/local/go/bin/go ] && /usr/local/go/bin/go version | grep -q "go${GO_VERSION} "; then
+        exit 0
+      fi
+      tmp="$(mktemp -d)"
+      trap 'rm -rf "$tmp"' EXIT
+      curl -fsSL -o "$tmp/go.tgz" "https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz"
+      echo "${GO_SHA256}  $tmp/go.tgz" | sha256sum -c -
+      rm -rf /usr/local/go
+      tar -C /usr/local -xzf "$tmp/go.tgz"
+      ln -sf /usr/local/go/bin/go /usr/local/bin/go
+      ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+
+  # /dev/kvm usable by the Lima user (dev VM only, so a permissive rule is fine), and sudo
+  # without a password is already provided by Lima.
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' > /etc/udev/rules.d/99-kvm.rules
+      udevadm control --reload-rules || true
+      udevadm trigger --subsystem-match=misc --sysname-match=kvm || true
+      [ -c /dev/kvm ] && chmod 0666 /dev/kvm || true
+      usermod -aG kvm "{{.User}}"
+      # tap devices and nftables need these in the VM.
+      echo 'net.ipv4.ip_forward=1' > /etc/sysctl.d/99-agenthold.conf
+      sysctl --system >/dev/null
+
+message: |
+  agenthold dev VM is up.
+    shell:   make dev-vm-shell
+    spike:   scripts/spike/firecracker.sh
+    repo:    mounted writable at the same path as on the Mac

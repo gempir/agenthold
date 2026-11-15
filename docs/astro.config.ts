@@ -29,6 +29,7 @@ const nimbusConfig = defineNimbusConfig({
       },
       { label: "Sign-in", items: ["auth", "auth-github", "auth-keycloak"] },
       { label: "Security", items: ["security", "egress", "hardening"] },
+      { label: "Contributing", items: ["development"] },
       { label: "API reference", autogenerate: { collection: "api" } },
     ],
   },

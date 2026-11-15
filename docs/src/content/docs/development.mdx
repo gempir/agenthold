@@ -1,0 +1,116 @@
+---
+title: "Development"
+description: "The dev VM for agenthold: Lima with nested virtualization on macOS, the pinned Firecracker, kernel and rootfs, and the spike script that proves a microVM boots."
+---
+
+Sandboxes are Firecracker microVMs, so development needs `/dev/kvm`. On a Mac that means a Linux VM with
+nested virtualization. OrbStack machines have no `/dev/kvm`; use Lima with `vmType: vz` instead.
+
+Requirements: Apple M3 or newer, macOS 15 or newer, [Lima](https://lima-vm.io) (`brew install lima`).
+Tested with Lima 2.3.0 on an M4 with macOS 27.0.1.
+
+## Dev VM
+
+```sh
+make dev-vm          # create (first time) and start the VM "agenthold"; idempotent
+make dev-vm-shell    # shell inside it, in the repo directory
+make dev-vm-delete   # destroy it
+```
+
+The template is `deploy/dev/lima.yaml`:
+
+| | |
+| --- | --- |
+| Image | Ubuntu 24.04 LTS arm64 (kernel 6.8), `vmType: vz`, `nestedVirtualization: true` |
+| Size | 6 CPUs, 8 GiB RAM, 40 GiB disk |
+| Repo | mounted writable (virtiofs) at the same path as on the Mac |
+| Ports | 8080 is forwarded to the Mac; nothing else is |
+| Installed | Go 1.26.11 (matches `go.mod`), nftables, iproute2, e2fsprogs, squashfs-tools, curl, jq, netcat, make, git |
+| KVM | `/dev/kvm` is made `0666` by a udev rule (dev VM only); a start probe fails with a clear message if it is missing |
+
+The first `make dev-vm` takes about a minute (image download and provisioning); later starts take seconds.
+
+## Firecracker spike
+
+```sh
+scripts/spike/firecracker.sh
+```
+
+Run it from macOS. It starts the VM if needed, re-runs itself inside it as root, and then:
+
+1. downloads and verifies the pinned artifacts (cached in `/var/cache/agenthold-spike` in the VM),
+2. builds a throwaway ext4 rootfs from the Ubuntu squashfs, with a small init script,
+3. creates a tap device `fcspike0` with a /30 (`172.31.255.1` host, `172.31.255.2` guest) and a TCP listener on it,
+4. boots the microVM through the Firecracker API socket (guest address through the kernel `ip=` argument),
+5. checks that the guest printed `uname -a` on the serial console **and** connected to the host listener over
+   the tap and got a random per-run token back,
+6. lets the guest power itself off and removes the tap.
+
+It exits non-zero if either check fails and can be re-run at any time. The serial log of the last run is kept
+at `/var/cache/agenthold-spike/last-serial.log` in the VM.
+
+### Pinned versions
+
+| Artifact | Version | Source and check |
+| --- | --- | --- |
+| Firecracker | v1.18.0 (aarch64) | `github.com/firecracker-microvm/firecracker/releases/download/v1.18.0/firecracker-v1.18.0-aarch64.tgz`; sha256 `2a6130ff…c0c2` checked against the release's own `.sha256.txt` and the pin |
+| Guest kernel | 6.1.188 (`vmlinux-6.1.188`, an arm64 `Image`) | Firecracker CI artifacts, `s3.amazonaws.com/spec.ccfc.min/firecracker-ci/20261111-778a26c0594c-0/aarch64/`; sha256 `7e7f3c70…0da4` (pinned here, CI publishes none) |
+| Kernel config | `vmlinux-6.1.188.config` | same directory; sha256 `d52cc45c…87d9` |
+| Rootfs | `ubuntu-24.04.squashfs` | same directory; sha256 `fc6e9a41…39b9` (pinned here); converted to a 470 MiB ext4 |
+
+The same CI directory also offers kernels 5.10.271 and 6.18.62; only 6.1 was tried.
+
+### Measured
+
+On the M4 inside the Lima VM (nested virtualization), guest with 2 vCPUs and 512 MiB:
+
+| | |
+| --- | --- |
+| `InstanceStart` to the guest's init running | about 2.7 s (guest kernel uptime at init: about 1.96 s) |
+| `InstanceStart` to the TCP exchange done | about 2.9 s |
+| `InstanceStart` to Firecracker exit | about 3.0 s |
+| Whole script, warm cache | about 4 s |
+| Whole script, cold (downloads, rootfs build) | about 15 s |
+
+This is nested, on an Ubuntu rootfs booting a single bash script as init; it says nothing about bare metal or
+about a booted systemd.
+
+## Findings
+
+- **Nested virtualization works** with `vmType: vz` and `nestedVirtualization: true`; `/dev/kvm` appears in the
+  guest and Firecracker uses it without any extra flags (no `--enable-pci` needed).
+- **Firecracker CI artifacts have no checksums.** Only the release tarball publishes one, so the kernel, its
+  config and the rootfs are pinned by hash in the script.
+- **The guest powers off by itself.** `poweroff -f` in the guest makes the Firecracker process exit (no API
+  call needed on aarch64). The serial console is Firecracker's stdout.
+- **Hostname.** With the `ip=` kernel argument the guest hostname becomes its IP address.
+- **Group membership is not enough for `/dev/kvm`.** Adding the Lima user to `kvm` does not reach already open
+  SSH sessions, hence the udev rule.
+- **Mac needs M3 or newer**; on older chips the VM starts but the probe on `/dev/kvm` fails.
+
+### Kernel config (6.1.188, Firecracker CI aarch64)
+
+Read from the published config; `/proc/filesystems` in the guest confirms `overlay`, `ext4`, `xfs`, `fuse`,
+`squashfs`.
+
+Present (built in): `OVERLAY_FS`, `EXT4_FS`, `XFS_FS`, `FUSE_FS`, `SQUASHFS`, `VIRTIO_BLK`, `VIRTIO_NET`,
+`VIRTIO_MMIO`, `VIRTIO_VSOCKETS`, `VIRTIO_BALLOON`, `IP_PNP`, `TUN`, namespaces including `USER_NS` and `NET_NS`,
+cgroups with `MEMCG`, `CGROUP_PIDS`, `CPUSETS`, `CFS_BANDWIDTH`, `BLK_CGROUP`, `CGROUP_DEVICE`, `CGROUP_FREEZER`,
+`SECCOMP`, `VETH`, `BRIDGE`, `VXLAN`, netfilter with `NF_TABLES`, `NFT_COMPAT`, `NF_NAT`, `NF_CONNTRACK`, iptables
+filter/NAT/`MASQUERADE`, `xt_addrtype`, `xt_conntrack`.
+
+Missing:
+
+- `MODULES` is off. Everything is built in and nothing can be loaded later, so any missing option means a
+  custom kernel.
+- Netfilter: `NF_TABLES_INET` (no nftables `inet` family inside the guest, use `ip`), `NFT_MASQ`, `NFT_REDIR`,
+  `xt_comment`, `xt_multiport`, `xt_state`, `xt_mark` match, `IP_VS`.
+- Network drivers: `MACVLAN`, `IPVLAN`, `DUMMY`, `INET_ESP`.
+- Filesystem: `BTRFS_FS`. Overlayfs has none of the optional features (`METACOPY`, `INDEX`, `XINO_AUTO`,
+  `REDIRECT_DIR`).
+
+Docker-in-guest: the core (overlayfs, veth, bridge, NAT/masquerade/conntrack/addrtype, cgroup controllers, user
+namespaces) is there, so `dockerd` with the `overlay2` driver and the default bridge should work. This is
+**not tested**. Likely gaps are `xt_comment`/`xt_multiport` (some iptables rules Docker or its users add) and
+`IP_VS`/`INET_ESP` (swarm and encrypted overlay networks). Verify with a real `dockerd` before pinning a kernel
+for production; the planned kernel pin (N2) may need its own config.

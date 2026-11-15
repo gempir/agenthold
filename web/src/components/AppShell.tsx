@@ -138,6 +138,12 @@ export function AppShell() {
             >
               API tokens
             </Link>
+            <Link
+              to="/settings/providers"
+              className="text-sm text-muted-foreground hover:underline"
+            >
+              Provider logins
+            </Link>
             <Button variant="ghost" size="sm" onClick={() => logout.mutate()}>
               Sign out
             </Button>

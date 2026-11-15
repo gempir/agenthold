@@ -73,11 +73,13 @@ test('chat with an agent', async ({ page, browser }) => {
   await other.close();
 
   // Clean up from the agent's settings.
+  const agentId = new URL(url).pathname.split('/')[2];
   await page.getByRole('link', { name: 'Agent settings' }).click();
   await page.getByRole('button', { name: 'Delete' }).click();
   await page
     .getByRole('dialog')
     .getByRole('button', { name: 'Delete agent' })
     .click();
-  await expect(page).not.toHaveURL(/\/a\//);
+  // Deleting is asynchronous; the app must leave the agent, not land back in it.
+  await expect(page).not.toHaveURL(new RegExp(agentId));
 });

@@ -34,8 +34,12 @@ export function useChatIndex() {
   });
   const agents: { agent: Agent; workspace: Workspace }[] = [];
   agentQs.forEach((q, i) => {
+    // Deleting an agent is asynchronous: it stays listed as "destroying" until
+    // its sandbox is gone. Offering it would send the landing page (and the
+    // sidebar) back into the agent that was just deleted.
     for (const a of q.data ?? [])
-      agents.push({ agent: a, workspace: wsList[i] });
+      if (a.state !== 'destroying')
+        agents.push({ agent: a, workspace: wsList[i] });
   });
   const sessionQs = useQueries({
     queries: agents.map(({ agent }) => ({

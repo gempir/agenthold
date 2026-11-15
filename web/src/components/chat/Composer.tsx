@@ -16,6 +16,7 @@ export function Composer({
   onStop,
   running = false,
   busy = false,
+  disabled = false,
   placeholder,
   autoFocus,
   meta,
@@ -28,6 +29,7 @@ export function Composer({
   running?: boolean;
   /** A send or stop request is in flight. */
   busy?: boolean;
+  disabled?: boolean;
   placeholder: string;
   autoFocus?: boolean;
   /** Shown at the lower left, e.g. the harness and model. */
@@ -35,7 +37,7 @@ export function Composer({
   className?: string;
 }) {
   const box = useRef<HTMLTextAreaElement>(null);
-  const canSend = !!value.trim() && !running && !busy;
+  const canSend = !!value.trim() && !running && !busy && !disabled;
 
   // Grow with the text up to a cap, then scroll.
   useLayoutEffect(() => {
@@ -65,6 +67,7 @@ export function Composer({
         rows={2}
         value={value}
         autoFocus={autoFocus}
+        disabled={disabled}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
@@ -84,7 +87,7 @@ export function Composer({
             type="button"
             aria-label="Stop"
             title="Stop"
-            disabled={busy}
+            disabled={busy || disabled}
             onClick={onStop}
             className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90 disabled:opacity-50"
           >

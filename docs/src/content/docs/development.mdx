@@ -31,9 +31,16 @@ The template installs Go, nftables and build tools and fails its startup probe i
 make test             # Go and web tests without KVM
 make test-kvm         # KVM-tagged tests (root in the Linux VM)
 make test-guest       # boot guest, exercise tunnel and persistent disks
+scripts/e2e/edge.sh   # controller without a local node + Firecracker edge node (in the VM)
 make lint
 make build
 ```
+
+`make test-go` runs the API suite twice: once against the in-process node and once with
+`AGENTHOLD_TEST_NODE=remote`, where the same fake node joins over TLS as an [edge node](/edge-nodes/).
+`scripts/e2e/edge.sh` builds the binaries, runs a controller with `sandbox.driver: none` and a Firecracker
+node in its own network namespace inside the Lima VM, and drives chat, terminal, files, sleep/wake, a node
+outage and secret injection through the API (it needs internet access for an HTTPS echo service).
 
 The fake driver runs sandbox processes on the host and is for tests and UI development only. For browser
 smoke tests configure `sandbox.driver: fake` on a development-only server, build `sandboxd` and `fakeagent`

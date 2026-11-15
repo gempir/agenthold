@@ -89,11 +89,46 @@ it('lets an owner reset the system without an image setting', async () => {
   );
 });
 
+it('shows an offline node and disables sandbox controls', async () => {
+  mockApi({
+    'GET /me': me,
+    'GET /agents/a1': agent({
+      role: 'owner',
+      state: 'unreachable',
+      nodeId: 'edge-1',
+      nodeName: 'Remote host',
+    }),
+    'GET /agents/a1/sessions': [],
+    'GET /harnesses': [],
+  });
+  renderApp('/a/a1/settings');
+  expect(await screen.findByText('Node offline')).toBeVisible();
+  expect(screen.getByText(/Remote host is offline/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Stop' })).toBeDisabled();
+});
+
+it('disables the chat composer while the assigned node is offline', async () => {
+  mockApi({
+    'GET /me': me,
+    'GET /agents/a1': agent({
+      state: 'unreachable',
+      nodeId: 'edge-1',
+      nodeName: 'Remote host',
+    }),
+    'GET /agents/a1/sessions': [],
+    'GET /harnesses': [],
+  });
+  renderApp('/a/a1');
+  expect(await screen.findByText(/Remote host is offline/)).toBeVisible();
+  expect(screen.getByRole('textbox', { name: 'Message' })).toBeDisabled();
+});
+
 it('polls fast while transient and slowly while running', () => {
   expect(agentPollInterval(agent({ state: 'starting' }))).toBe(1000);
   expect(agentPollInterval(agent({ state: 'destroying' }))).toBe(1000);
   expect(agentPollInterval(agent({ state: 'running' }))).toBe(10_000);
-  expect(agentPollInterval(agent({ state: 'sleeping' }))).toBe(false);
+  expect(agentPollInterval(agent({ state: 'sleeping' }))).toBe(10_000);
   expect(agentPollInterval(undefined)).toBe(false);
   expect(
     agentsPollInterval([
@@ -101,7 +136,7 @@ it('polls fast while transient and slowly while running', () => {
       agent({ state: 'creating' }),
     ]),
   ).toBe(1000);
-  expect(agentsPollInterval([agent({ state: 'sleeping' })])).toBe(false);
+  expect(agentsPollInterval([agent({ state: 'sleeping' })])).toBe(10_000);
 });
 
 it('badge shows Asleep and sleeps-in text', () => {

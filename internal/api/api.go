@@ -33,13 +33,15 @@ type Deps struct {
 	PublicURL string
 	Sandboxes *sandbox.Manager
 	Node      node.Node
-	Box       *secrets.Box
-	Egress    *egress.Directory
-	Sessions  *session.Manager
-	Idle      *idle.Sleeper
-	Audit     *audit.Log
-	Triggers  *trigger.Runner
-	Logins    *logins.Service
+	// Nodes manages edge nodes; nil when the server has only an in-process node.
+	Nodes    NodeAdmin
+	Box      *secrets.Box
+	Egress   *egress.Directory
+	Sessions *session.Manager
+	Idle     *idle.Sleeper
+	Audit    *audit.Log
+	Triggers *trigger.Runner
+	Logins   *logins.Service
 	// ShowTestHarness lists the scripted test harness (development).
 	ShowTestHarness bool
 	Limits          config.Sandbox

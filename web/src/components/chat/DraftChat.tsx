@@ -13,6 +13,7 @@ export function DraftChat({
   notice,
   placeholder = 'Message the agent',
   readOnly,
+  disabled,
   pending,
   error,
   onSend,
@@ -25,6 +26,7 @@ export function DraftChat({
   placeholder?: string;
   /** Viewers cannot start conversations. */
   readOnly?: boolean;
+  disabled?: boolean;
   pending?: boolean;
   error?: unknown;
   onSend: (text: string) => void;
@@ -53,6 +55,7 @@ export function DraftChat({
               value={text}
               onChange={setText}
               busy={pending}
+              disabled={disabled}
               autoFocus
               meta={meta}
               placeholder={placeholder}

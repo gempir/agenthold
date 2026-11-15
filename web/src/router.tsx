@@ -20,6 +20,7 @@ import { AgentSettingsPage } from '@/pages/AgentSettingsPage';
 import { HomePage } from '@/pages/HomePage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NewChatPage } from '@/pages/NewChatPage';
+import { NodesPage } from '@/pages/NodesPage';
 import { ProvidersPage } from '@/pages/ProvidersPage';
 import {
   AgentsSettingsPage,
@@ -130,6 +131,12 @@ const tokensRoute = createRoute({
   component: TokensPage,
 });
 
+const nodesRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/nodes',
+  component: NodesPage,
+});
+
 const providersRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: '/providers',
@@ -168,6 +175,7 @@ const routeTree = rootRoute.addChildren([
       toolsRoute,
       tokensRoute,
       providersRoute,
+      nodesRoute,
     ]),
   ]),
 ]);

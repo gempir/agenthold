@@ -34,6 +34,12 @@ export function AgentControls({
       <div className="flex flex-wrap items-center gap-2">
         <AgentStateBadge state={a.state} sleepsAt={a.sleepsAt} />
       </div>
+      {a.state === 'unreachable' && (
+        <p role="status" className="text-sm text-destructive">
+          {a.nodeName || 'The assigned node'} is offline. This agent will be
+          available when the node reconnects.
+        </p>
+      )}
       {a.state === 'error' && a.stateError && (
         <p
           role="alert"
@@ -51,20 +57,24 @@ export function AgentControls({
       )}
       {canUse && (
         <div className="flex flex-wrap gap-2">
-          {(a.state === 'sleeping' || a.state === 'error') && (
+          {(a.state === 'sleeping' ||
+            a.state === 'error' ||
+            a.state === 'unreachable') && (
             <Button
               size={compact ? 'sm' : 'default'}
-              disabled={busy}
+              disabled={busy || a.state === 'unreachable'}
               onClick={() => action.mutate('start')}
             >
               Start
             </Button>
           )}
-          {(a.state === 'running' || a.state === 'error') && (
+          {(a.state === 'running' ||
+            a.state === 'error' ||
+            a.state === 'unreachable') && (
             <Button
               size={compact ? 'sm' : 'default'}
               variant="outline"
-              disabled={busy}
+              disabled={busy || a.state === 'unreachable'}
               onClick={() => action.mutate('stop')}
             >
               Stop
@@ -111,6 +121,12 @@ export function AgentDetails({
         className,
       )}
     >
+      {a.nodeId && (
+        <>
+          <dt className="text-muted-foreground">Node</dt>
+          <dd>{a.nodeName || a.nodeId}</dd>
+        </>
+      )}
       <dt className="text-muted-foreground">CPUs</dt>
       <dd>{a.cpus}</dd>
       <dt className="text-muted-foreground">Memory</dt>

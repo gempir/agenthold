@@ -32,6 +32,7 @@ func TestParseMemAvailable(t *testing.T) {
 		})
 	}
 }
+
 func TestMemAvailableFallback(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "meminfo")
@@ -41,14 +42,14 @@ func TestMemAvailableFallback(t *testing.T) {
 	if err != nil || got != 321 || calls != 1 {
 		t.Fatalf("missing file: %d %v calls %d", got, err, calls)
 	}
-	if err := os.WriteFile(path, []byte("MemAvailable: bad kB\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("MemAvailable: bad kB\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got, err = readLinuxAvailableMemory(path, fallback)
 	if err != nil || got != 321 || calls != 2 {
 		t.Fatalf("invalid value: %d %v calls %d", got, err, calls)
 	}
-	if err := os.WriteFile(path, []byte("MemAvailable: 5 kB\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("MemAvailable: 5 kB\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got, err = readLinuxAvailableMemory(path, fallback)

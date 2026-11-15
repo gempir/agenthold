@@ -275,6 +275,12 @@ func (m *Manager) background(agentID, op string, fn func(ctx context.Context) er
 		ctx, cancel := context.WithTimeout(m.ctx, 15*time.Minute)
 		defer cancel()
 		if err := fn(ctx); err != nil {
+			if errors.Is(err, ErrUnreachable) {
+				// Not the sandbox's fault: keep the transient phase, which
+				// ReconcileNode resolves when the node reconnects.
+				m.log.Warn("sandbox operation interrupted: node unreachable", "agent", agentID, "op", op, "err", err)
+				return
+			}
 			m.log.Warn("sandbox operation failed", "agent", agentID, "op", op, "err", err)
 			m.set(agentID, PhaseError, fmt.Sprintf("%s failed: %v", op, err))
 		}
@@ -301,12 +307,16 @@ func (m *Manager) NeedsRebuild(a db.Agent, sb db.Sandbox) bool {
 // transaction q) and returns a function that starts provisioning; call it
 // after the transaction commits.
 func (m *Manager) Provision(ctx context.Context, q *db.Queries, agentID string) (start func(), err error) {
-	name, err := m.driver.Name(ctx)
-	if err != nil {
+	var place Placement
+	if p, ok := m.driver.(Placer); ok {
+		if place, err = p.Place(ctx); err != nil {
+			return nil, err
+		}
+	} else if place.Driver, err = m.driver.Name(ctx); err != nil {
 		return nil, err
 	}
 	if err := q.CreateSandbox(ctx, db.CreateSandboxParams{
-		AgentID: agentID, Driver: name, State: string(PhaseCreating), StateChangedAt: m.now().Unix(),
+		AgentID: agentID, NodeID: place.NodeID, Driver: place.Driver, State: string(PhaseCreating), StateChangedAt: m.now().Unix(),
 	}); err != nil {
 		return nil, err
 	}
@@ -343,11 +353,23 @@ func (m *Manager) driverID(ctx context.Context, agentID string) (ID, error) {
 	return ID(sb.DriverID), nil
 }
 
+// Reachable returns an error wrapping ErrUnreachable when the agent's node is
+// disconnected. Lifecycle operations check it first so they fail fast.
+func (m *Manager) Reachable(ctx context.Context, agentID string) error {
+	if r, ok := m.driver.(Reachability); ok {
+		return r.Reachable(ctx, agentID)
+	}
+	return nil
+}
+
 // Start wakes a sleeping sandbox (or retries one in error).
 func (m *Manager) Start(ctx context.Context, agentID string) error {
 	sb, err := m.store.GetSandbox(ctx, agentID)
 	if err != nil {
 		return notFound(err)
+	}
+	if err := m.Reachable(ctx, agentID); err != nil {
+		return err
 	}
 	if sb.State == string(PhaseError) && sb.DriverID == "" {
 		// Creation failed before the driver produced a sandbox: retry it.
@@ -372,6 +394,9 @@ func (m *Manager) Start(ctx context.Context, agentID string) error {
 
 // Stop puts a sandbox to sleep; its disk is kept.
 func (m *Manager) Stop(ctx context.Context, agentID string) error {
+	if err := m.Reachable(ctx, agentID); err != nil {
+		return err
+	}
 	if err := m.transition(ctx, agentID, stopFrom, PhaseStopping); err != nil {
 		return err
 	}
@@ -398,6 +423,9 @@ func (m *Manager) Rebuild(ctx context.Context, agentID string) error {
 		return notFound(err)
 	}
 	wasRunning := sb.State == string(PhaseRunning)
+	if err := m.Reachable(ctx, agentID); err != nil {
+		return err
+	}
 	if err := m.transition(ctx, agentID, rebuildFrom, PhaseRebuilding); err != nil {
 		return err
 	}
@@ -439,6 +467,9 @@ func (m *Manager) disconnect(agentID string) {
 
 // Destroy removes the sandbox, its home volume and finally the agent row.
 func (m *Manager) Destroy(ctx context.Context, agentID string) error {
+	if err := m.Reachable(ctx, agentID); err != nil {
+		return err
+	}
 	if err := m.transition(ctx, agentID, destroyFrom, PhaseDestroying); err != nil {
 		return err
 	}
@@ -474,7 +505,24 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	return m.reconcile(ctx, sbs)
+}
+
+// ReconcileNode aligns the sandboxes of one node after it (re)connected.
+func (m *Manager) ReconcileNode(ctx context.Context, nodeID string) error {
+	sbs, err := m.store.ListNodeSandboxes(ctx, nodeID)
+	if err != nil {
+		return err
+	}
+	return m.reconcile(ctx, sbs)
+}
+
+func (m *Manager) reconcile(ctx context.Context, sbs []db.Sandbox) error {
 	for _, sb := range sbs {
+		if err := m.Reachable(ctx, sb.AgentID); err != nil {
+			// Reconciled by ReconcileNode once the node connects.
+			continue
+		}
 		phase := Phase(sb.State)
 		if phase == PhaseRunning || phase == PhaseStarting {
 			if err := m.driver.SetTunnelToken(ctx, sb.AgentID, sb.BootTokenHash); err != nil {

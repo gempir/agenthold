@@ -27,15 +27,13 @@ import (
 	"github.com/gempir/agenthold/internal/egress"
 	_ "github.com/gempir/agenthold/internal/harness/claude"
 	_ "github.com/gempir/agenthold/internal/harness/codex"
-	fakeharness "github.com/gempir/agenthold/internal/harness/fake"
 	_ "github.com/gempir/agenthold/internal/harness/opencode"
 	"github.com/gempir/agenthold/internal/idle"
 	"github.com/gempir/agenthold/internal/logins"
 	"github.com/gempir/agenthold/internal/node"
+	"github.com/gempir/agenthold/internal/node/enrollment"
 	"github.com/gempir/agenthold/internal/platform"
-	"github.com/gempir/agenthold/internal/runtimeassets"
 	"github.com/gempir/agenthold/internal/sandbox"
-	"github.com/gempir/agenthold/internal/sandbox/fake"
 	"github.com/gempir/agenthold/internal/sandbox/firecracker"
 	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/server"
@@ -63,6 +61,8 @@ func main() {
 			err = runHashPassword(os.Args[2:])
 		case "install":
 			err = runInstall(os.Args[2:])
+		case "node":
+			err = runNode(os.Args[2:])
 		default:
 			goto server
 		}
@@ -99,35 +99,12 @@ func run() error {
 	defer stop()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	if cfg.Sandbox.Driver == "firecracker" {
-		if err := firecracker.CheckHost(ctx); err != nil {
-			return err
-		}
-	}
 
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return err
 	}
-	if cfg.Sandbox.Driver == "firecracker" {
-		paths, err := runtimeassets.Prepare(ctx, cfg.DataDir)
-		if err != nil {
-			return fmt.Errorf("runtime artifacts: %w", err)
-		}
-		if paths.Bundled {
-			cfg.Sandbox.Firecracker.Binary = paths.Firecracker
-			cfg.Sandbox.Firecracker.Jailer = paths.Jailer
-			cfg.Sandbox.Firecracker.Kernel = paths.Kernel
-			cfg.Sandbox.Firecracker.BaseImage = paths.BaseImage
-			cfg.Sandbox.SandboxdPath = paths.Sandboxd
-			logger.Info("release runtime ready", "version", paths.Version, "base", paths.BaseImage)
-		} else {
-			base, err := runtimeassets.PinBase(ctx, cfg.DataDir, cfg.Sandbox.Firecracker.BaseImage)
-			if err != nil {
-				return fmt.Errorf("pin development base image: %w", err)
-			}
-			cfg.Sandbox.Firecracker.BaseImage = base
-		}
-	}
+	driverName := cfg.Sandbox.LocalDriver(firecracker.KVMPresent())
+	cfg.Sandbox.Driver = driverName
 	st, err := store.Open(ctx, cfg.Database.URL)
 	if err != nil {
 		return err
@@ -168,41 +145,39 @@ func run() error {
 	// Account logins: delivered to harnesses, injected by the proxy, refreshed here.
 	loginSvc := &logins.Service{Store: st, Box: box, Audit: auditLog, Log: logger, Invalidate: directory.Invalidate}
 	directory.Logins = loginSvc
-	egressOn := !cfg.Egress.Disabled
 
-	fw := &egress.Firewall{
-		Pool:      netip.MustParsePrefix(cfg.Sandbox.NetworkPool),
-		ProxyPort: cfg.Egress.ProxyPort, DNSPort: cfg.Egress.DNSPort,
-		OpenPorts: []int{tunnelPort, cfg.Egress.ExplicitPort},
+	// The built-in node exists only when this host runs VMs (or uses the fake driver).
+	clusterCfg := node.ClusterConfig{Store: st, CA: ca, Log: logger}
+	if driverName != "none" {
+		host, err := startLocalHost(ctx, cfg, driverName, logger)
+		if err != nil {
+			return err
+		}
+		if err := host.useCA(ctx, ca); err != nil {
+			return err
+		}
+		clusterCfg.Local = host.node
+		clusterCfg.LocalName, _ = os.Hostname()
+	} else {
+		logger.Info("no local node (sandbox.driver resolved to none): agents run on edge nodes only")
 	}
-	var localNode *node.Local
-	driver, err := newDriver(ctx, cfg, fw, func(ctx context.Context, id sandbox.ID) error {
-		return node.Client(localNode, string(id)).Shutdown(ctx)
-	}, logger)
+	var nodeIdentity *enrollment.Identity
+	if cfg.Nodes.Listen != config.NodesDisabled {
+		nodeIdentity, err = enrollment.LoadOrCreateIdentity(filepath.Join(cfg.DataDir, "nodes", "controller.pem"), "agenthold-controller")
+		if err != nil {
+			return fmt.Errorf("node listener identity: %w", err)
+		}
+		clusterCfg.Endpoint, clusterCfg.Fingerprint = cfg.Nodes.Advertise, nodeIdentity.Fingerprint
+	}
+	cluster, err := node.NewCluster(ctx, clusterCfg)
 	if err != nil {
 		return err
 	}
-	hub := tunnel.NewHub(func(ctx context.Context, agentID, token string) error {
-		return localNode.AuthenticateTunnel(ctx, agentID, token)
-	}, logger)
-	localNode = node.NewLocal(driver, hub)
-	localNode.SetDataDir(cfg.DataDir)
-	localNode.SetCA(ca)
-	if cfg.Sandbox.Driver == "firecracker" {
-		if err := fw.Install(); err != nil {
-			return fmt.Errorf("guest firewall: %w", err)
-		}
-	}
-	if egressOn {
-		if err := startEgress(ctx, cfg, ca, localNode.ProxyAgents(), logger); err != nil {
-			return fmt.Errorf("egress proxy: %w", err)
-		}
-	}
-	pusher := &node.ConfigPusher{Store: st, Directory: directory, Node: localNode}
+	pusher := &node.ConfigPusher{Store: st, Directory: directory, Node: cluster}
 	directory.OnInvalidate = func() {
 		if err := pusher.Sync(context.Background()); err != nil {
 			logger.Error("push proxy configuration", "err", err)
-			_ = localNode.SetAgentConfigs(context.Background(), nil)
+			_ = cluster.SetAgentConfigs(context.Background(), nil)
 		}
 	}
 	if err := pusher.Sync(ctx); err != nil {
@@ -210,7 +185,7 @@ func run() error {
 	}
 	go func() { _ = pusher.ServeIntercepts(ctx) }()
 	specForAgent := egress.SpecFunc(st, cfg.Egress.ExplicitPort)
-	if cfg.Sandbox.Driver == "firecracker" {
+	if driverName == "firecracker" {
 		baseSpec := specForAgent
 		baseRevision := cfg.Sandbox.Firecracker.BaseImage
 		specForAgent = func(a db.Agent) sandbox.Spec {
@@ -219,25 +194,37 @@ func run() error {
 			return s
 		}
 	}
-	sandboxes := sandbox.NewManagerWithNode(st, localNode, specForAgent, sandbox.Options{
+	sandboxes := sandbox.NewManagerWithNode(st, cluster, specForAgent, sandbox.Options{
 		TunnelPort: tunnelPort,
 	}, logger)
 	sandboxes.OnChange(func(string, sandbox.Phase) { directory.Invalidate() })
 	defer sandboxes.Close()
-
-	tunnelSrv := &http.Server{Addr: cfg.Sandbox.TunnelListen, Handler: tunnelMux(hub), ReadHeaderTimeout: 10 * time.Second}
-	tunnelLn, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.Sandbox.TunnelListen)
-	if err != nil {
-		return fmt.Errorf("tunnel listener: %w", err)
-	}
-	go func() {
-		if err := tunnelSrv.Serve(tunnelLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("tunnel listener", "err", err)
+	cluster.OnConnect(func(ctx context.Context, nodeID string) {
+		if err := pusher.Sync(ctx); err != nil {
+			logger.Error("push proxy configuration", "node", nodeID, "err", err)
 		}
-	}()
-	defer tunnelSrv.Close()
+		if err := sandboxes.ReconcileNode(ctx, nodeID); err != nil {
+			logger.Error("reconcile node", "node", nodeID, "err", err)
+		}
+	})
 	if err := sandboxes.Reconcile(ctx); err != nil {
 		return fmt.Errorf("reconcile sandboxes: %w", err)
+	}
+	if nodeIdentity != nil {
+		ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.Nodes.Listen)
+		if err != nil {
+			return fmt.Errorf("node listener: %w", err)
+		}
+		nodeSrv := &enrollment.Server{
+			Identity: nodeIdentity, Registry: cluster, Log: logger,
+			Handle: func(ctx context.Context, p enrollment.Peer, conn net.Conn) { cluster.Serve(ctx, p.ID, conn) },
+		}
+		go func() {
+			if err := nodeSrv.Serve(ctx, ln); err != nil && ctx.Err() == nil {
+				logger.Error("node listener", "err", err)
+			}
+		}()
+		logger.Info("edge node listener", "addr", cfg.Nodes.Listen, "advertise", cfg.Nodes.Advertise, "fingerprint", nodeIdentity.Fingerprint)
 	}
 
 	sessions := session.NewManager(st, nil, logger)
@@ -247,14 +234,14 @@ func run() error {
 	runner := &trigger.Runner{Store: st, Sessions: sessions, Audit: auditLog}
 	go (&trigger.Scheduler{Runner: runner, Log: logger}).Run(ctx)
 	platformCmd := sandbox.SandboxdDir + "/sandboxd"
-	if cfg.Sandbox.Driver == "fake" {
+	if driverName == "fake" {
 		platformCmd = cfg.Sandbox.SandboxdPath
 	}
 	sessions.SetTools(tools.Provider{Store: st, PlatformCommand: platformCmd})
 	platformSvc := &platform.Service{Store: st, Sessions: sessions, Audit: auditLog, Log: logger}
 	go func() {
 		for {
-			info, stream, err := localNode.NextIncoming(ctx)
+			info, stream, err := cluster.NextIncoming(ctx)
 			if err != nil {
 				return
 			}
@@ -265,7 +252,7 @@ func run() error {
 	tracker := idle.NewTracker()
 	sessions.OnActivity(tracker.Touch)
 	sleeper := &idle.Sleeper{
-		Store: st, Sandboxes: sandboxes, Tracker: tracker, Busy: sessions.AgentBusy, Node: localNode,
+		Store: st, Sandboxes: sandboxes, Tracker: tracker, Busy: sessions.AgentBusy, Node: cluster,
 		Log: logger, Interval: cfg.Sandbox.IdleCheckInterval,
 	}
 	go sleeper.Run(ctx)
@@ -281,9 +268,9 @@ func run() error {
 	})
 
 	apiSrv := api.New(api.Deps{
-		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Node: localNode, Limits: cfg.Sandbox,
+		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Node: cluster, Nodes: cluster, Limits: cfg.Sandbox,
 		Box: box, Egress: directory, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc,
-		ShowTestHarness: cfg.TestHarness || cfg.Sandbox.Driver == "fake",
+		ShowTestHarness: cfg.TestHarness || driverName == "fake",
 	})
 	sessions.SetWaker(apiSrv.Wake)
 
@@ -378,40 +365,6 @@ func startEgress(ctx context.Context, cfg *config.Config, ca *egress.CA, dir egr
 	go func() { _ = dns.ServeUDP(dpc) }()
 	logger.Info("egress: proxy listening", "dns_upstream", upstream)
 	return nil
-}
-
-func newDriver(ctx context.Context, cfg *config.Config, fw *egress.Firewall, shutdown func(context.Context, sandbox.ID) error, logger *slog.Logger) (sandbox.Driver, error) {
-	switch cfg.Sandbox.Driver {
-	case "fake":
-		logger.Warn("using the fake sandbox driver: terminals run on this machine as the server's user")
-		fakeharness.Command = filepath.Join(filepath.Dir(cfg.Sandbox.SandboxdPath), "fakeagent")
-		d := fake.New(cfg.Sandbox.FakeDir)
-		d.RunSandboxd("127.0.0.1", logger)
-		return d, nil
-	case "firecracker":
-		fc := cfg.Sandbox.Firecracker
-		paths := []*string{&fc.Binary, &fc.Jailer, &fc.Kernel, &fc.BaseImage}
-		for _, p := range paths {
-			abs, err := filepath.Abs(*p)
-			if err != nil {
-				return nil, err
-			}
-			*p = abs
-		}
-		dataDir, err := filepath.Abs(cfg.DataDir)
-		if err != nil {
-			return nil, err
-		}
-		return firecracker.New(ctx, firecracker.Config{
-			DataDir: dataDir, BaseImagePath: fc.BaseImage, KernelPath: fc.Kernel,
-			FirecrackerPath: fc.Binary, JailerPath: fc.Jailer,
-			NetworkPool:      netip.MustParsePrefix(cfg.Sandbox.NetworkPool),
-			OverlaySizeBytes: fc.OverlayGB << 30, HomeSizeBytes: fc.HomeGB << 30,
-			Shutdown: shutdown, RegisterNetwork: fw.Register, UnregisterNetwork: fw.Unregister,
-		})
-	default:
-		return nil, fmt.Errorf("unknown sandbox driver %q", cfg.Sandbox.Driver)
-	}
 }
 
 func tunnelMux(hub *tunnel.Hub) http.Handler {

@@ -25,6 +25,8 @@ web: web-deps
 test: test-go test-web
 test-go:
 	CGO_ENABLED=1 $(GO) test -race ./...
+	# The API suite again, with every agent on an edge node joined over TLS.
+	AGENTHOLD_TEST_NODE=remote CGO_ENABLED=1 $(GO) test -race ./internal/api/
 test-web: web-deps
 	cd web && $(PNPM) test
 

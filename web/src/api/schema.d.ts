@@ -136,6 +136,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Nodes that run agents and their status. Admins only. */
+        get: operations["listNodes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/nodes/join-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Creates a single-use token for `agenthold node --join <token>`. The token is shown once and expires after ttlMinutes (default 60, at most 1440). Admins only. */
+        post: operations["createNodeJoinToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/nodes/{nodeId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Removes an edge node and disconnects it. Refused while the node hosts agents, unless the node is offline and force is set: then its agents are forgotten (their disks stay on that machine). Admins only. */
+        delete: operations["deleteNode"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents": {
         parameters: {
             query?: never;
@@ -1061,9 +1114,49 @@ export interface components {
         };
         Me: {
             user: components["schemas"]["User"];
+            /** @description Manages the installation: the local admin or a user listed in auth.admins. */
+            admin: boolean;
         };
         /** @enum {string} */
-        SandboxState: "creating" | "starting" | "running" | "stopping" | "sleeping" | "rebuilding" | "destroying" | "error";
+        SandboxState: "creating" | "starting" | "running" | "stopping" | "sleeping" | "rebuilding" | "destroying" | "error" | "unreachable";
+        NodeInfo: {
+            id: string;
+            name: string;
+            online: boolean;
+            /** @description The controller's built-in node. */
+            local: boolean;
+            /** @description Agents placed on this node. */
+            agents: number;
+            /** @description Logical CPUs reported by the node. */
+            cpus?: number;
+            /**
+             * Format: int64
+             * @description Available memory at the last report.
+             */
+            availableMemoryBytes?: number;
+            /**
+             * Format: int64
+             * @description Free data filesystem space at the last report.
+             */
+            freeDiskBytes?: number;
+            /**
+             * Format: date-time
+             * @description Last successful node contact.
+             */
+            lastSeen?: string;
+        };
+        CreateNodeJoinToken: {
+            /** @description Name for the node; by default the node proposes its hostname. */
+            name?: string;
+            ttlMinutes?: number;
+        };
+        NodeJoinToken: {
+            token: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** @description The command to run on the new node. */
+            command: string;
+        };
         /**
          * @description owner: full control. shared: use the agent (chat, terminal, files), not configure it.
          * @enum {string}
@@ -1073,6 +1166,10 @@ export interface components {
             id: string;
             name: string;
             owner: components["schemas"]["User"];
+            /** @description Assigned node ID; absent before placement. */
+            nodeId?: string;
+            /** @description Assigned node name when known. */
+            nodeName?: string;
             harness: string;
             cpus: number;
             /** Format: int64 */
@@ -1657,6 +1754,82 @@ export interface operations {
                 };
             };
             401: components["responses"]["Error"];
+        };
+    };
+    listNodes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Nodes and their last reported capacity. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeInfo"][];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    createNodeJoinToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateNodeJoinToken"];
+            };
+        };
+        responses: {
+            /** @description The new token. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeJoinToken"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    deleteNode: {
+        parameters: {
+            query?: {
+                force?: boolean;
+            };
+            header?: never;
+            path: {
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
         };
     };
     listAgents: {

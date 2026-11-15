@@ -51,11 +51,12 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) error 
 }
 
 const createSandbox = `-- name: CreateSandbox :exec
-INSERT INTO sandboxes (agent_id, driver, state, state_changed_at) VALUES (?, ?, ?, ?)
+INSERT INTO sandboxes (agent_id, node_id, driver, state, state_changed_at) VALUES (?, ?, ?, ?, ?)
 `
 
 type CreateSandboxParams struct {
 	AgentID        string
+	NodeID         string
 	Driver         string
 	State          string
 	StateChangedAt int64
@@ -64,6 +65,7 @@ type CreateSandboxParams struct {
 func (q *Queries) CreateSandbox(ctx context.Context, arg CreateSandboxParams) error {
 	_, err := q.db.ExecContext(ctx, createSandbox,
 		arg.AgentID,
+		arg.NodeID,
 		arg.Driver,
 		arg.State,
 		arg.StateChangedAt,
@@ -107,7 +109,7 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
 }
 
 const getAgentWithSandbox = `-- name: GetAgentWithSandbox :one
-SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, sandboxes.agent_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet
+SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, sandboxes.agent_id, sandboxes.node_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet
 FROM agents JOIN sandboxes ON sandboxes.agent_id = agents.id
 WHERE agents.id = ?
 `
@@ -136,6 +138,7 @@ func (q *Queries) GetAgentWithSandbox(ctx context.Context, id string) (GetAgentW
 		&i.Agent.CreatedAt,
 		&i.Agent.UpdatedAt,
 		&i.Sandbox.AgentID,
+		&i.Sandbox.NodeID,
 		&i.Sandbox.Driver,
 		&i.Sandbox.DriverID,
 		&i.Sandbox.State,
@@ -149,7 +152,7 @@ func (q *Queries) GetAgentWithSandbox(ctx context.Context, id string) (GetAgentW
 }
 
 const getSandbox = `-- name: GetSandbox :one
-SELECT agent_id, driver, driver_id, state, error, applied_spec, state_changed_at, boot_token_hash, subnet FROM sandboxes WHERE agent_id = ?
+SELECT agent_id, node_id, driver, driver_id, state, error, applied_spec, state_changed_at, boot_token_hash, subnet FROM sandboxes WHERE agent_id = ?
 `
 
 func (q *Queries) GetSandbox(ctx context.Context, agentID string) (Sandbox, error) {
@@ -157,6 +160,7 @@ func (q *Queries) GetSandbox(ctx context.Context, agentID string) (Sandbox, erro
 	var i Sandbox
 	err := row.Scan(
 		&i.AgentID,
+		&i.NodeID,
 		&i.Driver,
 		&i.DriverID,
 		&i.State,
@@ -202,7 +206,7 @@ func (q *Queries) ListSandboxSubnets(ctx context.Context) ([]ListSandboxSubnetsR
 }
 
 const listSandboxes = `-- name: ListSandboxes :many
-SELECT agent_id, driver, driver_id, state, error, applied_spec, state_changed_at, boot_token_hash, subnet FROM sandboxes ORDER BY agent_id
+SELECT agent_id, node_id, driver, driver_id, state, error, applied_spec, state_changed_at, boot_token_hash, subnet FROM sandboxes ORDER BY agent_id
 `
 
 func (q *Queries) ListSandboxes(ctx context.Context) ([]Sandbox, error) {
@@ -216,6 +220,7 @@ func (q *Queries) ListSandboxes(ctx context.Context) ([]Sandbox, error) {
 		var i Sandbox
 		if err := rows.Scan(
 			&i.AgentID,
+			&i.NodeID,
 			&i.Driver,
 			&i.DriverID,
 			&i.State,
@@ -239,7 +244,7 @@ func (q *Queries) ListSandboxes(ctx context.Context) ([]Sandbox, error) {
 }
 
 const listUserAgents = `-- name: ListUserAgents :many
-SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, sandboxes.agent_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet
+SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, sandboxes.agent_id, sandboxes.node_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet
 FROM agents JOIN sandboxes ON sandboxes.agent_id = agents.id
 WHERE agents.owner_id = ?1
    OR agents.id IN (SELECT agent_shares.agent_id FROM agent_shares WHERE agent_shares.user_id = ?1)
@@ -277,6 +282,7 @@ func (q *Queries) ListUserAgents(ctx context.Context, userID string) ([]ListUser
 			&i.Agent.CreatedAt,
 			&i.Agent.UpdatedAt,
 			&i.Sandbox.AgentID,
+			&i.Sandbox.NodeID,
 			&i.Sandbox.Driver,
 			&i.Sandbox.DriverID,
 			&i.Sandbox.State,

@@ -36,15 +36,22 @@ export const RUNNING_POLL_MS = 10_000;
 /** refetchInterval for a single agent: fast while transient, slow while
  * running (to refresh sleepsAt and notice it falling asleep). */
 export const agentPollInterval = (a: Agent | undefined) =>
-  a && isTransient(a.state)
-    ? POLL_MS
-    : a?.state === 'running'
-      ? RUNNING_POLL_MS
-      : false;
+  a && isTransient(a.state) ? POLL_MS : a ? RUNNING_POLL_MS : false;
 
 /** refetchInterval for an agent list: poll while any agent is transient. */
 export const agentsPollInterval = (list: Agent[] | undefined) =>
-  list?.some((a) => isTransient(a.state)) ? POLL_MS : false;
+  list?.some((a) => isTransient(a.state))
+    ? POLL_MS
+    : list?.length
+      ? RUNNING_POLL_MS
+      : false;
+
+export const nodesQuery = queryOptions({
+  queryKey: ['nodes'],
+  queryFn: () => unwrap(api.GET('/nodes')),
+  refetchInterval: RUNNING_POLL_MS,
+  retry: false,
+});
 
 export const sandboxLimitsQuery = queryOptions({
   queryKey: ['sandbox', 'limits'],

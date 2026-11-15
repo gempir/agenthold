@@ -30,7 +30,12 @@ func (a *API) ListAuthProviders(context.Context, gen.ListAuthProvidersRequestObj
 
 // GetMe implements gen.StrictServerInterface.
 func (a *API) GetMe(ctx context.Context, _ gen.GetMeRequestObject) (gen.GetMeResponseObject, error) {
-	return gen.GetMe200JSONResponse{User: apiUser(*me(ctx))}, nil
+	u := me(ctx)
+	admin, err := a.Auth.IsAdmin(ctx, *u)
+	if err != nil {
+		return nil, err
+	}
+	return gen.GetMe200JSONResponse{User: apiUser(*u), Admin: admin}, nil
 }
 
 func validName(name string) (string, error) {

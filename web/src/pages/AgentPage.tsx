@@ -188,6 +188,7 @@ export function AgentPage({
             meta={<HarnessMeta agent={a} />}
             notice={notice}
             readOnly={!access.canUse}
+            disabled={a.state === 'unreachable'}
             placeholder={
               a.state === 'sleeping'
                 ? 'Send a message to wake the agent…'

@@ -68,9 +68,11 @@ type Local struct {
 	proxy      *proxyDirectory
 	tokensMu   sync.RWMutex
 	tokens     map[string]string
+	caMu       sync.RWMutex
 	ca         *egress.CA
 	capacityMu sync.RWMutex
 	dataDir    string
+	tunnelPort int
 }
 
 // NewLocal constructs a node around a driver and its tunnel endpoint.
@@ -108,12 +110,17 @@ func (n *Local) Create(ctx context.Context, s sandbox.Spec) (sandbox.ID, error) 
 
 // Start implements Node.
 func (n *Local) Start(ctx context.Context, id sandbox.ID, b sandbox.Boot) error {
-	if n.ca != nil {
+	if n.tunnelPort != 0 {
+		// sandboxd dials this node's tunnel endpoint, whatever the controller
+		// has configured for its own.
+		b.TunnelPort = n.tunnelPort
+	}
+	if ca := n.egressCA(); ca != nil {
 		files := make(map[string][]byte, len(b.Files))
 		for path, data := range b.Files {
 			files[path] = append([]byte(nil), data...)
 		}
-		for path, data := range n.ca.BootFiles() {
+		for path, data := range ca.BootFiles() {
 			files[path] = append([]byte(nil), data...)
 		}
 		b.Files = files
@@ -248,18 +255,30 @@ func (n *Local) AuthenticateTunnel(ctx context.Context, id, token string) error 
 	return nil
 }
 
-// SetCA configures the local node's egress CA before sandboxes are started.
-func (n *Local) SetCA(ca *egress.CA) { n.ca = ca }
+// SetCA configures the node's egress CA. Sandboxes started before a CA is
+// set do not trust the proxy.
+func (n *Local) SetCA(ca *egress.CA) {
+	n.caMu.Lock()
+	defer n.caMu.Unlock()
+	n.ca = ca
+}
+
+func (n *Local) egressCA() *egress.CA {
+	n.caMu.RLock()
+	defer n.caMu.RUnlock()
+	return n.ca
+}
 
 // CACertificate implements Node.
 func (n *Local) CACertificate(ctx context.Context) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if n.ca == nil {
+	ca := n.egressCA()
+	if ca == nil {
 		return nil, errors.New("egress CA unavailable")
 	}
-	return append([]byte(nil), n.ca.CertPEM()...), nil
+	return append([]byte(nil), ca.CertPEM()...), nil
 }
 
 // Capacity reports logical CPUs and currently available host memory and disk.
@@ -269,6 +288,10 @@ type Capacity struct {
 	MemoryBytes uint64
 	DiskBytes   uint64
 }
+
+// SetTunnelPort sets the port of this node's tunnel endpoint, used in every
+// boot configuration. Configure it before starting sandboxes.
+func (n *Local) SetTunnelPort(port int) { n.tunnelPort = port }
 
 // SetDataDir selects the filesystem whose available disk space is reported.
 // Configure it before reporting capacity; it must already exist.

@@ -32,7 +32,7 @@ WHERE id = ?;
 DELETE FROM agents WHERE id = ?;
 
 -- name: CreateSandbox :exec
-INSERT INTO sandboxes (agent_id, driver, state, state_changed_at) VALUES (?, ?, ?, ?);
+INSERT INTO sandboxes (agent_id, node_id, driver, state, state_changed_at) VALUES (?, ?, ?, ?, ?);
 
 -- name: GetSandbox :one
 SELECT * FROM sandboxes WHERE agent_id = ?;

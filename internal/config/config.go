@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/netip"
 	"net/url"
 	"os"
@@ -37,6 +38,33 @@ type Config struct {
 	Sandbox     Sandbox `yaml:"sandbox"`
 	Egress      Egress  `yaml:"egress"`
 	Secrets     Secrets `yaml:"secrets"`
+	// Nodes configures how edge nodes reach this controller.
+	Nodes Nodes `yaml:"nodes"`
+	// Node configures `agenthold node` (an edge node).
+	Node Node `yaml:"node"`
+}
+
+// Nodes configures the controller's listener for edge nodes.
+type Nodes struct {
+	// Listen is the TLS listener edge nodes dial. Default ":8091"; "off"
+	// disables edge nodes. It is not HTTP and must not sit behind a proxy that
+	// terminates TLS: nodes pin the controller's own certificate.
+	Listen string `yaml:"listen"`
+	// Advertise is the host:port written into join tokens. Default: the
+	// public_url host with the listen port.
+	Advertise string `yaml:"advertise"`
+}
+
+// NodesDisabled is the value of nodes.listen that turns edge nodes off.
+const NodesDisabled = "off"
+
+// Node configures an edge node.
+type Node struct {
+	// Name is proposed to the controller when joining. Default: the hostname.
+	Name string `yaml:"name"`
+	// StateFile holds the node's identity and pinned controller. Default
+	// <data_dir>/node/state.json.
+	StateFile string `yaml:"state_file"`
 }
 
 // Database selects SQLite (the default) or an operator-managed PostgreSQL database.
@@ -67,7 +95,10 @@ type Secrets struct {
 
 // Sandbox configures agent sandboxes.
 type Sandbox struct {
-	// Driver is "firecracker" (default) or "fake" (in-process, for UI development).
+	// Driver selects the built-in local node: "auto" (default: firecracker
+	// when /dev/kvm is present, otherwise no local node), "firecracker",
+	// "none" (agents only run on edge nodes) or "fake" (in-process, for UI
+	// development and tests).
 	Driver string `yaml:"driver"`
 	// Defaults and upper bounds for agent resources.
 	DefaultCPUs     float64     `yaml:"default_cpus"`
@@ -107,6 +138,9 @@ type Auth struct {
 	Local *Local `yaml:"local"`
 	// SessionTTL is how long a browser session lasts without use. Default 30 days.
 	SessionTTL time.Duration `yaml:"session_ttl"`
+	// Admins are the verified e-mail addresses of users who manage the
+	// installation (edge nodes). The local admin (auth.local) always is one.
+	Admins []string `yaml:"admins"`
 }
 
 // Local is the local admin account.
@@ -239,7 +273,7 @@ func ApplyDefaults(cfg *Config) {
 
 	sb := &cfg.Sandbox
 	if sb.Driver == "" {
-		sb.Driver = "firecracker"
+		sb.Driver = "auto"
 	}
 	if sb.DefaultCPUs == 0 {
 		sb.DefaultCPUs = 2
@@ -305,6 +339,22 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.Secrets.MasterKeyFile == "" {
 		cfg.Secrets.MasterKeyFile = filepath.Join(cfg.DataDir, "master.key")
 	}
+	if cfg.Nodes.Listen == "" {
+		cfg.Nodes.Listen = ":8091"
+	}
+	if cfg.Nodes.Advertise == "" && cfg.Nodes.Listen != NodesDisabled {
+		if u, err := url.Parse(cfg.PublicURL); err == nil && u.Hostname() != "" {
+			if _, port, err := net.SplitHostPort(cfg.Nodes.Listen); err == nil {
+				cfg.Nodes.Advertise = net.JoinHostPort(u.Hostname(), port)
+			}
+		}
+	}
+	if cfg.Node.StateFile == "" {
+		cfg.Node.StateFile = filepath.Join(cfg.DataDir, "node", "state.json")
+	}
+	if cfg.Node.Name == "" {
+		cfg.Node.Name, _ = os.Hostname()
+	}
 	if cfg.Auth.SessionTTL == 0 {
 		cfg.Auth.SessionTTL = 30 * 24 * time.Hour
 	}
@@ -356,9 +406,22 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Errorf("public_url: %w", err))
 	}
 	switch c.Sandbox.Driver {
-	case "firecracker", "fake":
+	case "auto", "firecracker", "none", "fake":
 	default:
-		errs = append(errs, fmt.Errorf("sandbox.driver: unknown driver %q (want firecracker or fake)", c.Sandbox.Driver))
+		errs = append(errs, fmt.Errorf("sandbox.driver: unknown driver %q (want auto, firecracker, none or fake)", c.Sandbox.Driver))
+	}
+	if c.Nodes.Listen != NodesDisabled {
+		if _, _, err := net.SplitHostPort(c.Nodes.Listen); err != nil {
+			errs = append(errs, fmt.Errorf("nodes.listen: want host:port or %q, got %q", NodesDisabled, c.Nodes.Listen))
+		}
+		if _, _, err := net.SplitHostPort(c.Nodes.Advertise); err != nil {
+			errs = append(errs, fmt.Errorf("nodes.advertise: want host:port, got %q", c.Nodes.Advertise))
+		}
+	}
+	for i, a := range c.Auth.Admins {
+		if !strings.Contains(a, "@") {
+			errs = append(errs, fmt.Errorf("auth.admins[%d]: want an e-mail address, got %q", i, a))
+		}
 	}
 	if p, err := netip.ParsePrefix(c.Sandbox.NetworkPool); err != nil || !p.Addr().Is4() || p.Bits() < 8 || p.Bits() > 30 || p.Masked() != p {
 		errs = append(errs, fmt.Errorf("sandbox.network_pool: want an aligned IPv4 CIDR between /8 and /30, got %q", c.Sandbox.NetworkPool))
@@ -406,4 +469,26 @@ func (c *Config) Validate() error {
 func fileExists(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && !fi.IsDir()
+}
+
+// IsAdminEmail reports whether a verified e-mail address is in auth.admins.
+func (a Auth) IsAdminEmail(email string) bool {
+	for _, admin := range a.Admins {
+		if email != "" && strings.EqualFold(strings.TrimSpace(admin), email) {
+			return true
+		}
+	}
+	return false
+}
+
+// LocalDriver resolves sandbox.driver "auto" for this host: firecracker when
+// kvmAvailable, otherwise "none".
+func (s Sandbox) LocalDriver(kvmAvailable bool) string {
+	if s.Driver != "auto" {
+		return s.Driver
+	}
+	if kvmAvailable {
+		return "firecracker"
+	}
+	return "none"
 }

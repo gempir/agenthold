@@ -125,6 +125,27 @@ type McpServer struct {
 	UpdatedAt int64
 }
 
+type Node struct {
+	ID              string
+	Name            string
+	CertFingerprint string
+	State           string
+	Cpus            int64
+	MemoryBytes     int64
+	DiskBytes       int64
+	LastSeenAt      int64
+	CreatedAt       int64
+}
+
+type NodeJoinToken struct {
+	TokenHash string
+	Name      string
+	CreatedBy string
+	CreatedAt int64
+	ExpiresAt int64
+	UsedAt    int64
+}
+
 type ProviderLogin struct {
 	ID            string
 	UserID        string
@@ -144,6 +165,7 @@ type ProviderLogin struct {
 
 type Sandbox struct {
 	AgentID        string
+	NodeID         string
 	Driver         string
 	DriverID       string
 	State          string

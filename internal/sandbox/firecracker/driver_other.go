@@ -21,6 +21,9 @@ var (
 // CheckHost reports that Firecracker is unavailable on this host.
 func CheckHost(context.Context) error { return ErrUnsupported }
 
+// KVMPresent is always false off Linux.
+func KVMPresent() bool { return false }
+
 // New reports that Firecracker is unavailable on this host.
 func New(context.Context, Config) (*Driver, error) { return nil, ErrUnsupported }
 

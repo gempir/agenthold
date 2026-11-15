@@ -12,6 +12,7 @@ tags:
     description: Browser redirects of the login flow. Not JSON endpoints.
   - name: auth
   - name: agents
+  - name: nodes
   - name: files
   - name: sessions
   - name: sharing
@@ -133,6 +134,63 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Me" }
         "401": { $ref: "#/components/responses/Error" }
+
+  /nodes:
+    get:
+      operationId: listNodes
+      tags: [nodes]
+      description: Nodes that run agents and their status. Admins only.
+      responses:
+        "200":
+          description: Nodes and their last reported capacity.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/NodeInfo" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /nodes/join-tokens:
+    post:
+      operationId: createNodeJoinToken
+      tags: [nodes]
+      description: >-
+        Creates a single-use token for `agenthold node --join <token>`. The token is shown once and
+        expires after ttlMinutes (default 60, at most 1440). Admins only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateNodeJoinToken" }
+      responses:
+        "201":
+          description: The new token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NodeJoinToken" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /nodes/{nodeId}:
+    parameters:
+      - { name: nodeId, in: path, required: true, schema: { type: string } }
+    delete:
+      operationId: deleteNode
+      tags: [nodes]
+      description: >-
+        Removes an edge node and disconnects it. Refused while the node hosts agents, unless the node is
+        offline and force is set: then its agents are forgotten (their disks stay on that machine). Admins only.
+      parameters:
+        - { name: force, in: query, required: false, schema: { type: boolean } }
+      responses:
+        "204": { description: Removed. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
   /agents:
     get:
@@ -1337,13 +1395,42 @@ components:
 
     Me:
       type: object
-      required: [user]
+      required: [user, admin]
       properties:
         user: { $ref: "#/components/schemas/User" }
+        admin: { type: boolean, description: "Manages the installation: the local admin or a user listed in auth.admins." }
 
     SandboxState:
       type: string
-      enum: [creating, starting, running, stopping, sleeping, rebuilding, destroying, error]
+      enum: [creating, starting, running, stopping, sleeping, rebuilding, destroying, error, unreachable]
+
+    NodeInfo:
+      type: object
+      required: [id, name, online, local, agents]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        online: { type: boolean }
+        local: { type: boolean, description: The controller's built-in node. }
+        agents: { type: integer, description: Agents placed on this node. }
+        cpus: { type: integer, description: Logical CPUs reported by the node. }
+        availableMemoryBytes: { type: integer, format: int64, description: Available memory at the last report. }
+        freeDiskBytes: { type: integer, format: int64, description: Free data filesystem space at the last report. }
+        lastSeen: { type: string, format: date-time, description: Last successful node contact. }
+
+    CreateNodeJoinToken:
+      type: object
+      properties:
+        name: { type: string, description: Name for the node; by default the node proposes its hostname. }
+        ttlMinutes: { type: integer, minimum: 1, maximum: 1440 }
+
+    NodeJoinToken:
+      type: object
+      required: [token, expiresAt, command]
+      properties:
+        token: { type: string }
+        expiresAt: { type: string, format: date-time }
+        command: { type: string, description: The command to run on the new node. }
 
     AgentRole:
       type: string
@@ -1357,6 +1444,8 @@ components:
         id: { type: string }
         name: { type: string }
         owner: { $ref: "#/components/schemas/User" }
+        nodeId: { type: string, description: Assigned node ID; absent before placement. }
+        nodeName: { type: string, description: Assigned node name when known. }
         harness: { type: string }
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }

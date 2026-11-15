@@ -40,6 +40,10 @@ func toHTTP(err error) (int, string) {
 			return http.StatusNotFound, re.Msg
 		}
 		return http.StatusBadRequest, re.Msg
+	case errors.Is(err, sandbox.ErrUnreachable):
+		return http.StatusServiceUnavailable, unreachableMessage(err)
+	case errors.Is(err, sandbox.ErrNoCapacity):
+		return http.StatusServiceUnavailable, err.Error()
 	case errors.Is(err, tunnel.ErrNotConnected):
 		return http.StatusConflict, "the agent is not running; start it first"
 	case errors.As(err, &e):
@@ -68,4 +72,10 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// unreachableMessage keeps the first line of a node error, which names the node.
+func unreachableMessage(err error) string {
+	msg, _, _ := strings.Cut(err.Error(), "\n")
+	return msg
 }

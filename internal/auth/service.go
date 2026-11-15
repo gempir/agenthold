@@ -42,6 +42,7 @@ type Service struct {
 	secure     bool
 	now        func() time.Time
 	local      *localAdmin
+	admins     config.Auth
 }
 
 // NewService builds the auth service from configuration.
@@ -50,6 +51,7 @@ func NewService(st *store.Store, cfg *config.Config) (*Service, error) {
 		store:      st,
 		providers:  map[string]Provider{},
 		sessionTTL: cfg.Auth.SessionTTL,
+		admins:     cfg.Auth,
 		secure:     strings.HasPrefix(cfg.PublicURL, "https://"),
 		now:        time.Now,
 	}
@@ -68,6 +70,19 @@ func NewService(st *store.Store, cfg *config.Config) (*Service, error) {
 		s.local = l
 	}
 	return s, nil
+}
+
+// IsAdmin reports whether u manages the installation: the configured local
+// admin (auth.local) or a user whose verified e-mail is in auth.admins.
+func (s *Service) IsAdmin(ctx context.Context, u db.User) (bool, error) {
+	if u.EmailVerified == 1 && s.admins.IsAdminEmail(u.Email) {
+		return true, nil
+	}
+	if s.local == nil {
+		return false, nil
+	}
+	n, err := s.store.CountUserIdentities(ctx, db.CountUserIdentitiesParams{UserID: u.ID, Provider: config.LocalProviderID})
+	return n > 0, err
 }
 
 // AddProvider registers a provider (also used by tests).

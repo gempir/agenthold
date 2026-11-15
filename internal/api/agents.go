@@ -11,6 +11,7 @@ import (
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/harness"
 	"github.com/gempir/agenthold/internal/id"
+	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store/db"
@@ -25,7 +26,7 @@ func (a *API) GetSandboxLimits(context.Context, gen.GetSandboxLimitsRequestObjec
 	}, nil
 }
 
-func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role authz.Role) (gen.Agent, error) {
+func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role authz.Role, infos []node.Info) (gen.Agent, error) {
 	owner, err := a.Store.GetUser(ctx, ag.OwnerID)
 	if err != nil {
 		return gen.Agent{}, err
@@ -43,7 +44,7 @@ func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role aut
 			sleepsAt = &s
 		}
 	}
-	return gen.Agent{
+	result := gen.Agent{
 		LastActivityAt: lastActivity, SleepsAt: sleepsAt,
 		Id: ag.ID, Name: ag.Name, Owner: apiUser(owner),
 		Harness: ag.Harness, Cpus: float32(ag.Cpus), MemoryMb: ag.MemoryMb, IdleMinutes: int(ag.IdleMinutes),
@@ -52,7 +53,15 @@ func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role aut
 		Model: ag.Model, PermissionPolicy: gen.AgentPermissionPolicy(ag.PermissionPolicy),
 		CredentialsInSandbox: ag.CredentialsInSandbox == 1, Login: login,
 		CreatedAt: ts(ag.CreatedAt), UpdatedAt: ts(ag.UpdatedAt),
-	}, nil
+	}
+	info := nodeByID(infos, sb.NodeID)
+	result.NodeId, result.NodeName = &info.ID, &info.Name
+	if !info.Connected {
+		result.State = gen.SandboxStateUnreachable
+		result.LastActivityAt = nil
+		result.SleepsAt = nil
+	}
+	return result, nil
 }
 
 // agentSettings validates and normalizes agent settings.
@@ -106,10 +115,14 @@ func (a *API) ListAgents(ctx context.Context, _ gen.ListAgentsRequestObject) (ge
 	if err != nil {
 		return nil, err
 	}
+	infos, err := a.nodeInfos(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := gen.ListAgents200JSONResponse{}
 	for _, r := range rows {
 		role := authz.RoleOf(u.ID, r.Agent.OwnerID, true) // listed: owned or shared
-		ag, err := a.apiAgent(ctx, r.Agent, r.Sandbox, role)
+		ag, err := a.apiAgent(ctx, r.Agent, r.Sandbox, role, infos)
 		if err != nil {
 			return nil, err
 		}
@@ -169,7 +182,11 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 		return nil, err
 	}
 	a.record(ctx, row.Agent, audit.AgentCreate, row.Agent.Name, map[string]any{"harness": s.harness})
-	out, err := a.apiAgent(ctx, row.Agent, row.Sandbox, authz.Owner)
+	infos, err := a.nodeInfos(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out, err := a.apiAgent(ctx, row.Agent, row.Sandbox, authz.Owner, infos)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +199,11 @@ func (a *API) GetAgent(ctx context.Context, req gen.GetAgentRequestObject) (gen.
 	if err != nil {
 		return nil, err
 	}
-	out, err := a.apiAgent(ctx, acc.Row.Agent, acc.Row.Sandbox, acc.Role)
+	infos, err := a.nodeInfos(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out, err := a.apiAgent(ctx, acc.Row.Agent, acc.Row.Sandbox, acc.Role, infos)
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +278,11 @@ func (a *API) reloadAgent(ctx context.Context, agentID string, role authz.Role) 
 	if err != nil {
 		return gen.Agent{}, err
 	}
-	return a.apiAgent(ctx, row.Agent, row.Sandbox, role)
+	infos, err := a.nodeInfos(ctx)
+	if err != nil {
+		return gen.Agent{}, err
+	}
+	return a.apiAgent(ctx, row.Agent, row.Sandbox, role, infos)
 }
 
 // DeleteAgent implements gen.StrictServerInterface.

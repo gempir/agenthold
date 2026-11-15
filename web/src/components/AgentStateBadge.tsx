@@ -9,12 +9,15 @@ const colors: Partial<Record<SandboxState, string>> = {
     'border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
   sleeping: 'border-transparent bg-muted text-muted-foreground',
   error: 'border-transparent bg-red-500/15 text-red-700 dark:text-red-400',
+  unreachable:
+    'border-transparent bg-red-500/15 text-red-700 dark:text-red-400',
 };
 
 const labels: Partial<Record<SandboxState, string>> = {
   sleeping: 'Asleep',
   starting: 'Waking…',
   rebuilding: 'Resetting system…',
+  unreachable: 'Node offline',
 };
 
 export const stateLabel = (s: SandboxState) => labels[s] ?? s;
@@ -58,7 +61,7 @@ export function AgentStateDot({
           'size-2 rounded-full',
           state === 'running'
             ? 'bg-emerald-400'
-            : state === 'error'
+            : state === 'error' || state === 'unreachable'
               ? 'bg-red-400'
               : 'bg-muted-foreground',
         )}

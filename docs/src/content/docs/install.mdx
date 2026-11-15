@@ -5,7 +5,8 @@ description: "Run agenthold on a Linux KVM host with one binary and a YAML confi
 
 agenthold runs as a single foreground process on a Linux x86_64 or arm64 host with `/dev/kvm`. The node
 needs root for the Firecracker jailer, tap devices and nftables. It serves plain HTTP; put a reverse proxy
-or a tunnel that provides HTTPS in front of it. A host without KVM cannot run agents.
+or a tunnel that provides HTTPS in front of it. A host without KVM cannot run agents itself, but it can be
+the controller for [edge nodes](/edge-nodes/) that do.
 
 A release consists of `agenthold-linux-<arch>`, `base-<arch>.ext4.zst`, `runtime-linux-<arch>.manifest.json`
 and a checksum file. `scripts/release/build.sh` produces them for the host architecture (see the

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -32,6 +33,7 @@ import (
 	"github.com/gempir/agenthold/internal/idle"
 	"github.com/gempir/agenthold/internal/logins"
 	"github.com/gempir/agenthold/internal/node"
+	"github.com/gempir/agenthold/internal/node/enrollment"
 	"github.com/gempir/agenthold/internal/password"
 	"github.com/gempir/agenthold/internal/platform"
 	"github.com/gempir/agenthold/internal/sandbox"
@@ -61,6 +63,8 @@ type env struct {
 	sleeper   *idle.Sleeper
 	clock     *clock
 	scheduler *trigger.Scheduler
+	// edge is set when AGENTHOLD_TEST_NODE=remote.
+	edge *edgeNode
 }
 
 type slogDiscard struct{}
@@ -142,7 +146,23 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	t.Cleanup(tunnelSrv.Close)
 	port, _ := strconv.Atoi(tunnelSrv.URL[strings.LastIndex(tunnelSrv.URL, ":")+1:])
 	localNode = node.NewLocal(e.driver, e.hub)
-	e.sandboxes = sandbox.NewManagerWithNode(st, localNode, egress.SpecFunc(st, 15002), sandbox.Options{TunnelPort: port, ConnectTimeout: 10 * time.Second}, nil)
+	localNode.SetDataDir(t.TempDir())
+	box, _ := secrets.NewBox(bytes.Repeat([]byte{1}, secrets.KeySize))
+	ca, err := egress.LoadOrCreateCA(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// AGENTHOLD_TEST_NODE=remote runs every API test against an edge node:
+	// the same fake node, joined over TLS and served over the node protocol.
+	var n node.Node = localNode
+	var nodes api.NodeAdmin
+	if os.Getenv("AGENTHOLD_TEST_NODE") == "remote" {
+		e.edge = joinEdgeNode(t, st, localNode, ca)
+		n, nodes = e.edge.cluster, e.edge.cluster
+	} else {
+		localNode.SetCA(ca)
+	}
+	e.sandboxes = sandbox.NewManagerWithNode(st, n, egress.SpecFunc(st, 15002), sandbox.Options{TunnelPort: port, ConnectTimeout: 10 * time.Second}, nil)
 	t.Cleanup(func() {
 		// Stop in-process sandboxd goroutines.
 		rows, _ := st.ListSandboxes(context.Background())
@@ -151,12 +171,6 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		}
 		e.sandboxes.Close()
 	})
-	box, _ := secrets.NewBox(bytes.Repeat([]byte{1}, secrets.KeySize))
-	ca, err := egress.LoadOrCreateCA(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	localNode.SetCA(ca)
 	e.directory = &egress.Directory{Store: st, Box: box}
 	e.logins = &logins.Service{Store: st, Box: box, Audit: &audit.Log{Store: st}, Invalidate: e.directory.Invalidate}
 	e.directory.Logins = e.logins
@@ -168,7 +182,7 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	platformSvc := &platform.Service{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}
 	go func() {
 		for {
-			info, stream, err := localNode.NextIncoming(t.Context())
+			info, stream, err := n.NextIncoming(t.Context())
 			if err != nil {
 				return
 			}
@@ -180,9 +194,9 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	e.tracker.SetClock(e.clock.Now)
 	e.sessions.OnActivity(e.tracker.Touch)
 	e.scheduler = &trigger.Scheduler{Log: slogDiscard{}, Now: e.clock.Now}
-	e.sleeper = &idle.Sleeper{Store: st, Sandboxes: e.sandboxes, Tracker: e.tracker, Busy: e.sessions.AgentBusy, Node: localNode, Now: e.clock.Now}
+	e.sleeper = &idle.Sleeper{Store: st, Sandboxes: e.sandboxes, Tracker: e.tracker, Busy: e.sessions.AgentBusy, Node: n, Now: e.clock.Now}
 	a := api.New(api.Deps{
-		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Node: localNode, Limits: cfg.Sandbox,
+		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Node: n, Nodes: nodes, Limits: cfg.Sandbox,
 		Box: box, Egress: e.directory, Sessions: e.sessions, Idle: e.sleeper, Audit: &audit.Log{Store: st}, ShowTestHarness: true,
 		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins,
 	})
@@ -202,6 +216,104 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		API: a.Mount,
 	})
 	return e
+}
+
+// edgeNode is the controller and node side of an edge node in tests.
+type edgeNode struct {
+	t         *testing.T
+	ctx       context.Context
+	cluster   *node.Cluster
+	backend   *node.Local
+	state     *enrollment.State
+	connected chan string
+	stop      context.CancelFunc
+	served    chan struct{}
+}
+
+// serve runs the node side of conn until down is called.
+func (n *edgeNode) serve(conn net.Conn) {
+	ctx, stop := context.WithCancel(n.ctx)
+	n.stop, n.served = stop, make(chan struct{})
+	go func() {
+		defer close(n.served)
+		_ = node.ServeRemote(ctx, conn, n.backend, node.ServeOptions{SetEgressCA: func(cert, key []byte) error {
+			pushed, err := egress.ParseCA(cert, key)
+			if err == nil {
+				n.backend.SetCA(pushed)
+			}
+			return err
+		}})
+	}()
+	select {
+	case <-n.connected:
+	case <-time.After(10 * time.Second):
+		n.t.Fatal("edge node did not connect")
+	}
+}
+
+// down drops the node's connection; its fake sandboxes keep running.
+func (n *edgeNode) down() {
+	n.stop()
+	<-n.served
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		infos, _ := n.cluster.Nodes(n.ctx)
+		if len(infos) == 1 && !infos[0].Connected {
+			return
+		}
+		if time.Now().After(deadline) {
+			n.t.Fatal("controller did not notice the disconnect")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// up reconnects with the identity saved at join time.
+func (n *edgeNode) up() {
+	conn, err := enrollment.Connect(n.ctx, n.state)
+	if err != nil {
+		n.t.Fatal(err)
+	}
+	n.serve(conn)
+}
+
+// joinEdgeNode makes backend an edge node of a fresh cluster: it joins with a
+// token over loopback TLS and serves the node protocol until the test ends.
+func joinEdgeNode(t *testing.T, st *store.Store, backend *node.Local, ca *egress.CA) *edgeNode {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel) // registered first, so it runs after the sandboxes stopped
+	identity, err := enrollment.NewIdentity("test-controller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cluster, err := node.NewCluster(ctx, node.ClusterConfig{Store: st, CA: ca, Endpoint: ln.Addr().String(), Fingerprint: identity.Fingerprint})
+	if err != nil {
+		t.Fatal(err)
+	}
+	connected := make(chan string, 4)
+	cluster.OnConnect(func(_ context.Context, id string) { connected <- id })
+	srv := &enrollment.Server{Identity: identity, Registry: cluster, Handle: func(ctx context.Context, p enrollment.Peer, conn net.Conn) { cluster.Serve(ctx, p.ID, conn) }}
+	go func() { _ = srv.Serve(ctx, ln) }()
+	jt, err := cluster.CreateJoinToken(ctx, "admin", "edge", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := enrollment.ParseToken(jt.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, state, err := enrollment.Join(ctx, filepath.Join(t.TempDir(), "state.json"), tok, "edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := &edgeNode{t: t, ctx: ctx, cluster: cluster, backend: backend, state: state, connected: connected}
+	n.serve(conn)
+	return n
 }
 
 type client struct {

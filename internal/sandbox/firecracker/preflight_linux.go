@@ -35,3 +35,10 @@ func CheckHost(ctx context.Context) error {
 	}
 	return nil
 }
+
+// KVMPresent reports whether this host exposes /dev/kvm, which decides
+// whether sandbox.driver "auto" runs a local node.
+func KVMPresent() bool {
+	fi, err := os.Stat("/dev/kvm")
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}

@@ -101,6 +101,9 @@ func (n *Local) SetAgentConfigs(ctx context.Context, configs []AgentConfig) erro
 				if len(body) > 64*1024 || !strings.Contains(string(body), ic.Placeholder) {
 					return false
 				}
+				if r.Context().Err() != nil {
+					return false
+				}
 				local, remote := net.Pipe()
 				defer local.Close()
 				select {

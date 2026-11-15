@@ -40,6 +40,9 @@ func (a *API) session(ctx context.Context, agentID string) (*tunnel.Session, err
 		return nil, err
 	}
 	if !ok {
+		if err := a.Sandboxes.Reachable(ctx, agentID); err != nil {
+			return nil, err
+		}
 		return nil, tunnel.ErrNotConnected
 	}
 	if a.Idle != nil {

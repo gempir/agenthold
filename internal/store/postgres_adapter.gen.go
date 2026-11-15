@@ -25,6 +25,21 @@ func (p postgresQueries) AttachSkill(ctx context.Context, arg db.AttachSkillPara
 	return p.q.AttachSkill(ctx, postgres.AttachSkillParams(arg))
 }
 
+func (p postgresQueries) ConsumeNodeJoinToken(ctx context.Context, arg db.ConsumeNodeJoinTokenParams) (string, error) {
+	value, err := p.q.ConsumeNodeJoinToken(ctx, postgres.ConsumeNodeJoinTokenParams(arg))
+	return value, err
+}
+
+func (p postgresQueries) CountNodeSandboxes(ctx context.Context, nodeID string) (int64, error) {
+	value, err := p.q.CountNodeSandboxes(ctx, nodeID)
+	return value, err
+}
+
+func (p postgresQueries) CountUserIdentities(ctx context.Context, arg db.CountUserIdentitiesParams) (int64, error) {
+	value, err := p.q.CountUserIdentities(ctx, postgres.CountUserIdentitiesParams(arg))
+	return value, err
+}
+
 func (p postgresQueries) CreateAPIToken(ctx context.Context, arg db.CreateAPITokenParams) error {
 	return p.q.CreateAPIToken(ctx, postgres.CreateAPITokenParams(arg))
 }
@@ -47,6 +62,14 @@ func (p postgresQueries) CreateLoginState(ctx context.Context, arg db.CreateLogi
 
 func (p postgresQueries) CreateMCPServer(ctx context.Context, arg db.CreateMCPServerParams) error {
 	return p.q.CreateMCPServer(ctx, postgres.CreateMCPServerParams(arg))
+}
+
+func (p postgresQueries) CreateNode(ctx context.Context, arg db.CreateNodeParams) error {
+	return p.q.CreateNode(ctx, postgres.CreateNodeParams(arg))
+}
+
+func (p postgresQueries) CreateNodeJoinToken(ctx context.Context, arg db.CreateNodeJoinTokenParams) error {
+	return p.q.CreateNodeJoinToken(ctx, postgres.CreateNodeJoinTokenParams(arg))
 }
 
 func (p postgresQueries) CreateProviderLogin(ctx context.Context, arg db.CreateProviderLoginParams) error {
@@ -106,6 +129,10 @@ func (p postgresQueries) DeleteMCPServer(ctx context.Context, id string) error {
 	return p.q.DeleteMCPServer(ctx, id)
 }
 
+func (p postgresQueries) DeleteNode(ctx context.Context, id string) error {
+	return p.q.DeleteNode(ctx, id)
+}
+
 func (p postgresQueries) DeleteProviderLogin(ctx context.Context, arg db.DeleteProviderLoginParams) (int64, error) {
 	value, err := p.q.DeleteProviderLogin(ctx, postgres.DeleteProviderLoginParams(arg))
 	return value, err
@@ -125,6 +152,10 @@ func (p postgresQueries) DeleteSession(ctx context.Context, tokenHash string) er
 
 func (p postgresQueries) DeleteSkill(ctx context.Context, id string) error {
 	return p.q.DeleteSkill(ctx, id)
+}
+
+func (p postgresQueries) DeleteStaleNodeJoinTokens(ctx context.Context, before int64) error {
+	return p.q.DeleteStaleNodeJoinTokens(ctx, before)
 }
 
 func (p postgresQueries) DeleteWebhook(ctx context.Context, id string) error {
@@ -187,6 +218,16 @@ func (p postgresQueries) GetMCPServer(ctx context.Context, id string) (db.McpSer
 	return db.McpServer(value), err
 }
 
+func (p postgresQueries) GetNode(ctx context.Context, id string) (db.Node, error) {
+	value, err := p.q.GetNode(ctx, id)
+	return db.Node(value), err
+}
+
+func (p postgresQueries) GetNodeByFingerprint(ctx context.Context, certFingerprint string) (db.Node, error) {
+	value, err := p.q.GetNodeByFingerprint(ctx, certFingerprint)
+	return db.Node(value), err
+}
+
 func (p postgresQueries) GetProviderLogin(ctx context.Context, arg db.GetProviderLoginParams) (db.ProviderLogin, error) {
 	value, err := p.q.GetProviderLogin(ctx, postgres.GetProviderLoginParams(arg))
 	return db.ProviderLogin(value), err
@@ -199,6 +240,11 @@ func (p postgresQueries) GetProviderLoginByID(ctx context.Context, id string) (d
 
 func (p postgresQueries) GetSandbox(ctx context.Context, agentID string) (db.Sandbox, error) {
 	value, err := p.q.GetSandbox(ctx, agentID)
+	return db.Sandbox(value), err
+}
+
+func (p postgresQueries) GetSandboxByDriverID(ctx context.Context, driverID string) (db.Sandbox, error) {
+	value, err := p.q.GetSandboxByDriverID(ctx, driverID)
 	return db.Sandbox(value), err
 }
 
@@ -409,6 +455,30 @@ func (p postgresQueries) ListAgentsByLoginUser(ctx context.Context, loginUserID 
 	return result, nil
 }
 
+func (p postgresQueries) ListNodeSandboxes(ctx context.Context, nodeID string) ([]db.Sandbox, error) {
+	value, err := p.q.ListNodeSandboxes(ctx, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.Sandbox, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.Sandbox(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListNodes(ctx context.Context) ([]db.Node, error) {
+	value, err := p.q.ListNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.Node, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.Node(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListProviderLogins(ctx context.Context) ([]db.ProviderLogin, error) {
 	value, err := p.q.ListProviderLogins(ctx)
 	if err != nil {
@@ -582,12 +652,24 @@ func (p postgresQueries) SetBootToken(ctx context.Context, arg db.SetBootTokenPa
 	return p.q.SetBootToken(ctx, postgres.SetBootTokenParams(arg))
 }
 
+func (p postgresQueries) SetNodeCapacity(ctx context.Context, arg db.SetNodeCapacityParams) error {
+	return p.q.SetNodeCapacity(ctx, postgres.SetNodeCapacityParams(arg))
+}
+
+func (p postgresQueries) SetNodeState(ctx context.Context, arg db.SetNodeStateParams) error {
+	return p.q.SetNodeState(ctx, postgres.SetNodeStateParams(arg))
+}
+
 func (p postgresQueries) SetPermissionPolicy(ctx context.Context, arg db.SetPermissionPolicyParams) error {
 	return p.q.SetPermissionPolicy(ctx, postgres.SetPermissionPolicyParams(arg))
 }
 
 func (p postgresQueries) SetProviderLoginStatus(ctx context.Context, arg db.SetProviderLoginStatusParams) error {
 	return p.q.SetProviderLoginStatus(ctx, postgres.SetProviderLoginStatusParams(arg))
+}
+
+func (p postgresQueries) SetRemoteNodesOffline(ctx context.Context) error {
+	return p.q.SetRemoteNodesOffline(ctx)
 }
 
 func (p postgresQueries) SetSandboxBuilt(ctx context.Context, arg db.SetSandboxBuiltParams) error {
@@ -683,4 +765,8 @@ func (p postgresQueries) UpdateUserProfile(ctx context.Context, arg db.UpdateUse
 
 func (p postgresQueries) UpdateWebhook(ctx context.Context, arg db.UpdateWebhookParams) error {
 	return p.q.UpdateWebhook(ctx, postgres.UpdateWebhookParams(arg))
+}
+
+func (p postgresQueries) UpsertLocalNode(ctx context.Context, arg db.UpsertLocalNodeParams) error {
+	return p.q.UpsertLocalNode(ctx, postgres.UpsertLocalNodeParams(arg))
 }

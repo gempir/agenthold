@@ -117,9 +117,37 @@ CREATE TABLE agent_shares (
 );
 CREATE INDEX agent_shares_user ON agent_shares(user_id);
 
+-- Hosts that run sandboxes. 'local' is the built-in node of a controller
+-- that can run VMs itself; edge nodes join with a single-use token and are
+-- identified by the SHA-256 fingerprint of their self-signed TLS certificate.
+CREATE TABLE nodes (
+    id               TEXT PRIMARY KEY,
+    name             TEXT NOT NULL,
+    cert_fingerprint TEXT NOT NULL DEFAULT '',
+    state            TEXT NOT NULL DEFAULT 'offline' CHECK (state IN ('online', 'offline')),
+    cpus             BIGINT NOT NULL DEFAULT 0,
+    memory_bytes     BIGINT NOT NULL DEFAULT 0,
+    disk_bytes       BIGINT NOT NULL DEFAULT 0,
+    last_seen_at     BIGINT NOT NULL DEFAULT 0,
+    created_at       BIGINT NOT NULL
+);
+CREATE UNIQUE INDEX nodes_fingerprint ON nodes(cert_fingerprint) WHERE cert_fingerprint != '';
+
+-- Join tokens are shown once; only the SHA-256 of their secret is stored.
+CREATE TABLE node_join_tokens (
+    token_hash TEXT PRIMARY KEY,
+    name       TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL,
+    created_at BIGINT NOT NULL,
+    expires_at BIGINT NOT NULL,
+    used_at    BIGINT NOT NULL DEFAULT 0
+);
+
 -- The persisted sandbox state machine, one row per agent.
 CREATE TABLE sandboxes (
     agent_id         TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
+    -- The node the agent was placed on. Agents never move between nodes.
+    node_id          TEXT NOT NULL DEFAULT '',
     driver           TEXT NOT NULL,
     driver_id        TEXT NOT NULL DEFAULT '',
     state            TEXT NOT NULL CHECK (state IN
@@ -133,6 +161,7 @@ CREATE TABLE sandboxes (
     subnet           TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX sandboxes_subnet ON sandboxes(subnet);
+CREATE INDEX sandboxes_node ON sandboxes(node_id);
 
 CREATE TABLE secrets (
     id          TEXT PRIMARY KEY,
@@ -293,6 +322,8 @@ DROP TABLE mcp_servers;
 DROP TABLE agent_secrets;
 DROP TABLE secrets;
 DROP TABLE sandboxes;
+DROP TABLE node_join_tokens;
+DROP TABLE nodes;
 DROP TABLE agent_shares;
 DROP TABLE agents;
 DROP TABLE provider_logins;

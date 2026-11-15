@@ -1,0 +1,95 @@
+---
+title: "Edge nodes"
+description: "Run agents on other KVM hosts that dial the controller: joining, trust model and outages."
+---
+
+One agenthold server is the **controller**: it serves the web UI and API, keeps the database and the
+encrypted secrets, and drives the agents' harnesses. A **node** runs the agents' microVMs. The controller
+has a built-in node when its own host can run VMs; any number of **edge nodes** can join it with
+`agenthold node --join <token>`. The controller can therefore run on a cheap host without KVM while the
+agents run elsewhere.
+
+## Placement
+
+A new agent goes to the connected node with the most available memory (then disk) and stays there for its
+whole life; agents never move between nodes. With no connected node, creating an agent fails with
+"no node is available to run agents".
+
+The built-in node exists when `sandbox.driver` is `auto` (the default) and the host has `/dev/kvm`, or when
+it is set to `firecracker`. `sandbox.driver: none` makes the server a pure controller.
+
+## Who manages nodes
+
+Nodes are managed by **admins**: the local admin from `auth.local`, and users whose verified e-mail address
+is listed in `auth.admins`. Admins see **Settings → Nodes**; everybody else does not.
+
+```yaml
+auth:
+  admins: [ops@example.com]
+```
+
+## Joining a node
+
+The controller listens for nodes on a dedicated TLS port, separate from the HTTP listener:
+
+```yaml
+nodes:
+  listen: ":8091"                       # default; "off" disables edge nodes
+  advertise: "controller.example.com:8091" # what nodes dial; default: public_url host + listen port
+```
+
+The node port carries its own TLS and pins certificates, so it must reach the controller directly as TCP:
+forward it as plain TCP (for example a TCP route in your firewall, or a raw TCP tunnel), never through an
+HTTPS reverse proxy that terminates TLS.
+
+1. In **Settings → Nodes**, create a join token. It works **once** and expires after an hour by default.
+2. On the new host (Linux with `/dev/kvm`, root, the same agenthold version), write a YAML file with the
+   node's settings: `data_dir`, and `sandbox` and `egress` as for an all-in-one install. Database and
+   sign-in settings are not used.
+3. Run `agenthold node --join <token>` with `AGENTHOLD_CONFIG` pointing at that file. The node saves its
+   identity to `<data_dir>/node/state.json` (`node.state_file`) and connects. Later starts need no token:
+   run `agenthold node` (for example from a systemd unit).
+
+```yaml
+# /etc/agenthold/node.yaml
+data_dir: /var/lib/agenthold
+node:
+  name: gpu-box-1   # default: the hostname; a name given with the token wins
+```
+
+The node only ever dials the controller (and the internet on behalf of its agents). The controller never
+connects to a node, so nodes can sit behind NAT.
+
+## Trust model
+
+**Nodes are trusted infrastructure**, exactly like the controller's own host.
+
+- The join token carries the controller's address, the SHA-256 fingerprint of its certificate and a random
+  secret. The node pins the controller by that fingerprint, generates its own key pair and presents its own
+  self-signed certificate; the controller records that certificate's fingerprint when it redeems the token.
+  Every later connection is mutually authenticated by the two pinned fingerprints (TLS 1.3). The controller
+  stores only a hash of each token secret; a token cannot be used twice, and an expired one is refused.
+- The controller pushes the **decrypted** secrets and provider logins of the agents placed on a node (and
+  only those) to that node's egress proxy, which injects them on the wire. The node holds them in memory
+  only and never writes them to disk. It also receives the installation's egress CA (certificate and key),
+  so agents trust the same CA on every node.
+- A node runs its agents' VMs as root and can read everything they do. Anyone with root on a node can read
+  its agents' secrets. Only join machines you trust as much as the controller.
+- Removing a node in the UI deletes its pinned fingerprint and disconnects it; it cannot reconnect without a
+  new token (delete its state file and join again).
+
+## When a node is down
+
+If a node's connection drops, its agents show as **unreachable** (not as an error). Operations on them —
+chat, terminal, files, start, stop, reset, delete — fail at once with "node … is offline". The node keeps
+its VMs and their secrets in memory and reconnects with backoff (1 s up to 30 s). On reconnect the
+controller pushes the current configuration again and reconciles every agent of that node with what
+actually runs there; interrupted operations are resolved then.
+
+A node that is gone for good blocks its agents. An admin can remove an offline node together with its
+agents ("Forget node and its agents"); their disks stay on the lost machine. A node that still hosts agents
+cannot be removed while it is online.
+
+Edge nodes and the controller should run the same release. Each node uses its own base image, kernel and
+runtime from its `data_dir`; keep `egress.explicit_port` the same on all nodes (agents get the proxy
+address from the controller's configuration).

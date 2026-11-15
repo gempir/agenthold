@@ -26,6 +26,7 @@ type CA struct {
 	cert    *x509.Certificate
 	key     *ecdsa.PrivateKey
 	certPEM []byte
+	keyPEM  []byte
 
 	mu    sync.Mutex
 	cache map[string]*tls.Certificate
@@ -48,6 +49,12 @@ func LoadOrCreateCA(dir string) (*CA, error) {
 	if err != nil {
 		return nil, err
 	}
+	return ParseCA(certPEM, keyPEM)
+}
+
+// ParseCA builds a CA from PEM-encoded certificate and ECDSA key. Edge nodes
+// receive the controller's CA this way and keep it in memory only.
+func ParseCA(certPEM, keyPEM []byte) (*CA, error) {
 	pair, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
 		return nil, fmt.Errorf("load CA: %w", err)
@@ -60,7 +67,10 @@ func LoadOrCreateCA(dir string) (*CA, error) {
 	if !ok {
 		return nil, errors.New("CA key must be ECDSA")
 	}
-	return &CA{cert: cert, key: key, certPEM: certPEM, cache: map[string]*tls.Certificate{}}, nil
+	if !cert.IsCA {
+		return nil, errors.New("CA certificate is not a CA")
+	}
+	return &CA{cert: cert, key: key, certPEM: append([]byte(nil), certPEM...), keyPEM: append([]byte(nil), keyPEM...), cache: map[string]*tls.Certificate{}}, nil
 }
 
 func createCA(dir, certPath, keyPath string) error {
@@ -98,6 +108,10 @@ func createCA(dir, certPath, keyPath string) error {
 
 // CertPEM is the CA certificate, to be trusted inside sandboxes.
 func (c *CA) CertPEM() []byte { return c.certPEM }
+
+// KeyPEM is the CA private key. It only leaves the controller over an
+// authenticated node connection.
+func (c *CA) KeyPEM() []byte { return append([]byte(nil), c.keyPEM...) }
 
 // Pool returns a pool containing only the CA (tests).
 func (c *CA) Pool() *x509.CertPool {

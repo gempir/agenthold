@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -21,9 +22,47 @@ import (
 	"github.com/gempir/agenthold/internal/tunnel"
 )
 
-func TestLocalLifecycleAndToken(t *testing.T) {
+// implementations runs a behaviour test against the in-process node and
+// against the same node served over the remote protocol, so both stay
+// interchangeable for the controller.
+func implementations(t *testing.T, test func(t *testing.T, n Node, backend *Local)) {
+	t.Run("local", func(t *testing.T) {
+		backend := NewLocal(fake.New(t.TempDir()), nil)
+		backend.SetDataDir(t.TempDir())
+		test(t, backend, backend)
+	})
+	t.Run("remote", func(t *testing.T) {
+		backend := NewLocal(fake.New(t.TempDir()), nil)
+		backend.SetDataDir(t.TempDir())
+		test(t, serveOverPipe(t, backend), backend)
+	})
+}
+
+// serveOverPipe connects a Remote to backend through an in-memory connection.
+func serveOverPipe(t *testing.T, backend Node) *Remote {
+	t.Helper()
+	a, b := net.Pipe()
+	done := make(chan error, 1)
+	go func() { done <- ServeRemote(context.Background(), b, backend, ServeOptions{}) }()
+	r, err := AcceptRemote(context.Background(), a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = r.Close()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Error("node server did not stop")
+		}
+	})
+	return r
+}
+
+func TestLifecycleAndToken(t *testing.T) { implementations(t, testLifecycleAndToken) }
+
+func testLifecycleAndToken(t *testing.T, n Node, backend *Local) {
 	ctx := context.Background()
-	n := NewLocal(fake.New(t.TempDir()), nil)
 	id, err := n.Create(ctx, sandbox.Spec{AgentID: "agent"})
 	if err != nil {
 		t.Fatal(err)
@@ -46,15 +85,31 @@ func TestLocalLifecycleAndToken(t *testing.T) {
 	if err = n.SetTunnelToken(ctx, "agent", hex.EncodeToString(sum[:])); err != nil {
 		t.Fatal(err)
 	}
-	if err = n.AuthenticateTunnel(ctx, "agent", "token"); err != nil {
+	// sandboxd authenticates at the node, without a controller round trip.
+	if err = backend.AuthenticateTunnel(ctx, "agent", "token"); err != nil {
 		t.Fatal(err)
 	}
-	if err = n.AuthenticateTunnel(ctx, "agent", "wrong"); err == nil {
+	if err = backend.AuthenticateTunnel(ctx, "agent", "wrong"); err == nil {
 		t.Fatal("accepted wrong token")
 	}
 	_ = n.SetTunnelToken(ctx, "agent", "")
-	if err = n.AuthenticateTunnel(ctx, "agent", "token"); err == nil {
+	if err = backend.AuthenticateTunnel(ctx, "agent", "token"); err == nil {
 		t.Fatal("accepted revoked token")
+	}
+	if capacity, err := n.Capacity(ctx); err != nil || capacity.CPUs == 0 {
+		t.Fatalf("capacity %+v %v", capacity, err)
+	}
+	if name, err := n.Name(ctx); err != nil || name != "fake" {
+		t.Fatalf("name %q %v", name, err)
+	}
+	if err = n.Destroy(ctx, id, sandbox.DestroyOpts{}); err != nil {
+		t.Fatal(err)
+	}
+	if st, err = n.Status(ctx, id); err != nil || st.State != sandbox.StateMissing {
+		t.Fatalf("status after destroy %v %v", st, err)
+	}
+	if err = n.Start(ctx, id, sandbox.Boot{}); !errors.Is(err, sandbox.ErrNotFound) {
+		t.Fatalf("start destroyed: %v", err)
 	}
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
@@ -66,16 +121,17 @@ func TestLocalLifecycleAndToken(t *testing.T) {
 	}
 }
 
-func TestConfigPushAndIntercept(t *testing.T) {
+func TestConfigPushAndIntercept(t *testing.T) { implementations(t, testConfigPushAndIntercept) }
+
+func testConfigPushAndIntercept(t *testing.T, n Node, backend *Local) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
-	n := NewLocal(fake.New(t.TempDir()), nil)
 	cfg := []AgentConfig{{ID: "a", Subnet: netip.MustParsePrefix("10.1.0.0/24"), Injections: []secrets.Injection{{Value: "secret"}}, Intercepts: []Intercept{{Host: "example.org", Method: "POST", Path: "/refresh", Placeholder: "placeholder"}}}}
 	if err := n.SetAgentConfigs(ctx, cfg); err != nil {
 		t.Fatal(err)
 	}
 	cfg[0].Injections[0].Value = "changed"
-	a, err := n.ProxyAgents().AgentForSource(ctx, netip.MustParseAddr("10.1.0.2"))
+	a, err := backend.ProxyAgents().AgentForSource(ctx, netip.MustParseAddr("10.1.0.2"))
 	if err != nil || a == nil || a.Injections[0].Value != "secret" {
 		t.Fatalf("snapshot: %#v %v", a, err)
 	}
@@ -119,14 +175,15 @@ func TestConfigPushAndIntercept(t *testing.T) {
 	if err = n.SetAgentConfigs(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
-	a, err = n.ProxyAgents().AgentForSource(ctx, netip.MustParseAddr("10.1.0.2"))
+	a, err = backend.ProxyAgents().AgentForSource(ctx, netip.MustParseAddr("10.1.0.2"))
 	if err != nil || a != nil {
 		t.Fatal("stale config", a, err)
 	}
 }
 
-func TestCanceledNodeOperations(t *testing.T) {
-	n := NewLocal(fake.New(t.TempDir()), nil)
+func TestCanceledNodeOperations(t *testing.T) { implementations(t, testCanceledNodeOperations) }
+
+func testCanceledNodeOperations(t *testing.T, n Node, backend *Local) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, _, err := n.NextIntercept(ctx); !errors.Is(err, context.Canceled) {
@@ -141,7 +198,7 @@ func TestCanceledNodeOperations(t *testing.T) {
 	if err := n.SetAgentConfigs(context.Background(), []AgentConfig{{ID: "a", Subnet: netip.MustParsePrefix("10.1.0.0/24"), Intercepts: []Intercept{{Host: "example.org", Method: "POST", Path: "/", Placeholder: "placeholder"}}}}); err != nil {
 		t.Fatal(err)
 	}
-	a, err := n.ProxyAgents().AgentForSource(context.Background(), netip.MustParseAddr("10.1.0.1"))
+	a, err := backend.ProxyAgents().AgentForSource(context.Background(), netip.MustParseAddr("10.1.0.1"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -105,3 +105,28 @@ type Attacher interface {
 
 // ErrNotFound is returned by Start and Stop for unknown sandboxes.
 var ErrNotFound = errors.New("sandbox not found")
+
+// ErrUnreachable is returned when the node that hosts a sandbox is not
+// connected. The sandbox's persisted state is kept until the node returns.
+var ErrUnreachable = errors.New("node is unreachable")
+
+// ErrNoCapacity is returned when no connected node can take a new agent.
+var ErrNoCapacity = errors.New("no node is available to run agents")
+
+// Placement is where a new agent's sandbox lives for its whole life.
+type Placement struct {
+	NodeID string
+	Driver string
+}
+
+// Placer is implemented by backends that span several nodes.
+type Placer interface {
+	Place(ctx context.Context) (Placement, error)
+}
+
+// Reachability is implemented by backends whose nodes can be disconnected.
+// Reachable returns an error wrapping ErrUnreachable when the agent's node is
+// not connected.
+type Reachability interface {
+	Reachable(ctx context.Context, agentID string) error
+}

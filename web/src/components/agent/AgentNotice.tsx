@@ -15,6 +15,16 @@ export function AgentNotice({
   const { action, busy } = useAgentActions(a);
   const row =
     'mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-card/60 px-3 py-2 text-sm';
+  if (a.state === 'unreachable')
+    return (
+      <div role="status" className={`${row} border-destructive/30`}>
+        <CircleAlert className="size-4 shrink-0 text-destructive" aria-hidden />
+        <p className="min-w-0 flex-1 text-destructive">
+          {a.nodeName || 'The assigned node'} is offline. This agent will be
+          available when the node reconnects.
+        </p>
+      </div>
+    );
   if (a.state === 'sleeping')
     return (
       <div role="status" className={row}>

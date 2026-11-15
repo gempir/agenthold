@@ -365,12 +365,14 @@ function SessionComposer({
   sessionId,
   running,
   sleeping,
+  offline,
   meta,
   onSent,
 }: {
   sessionId: string;
   running: boolean;
   sleeping: boolean;
+  offline: boolean;
   meta?: ReactNode;
   onSent: () => void;
 }) {
@@ -400,6 +402,7 @@ function SessionComposer({
         onChange={setText}
         running={running}
         busy={send.isPending || cancel.isPending}
+        disabled={offline}
         onSubmit={() => send.mutate(text.trim())}
         onStop={() => cancel.mutate()}
         meta={meta}
@@ -537,6 +540,7 @@ export default function ChatView({
             sessionId={sessionId}
             running={running}
             sleeping={agentState === 'sleeping'}
+            offline={agentState === 'unreachable'}
             meta={composerMeta}
             onSent={toBottom}
           />

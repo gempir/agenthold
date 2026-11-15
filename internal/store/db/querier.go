@@ -8,12 +8,17 @@ type Querier interface {
 	AttachMCPServer(ctx context.Context, arg AttachMCPServerParams) error
 	AttachSecret(ctx context.Context, arg AttachSecretParams) error
 	AttachSkill(ctx context.Context, arg AttachSkillParams) error
+	ConsumeNodeJoinToken(ctx context.Context, arg ConsumeNodeJoinTokenParams) (string, error)
+	CountNodeSandboxes(ctx context.Context, nodeID string) (int64, error)
+	CountUserIdentities(ctx context.Context, arg CountUserIdentitiesParams) (int64, error)
 	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) error
 	CreateAgent(ctx context.Context, arg CreateAgentParams) error
 	CreateAgentSession(ctx context.Context, arg CreateAgentSessionParams) error
 	CreateIdentity(ctx context.Context, arg CreateIdentityParams) error
 	CreateLoginState(ctx context.Context, arg CreateLoginStateParams) error
 	CreateMCPServer(ctx context.Context, arg CreateMCPServerParams) error
+	CreateNode(ctx context.Context, arg CreateNodeParams) error
+	CreateNodeJoinToken(ctx context.Context, arg CreateNodeJoinTokenParams) error
 	CreateProviderLogin(ctx context.Context, arg CreateProviderLoginParams) error
 	CreateSandbox(ctx context.Context, arg CreateSandboxParams) error
 	CreateSchedule(ctx context.Context, arg CreateScheduleParams) error
@@ -28,11 +33,13 @@ type Querier interface {
 	DeleteExpiredLoginStates(ctx context.Context, expiresAt int64) error
 	DeleteExpiredSessions(ctx context.Context, expiresAt int64) error
 	DeleteMCPServer(ctx context.Context, id string) error
+	DeleteNode(ctx context.Context, id string) error
 	DeleteProviderLogin(ctx context.Context, arg DeleteProviderLoginParams) (int64, error)
 	DeleteSchedule(ctx context.Context, id string) error
 	DeleteSecret(ctx context.Context, id string) error
 	DeleteSession(ctx context.Context, tokenHash string) error
 	DeleteSkill(ctx context.Context, id string) error
+	DeleteStaleNodeJoinTokens(ctx context.Context, before int64) error
 	DeleteWebhook(ctx context.Context, id string) error
 	DetachMCPServer(ctx context.Context, arg DetachMCPServerParams) (int64, error)
 	DetachSecret(ctx context.Context, arg DetachSecretParams) (int64, error)
@@ -44,9 +51,12 @@ type Querier interface {
 	GetAgentWithSandbox(ctx context.Context, id string) (GetAgentWithSandboxRow, error)
 	GetIdentity(ctx context.Context, arg GetIdentityParams) (Identity, error)
 	GetMCPServer(ctx context.Context, id string) (McpServer, error)
+	GetNode(ctx context.Context, id string) (Node, error)
+	GetNodeByFingerprint(ctx context.Context, certFingerprint string) (Node, error)
 	GetProviderLogin(ctx context.Context, arg GetProviderLoginParams) (ProviderLogin, error)
 	GetProviderLoginByID(ctx context.Context, id string) (ProviderLogin, error)
 	GetSandbox(ctx context.Context, agentID string) (Sandbox, error)
+	GetSandboxByDriverID(ctx context.Context, driverID string) (Sandbox, error)
 	GetSchedule(ctx context.Context, id string) (Schedule, error)
 	GetSecret(ctx context.Context, id string) (Secret, error)
 	GetSecretByName(ctx context.Context, arg GetSecretByNameParams) (Secret, error)
@@ -72,6 +82,8 @@ type Querier interface {
 	ListAgentSkills(ctx context.Context, agentID string) ([]Skill, error)
 	ListAgentWebhooks(ctx context.Context, agentID string) ([]Webhook, error)
 	ListAgentsByLoginUser(ctx context.Context, loginUserID string) ([]Agent, error)
+	ListNodeSandboxes(ctx context.Context, nodeID string) ([]Sandbox, error)
+	ListNodes(ctx context.Context) ([]Node, error)
 	ListProviderLogins(ctx context.Context) ([]ProviderLogin, error)
 	ListSandboxSubnets(ctx context.Context) ([]ListSandboxSubnetsRow, error)
 	ListSandboxes(ctx context.Context) ([]Sandbox, error)
@@ -93,8 +105,11 @@ type Querier interface {
 	SetAgentHarness(ctx context.Context, arg SetAgentHarnessParams) error
 	SetAgentLoginUser(ctx context.Context, arg SetAgentLoginUserParams) error
 	SetBootToken(ctx context.Context, arg SetBootTokenParams) error
+	SetNodeCapacity(ctx context.Context, arg SetNodeCapacityParams) error
+	SetNodeState(ctx context.Context, arg SetNodeStateParams) error
 	SetPermissionPolicy(ctx context.Context, arg SetPermissionPolicyParams) error
 	SetProviderLoginStatus(ctx context.Context, arg SetProviderLoginStatusParams) error
+	SetRemoteNodesOffline(ctx context.Context) error
 	SetSandboxBuilt(ctx context.Context, arg SetSandboxBuiltParams) error
 	SetSandboxState(ctx context.Context, arg SetSandboxStateParams) error
 	SetSandboxSubnet(ctx context.Context, arg SetSandboxSubnetParams) error
@@ -116,4 +131,5 @@ type Querier interface {
 	UpdateSkill(ctx context.Context, arg UpdateSkillParams) error
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
 	UpdateWebhook(ctx context.Context, arg UpdateWebhookParams) error
+	UpsertLocalNode(ctx context.Context, arg UpsertLocalNodeParams) error
 }

@@ -24,14 +24,17 @@ const wakeTimeout = 2 * time.Minute
 // Wake returns the agent's tunnel session, starting the sandbox if it is
 // asleep. status is called with progress messages.
 func (a *API) Wake(ctx context.Context, agentID string, status func(string)) (*tunnel.Session, error) {
+	row, err := a.Store.GetSandbox(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.Sandboxes.Reachable(ctx, agentID); err != nil {
+		return nil, err
+	}
 	if ok, err := a.Node.Connected(ctx, agentID); err != nil {
 		return nil, err
 	} else if ok {
 		return node.Client(a.Node, agentID), nil
-	}
-	row, err := a.Store.GetSandbox(ctx, agentID)
-	if err != nil {
-		return nil, err
 	}
 	switch sandbox.Phase(row.State) {
 	case sandbox.PhaseSleeping, sandbox.PhaseError:

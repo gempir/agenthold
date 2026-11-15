@@ -1,13 +1,12 @@
 name: demo release
 
-# Automatic publication is deliberately disabled until the bundled build and
-# the first demo installation have been validated. Enable workflow_run only
-# after that review; manual runs are gated identically.
+# Publishes the main head as an immutable release after a green CI run. The demo
+# host pulls it (scripts/deploy/pull.sh); GitHub never connects to it.
 on:
   workflow_dispatch:
-  # workflow_run:
-  #   workflows: [ci]
-  #   types: [completed]
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
 
 permissions:
   contents: read

@@ -429,3 +429,43 @@ func TestNoInjectionOverPlainHTTP(t *testing.T) {
 		t.Fatalf("secret sent over plain HTTP: %q", a)
 	}
 }
+
+func TestResponderAnswersWithoutUpstream(t *testing.T) {
+	f := newFixture(t)
+	f.agent.Responders = []Responder{{Host: "api.example.com", Handle: func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/oauth/token" {
+			return false
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"access_token":"placeholder"}`)
+		return true
+	}}}
+	// A responder alone makes the proxy intercept TLS (the sandbox trusts only the agenthold CA).
+	c := f.explicitClient(f.ca.Pool())
+	res, err := c.Post(fmt.Sprintf("https://api.example.com:%d/oauth/token", f.upPort()), "application/json", strings.NewReader(`{"refresh_token":"x"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if string(body) != `{"access_token":"placeholder"}` {
+		t.Fatalf("body %q", body)
+	}
+	select {
+	case got := <-f.gotAuth:
+		t.Fatalf("request reached upstream (%q)", got)
+	default:
+	}
+	if ev, ok := f.events.find("api.example.com"); !ok || ev.Reason != "answered by agenthold" || ev.Status != http.StatusOK {
+		t.Fatalf("event %+v", ev)
+	}
+	// Requests the responder declines go upstream as usual.
+	res, err = c.Get(fmt.Sprintf("https://api.example.com:%d/v1/other", f.upPort()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if got := <-f.gotAuth; got != "" {
+		t.Fatalf("auth %q", got)
+	}
+}

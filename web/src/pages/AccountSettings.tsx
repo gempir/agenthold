@@ -1,5 +1,5 @@
 import { Link, Outlet, useRouterState } from '@tanstack/react-router';
-import { KeyRound, type LucideIcon } from 'lucide-react';
+import { KeyRound, Plug, type LucideIcon } from 'lucide-react';
 import {
   SettingsLayout,
   SettingsNavItem,
@@ -14,7 +14,10 @@ export const ACCOUNT_SETTINGS_NAV: {
   to: string;
   label: string;
   icon: LucideIcon;
-}[] = [{ to: '/settings/tokens', label: 'API tokens', icon: KeyRound }];
+}[] = [
+  { to: '/settings/providers', label: 'Provider logins', icon: Plug },
+  { to: '/settings/tokens', label: 'API tokens', icon: KeyRound },
+];
 
 export function AccountSettings() {
   const path = useRouterState({ select: (s) => s.location.pathname });

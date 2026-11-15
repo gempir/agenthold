@@ -79,7 +79,7 @@ func (q *Queries) DeleteAgent(ctx context.Context, id string) error {
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, workspace_id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, created_at, updated_at, network_policy, permission_policy, credentials_in_sandbox FROM agents WHERE id = ?
+SELECT id, workspace_id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, created_at, updated_at, network_policy, permission_policy, credentials_in_sandbox, login_user_id FROM agents WHERE id = ?
 `
 
 func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
@@ -101,12 +101,13 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
 		&i.NetworkPolicy,
 		&i.PermissionPolicy,
 		&i.CredentialsInSandbox,
+		&i.LoginUserID,
 	)
 	return i, err
 }
 
 const getAgentWithSandbox = `-- name: GetAgentWithSandbox :one
-SELECT agents.id, agents.workspace_id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.created_at, agents.updated_at, agents.network_policy, agents.permission_policy, agents.credentials_in_sandbox, sandboxes.agent_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet
+SELECT agents.id, agents.workspace_id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.created_at, agents.updated_at, agents.network_policy, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, sandboxes.agent_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet
 FROM agents JOIN sandboxes ON sandboxes.agent_id = agents.id
 WHERE agents.id = ?
 `
@@ -135,6 +136,7 @@ func (q *Queries) GetAgentWithSandbox(ctx context.Context, id string) (GetAgentW
 		&i.Agent.NetworkPolicy,
 		&i.Agent.PermissionPolicy,
 		&i.Agent.CredentialsInSandbox,
+		&i.Agent.LoginUserID,
 		&i.Sandbox.AgentID,
 		&i.Sandbox.Driver,
 		&i.Sandbox.DriverID,
@@ -207,7 +209,7 @@ func (q *Queries) ListSandboxes(ctx context.Context) ([]Sandbox, error) {
 }
 
 const listWorkspaceAgents = `-- name: ListWorkspaceAgents :many
-SELECT agents.id, agents.workspace_id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.created_at, agents.updated_at, agents.network_policy, agents.permission_policy, agents.credentials_in_sandbox, sandboxes.agent_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet
+SELECT agents.id, agents.workspace_id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.created_at, agents.updated_at, agents.network_policy, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, sandboxes.agent_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet
 FROM agents JOIN sandboxes ON sandboxes.agent_id = agents.id
 WHERE agents.workspace_id = ?
 ORDER BY agents.name
@@ -243,6 +245,7 @@ func (q *Queries) ListWorkspaceAgents(ctx context.Context, workspaceID string) (
 			&i.Agent.NetworkPolicy,
 			&i.Agent.PermissionPolicy,
 			&i.Agent.CredentialsInSandbox,
+			&i.Agent.LoginUserID,
 			&i.Sandbox.AgentID,
 			&i.Sandbox.Driver,
 			&i.Sandbox.DriverID,

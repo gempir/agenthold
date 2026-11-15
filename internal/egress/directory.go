@@ -20,6 +20,8 @@ type Directory struct {
 	Store *store.Store
 	Box   *secrets.Box
 	Log   *slog.Logger
+	// Logins adds the injections of the account login an agent uses.
+	Logins AccountLogins
 
 	mu        sync.Mutex
 	subnets   map[netip.Prefix]string
@@ -33,6 +35,11 @@ type cachedAgent struct {
 }
 
 const directoryTTL = 5 * time.Second
+
+// AccountLogins resolves what the proxy does for an agent's account login.
+type AccountLogins interface {
+	Egress(ctx context.Context, a db.Agent) ([]secrets.Injection, []Responder, error)
+}
 
 // AgentForSource implements Agents.
 func (d *Directory) AgentForSource(ctx context.Context, ip netip.Addr) (*Agent, error) {
@@ -116,6 +123,14 @@ func (d *Directory) Agent(ctx context.Context, agentID string) (*Agent, error) {
 				use(s)
 			}
 		}
+	}
+	if d.Logins != nil {
+		injs, resp, err := d.Logins.Egress(ctx, a)
+		if err != nil {
+			d.logger().Error("egress: account login", "agent", agentID, "err", err)
+		}
+		out.Injections = append(out.Injections, injs...)
+		out.Responders = append(out.Responders, resp...)
 	}
 	d.mu.Lock()
 	if d.agents == nil {

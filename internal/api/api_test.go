@@ -30,6 +30,7 @@ import (
 	fakeharness "github.com/gempir/agenthold/internal/harness/fake"
 	_ "github.com/gempir/agenthold/internal/harness/opencode"
 	"github.com/gempir/agenthold/internal/idle"
+	"github.com/gempir/agenthold/internal/logins"
 	"github.com/gempir/agenthold/internal/platform"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
@@ -51,6 +52,7 @@ type env struct {
 	sandboxes *sandbox.Manager
 	hub       *tunnel.Hub
 	directory *egress.Directory
+	logins    *logins.Service
 	store     *store.Store
 	sessions  *session.Manager
 	tracker   *idle.Tracker
@@ -144,8 +146,12 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	e.directory = &egress.Directory{Store: st, Box: box}
+	e.logins = &logins.Service{Store: st, Box: box, Audit: &audit.Log{Store: st}, Invalidate: e.directory.Invalidate}
+	e.directory.Logins = e.logins
 	e.store = st
 	e.sessions = session.NewManager(st, nil, nil)
+	e.sessions.SetLogins(e.logins)
+	e.logins.Restart = e.sessions.Restart
 	e.sessions.SetTools(tools.Provider{Store: st, PlatformCommand: sandboxdBin})
 	e.hub.HandleIncoming((&platform.Service{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}).Handle)
 	e.clock = &clock{t: time.Now()}
@@ -157,7 +163,7 @@ func newEnv(t *testing.T) *env {
 	a := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Tunnel: e.hub, Limits: cfg.Sandbox,
 		Box: box, Egress: e.directory, CA: ca, Sessions: e.sessions, Idle: e.sleeper, Audit: &audit.Log{Store: st}, ShowTestHarness: true,
-		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}},
+		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins,
 	})
 	e.sessions.SetWaker(a.Wake)
 	e.scheduler.Runner = a.Triggers

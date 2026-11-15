@@ -21,6 +21,7 @@ import { HomePage } from '@/pages/HomePage';
 import { InvitePage } from '@/pages/InvitePage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NewChatPage } from '@/pages/NewChatPage';
+import { ProvidersPage } from '@/pages/ProvidersPage';
 import { WorkspacePage, type WorkspaceTab } from '@/pages/WorkspacePage';
 
 const str = (v: unknown) => (v == null || v === '' ? undefined : String(v));
@@ -150,6 +151,12 @@ const tokensRoute = createRoute({
   component: TokensPage,
 });
 
+const providersRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/providers',
+  component: ProvidersPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   inviteRoute,
@@ -159,7 +166,11 @@ const routeTree = rootRoute.addChildren([
     workspaceRoute,
     agentRoute,
     agentSettingsRoute,
-    settingsRoute.addChildren([settingsIndexRoute, tokensRoute]),
+    settingsRoute.addChildren([
+      settingsIndexRoute,
+      tokensRoute,
+      providersRoute,
+    ]),
   ]),
 ]);
 

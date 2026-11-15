@@ -225,6 +225,7 @@ func (a *API) UpdateMember(ctx context.Context, req gen.UpdateMemberRequestObjec
 
 // RemoveMember implements gen.StrictServerInterface.
 func (a *API) RemoveMember(ctx context.Context, req gen.RemoveMemberRequestObject) (gen.RemoveMemberResponseObject, error) {
+	var unbound []string
 	err := a.Store.Tx(ctx, func(q *db.Queries) error {
 		actor, target, owners, err := a.memberChange(ctx, q, req.WorkspaceId, req.UserId)
 		if err != nil {
@@ -236,10 +237,17 @@ func (a *API) RemoveMember(ctx context.Context, req gen.RemoveMemberRequestObjec
 		if err := q.DeleteUserGrantsInWorkspace(ctx, db.DeleteUserGrantsInWorkspaceParams{UserID: req.UserId, WorkspaceID: req.WorkspaceId}); err != nil {
 			return err
 		}
+		// Their account logins leave with them.
+		if unbound, err = q.ClearLoginUserInWorkspace(ctx, db.ClearLoginUserInWorkspaceParams{UserID: req.UserId, WorkspaceID: req.WorkspaceId}); err != nil {
+			return err
+		}
 		return q.DeleteMembership(ctx, db.DeleteMembershipParams{WorkspaceID: req.WorkspaceId, UserID: req.UserId})
 	})
 	if err != nil {
 		return nil, err
+	}
+	if a.Logins != nil {
+		a.Logins.AgentsChanged(unbound...)
 	}
 	return gen.RemoveMember204Response{}, nil
 }

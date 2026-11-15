@@ -4,10 +4,12 @@
 //	write <path> <text...>   edit a file (asks for permission first)
 //	slow <n>                 stream n chunks, 200ms apart (cancellable)
 //	think <text>             a thought, then an answer
+//	whoami                   the account login it was given (env and file)
 //	anything else            echo it back
 //
 // Sessions are stored under $HOME/.fakeagent so session/load replays them
-// after a restart. "fakeagent login" is the terminal login method.
+// after a restart. "fakeagent login" is the terminal login method; an
+// account login arrives as FAKEAGENT_TOKEN or $HOME/.fakeagent/account.json.
 package main
 
 import (
@@ -104,8 +106,15 @@ func (a *agent) loggedIn() bool {
 	if os.Getenv("FAKEAGENT_REQUIRE_LOGIN") == "" {
 		return true
 	}
-	_, err := os.Stat(filepath.Join(a.dir, "credentials"))
-	return err == nil
+	if os.Getenv("FAKEAGENT_TOKEN") != "" {
+		return true
+	}
+	for _, f := range []string{"credentials", "account.json"} {
+		if _, err := os.Stat(filepath.Join(a.dir, f)); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *agent) Initialize(context.Context, acp.InitializeRequest) (acp.InitializeResponse, error) {
@@ -298,6 +307,9 @@ func (a *agent) Prompt(_ context.Context, p acp.PromptRequest) (acp.PromptRespon
 			}
 		}
 		answer = "mcp=[" + strings.Join(servers, " | ") + "] skills=[" + strings.Join(skills, ",") + "]"
+	case len(fields) == 1 && fields[0] == "whoami":
+		account, _ := os.ReadFile(filepath.Join(a.dir, "account.json"))
+		answer = "token=" + os.Getenv("FAKEAGENT_TOKEN") + " account=" + strings.TrimSpace(string(account))
 	case len(fields) >= 1 && fields[0] == "think":
 		_ = a.conn.SessionUpdate(ctx, acp.SessionNotification{SessionId: sid, Update: acp.UpdateAgentThoughtText("Thinking about " + strings.Join(fields[1:], " "))})
 		answer = "Here is my answer."

@@ -16,6 +16,7 @@ import (
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/egress"
 	"github.com/gempir/agenthold/internal/idle"
+	"github.com/gempir/agenthold/internal/logins"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/session"
@@ -39,6 +40,7 @@ type Deps struct {
 	Idle      *idle.Sleeper
 	Audit     *audit.Log
 	Triggers  *trigger.Runner
+	Logins    *logins.Service
 	// ShowTestHarness lists the scripted test harness (development).
 	ShowTestHarness bool
 	Limits          config.Sandbox

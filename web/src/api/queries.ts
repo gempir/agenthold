@@ -167,3 +167,13 @@ export const accessQuery = (agentId: string) =>
       ),
     retry: false,
   });
+
+export type ProviderLoginInfo = components['schemas']['ProviderLoginInfo'];
+export type AgentLogin = components['schemas']['AgentLogin'];
+
+/** Your account-level harness logins (Claude Code, Codex). */
+export const providerLoginsQuery = queryOptions({
+  queryKey: ['me', 'provider-logins'],
+  queryFn: () => unwrap(api.GET('/me/provider-logins')),
+  retry: false,
+});

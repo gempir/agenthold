@@ -1,5 +1,6 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { TriangleAlert } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
 import { harnessesQuery, type Agent } from '@/api/queries';
@@ -53,8 +54,111 @@ export function HarnessPanel({
           <dd>{agent.permissionPolicy}</dd>
         </dl>
       )}
-      {admin && <SignIn agent={agent} />}
+      <AccountLogin agent={agent} admin={admin} onSaved={onSaved} />
+      {admin && (
+        <details className="border-t pt-3">
+          <summary className="cursor-pointer text-sm text-muted-foreground">
+            Sign in inside this sandbox instead
+          </summary>
+          <SignIn agent={agent} />
+        </details>
+      )}
     </section>
+  );
+}
+
+/** Which login the harness uses: the account login of agent.login.user. */
+function AccountLogin({
+  agent,
+  admin,
+  onSaved,
+}: {
+  agent: Agent;
+  admin: boolean;
+  onSaved: (a: Agent) => void;
+}) {
+  const harnesses = useQuery(harnessesQuery);
+  const name =
+    harnesses.data?.find((h) => h.id === agent.harness)?.name ?? agent.harness;
+  const l = agent.login;
+  const change = useMutation({
+    mutationFn: (use: boolean) =>
+      unwrap(
+        use
+          ? api.PUT('/agents/{agentId}/login', {
+              params: { path: { agentId: agent.id } },
+            })
+          : api.DELETE('/agents/{agentId}/login', {
+              params: { path: { agentId: agent.id } },
+            }),
+      ),
+    onSuccess: onSaved,
+  });
+  if (l.source === 'unsupported') return null;
+  const whose = l.mine ? 'your' : `${l.user?.name ?? 'someone'}'s`;
+  const settings = (
+    <Link to="/settings/providers" className="underline">
+      Provider logins
+    </Link>
+  );
+  let text: ReactNode;
+  if (l.source === 'secret') {
+    text = `Signs in with an API key secret attached to this agent.`;
+  } else if (l.source === 'account' && l.connected) {
+    text = (
+      <>
+        Signs in with {whose} {name} login
+        {l.status === 'error' && (
+          <span className="text-amber-700">
+            {' '}
+            (it needs to be connected again{l.mine && <>: {settings}</>})
+          </span>
+        )}
+        .
+      </>
+    );
+  } else if (l.source === 'account') {
+    text = l.mine ? (
+      <>
+        Your {name} login is not connected. Connect it under {settings}.
+      </>
+    ) : (
+      `${whose} account has no ${name} login.`
+    );
+  } else {
+    text = `Uses the login inside its sandbox${l.reason ? ` (${l.reason})` : ''}.`;
+  }
+  const canStop = l.user && (admin || l.mine);
+  return (
+    <div className="grid gap-2 border-t pt-3">
+      <h3 className="text-sm font-medium">Login</h3>
+      <p className="text-sm" data-testid="agent-login">
+        {text}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {admin && !l.mine && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={change.isPending}
+            onClick={() => change.mutate(true)}
+          >
+            Use my logins
+          </Button>
+        )}
+        {canStop && (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={change.isPending}
+            onClick={() => change.mutate(false)}
+          >
+            {l.mine ? 'Stop using my logins' : 'Stop using these logins'}
+          </Button>
+        )}
+      </div>
+      <ErrorText error={change.error} />
+    </div>
   );
 }
 
@@ -155,11 +259,11 @@ function SignIn({ agent }: { agent: Agent }) {
   });
   const methods = check.data?.authMethods ?? [];
   return (
-    <div className="grid gap-2 border-t pt-3">
-      <h3 className="text-sm font-medium">Sign in</h3>
+    <div className="grid gap-2 pt-3">
       <p className="text-sm text-muted-foreground">
-        Log the harness in inside the sandbox. This wakes the agent if needed.
-        Credentials will then live inside the sandbox.
+        Log the harness in inside this sandbox only. This wakes the agent if
+        needed. The credentials then live inside the sandbox, where the agent
+        can read them. A connected account login takes precedence.
       </p>
       <div>
         <Button

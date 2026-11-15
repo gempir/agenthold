@@ -30,6 +30,7 @@ import (
 	fakeharness "github.com/gempir/agenthold/internal/harness/fake"
 	_ "github.com/gempir/agenthold/internal/harness/opencode"
 	"github.com/gempir/agenthold/internal/idle"
+	"github.com/gempir/agenthold/internal/logins"
 	"github.com/gempir/agenthold/internal/platform"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/docker"
@@ -127,6 +128,10 @@ func run() error {
 		return fmt.Errorf("egress CA: %w", err)
 	}
 	directory := &egress.Directory{Store: st, Box: box, Log: logger}
+	auditLog := &audit.Log{Store: st, Log: logger}
+	// Account logins: delivered to harnesses, injected by the proxy, refreshed here.
+	loginSvc := &logins.Service{Store: st, Box: box, Audit: auditLog, Log: logger, Invalidate: directory.Invalidate}
+	directory.Logins = loginSvc
 	egressOn := !cfg.Egress.Disabled
 	if egressOn {
 		if err := startEgress(ctx, cfg, ca, directory, st, tunnelPort, logger); err != nil {
@@ -165,8 +170,10 @@ func run() error {
 		return fmt.Errorf("reconcile sandboxes: %w", err)
 	}
 
-	auditLog := &audit.Log{Store: st, Log: logger}
 	sessions := session.NewManager(st, nil, logger)
+	sessions.SetLogins(loginSvc)
+	loginSvc.Restart = sessions.Restart
+	go loginSvc.Run(ctx)
 	runner := &trigger.Runner{Store: st, Sessions: sessions, Audit: auditLog}
 	go (&trigger.Scheduler{Runner: runner, Log: logger}).Run(ctx)
 	platformCmd := sandbox.SandboxdDir + "/sandboxd"
@@ -196,7 +203,7 @@ func run() error {
 
 	apiSrv := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Tunnel: hub, Limits: cfg.Sandbox,
-		Box: box, Egress: directory, CA: ca, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner,
+		Box: box, Egress: directory, CA: ca, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc,
 		ShowTestHarness: cfg.TestHarness || cfg.Sandbox.Driver == "fake",
 	})
 	sessions.SetWaker(apiSrv.Wake)

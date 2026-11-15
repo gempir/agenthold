@@ -20,7 +20,17 @@ const nimbusConfig = defineNimbusConfig({
   socialImageAlt: "agenthold documentation",
   // The home page leads the sidebar; every other page joins it automatically.
   sidebar: {
-    items: ["index", { autogenerate: { collection: "docs" } }],
+    items: [
+      "index",
+      { label: "Run it", items: ["install", "deploy"] },
+      {
+        label: "Using agenthold",
+        items: ["sessions", "sandboxes", "agents", "tools", "sharing", "automation"],
+      },
+      { label: "Sign-in", items: ["auth", "auth-github", "auth-keycloak"] },
+      { label: "Security", items: ["security", "egress", "hardening"] },
+      { label: "API reference", autogenerate: { collection: "api" } },
+    ],
   },
   // The API reference, served where its route file is (src/pages/api/ → /api).
   // See https://nimbus-docs.com/api-reference/
@@ -28,7 +38,14 @@ const nimbusConfig = defineNimbusConfig({
     {
       collection: "api",
       spec: "../api/openapi.yaml",
-      routes: { convention: "resource-action-v2" },
+      routes: {
+        convention: "resource-action-v2",
+        // "webhooks" is a reserved first segment in the API reference.
+        operations: {
+          updateWebhook: "webhook/update",
+          deleteWebhook: "webhook/delete",
+        },
+      },
     },
   ],
 });

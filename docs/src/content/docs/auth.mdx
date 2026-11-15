@@ -1,12 +1,15 @@
-# Authentication
+---
+title: "Authentication"
+description: "agenthold has no passwords of its own."
+---
 
 agenthold has no passwords of its own. Users sign in through an external identity provider, configured in the
 server config file (path in `AGENTHOLD_CONFIG`, YAML, `${VAR}` references are expanded from the environment).
 
 Supported provider types:
 
-- `oidc`: any OpenID Connect provider (Keycloak, Authentik, Okta, Google, ...). See [auth-keycloak.md](auth-keycloak.md).
-- `github`: GitHub or GitHub Enterprise Server via OAuth2. See [auth-github.md](auth-github.md).
+- `oidc`: any OpenID Connect provider (Keycloak, Authentik, Okta, Google, ...). See [Keycloak and OIDC](/auth-keycloak/).
+- `github`: GitHub or GitHub Enterprise Server via OAuth2. See [GitHub sign-in](/auth-github/).
 
 ## How sign-in works
 

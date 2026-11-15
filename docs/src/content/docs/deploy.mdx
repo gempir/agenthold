@@ -1,14 +1,17 @@
-# Automatic deploys
+---
+title: "Automatic deploys"
+description: "Deploy every push to main to your host automatically with GitHub Actions: setup, secrets and rollback."
+---
 
 Every push to `main` is deployed to the production host once CI is green. The workflow
-[`deploy.yml`](../.github/workflows/deploy.yml) runs after the `ci` workflow succeeds for a push to `main`:
+[`deploy.yml`](https://github.com/gempir/agenthold/blob/main/.github/workflows/deploy.yml) runs after the `ci` workflow succeeds for a push to `main`:
 
 1. Builds the server image and the base image (`images/base`) for that commit, for `linux/arm64`, and pushes them
    to `ghcr.io/<owner>/agenthold` and `agenthold-base` tagged `sha-<commit>`. The production host is arm64, so only
    that platform is built (natively, on a GitHub arm64 runner). Tag releases (`release.yml`) still publish
    multi-arch `latest` and version tags and are not affected.
 2. Resolves both tags to digests and connects to the host over SSH with a dedicated key.
-3. [`deploy/production/deploy.sh`](../deploy/production/deploy.sh) on the host pulls the images **by digest**,
+3. [`deploy/production/deploy.sh`](https://github.com/gempir/agenthold/blob/main/deploy/production/deploy.sh) on the host pulls the images **by digest**,
    restarts only the `agenthold` service on them, waits for the compose health check, checks that the running
    container uses exactly the pulled image and runs `agenthold healthcheck` in it. On any failure it switches back to
    the previous images and exits non-zero, so the workflow run fails.
@@ -21,7 +24,7 @@ of `main` is skipped, so an older build never replaces a newer deploy. A failing
 
 - A checkout of this repository at `~/agenthold` (compose file in `deploy/production`), Docker 28+ with
   Compose, and `git` and `flock`. The configured stack (`.env`, `agenthold.yaml`, the optional Cloudflare Tunnel
-  override) stays as installed per [install.md](install.md).
+  override) stays as installed per [the install guide](/install/).
 - `~/agenthold-deploy.sh`, a copy of `deploy/production/deploy.sh`. It refreshes itself from the checkout on every
   deploy.
 - The deploy user's `~/.ssh/authorized_keys` has the deploy key with a forced command, so the key can do nothing
@@ -91,4 +94,4 @@ docker compose --env-file .env --env-file .deploy.env up -d --no-deps agenthold
 
 Removing `.deploy.env` goes back to the images named in `.env` (the locally built `agenthold:local` on the current
 host, as long as that image is still there). Database migrations run forward at startup and are not undone; a
-rollback across a migration needs a [backup](install.md#back-up) restore.
+rollback across a migration needs a [backup](/install/#back-up) restore.

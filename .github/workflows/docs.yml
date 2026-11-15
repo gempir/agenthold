@@ -1,7 +1,7 @@
 name: docs
 
 # Builds the documentation site (docs/, Nimbus on Astro) on every change to it
-# and publishes it to Cloudflare at agenthold.dev when main changes. Setup: docs/src/content/docs/docs-site.md.
+# and publishes it to Cloudflare at agenthold.dev when main changes. Setup: docs/src/content/https://agenthold.dev/docs-site/.
 on:
   push:
     branches: [main]

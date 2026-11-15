@@ -1,4 +1,7 @@
-# Sandboxes
+---
+title: "Sandboxes"
+description: "Every agent has its own sandbox: a container with a persistent home directory at /home/agent. The server drives sandboxes through a small driver interface (internal/sandbox.Driver)."
+---
 
 Every agent has its own sandbox: a container with a persistent home directory at `/home/agent`.
 The server drives sandboxes through a small driver interface (`internal/sandbox.Driver`).
@@ -35,7 +38,7 @@ Agents sleep when nobody uses them. An agent is idle when, for its idle timeout 
 The sleeper checks every `sandbox.idle_check_interval` (default 30s) and stops idle sandboxes. The disk and the
 conversations survive; running processes do not. Any prompt, terminal or Start request wakes the agent again.
 When a prompt wakes an agent, the session log shows it ("Starting the sandbox…"). The harness then restores the
-conversation with `session/load` or `session/resume` (see [sessions.md](sessions.md)). If the harness can do
+conversation with `session/load` or `session/resume` (see [sessions and harnesses](/sessions/)). If the harness can do
 neither, a notice says that the context was reset.
 
 While an agent runs, the API reports `lastActivityAt` and `sleepsAt`, and the UI shows when it will fall asleep.

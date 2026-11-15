@@ -5,17 +5,19 @@ See [PLAN.md](PLAN.md) for the design and milestones.
 
 ## Run it
 
-Follow [docs/install.md](docs/install.md): a Linux server with Docker, a domain, and a GitHub OAuth app or any
+Follow [the install guide](https://agenthold.dev/install/): a Linux server with Docker, a domain, and a GitHub OAuth app or any
 OpenID Connect provider. `deploy/production` has the compose file.
 
 ## Documentation
 
-- [Install, upgrade, back up](docs/install.md), [automatic deploys from `main`](docs/deploy.md)
-- [Authentication](docs/auth.md): [Keycloak and OIDC](docs/auth-keycloak.md), [GitHub](docs/auth-github.md)
-- [Sandboxes](docs/sandboxes.md), [egress and secrets](docs/egress.md), [hardened runtimes](docs/hardening.md)
-- [Sessions and harnesses](docs/sessions.md), [MCP servers and skills](docs/tools.md), [agent to agent](docs/agents.md)
-- [Sharing and audit](docs/sharing.md), [API, tokens, schedules, webhooks](docs/api.md)
-- [Security](docs/security.md)
+The documentation is at [agenthold.dev](https://agenthold.dev), built from [`docs/`](docs) with [Nimbus](https://github.com/cloudflare/nimbus). A live instance runs at [demo.agenthold.dev](https://demo.agenthold.dev).
+
+- [Install, upgrade, back up](https://agenthold.dev/install/), [automatic deploys from `main`](https://agenthold.dev/deploy/)
+- [Authentication](https://agenthold.dev/auth/): [Keycloak and OIDC](https://agenthold.dev/auth-keycloak/), [GitHub](https://agenthold.dev/auth-github/)
+- [Sandboxes](https://agenthold.dev/sandboxes/), [egress and secrets](https://agenthold.dev/egress/), [hardened runtimes](https://agenthold.dev/hardening/)
+- [Sessions and harnesses](https://agenthold.dev/sessions/), [MCP servers and skills](https://agenthold.dev/tools/), [agent to agent](https://agenthold.dev/agents/)
+- [Sharing and audit](https://agenthold.dev/sharing/), [API, tokens, schedules, webhooks](https://agenthold.dev/automation/)
+- [Security](https://agenthold.dev/security/)
 
 ## Development
 

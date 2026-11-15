@@ -1,6 +1,6 @@
 # Cloudflare Tunnel instead of Caddy: no inbound ports, Cloudflare terminates
 # TLS. Enable with COMPOSE_FILE=docker-compose.yml:docker-compose.cloudflared.yml
-# in .env and set CLOUDFLARE_TUNNEL_TOKEN (docs/install.md).
+# in .env and set CLOUDFLARE_TUNNEL_TOKEN (https://agenthold.dev/install/).
 services:
   caddy:
     profiles: ["caddy"] # not started when the tunnel is used

@@ -3,7 +3,7 @@ name: deploy
 # Deploys main to production once its CI run is green: builds the server and
 # base images for that commit (linux/arm64, the production host's platform),
 # pushes them to ghcr.io as sha-<commit>, then switches the host to those exact
-# digests over SSH (deploy/production/deploy.sh). Setup and rollback: docs/deploy.md.
+# digests over SSH (deploy/production/deploy.sh). Setup and rollback: https://agenthold.dev/deploy/.
 on:
   workflow_run:
     workflows: [ci]

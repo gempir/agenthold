@@ -1,11 +1,11 @@
 # agenthold server configuration. ${VAR} and ${VAR:-default} are read from
-# the environment (.env). Reference: docs/auth.md, docs/sandboxes.md,
-# docs/egress.md.
+# the environment (.env). Reference: https://agenthold.dev/auth/, https://agenthold.dev/sandboxes/,
+# https://agenthold.dev/egress/.
 data_dir: /data
 
 auth:
   providers:
-    # Sign in with GitHub (docs/auth-github.md). Callback URL:
+    # Sign in with GitHub (https://agenthold.dev/auth-github/). Callback URL:
     # https://<your domain>/api/v1/auth/callback/github
     - id: github
       type: github
@@ -15,7 +15,7 @@ auth:
       # GitHub user ID for gempir. Restricts application sign-in to this account.
       github_allowed_ids: ["9765622"]
 
-    # Or any OpenID Connect provider (docs/auth-keycloak.md). Callback URL:
+    # Or any OpenID Connect provider (https://agenthold.dev/auth-keycloak/). Callback URL:
     # https://<your domain>/api/v1/auth/callback/oidc
     # - id: oidc
     #   type: oidc
@@ -32,5 +32,5 @@ sandbox:
     # Address range for agent networks. Pick one that does not overlap your
     # LAN or VPN.
     network_pool: ${AGENTHOLD_NETWORK_POOL:-10.213.0.0/16}
-    # Optional hardened runtime (docs/hardening.md): runsc (gVisor) or sysbox-runc.
+    # Optional hardened runtime (https://agenthold.dev/hardening/): runsc (gVisor) or sysbox-runc.
     runtime: ${AGENTHOLD_RUNTIME:-}

@@ -1031,7 +1031,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description Harness id (claude-code */
+                /** @description Harness id (claude-code, codex). */
                 provider: string;
             };
             cookie?: never;
@@ -1513,7 +1513,7 @@ export interface components {
         };
         ProviderLoginInput: {
             kind: string;
-            /** @description The token */
+            /** @description The token, key or file contents. Never returned. */
             credential: string;
         };
         AuthMethodInfo: {
@@ -1843,7 +1843,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Session cookie set */
+            /** @description Session cookie set, redirect into the app. */
             302: {
                 headers: {
                     [name: string]: unknown;
@@ -3763,7 +3763,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Harness id (claude-code */
+                /** @description Harness id (claude-code, codex). */
                 provider: string;
             };
             cookie?: never;
@@ -3793,7 +3793,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Harness id (claude-code */
+                /** @description Harness id (claude-code, codex). */
                 provider: string;
             };
             cookie?: never;

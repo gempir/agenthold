@@ -1,4 +1,7 @@
-# Egress and secrets
+---
+title: "Egress and secrets"
+description: "Sandboxes have no route to the internet of their own. All of their traffic goes through the server, which applies the agent's network policy, injects secrets and logs every connection."
+---
 
 Sandboxes have no route to the internet of their own. All of their traffic goes through the server,
 which applies the agent's network policy, injects secrets and logs every connection.
@@ -65,7 +68,7 @@ The CA is generated on first start (`<data_dir>/egress/ca.crt`). It is written i
 added to the system trust store where the image supports it, and exported through `SSL_CERT_FILE`,
 `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` and `AWS_CA_BUNDLE`.
 
-Account logins (Claude Code, Codex, see [sessions.md](sessions.md#account-logins-the-normal-way)) use the same
+Account logins (Claude Code, Codex, see [sessions and harnesses](/sessions/#account-logins-the-normal-way)) use the same
 mechanism with narrower rules: the placeholder is replaced only inside the one header the harness sends it in, the
 header is never added, and some rules are limited to URL paths. For a Codex ChatGPT login the proxy also answers the
 harness's token refresh requests itself, so the account's rotating refresh token never leaves the server.

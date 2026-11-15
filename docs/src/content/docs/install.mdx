@@ -1,4 +1,7 @@
-# Install, upgrade, back up
+---
+title: "Install, upgrade, back up"
+description: "This guide takes a fresh Linux server to a working agent. Everything runs in Docker on one host."
+---
 
 This guide takes a fresh Linux server to a working agent. Everything runs in Docker on one host.
 
@@ -8,8 +11,8 @@ This guide takes a fresh Linux server to a working agent. Everything runs in Doc
   resources on top, by default 2 CPUs and 4 GB RAM. Agents that sleep use only disk.
 - A domain name. Either point it at the server with ports 80 and 443 reachable (Caddy gets a TLS certificate
   automatically), or use a Cloudflare Tunnel and open no inbound ports at all (see "Cloudflare Tunnel" below).
-- A way to sign in: a GitHub OAuth app ([auth-github.md](auth-github.md)) or any OpenID Connect provider
-  ([auth-keycloak.md](auth-keycloak.md)).
+- A way to sign in: a GitHub OAuth app ([GitHub sign-in](/auth-github/)) or any OpenID Connect provider
+  ([Keycloak and OIDC](/auth-keycloak/)).
 
 ## 1. Install Docker
 
@@ -108,7 +111,7 @@ firewall. While the server is down, sandboxes have no network access (it fails c
 own. Database migrations run automatically at startup. If agents are marked *rebuild pending* after an upgrade,
 rebuild them when convenient to get the new image.
 
-To deploy every push to `main` automatically with GitHub Actions, see [deploy.md](deploy.md).
+To deploy every push to `main` automatically with GitHub Actions, see [automatic deploys](/deploy/).
 
 ## Back up
 

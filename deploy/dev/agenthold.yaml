@@ -15,7 +15,7 @@ auth:
       client_id: agenthold
       client_secret: agenthold-dev-secret
 
-    # GitHub login: create an OAuth app (see docs/auth-github.md) and export
+    # GitHub login: create an OAuth app (see https://agenthold.dev/auth-github/) and export
     # GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET before `make dev`, then uncomment.
     # - id: github
     #   type: github

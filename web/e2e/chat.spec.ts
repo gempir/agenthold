@@ -23,18 +23,28 @@ test('chat with an agent', async ({ page, browser }) => {
   await dialog.getByLabel('Harness').selectOption('fake');
   await dialog.getByRole('button', { name: 'Create' }).click();
 
-  await expect(page.getByRole('heading', { name })).toBeVisible();
-  await expect(page.getByText('Running', { exact: false }).first()).toBeVisible(
-    { timeout: 90_000 },
-  );
+  // A new agent opens on a blank chat; the sidebar lists it.
+  await expect(
+    page.getByRole('heading', { name: `Start a chat with ${name}` }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('list', { name: 'Agents' }).getByText(name),
+  ).toBeVisible();
+  await expect(page.getByRole('img', { name: 'running' }).first()).toBeVisible({
+    timeout: 90_000,
+  });
 
-  await page.getByRole('button', { name: 'New session' }).click();
-  await expect(page).toHaveURL(/[?&]s=ses_/);
+  // The first message creates the session.
   const box = page.getByRole('textbox', { name: 'Message' });
-  await expect(box).toBeVisible();
   await box.fill('hello from the browser');
   await box.press('Enter');
+  await expect(page).toHaveURL(/[?&]s=ses_/);
   await expect(page.getByText('echo: hello from the browser')).toBeVisible();
+  await expect(
+    page
+      .getByRole('list', { name: 'Chats' })
+      .getByText('hello from the browser'),
+  ).toBeVisible();
 
   // Reload mid-way through a longer turn: the stream continues.
   await box.fill('slow 8');
@@ -43,6 +53,15 @@ test('chat with an agent', async ({ page, browser }) => {
   await page.reload();
   await expect(page.getByText(/chunk 8/)).toBeVisible();
   await expect(page.getByText('done')).toBeVisible();
+
+  // The agent panel lists the session next to the chat.
+  await page.getByRole('button', { name: 'Agent panel' }).click();
+  await expect(
+    page
+      .getByRole('complementary', { name: 'Agent panel' })
+      .getByRole('list', { name: 'Sessions' })
+      .getByText('hello from the browser'),
+  ).toBeVisible();
 
   // Someone else in another workspace cannot open it.
   const url = page.url();
@@ -53,12 +72,12 @@ test('chat with an agent', async ({ page, browser }) => {
   await expect(bob.getByText(/not found/i)).toBeVisible();
   await other.close();
 
-  // Clean up.
-  await page.getByRole('tab', { name: /overview/i }).click();
-  page.once('dialog', (d) => void d.accept());
+  // Clean up from the agent's settings.
+  await page.getByRole('link', { name: 'Agent settings' }).click();
   await page.getByRole('button', { name: 'Delete' }).click();
-  const confirm = page
+  await page
     .getByRole('dialog')
-    .getByRole('button', { name: /Delete/ });
-  if (await confirm.isVisible().catch(() => false)) await confirm.click();
+    .getByRole('button', { name: 'Delete agent' })
+    .click();
+  await expect(page).not.toHaveURL(/\/a\//);
 });

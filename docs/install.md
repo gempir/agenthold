@@ -108,6 +108,8 @@ firewall. While the server is down, sandboxes have no network access (it fails c
 own. Database migrations run automatically at startup. If agents are marked *rebuild pending* after an upgrade,
 rebuild them when convenient to get the new image.
 
+To deploy every push to `main` automatically with GitHub Actions, see [deploy.md](deploy.md).
+
 ## Back up
 
 Two parts: the server's data, and the agents' home volumes.

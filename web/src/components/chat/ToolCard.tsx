@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { structuredPatch } from 'diff';
 import {
+  Check,
   ChevronRight,
+  Circle,
+  Loader2,
+  X,
   FileText,
   Globe,
   Lightbulb,
@@ -27,12 +31,40 @@ const ICONS: Record<ToolKind, LucideIcon> = {
   other: Wrench,
 };
 
-const STATUS_STYLE: Record<string, string> = {
-  pending: 'bg-muted text-muted-foreground',
-  in_progress: 'bg-blue-500/15 text-blue-600',
-  completed: 'bg-emerald-500/15 text-emerald-600',
-  failed: 'bg-destructive/15 text-destructive',
-};
+function StatusGlyph({ status }: { status: string }) {
+  const label = status.replace('_', ' ');
+  if (status === 'in_progress')
+    return (
+      <Loader2
+        role="img"
+        aria-label={label}
+        className="size-3.5 shrink-0 animate-spin text-sky-400"
+      />
+    );
+  if (status === 'failed')
+    return (
+      <X
+        role="img"
+        aria-label={label}
+        className="size-3.5 shrink-0 text-destructive"
+      />
+    );
+  if (status === 'completed')
+    return (
+      <Check
+        role="img"
+        aria-label={label}
+        className="size-3.5 shrink-0 text-muted-foreground/70"
+      />
+    );
+  return (
+    <Circle
+      role="img"
+      aria-label={label}
+      className="size-3 shrink-0 text-muted-foreground/60"
+    />
+  );
+}
 
 export function DiffView({
   path,
@@ -47,24 +79,29 @@ export function DiffView({
     context: 3,
   });
   return (
-    <div data-testid="diff" className="overflow-x-auto rounded border text-xs">
-      <div className="border-b bg-muted px-2 py-1 font-mono">{path}</div>
+    <div
+      data-testid="diff"
+      className="overflow-x-auto rounded-lg border bg-background/40 text-xs"
+    >
+      <div className="border-b px-3 py-1.5 font-mono text-muted-foreground">
+        {path}
+      </div>
       {patch.hunks.length === 0 && (
-        <div className="px-2 py-1 text-muted-foreground">No changes</div>
+        <div className="px-3 py-1 text-muted-foreground">No changes</div>
       )}
       {patch.hunks.map((h, i) => (
-        <pre key={i} className="font-mono leading-snug">
-          <div className="bg-muted/50 px-2 text-muted-foreground">
+        <pre key={i} className="py-1 font-mono leading-snug">
+          <div className="px-3 text-muted-foreground/70">
             {`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`}
           </div>
           {h.lines.map((l, j) => (
             <div
               key={j}
-              className={`px-2 whitespace-pre ${
+              className={`px-3 whitespace-pre ${
                 l[0] === '+'
-                  ? 'bg-emerald-500/15'
+                  ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
                   : l[0] === '-'
-                    ? 'bg-destructive/15'
+                    ? 'bg-red-500/12 text-red-700 dark:text-red-300'
                     : ''
               }`}
             >
@@ -88,48 +125,48 @@ function Content({ c }: { c: ToolContent }) {
     );
   if (c.content?.text)
     return (
-      <pre className="max-h-64 overflow-auto rounded bg-muted p-2 text-xs whitespace-pre-wrap">
+      <pre className="max-h-64 overflow-auto rounded-lg border bg-background/40 p-3 font-mono text-xs whitespace-pre-wrap text-muted-foreground">
         {c.content.text}
       </pre>
     );
   return null;
 }
 
+/** One tool call as a quiet one-line row that expands to its output. */
 export function ToolCard({ tool }: { tool: ToolCall }) {
   const hasDiff = tool.content.some((c) => c.type === 'diff');
   const [open, setOpen] = useState(hasDiff);
   const Icon = ICONS[tool.toolKind] ?? Wrench;
-  const hasBody = tool.content.length > 0 || tool.locations.length > 0;
+  // A diff already names its file; don't list it again as a location.
+  const diffPaths = new Set(
+    tool.content.flatMap((c) => (c.type === 'diff' ? [c.path] : [])),
+  );
+  const locations = tool.locations.filter((l) => !diffPaths.has(l.path));
+  const hasBody = tool.content.length > 0 || locations.length > 0;
   return (
-    <div className="rounded-lg border bg-card text-sm" data-testid="tool-call">
+    <div className="text-sm" data-testid="tool-call">
       <button
         type="button"
-        aria-expanded={open}
+        aria-expanded={hasBody ? open : undefined}
         disabled={!hasBody}
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 p-2 text-left"
+        className="group flex w-full items-center gap-2 rounded-md py-1 text-left text-muted-foreground enabled:hover:text-foreground"
       >
-        <Icon className="size-4 shrink-0" aria-hidden />
-        <span className="min-w-0 flex-1 truncate font-medium">
-          {tool.title}
-        </span>
-        <span
-          className={`rounded px-1.5 py-0.5 text-xs ${STATUS_STYLE[tool.status] ?? ''}`}
-        >
-          {tool.status.replace('_', ' ')}
-        </span>
+        <Icon className="size-3.5 shrink-0" aria-hidden />
+        <span className="min-w-0 truncate">{tool.title}</span>
+        <StatusGlyph status={tool.status} />
         {hasBody && (
           <ChevronRight
-            className={`size-4 transition-transform ${open ? 'rotate-90' : ''}`}
+            className={`size-3.5 shrink-0 opacity-60 transition-transform group-hover:opacity-100 ${open ? 'rotate-90' : ''}`}
             aria-hidden
           />
         )}
       </button>
       {open && hasBody && (
-        <div className="grid gap-2 border-t p-2">
-          {tool.locations.length > 0 && (
+        <div className="mt-1 mb-2 ml-1.5 grid gap-2 border-l pl-4">
+          {locations.length > 0 && (
             <ul className="font-mono text-xs text-muted-foreground">
-              {tool.locations.map((l, i) => (
+              {locations.map((l, i) => (
                 <li key={i}>
                   {l.path}
                   {l.line != null ? `:${l.line}` : ''}

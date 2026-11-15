@@ -10,7 +10,7 @@ OpenID Connect provider. `deploy/production` has the compose file.
 
 ## Documentation
 
-- [Install, upgrade, back up](docs/install.md)
+- [Install, upgrade, back up](docs/install.md), [automatic deploys from `main`](docs/deploy.md)
 - [Authentication](docs/auth.md): [Keycloak and OIDC](docs/auth-keycloak.md), [GitHub](docs/auth-github.md)
 - [Sandboxes](docs/sandboxes.md), [egress and secrets](docs/egress.md), [hardened runtimes](docs/hardening.md)
 - [Sessions and harnesses](docs/sessions.md), [MCP servers and skills](docs/tools.md), [agent to agent](docs/agents.md)

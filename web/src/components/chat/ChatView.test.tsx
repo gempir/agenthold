@@ -69,13 +69,17 @@ it('renders a diff from a tool call and connects with the cursor', async () => {
   expect(diff).toHaveTextContent('+c');
 });
 
-it('shows working indicator and cancel while running', async () => {
+it('shows working indicator and stop while running', async () => {
   const { calls } = mockApi({ 'POST /sessions/s1/cancel': { status: 202 } });
   renderChat(true);
   act(() => FakeSocket.all[0].emit({ type: 'status', running: true }));
-  expect(await screen.findByText('working...')).toBeInTheDocument();
-  expect(screen.getByLabelText('Message')).toBeDisabled();
-  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(await screen.findByRole('status')).toHaveTextContent(/Working\s*0s/);
+  // The next message can be drafted but not sent while the agent works.
+  await userEvent.type(screen.getByLabelText('Message'), 'next{Enter}');
+  expect(screen.getByLabelText('Message')).toHaveValue('next');
+  expect(calls.some((c) => c.key === 'POST /sessions/s1/prompt')).toBe(false);
+  expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: 'Stop' }));
   expect(calls.some((c) => c.key === 'POST /sessions/s1/cancel')).toBe(true);
 });
 
@@ -111,6 +115,38 @@ it('answers an unresolved permission request', async () => {
   expect(
     calls.find((c) => c.key === 'POST /sessions/s1/permissions/r1')?.body,
   ).toEqual({ optionId: 'allow' });
+});
+
+it('folds consecutive tool calls into one expandable work row', async () => {
+  mockApi({});
+  renderChat(true);
+  const tool = (seq: number, id: string, title: string) =>
+    ev(seq, 'update', {
+      sessionUpdate: 'tool_call',
+      toolCallId: id,
+      title,
+      kind: 'execute',
+      status: 'completed',
+    });
+  act(() => {
+    const s = FakeSocket.all[0];
+    s.emit(ev(1, 'prompt', { text: 'go' }));
+    s.emit(tool(2, 't1', 'Run ls'));
+    s.emit(tool(3, 't2', 'Run make'));
+    s.emit(
+      ev(4, 'update', {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'All done' },
+      }),
+    );
+  });
+  const row = await screen.findByRole('button', { name: /Worked/ });
+  expect(row).toHaveTextContent('2 tool calls');
+  expect(row).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByText('Run ls')).toBeNull();
+  await userEvent.click(row);
+  expect(screen.getByText('Run ls')).toBeVisible();
+  expect(screen.getByText('Run make')).toBeVisible();
 });
 
 it('hides the composer for viewers', () => {

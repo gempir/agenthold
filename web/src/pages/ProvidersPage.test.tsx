@@ -94,7 +94,7 @@ const agent = (login: Agent['login'], role: Agent['role']): Agent => ({
   updatedAt: '2030-01-01T00:00:00Z',
 });
 
-it('agent overview links to settings when the login is missing, and offers your own', async () => {
+it('agent harness settings link to settings when the login is missing, and offers your own', async () => {
   const bob = { id: 'u2', email: 'b@x.io', name: 'Bob', avatarUrl: '' };
   const { calls } = mockApi({
     'GET /me': me,
@@ -121,10 +121,12 @@ it('agent overview links to settings when the login is missing, and offers your 
       ),
     }),
   });
-  renderApp('/a/a1');
-  await userEvent.click(await screen.findByRole('tab', { name: 'overview' }));
-  expect(await screen.findByTestId('agent-login')).toHaveTextContent(
-    "Bob's account has no Claude Code login.",
+  renderApp('/a/a1/settings?tab=harness');
+  // The harness name arrives with its own request, after the agent.
+  await waitFor(() =>
+    expect(screen.getByTestId('agent-login')).toHaveTextContent(
+      "Bob's account has no Claude Code login.",
+    ),
   );
   await userEvent.click(screen.getByRole('button', { name: 'Use my logins' }));
   await waitFor(() =>

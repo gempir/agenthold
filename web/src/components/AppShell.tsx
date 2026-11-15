@@ -1,159 +1,103 @@
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
-import { api, unwrap } from '@/api/client';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Outlet, useRouterState } from '@tanstack/react-router';
 import { meQuery, workspacesQuery } from '@/api/queries';
-import { Avatar } from '@/components/MembersList';
+import { NewAgentDialog } from '@/components/AgentsSection';
 import { ErrorText, Loading } from '@/components/Spinner';
-import { Button } from '@/components/ui/button';
+import { Sidebar } from '@/components/layout/Sidebar';
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+  readPref,
+  ShellContext,
+  writePref,
+  type ShellState,
+} from '@/components/layout/shell';
 
-function NewWorkspaceDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
-}) {
-  const qc = useQueryClient();
-  const navigate = useNavigate();
-  const [name, setName] = useState('');
-  const create = useMutation({
-    mutationFn: () =>
-      unwrap(api.POST('/workspaces', { body: { name: name.trim() } })),
-    onSuccess: async (ws) => {
-      await qc.invalidateQueries({ queryKey: ['workspaces'] });
-      setName('');
-      onOpenChange(false);
-      await navigate({ to: '/w/$workspaceId', params: { workspaceId: ws.id } });
-    },
-  });
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <form
-          className="grid gap-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            create.mutate();
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>New workspace</DialogTitle>
-            <DialogDescription>You will become its owner.</DialogDescription>
-          </DialogHeader>
-          <label className="flex flex-col gap-1 text-sm font-medium">
-            Name
-            <Input
-              value={name}
-              maxLength={100}
-              required
-              onChange={(e) => setName(e.target.value)}
-            />
-          </label>
-          <ErrorText error={create.error} />
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" variant="outline">
-                Cancel
-              </Button>
-            </DialogClose>
-            <Button type="submit" disabled={create.isPending || !name.trim()}>
-              Create
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
+/**
+ * Full-viewport frame: the chat sidebar on the left and the routed view in
+ * the middle. Below the md breakpoint the sidebar becomes a drawer.
+ */
 export function AppShell() {
-  const qc = useQueryClient();
-  const navigate = useNavigate();
   const me = useQuery(meQuery);
   const workspaces = useQuery(workspacesQuery);
-  const params = useParams({ strict: false }) as { workspaceId?: string };
-  const [newOpen, setNewOpen] = useState(false);
+  const href = useRouterState({ select: (s) => s.location.href });
+  // The mobile drawer remembers the location it was opened at, so any
+  // navigation closes it.
+  const [drawerAt, setDrawerAt] = useState<string | null>(null);
+  const drawerOpen = drawerAt === href;
+  const [collapsed, setCollapsedState] = useState(
+    () => readPref('sidebar', 'open') === 'collapsed',
+  );
+  const [scope, setScopeState] = useState(() => readPref('scope', 'all'));
+  const [newAgent, setNewAgent] = useState(false);
 
-  const logout = useMutation({
-    mutationFn: async () => {
-      await fetch('/api/v1/auth/logout', {
-        method: 'POST',
-        credentials: 'same-origin',
-      });
-    },
-    onSettled: async () => {
-      qc.clear();
-      await navigate({ to: '/login', search: {} });
-    },
-  });
+  const shell = useMemo<ShellState>(
+    () => ({
+      drawerOpen,
+      setDrawerOpen: (o) => setDrawerAt(o ? href : null),
+      collapsed,
+      setCollapsed: (c) => {
+        setCollapsedState(c);
+        writePref('sidebar', c ? 'collapsed' : 'open');
+      },
+      scope,
+      setScope: (s) => {
+        setScopeState(s);
+        writePref('scope', s);
+      },
+      openNewAgent: () => setNewAgent(true),
+    }),
+    [drawerOpen, href, collapsed, scope],
+  );
 
-  if (me.isPending) return <Loading />;
-  if (me.error) return <ErrorText error={me.error} />;
+  if (me.isPending)
+    return (
+      <div className="flex h-dvh items-center justify-center">
+        <Loading />
+      </div>
+    );
+  if (me.error)
+    return (
+      <div className="flex h-dvh items-center justify-center p-6">
+        <ErrorText error={me.error} />
+      </div>
+    );
+
+  const wsList = workspaces.data ?? [];
+  const defaultWs = wsList.some((w) => w.id === scope)
+    ? scope
+    : me.data.personalWorkspaceId;
 
   return (
-    <div className="min-h-screen">
-      <header className="border-b">
-        <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-3 p-3">
-          <Link to="/" className="font-semibold">
-            agenthold
-          </Link>
-          <Select
-            aria-label="Workspace"
-            value={params.workspaceId ?? ''}
-            onChange={(e) =>
-              navigate({
-                to: '/w/$workspaceId',
-                params: { workspaceId: e.target.value },
-              })
-            }
-          >
-            {!params.workspaceId && <option value="">Select workspace</option>}
-            {workspaces.data?.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-              </option>
-            ))}
-          </Select>
-          <Button variant="outline" size="sm" onClick={() => setNewOpen(true)}>
-            New workspace
-          </Button>
-          <div className="ml-auto flex items-center gap-2">
-            <Avatar name={me.data.user.name} url={me.data.user.avatarUrl} />
-            <span className="text-sm">{me.data.user.name}</span>
-            <Link
-              to="/settings/tokens"
-              className="text-sm text-muted-foreground hover:underline"
-            >
-              API tokens
-            </Link>
-            <Link
-              to="/settings/providers"
-              className="text-sm text-muted-foreground hover:underline"
-            >
-              Provider logins
-            </Link>
-            <Button variant="ghost" size="sm" onClick={() => logout.mutate()}>
-              Sign out
-            </Button>
+    <ShellContext.Provider value={shell}>
+      <div className="flex h-dvh overflow-hidden">
+        {!collapsed && (
+          <aside className="hidden w-[288px] shrink-0 border-r md:block">
+            <Sidebar />
+          </aside>
+        )}
+        {drawerOpen && (
+          <div className="fixed inset-0 z-40 md:hidden">
+            <div
+              aria-hidden
+              className="absolute inset-0 bg-black/60"
+              onClick={() => setDrawerAt(null)}
+            />
+            <aside className="absolute inset-y-0 left-0 w-[min(320px,88vw)] border-r shadow-2xl">
+              <Sidebar onClose={() => setDrawerAt(null)} />
+            </aside>
           </div>
-        </div>
-      </header>
-      <main className="mx-auto max-w-4xl p-4">
-        <Outlet />
-      </main>
-      <NewWorkspaceDialog open={newOpen} onOpenChange={setNewOpen} />
-    </div>
+        )}
+        <main className="flex min-w-0 flex-1 flex-col">
+          <Outlet />
+        </main>
+      </div>
+      {newAgent && (
+        <NewAgentDialog
+          workspaceId={defaultWs}
+          workspaces={wsList}
+          onClose={() => setNewAgent(false)}
+        />
+      )}
+    </ShellContext.Provider>
   );
 }

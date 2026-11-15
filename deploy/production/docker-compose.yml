@@ -19,6 +19,9 @@ services:
     environment:
       AGENTHOLD_CONFIG: /etc/agenthold/agenthold.yaml
       AGENTHOLD_PUBLIC_URL: https://${AGENTHOLD_DOMAIN}
+      # Image for new agents (agenthold.yaml). Set here, not only in .env, so
+      # deploy.sh can pin it to a digest (docs/deploy.md).
+      AGENTHOLD_BASE_IMAGE: ${AGENTHOLD_BASE_IMAGE:-ghcr.io/gempir/agenthold-base:latest}
     volumes:
       - ./agenthold.yaml:/etc/agenthold/agenthold.yaml:ro
       - data:/data

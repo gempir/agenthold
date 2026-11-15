@@ -336,3 +336,46 @@ func (d *Driver) guestState(ctx context.Context, id sandbox.ID) (string, error) 
 	err := a.request(ctx, "GET", "/", nil, &info)
 	return info.State, err
 }
+
+// recoverProcess closes the crash window between starting jailer and persisting
+// its PID. Jailer puts its one process into a deterministic, per-agent cgroup
+// before dropping privileges/exec. A restarted controller can recover that PID
+// even if state.json still describes an unstarted VM. Never guess from a PID
+// file alone: the cgroup is the kernel's live ownership record.
+func (d *Driver) recoverProcess(id sandbox.ID, m *manifest) error {
+	alive, err := d.running(m)
+	if err != nil || alive {
+		return err
+	}
+	path := filepath.Join("/sys/fs/cgroup/agenthold", d.jailID(id), "cgroup.procs")
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	pids := strings.Fields(string(data))
+	if len(pids) == 0 {
+		return nil
+	}
+	if len(pids) != 1 {
+		return fmt.Errorf("sandbox %s cgroup contains %d processes; refusing ambiguous adoption", id, len(pids))
+	}
+	pid, err := strconv.Atoi(pids[0])
+	if err != nil || pid <= 0 {
+		return fmt.Errorf("sandbox %s cgroup has an invalid PID", id)
+	}
+	start, state, err := procIdentity(pid)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if state == "Z" || state == "X" {
+		return nil
+	}
+	m.Process = process{PID: pid, StartTime: start}
+	return d.save(id, m)
+}

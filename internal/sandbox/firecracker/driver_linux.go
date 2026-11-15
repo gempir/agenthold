@@ -181,6 +181,9 @@ func (d *Driver) load(id sandbox.ID) (*manifest, error) {
 	if !filepath.IsAbs(m.BaseImagePath) || m.Version != 1 || m.Spec.AgentID != string(id) || !m.Subnet.IsValid() || m.Subnet.Bits() != 30 || !d.cfg.NetworkPool.Contains(m.Subnet.Addr()) || m.Subnet != m.Subnet.Masked() || m.UID == 0 || m.GID == 0 {
 		return nil, fmt.Errorf("sandbox %s has an invalid manifest or is outside the configured network pool", id)
 	}
+	if err := d.recoverProcess(id, &m); err != nil {
+		return nil, err
+	}
 	return &m, nil
 }
 

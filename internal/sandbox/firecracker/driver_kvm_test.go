@@ -241,6 +241,12 @@ func TestJailedLifecycle(t *testing.T) {
 	if err != nil || code != 0 || !strings.Contains(output.String(), "terminal-works") {
 		t.Fatalf("terminal %q %d %v", output.String(), code, err)
 	}
+	// Simulate the controller dying immediately after jailer starts, before
+	// it can persist a PID. The cgroup must recover the still-live process.
+	m.Process = process{}
+	if err = d.save(id, m); err != nil {
+		t.Fatal(err)
+	}
 	// A reopened driver discovers and adopts an existing live jail.
 	reopened, err := New(ctx, cfg)
 	if err != nil {

@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { Agent } from '@/api/queries';
@@ -54,10 +54,13 @@ function setup(role: Agent['role']) {
   });
 }
 
-it('lists entries and navigates into a directory', async () => {
+it('lists entries and navigates into a directory in the agent panel', async () => {
   const { calls } = setup('operator');
-  renderApp('/a/a1');
-  await userEvent.click(await screen.findByRole('tab', { name: 'files' }));
+  renderApp('/a/a1?panel=files');
+  expect(await screen.findByRole('tab', { name: 'Files' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
   expect(await screen.findByText('notes.txt')).toBeVisible();
   expect(screen.getByText('2.0 KB')).toBeVisible();
   await userEvent.click(screen.getByRole('button', { name: 'src' }));
@@ -70,8 +73,7 @@ it('lists entries and navigates into a directory', async () => {
 
 it('shows write controls to operators only', async () => {
   setup('operator');
-  renderApp('/a/a1');
-  await userEvent.click(await screen.findByRole('tab', { name: 'files' }));
+  renderApp('/a/a1/settings?tab=files');
   await screen.findByText('notes.txt');
   expect(screen.getByRole('button', { name: 'Upload' })).toBeVisible();
   expect(
@@ -81,10 +83,11 @@ it('shows write controls to operators only', async () => {
 
 it('hides write controls and terminal from viewers', async () => {
   setup('viewer');
-  renderApp('/a/a1');
-  expect(screen.queryByRole('tab', { name: 'terminal' })).toBeNull();
-  await userEvent.click(await screen.findByRole('tab', { name: 'files' }));
+  renderApp('/a/a1/settings?tab=files');
   await screen.findByText('notes.txt');
+  const nav = screen.getByRole('navigation', { name: 'Agent settings' });
+  expect(within(nav).getByRole('link', { name: 'Files' })).toBeVisible();
+  expect(within(nav).queryByRole('link', { name: 'Terminal' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Upload' })).toBeNull();
   expect(screen.queryByRole('button', { name: /^Delete/ })).toBeNull();
 });

@@ -26,18 +26,20 @@ export function AgentList({ agents }: { agents: Agent[] }) {
   if (agents.length === 0)
     return <p className="text-sm text-muted-foreground">No agents yet.</p>;
   return (
-    <ul className="flex flex-col divide-y rounded-lg border">
+    <ul className="flex flex-col divide-y overflow-hidden rounded-xl border">
       {agents.map((a) => (
         <li key={a.id}>
           <Link
             to="/a/$agentId"
             params={{ agentId: a.id }}
-            className="flex flex-wrap items-center gap-3 p-3 hover:bg-accent"
+            className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm hover:bg-accent/60"
           >
             <span className="font-medium">{a.name}</span>
             <AgentStateBadge state={a.state} sleepsAt={a.sleepsAt} />
             {a.needsRebuild && (
-              <span className="text-xs text-amber-600">rebuild pending</span>
+              <span className="text-xs text-amber-600 dark:text-amber-400">
+                rebuild pending
+              </span>
             )}
             <span className="ml-auto text-xs text-muted-foreground">
               {a.image} · {a.owner.name}
@@ -55,7 +57,7 @@ export function AgentsSection({ workspaceId }: { workspaceId: string }) {
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Agents</h2>
+        <h2 className="text-base font-semibold">Agents</h2>
         <Button size="sm" onClick={() => setOpen(true)}>
           New agent
         </Button>
@@ -73,13 +75,17 @@ export function AgentsSection({ workspaceId }: { workspaceId: string }) {
   );
 }
 
-function NewAgentDialog({
-  workspaceId,
+export function NewAgentDialog({
+  workspaceId: initialWorkspace,
+  workspaces,
   onClose,
 }: {
   workspaceId: string;
+  /** When given (and more than one), the dialog offers a workspace picker. */
+  workspaces?: { id: string; name: string }[];
   onClose: () => void;
 }) {
+  const [workspaceId, setWorkspaceId] = useState(initialWorkspace);
   const qc = useQueryClient();
   const navigate = useNavigate();
   const limits = useQuery(sandboxLimitsQuery);
@@ -136,10 +142,26 @@ function NewAgentDialog({
             create.mutate();
           }}
         >
+          {workspaces && workspaces.length > 1 && (
+            <label className="grid gap-1 text-sm">
+              Workspace
+              <Select
+                value={workspaceId}
+                onChange={(e) => setWorkspaceId(e.target.value)}
+              >
+                {workspaces.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          )}
           <label className="grid gap-1 text-sm">
             Name
             <Input
               required
+              autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
             />

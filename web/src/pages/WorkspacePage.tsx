@@ -1,7 +1,15 @@
 import { WorkspaceToolsPanel } from '@/components/ToolsPanel';
-import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
+import {
+  Bot,
+  KeyRound,
+  MailPlus,
+  Plug,
+  Settings2,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
 import { api, unwrap } from '@/api/client';
 import {
   canManage,
@@ -17,14 +25,72 @@ import { SecretsPanel } from '@/components/SecretsPanel';
 import { SettingsPanel } from '@/components/SettingsPanel';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
+import { WorkspaceBadge } from '@/components/WorkspaceBadge';
+import {
+  SettingsHeader,
+  SettingsLayout,
+  SettingsNavItem,
+} from '@/components/layout/SettingsLayout';
+import { Crumb, CrumbSep, TopBar } from '@/components/layout/TopBar';
 
-type Tab = 'members' | 'invites' | 'secrets' | 'tools' | 'settings';
+export type WorkspaceTab =
+  'agents' | 'members' | 'invites' | 'secrets' | 'tools' | 'settings';
 
-export function WorkspacePage({ workspaceId }: { workspaceId: string }) {
+const TABS: {
+  id: WorkspaceTab;
+  label: string;
+  hint: string;
+  icon: LucideIcon;
+  managers?: boolean;
+}[] = [
+  {
+    id: 'agents',
+    label: 'Agents',
+    hint: 'Agents in this workspace',
+    icon: Bot,
+  },
+  {
+    id: 'members',
+    label: 'Members',
+    hint: 'People in this workspace',
+    icon: Users,
+  },
+  {
+    id: 'invites',
+    label: 'Invites',
+    hint: 'Invite links for new members',
+    icon: MailPlus,
+    managers: true,
+  },
+  {
+    id: 'secrets',
+    label: 'Secrets',
+    hint: 'Credentials the egress proxy injects for agents',
+    icon: KeyRound,
+  },
+  {
+    id: 'tools',
+    label: 'Tools',
+    hint: 'MCP servers and skills shared by agents',
+    icon: Plug,
+  },
+  {
+    id: 'settings',
+    label: 'Settings',
+    hint: 'Name and lifecycle of the workspace',
+    icon: Settings2,
+  },
+];
+
+export function WorkspacePage({
+  workspaceId,
+  tab = 'agents',
+}: {
+  workspaceId: string;
+  tab?: WorkspaceTab;
+}) {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<Tab>('members');
   const me = useQuery(meQuery);
   const ws = useQuery(workspaceQuery(workspaceId));
   const members = useQuery(membersQuery(workspaceId));
@@ -64,51 +130,62 @@ export function WorkspacePage({ workspaceId }: { workspaceId: string }) {
     },
   });
 
-  if (ws.isPending || me.isPending) return <Loading />;
-  if (ws.error) return <ErrorText error={ws.error} />;
+  if (ws.isPending || me.isPending)
+    return (
+      <>
+        <TopBar />
+        <Loading />
+      </>
+    );
+  if (ws.error)
+    return (
+      <>
+        <TopBar />
+        <div className="p-6">
+          <ErrorText error={ws.error} />
+        </div>
+      </>
+    );
   if (!ws.data || !me.data) return null;
 
   const w = ws.data;
-  const tabs: { id: Tab; label: string; show: boolean }[] = [
-    { id: 'members', label: 'Members', show: true },
-    { id: 'invites', label: 'Invites', show: canManage(w.role) },
-    { id: 'secrets', label: 'Secrets', show: true },
-    { id: 'tools', label: 'Tools', show: true },
-    { id: 'settings', label: 'Settings', show: true },
-  ];
+  const tabs = TABS.filter((t) => !t.managers || canManage(w.role));
+  const current = tabs.find((t) => t.id === tab) ?? tabs[0];
 
   return (
-    <div className="flex flex-col gap-6">
-      <header className="flex items-center gap-3">
-        <h1 className="text-2xl font-semibold">{w.name}</h1>
-        <Badge>{w.role}</Badge>
-        {w.personal && <Badge variant="outline">personal</Badge>}
-      </header>
-
-      <div role="tablist" className="flex gap-1 border-b">
-        {tabs
-          .filter((t) => t.show)
-          .map((t) => (
-            <button
-              key={t.id}
-              role="tab"
-              aria-selected={tab === t.id}
-              onClick={() => setTab(t.id)}
-              className={cn(
-                '-mb-px border-b-2 px-3 py-2 text-sm font-medium',
-                tab === t.id
-                  ? 'border-primary'
-                  : 'border-transparent text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-      </div>
-
-      <AgentsSection workspaceId={workspaceId} />
-
-      {tab === 'members' && (
+    <SettingsLayout
+      navLabel="Workspace settings"
+      crumbs={
+        <>
+          <Crumb>
+            <WorkspaceBadge id={w.id} name={w.name} />
+            <span className="truncate">{w.name}</span>
+          </Crumb>
+          <CrumbSep />
+          <Crumb current>Workspace settings</Crumb>
+        </>
+      }
+      nav={tabs.map((t) => (
+        <SettingsNavItem key={t.id} active={t.id === current.id}>
+          <Link
+            to="/w/$workspaceId"
+            params={{ workspaceId }}
+            search={{ tab: t.id }}
+          >
+            <t.icon className="size-4 shrink-0" aria-hidden />
+            {t.label}
+          </Link>
+        </SettingsNavItem>
+      ))}
+    >
+      <SettingsHeader title={current.label} description={current.hint}>
+        <div className="flex items-center gap-2">
+          <Badge>{w.role}</Badge>
+          {w.personal && <Badge variant="outline">personal</Badge>}
+        </div>
+      </SettingsHeader>
+      {current.id === 'agents' && <AgentsSection workspaceId={workspaceId} />}
+      {current.id === 'members' && (
         <section className="flex flex-col gap-4">
           {members.isPending && <Loading />}
           <ErrorText error={members.error} />
@@ -130,17 +207,17 @@ export function WorkspacePage({ workspaceId }: { workspaceId: string }) {
           )}
         </section>
       )}
-      {tab === 'invites' && canManage(w.role) && (
-        <InvitesPanel workspaceId={workspaceId} />
-      )}
-      {tab === 'secrets' && <SecretsPanel workspaceId={workspaceId} />}
-      {tab === 'tools' && (
+      {current.id === 'invites' && <InvitesPanel workspaceId={workspaceId} />}
+      {current.id === 'secrets' && <SecretsPanel workspaceId={workspaceId} />}
+      {current.id === 'tools' && (
         <WorkspaceToolsPanel
           workspaceId={workspaceId}
           admin={canManage(w.role)}
         />
       )}
-      {tab === 'settings' && <SettingsPanel key={w.name} workspace={w} />}
-    </div>
+      {current.id === 'settings' && (
+        <SettingsPanel key={w.name} workspace={w} />
+      )}
+    </SettingsLayout>
   );
 }

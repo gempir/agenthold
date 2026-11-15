@@ -10,8 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
-	"net"
 	"strings"
 	"time"
 
@@ -73,8 +73,8 @@ var Tools = []map[string]any{
 }
 
 // Handle serves one call from the agent behind s.
-func (p *Service) Handle(ctx context.Context, s *tunnel.Session, st net.Conn, o tunnel.Open) {
-	res, err := p.Call(ctx, s.AgentID, o.Session, o.Tool, o.Args)
+func (p *Service) Handle(ctx context.Context, agentID string, st io.ReadWriteCloser, o tunnel.Open) {
+	res, err := p.Call(ctx, agentID, o.Session, o.Tool, o.Args)
 	if err != nil {
 		_ = tunnel.WriteError(st, err)
 		return

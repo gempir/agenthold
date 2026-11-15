@@ -1,160 +1,61 @@
 ---
-title: "Install, upgrade, back up"
-description: "This guide takes a fresh Linux server to a working agent. Everything runs in Docker on one host."
+title: "Install"
+description: "Run agenthold on a Linux KVM host with one binary and a YAML configuration."
 ---
 
-This guide takes a fresh Linux server to a working agent. Everything runs in Docker on one host.
+agenthold runs as a single foreground process on a Linux x86_64 or arm64 host with `/dev/kvm`. The node
+needs root for the Firecracker jailer, tap devices and nftables. It serves plain HTTP; put a reverse proxy
+or a tunnel that provides HTTPS in front of it. A host without KVM cannot run agents.
 
-## Requirements
+Native release packaging is in progress. The instructions below describe the intended release installation;
+use the [development guide](/development/) to build and test the current checkout. There is no migration
+from the former container-based installation.
 
-- A Linux server (x86_64 or arm64) with at least 2 vCPUs, 4 GB RAM and 40 GB disk. Each agent needs its own
-  resources on top, by default 2 CPUs and 4 GB RAM. Agents that sleep use only disk.
-- A domain name. Either point it at the server with ports 80 and 443 reachable (Caddy gets a TLS certificate
-  automatically), or use a Cloudflare Tunnel and open no inbound ports at all (see "Cloudflare Tunnel" below).
-- A way to sign in: a GitHub OAuth app ([GitHub sign-in](/auth-github/)) or any OpenID Connect provider
-  ([Keycloak and OIDC](/auth-keycloak/)).
+## Configure
 
-## 1. Install Docker
+Choose a persistent data directory and a public HTTPS URL. Generate the one local administrator's
+password hash with `agenthold hash-password`, and put the hash in a YAML file readable only by the operator:
 
-Docker 28 or newer is required.
-
-```sh
-curl -fsSL https://get.docker.com | sh
-docker version --format '{{.Server.Version}}'
+```yaml
+listen: 127.0.0.1:8080
+public_url: https://agents.example.com
+data_dir: /var/lib/agenthold
+auth:
+  local:
+    username: admin
+    password_hash: '$argon2id$REPLACE_WITH_GENERATED_HASH'
+sandbox:
+  network_pool: 10.213.0.0/16
 ```
 
-## 2. Get agenthold
+Instead of a local administrator, configure [OIDC or GitHub OAuth](/auth/). With neither configured nobody
+can sign in. The reverse proxy must forward WebSockets and preserve the public host and scheme; set
+`public_url` to the URL users actually open. Keep the proxy and any administration ports inaccessible to
+guests. See [security](/security/) and [egress](/egress/).
+
+## Runtime artifacts
+
+A release binary contains the architecture-matched Firecracker runtime, kernel and guest daemon. The shared
+base disk is a separate release asset: on first start the server fetches the pinned asset and verifies its
+SHA-256. For an offline installation, place the verified base image in the data directory before starting.
+Release URLs and exact offline placement will be published with the release assets.
+
+Point `AGENTHOLD_CONFIG` at the YAML file and run `agenthold` as root in the foreground. To install a
+systemd service instead, use:
 
 ```sh
-git clone https://github.com/gempir/agenthold.git
-cd agenthold/deploy/production
-cp .env.example .env
+sudo agenthold install --config /etc/agenthold/agenthold.yaml
+sudo systemctl enable --now agenthold
+sudo journalctl -u agenthold -f
 ```
 
-Use published images (default) or build them from source:
-
-```sh
-# Option A: published release images. Nothing to do; `docker compose up` pulls them.
-
-# Option B: build from source (takes a few minutes)
-echo 'AGENTHOLD_IMAGE=agenthold:local' >> .env
-echo 'AGENTHOLD_BASE_IMAGE=agenthold/base:local' >> .env
-docker compose build
-docker build -t agenthold/base:local ../../images/base
-```
-
-## 3. Configure
-
-Edit `.env`:
-
-- `AGENTHOLD_DOMAIN`: your domain, for example `agents.example.com`.
-- `AGENTHOLD_MASTER_KEY`: run `openssl rand -base64 32` once and paste the result. **Back this value up.**
-  Stored secrets cannot be decrypted without it.
-- Sign-in: for GitHub, create an OAuth app with the callback URL
-  `https://<domain>/api/v1/auth/callback/github` and fill in `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
-
-For OpenID Connect instead (Keycloak, Authentik, Okta, Google, ...), uncomment the `oidc` provider in
-`agenthold.yaml`. Register the callback URL `https://<domain>/api/v1/auth/callback/oidc`, and add `OIDC_ISSUER`,
-`OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` to `.env`. Comment out the `github` provider if you do not use it:
-the server refuses to start with a provider that has no client id. You can also keep both.
-
-`agenthold.yaml` also sets the agent defaults and the address range for agent networks
-(`AGENTHOLD_NETWORK_POOL`, default `10.213.0.0/16`). Pick a range that does not overlap your LAN or VPN.
-
-### Cloudflare Tunnel (optional, instead of Caddy)
-
-With the domain on Cloudflare, the server can stay closed to the internet: `cloudflared` connects out to
-Cloudflare, and Cloudflare terminates TLS.
-
-1. In the Cloudflare Zero Trust dashboard, go to **Networks → Tunnels** and create a tunnel (type Cloudflared).
-   Copy its token.
-2. Add a public hostname: your domain, service **HTTP**, URL `agenthold:8080`. If an existing A or AAAA record
-   for the domain gets in the way, delete it; the tunnel creates its own CNAME.
-3. In `.env`, set `COMPOSE_FILE=docker-compose.yml:docker-compose.cloudflared.yml` and
-   `CLOUDFLARE_TUNNEL_TOKEN=<token>`. Caddy is then not started.
-
-## 4. Start
-
-```sh
-docker compose up -d
-docker compose logs -f agenthold   # wait for "egress: firewall installed" and "listening"
-```
-
-If you use the published base image, pull it now, so creating the first agent does not wait for the download:
-`docker pull ghcr.io/gempir/agenthold-base:latest`.
-
-## 5. First agent
-
-1. Open `https://<domain>` and sign in. The first login creates your user. For a
-   single-user install you can instead configure a local admin (`auth.local`, see [authentication](/auth/#local-admin)).
-2. **New agent**: give it a name and keep the defaults (base image, Claude Code). Wait until it shows
-   *running*.
-3. Sign the harness in once for all your agents: open **Provider logins** (top right), choose **Claude Code →
-   Connect**, run `claude setup-token` on your computer and paste the token (or paste an Anthropic API key). Your
-   agents use it from their next turn. Alternatively add an API key under **Settings → Secrets** (preset
-   "Anthropic API key") and attach it to the agent as `ANTHROPIC_API_KEY`, or sign in inside one agent under
-   **Overview → Sign in inside this sandbox instead**.
-   To try it without an account, set the agent's harness to **OpenCode**, which has free models.
-4. Open **Chat**, start a session and ask it to do something, for example "create hello.txt with a haiku".
-
-## Upgrade
-
-```sh
-cd agenthold/deploy/production
-docker compose exec agenthold agenthold backup        # see "Back up" below
-git pull                                              # new compose file and docs
-docker compose pull                                   # or: docker compose build
-docker compose up -d
-```
-
-Running agents keep running. The new server reconnects to them, reattaches to their networks and reinstalls the
-firewall. While the server is down, sandboxes have no network access (it fails closed) and pick up again on their
-own. Database migrations run automatically at startup. If agents are marked *rebuild pending* after an upgrade,
-rebuild them when convenient to get the new image.
-
-To deploy every push to `main` automatically with GitHub Actions, see [automatic deploys](/deploy/).
+`install` writes the service but does not start it. The server logs startup errors, including missing KVM,
+invalid configuration and failed runtime downloads.
 
 ## Back up
 
-Two parts: the server's data, and the agents' home volumes.
-
-```sh
-# 1. Server data: a consistent snapshot of the database, the master key and the egress CA.
-#    Safe while running. Writes /data/backups/agenthold-<time>.tar.gz inside the data volume.
-docker compose exec agenthold agenthold backup
-docker compose cp agenthold:/data/backups ./backups
-
-# 2. Agent home volumes (files, harness logins, conversations kept by harnesses).
-#    For a consistent copy, stop agents or the stack first.
-docker compose stop agenthold
-./backup-volumes.sh backup ./backups/volumes
-docker compose start agenthold
-```
-
-Store backups somewhere other than this server, and treat them as secret: they contain the master key, and
-harness logins can be inside agent volumes. Account provider logins are in the database, encrypted with the
-master key.
-
-## Restore
-
-On a new or reset server, after steps 1 to 3:
-
-```sh
-docker compose create agenthold                       # creates the volumes without starting
-docker compose cp ./backups/agenthold-<time>.tar.gz agenthold:/data/restore.tar.gz
-docker compose run --rm --no-deps agenthold restore /data/restore.tar.gz
-./backup-volumes.sh restore ./backups/volumes
-docker compose up -d
-```
-
-Agents come back *sleeping* or *error* ("sandbox no longer exists"). Rebuild each agent to recreate its
-container around the restored home volume. Use the same `AGENTHOLD_MASTER_KEY` as before, or the master key from
-the backup: the restore puts `master.key` back, and the environment variable takes precedence if set.
-
-## Troubleshooting
-
-- `docker compose logs agenthold` shows startup problems. "egress proxy unavailable" means the container lacks
-  `CAP_NET_ADMIN`. Sandboxes then have no network at all.
-- An agent stuck in *error* shows why on its page. *Start* or *Rebuild* retries.
-- Sign-in errors are about the callback URL most of the time. It must be exactly
-  `https://<domain>/api/v1/auth/callback/<provider id>`.
+`agenthold backup` snapshots the SQLite database and preserves the master key and egress CA in an archive;
+it does **not** include agent disks. Stop the server before separately copying the agent disk files under
+`<data_dir>/agents/`, and keep the configuration and backup archive safe. Without the master key encrypted
+secrets cannot be recovered. Test restores on a separate host. `agenthold restore <archive>` restores the
+server data with the server stopped; restore agent disks separately.

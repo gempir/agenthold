@@ -55,6 +55,9 @@ type Config struct {
 	// PlatformSocket overrides the platform socket path (default
 	// <home>/.agenthold/platform.sock).
 	PlatformSocket string
+	// OnShutdown handles a shutdown request from the server (after it was
+	// acknowledged). Nil means shutdown requests are refused.
+	OnShutdown func()
 }
 
 // Daemon is a running sandboxd.
@@ -133,7 +136,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	backoff := 250 * time.Millisecond
 	for {
 		start := time.Now()
-		err := tunnel.Dial(ctx, d.cfg.Boot.TunnelURL, d.cfg.Boot.AgentID, d.cfg.Boot.Token, d.handle, d.opener.set)
+		err := tunnel.Dial(ctx, d.cfg.Boot.TunnelURL, d.cfg.Boot.AgentID, d.cfg.Boot.Token, d.handle, d.onConnect)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -150,6 +153,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 }
 
+func (d *Daemon) onConnect(o tunnel.Opener) {
+	d.opener.set(o)
+	if o != nil {
+		d.log.Info("tunnel connected", "url", d.cfg.Boot.TunnelURL)
+	}
+}
+
 func (d *Daemon) handle(ctx context.Context, st net.Conn, o tunnel.Open) {
 	var err error
 	switch o.Op {
@@ -157,6 +167,15 @@ func (d *Daemon) handle(ctx context.Context, st net.Conn, o tunnel.Open) {
 		err = tunnel.WriteJSON(st, tunnel.Hello{Version: d.cfg.Version, User: d.acct.name, Home: d.acct.home})
 	case tunnel.OpPing:
 		err = tunnel.WriteJSON(st, tunnel.OK{OK: true})
+	case tunnel.OpShutdown:
+		if d.cfg.OnShutdown == nil {
+			err = errors.New("shutdown is not supported by this sandbox")
+			break
+		}
+		d.log.Info("shutdown requested by the server")
+		if err = tunnel.WriteJSON(st, tunnel.OK{OK: true}); err == nil {
+			go d.cfg.OnShutdown()
+		}
 	case tunnel.OpStats:
 		err = tunnel.WriteJSON(st, stats())
 	case tunnel.OpPTY:

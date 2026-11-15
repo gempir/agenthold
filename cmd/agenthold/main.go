@@ -2,11 +2,11 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -31,10 +31,11 @@ import (
 	_ "github.com/gempir/agenthold/internal/harness/opencode"
 	"github.com/gempir/agenthold/internal/idle"
 	"github.com/gempir/agenthold/internal/logins"
+	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/platform"
 	"github.com/gempir/agenthold/internal/sandbox"
-	"github.com/gempir/agenthold/internal/sandbox/docker"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
+	"github.com/gempir/agenthold/internal/sandbox/firecracker"
 	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/server"
 	"github.com/gempir/agenthold/internal/session"
@@ -58,6 +59,8 @@ func main() {
 			err = healthcheck()
 		case "hash-password":
 			err = runHashPassword(os.Args[2:])
+		case "install":
+			err = runInstall(os.Args[2:])
 		default:
 			goto server
 		}
@@ -92,6 +95,8 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return err
@@ -137,24 +142,47 @@ func run() error {
 	loginSvc := &logins.Service{Store: st, Box: box, Audit: auditLog, Log: logger, Invalidate: directory.Invalidate}
 	directory.Logins = loginSvc
 	egressOn := !cfg.Egress.Disabled
-	if egressOn {
-		if err := startEgress(ctx, cfg, ca, directory, tunnelPort, logger); err != nil {
-			logger.Error("egress proxy unavailable: sandboxes have no network access", "err", err)
-			egressOn = false
-		}
-	}
 
-	driver, err := newDriver(ctx, cfg, egressOn, logger)
+	fw := &egress.Firewall{
+		Pool:      netip.MustParsePrefix(cfg.Sandbox.NetworkPool),
+		ProxyPort: cfg.Egress.ProxyPort, DNSPort: cfg.Egress.DNSPort,
+		OpenPorts: []int{tunnelPort, cfg.Egress.ExplicitPort},
+	}
+	var localNode *node.Local
+	driver, err := newDriver(ctx, cfg, fw, func(ctx context.Context, id sandbox.ID) error {
+		return node.Client(localNode, string(id)).Shutdown(ctx)
+	}, logger)
 	if err != nil {
 		return err
 	}
-	var sandboxes *sandbox.Manager
 	hub := tunnel.NewHub(func(ctx context.Context, agentID, token string) error {
-		return sandboxes.AuthenticateTunnel(ctx, agentID, token)
+		return localNode.AuthenticateTunnel(ctx, agentID, token)
 	}, logger)
-	sandboxes = sandbox.NewManagerWithOptions(st, driver, egress.SpecFunc(st, cfg.Egress.ExplicitPort), sandbox.Options{
-		Tunnel: hub, TunnelPort: tunnelPort,
-		BootFiles: func(context.Context, string) (map[string][]byte, error) { return ca.BootFiles(), nil },
+	localNode = node.NewLocal(driver, hub)
+	localNode.SetCA(ca)
+	if cfg.Sandbox.Driver == "firecracker" {
+		if err := fw.Install(); err != nil {
+			return fmt.Errorf("guest firewall: %w", err)
+		}
+	}
+	if egressOn {
+		if err := startEgress(ctx, cfg, ca, localNode.ProxyAgents(), logger); err != nil {
+			return fmt.Errorf("egress proxy: %w", err)
+		}
+	}
+	pusher := &node.ConfigPusher{Store: st, Directory: directory, Node: localNode}
+	directory.OnInvalidate = func() {
+		if err := pusher.Sync(context.Background()); err != nil {
+			logger.Error("push proxy configuration", "err", err)
+			_ = localNode.SetAgentConfigs(context.Background(), nil)
+		}
+	}
+	if err := pusher.Sync(ctx); err != nil {
+		return err
+	}
+	go func() { _ = pusher.ServeIntercepts(ctx) }()
+	sandboxes := sandbox.NewManagerWithNode(st, localNode, egress.SpecFunc(st, cfg.Egress.ExplicitPort), sandbox.Options{
+		TunnelPort: tunnelPort,
 	}, logger)
 	sandboxes.OnChange(func(string, sandbox.Phase) { directory.Invalidate() })
 	defer sandboxes.Close()
@@ -185,12 +213,21 @@ func run() error {
 		platformCmd = cfg.Sandbox.SandboxdPath
 	}
 	sessions.SetTools(tools.Provider{Store: st, PlatformCommand: platformCmd})
-	hub.HandleIncoming((&platform.Service{Store: st, Sessions: sessions, Audit: auditLog, Log: logger}).Handle)
+	platformSvc := &platform.Service{Store: st, Sessions: sessions, Audit: auditLog, Log: logger}
+	go func() {
+		for {
+			info, stream, err := localNode.NextIncoming(ctx)
+			if err != nil {
+				return
+			}
+			go func() { defer stream.Close(); platformSvc.Handle(ctx, info.AgentID, stream, info.Open) }()
+		}
+	}()
 	defer sessions.Close()
 	tracker := idle.NewTracker()
 	sessions.OnActivity(tracker.Touch)
 	sleeper := &idle.Sleeper{
-		Store: st, Sandboxes: sandboxes, Tracker: tracker, Busy: sessions.AgentBusy, Tunnel: hub,
+		Store: st, Sandboxes: sandboxes, Tracker: tracker, Busy: sessions.AgentBusy, Node: localNode,
 		Log: logger, Interval: cfg.Sandbox.IdleCheckInterval,
 	}
 	go sleeper.Run(ctx)
@@ -206,8 +243,8 @@ func run() error {
 	})
 
 	apiSrv := api.New(api.Deps{
-		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Tunnel: hub, Limits: cfg.Sandbox,
-		Box: box, Egress: directory, CA: ca, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc,
+		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Node: localNode, Limits: cfg.Sandbox,
+		Box: box, Egress: directory, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc,
 		ShowTestHarness: cfg.TestHarness || cfg.Sandbox.Driver == "fake",
 	})
 	sessions.SetWaker(apiSrv.Wake)
@@ -247,28 +284,45 @@ func run() error {
 	return srv.Shutdown(shutdownCtx)
 }
 
-// startEgress starts the proxy, DNS and explicit proxy listeners and installs
-// the firewall that redirects sandbox traffic to them.
-func startEgress(ctx context.Context, cfg *config.Config, ca *egress.CA, dir *egress.Directory, tunnelPort int, logger *slog.Logger) error {
+// startEgress starts node-local proxy and DNS listeners. The firewall is
+// installed independently, including when egress is disabled (fail closed).
+func startEgress(ctx context.Context, cfg *config.Config, ca *egress.CA, dir egress.Agents, logger *slog.Logger) (err error) {
 	eg := cfg.Egress
 	names := egress.NewNameCache()
-	proxy := &egress.Proxy{CA: ca, Agents: dir, Names: names, OriginalDst: egress.OriginalDst, Logger: logger}
+	proxy := &egress.Proxy{CA: ca, Agents: dir, Names: names, OriginalDst: egress.OriginalDst, Logger: logger, GuestPool: netip.MustParsePrefix(cfg.Sandbox.NetworkPool)}
 	upstream := eg.DNSUpstream
 	if upstream == "" {
 		upstream = egress.UpstreamFromResolvConf()
 	}
 	dns := &egress.DNS{Agents: dir, Names: names, Upstream: upstream}
-
 	lc := net.ListenConfig{}
-	tln, err := lc.Listen(ctx, "tcp", ":"+strconv.Itoa(eg.ProxyPort))
+	var listeners []io.Closer
+	closeAll := func() {
+		for _, ln := range listeners {
+			_ = ln.Close()
+		}
+	}
+	defer func() {
+		if err != nil {
+			closeAll()
+		}
+	}()
+	listen := func(port int) (net.Listener, error) {
+		ln, err := lc.Listen(ctx, "tcp", ":"+strconv.Itoa(port))
+		if err == nil {
+			listeners = append(listeners, ln)
+		}
+		return ln, err
+	}
+	tln, err := listen(eg.ProxyPort)
 	if err != nil {
 		return err
 	}
-	eln, err := lc.Listen(ctx, "tcp", ":"+strconv.Itoa(eg.ExplicitPort))
+	eln, err := listen(eg.ExplicitPort)
 	if err != nil {
 		return err
 	}
-	dln, err := lc.Listen(ctx, "tcp", ":"+strconv.Itoa(eg.DNSPort))
+	dln, err := listen(eg.DNSPort)
 	if err != nil {
 		return err
 	}
@@ -276,30 +330,19 @@ func startEgress(ctx context.Context, cfg *config.Config, ca *egress.CA, dir *eg
 	if err != nil {
 		return err
 	}
+	listeners = append(listeners, dpc)
+	go func() { <-ctx.Done(); closeAll() }()
 	go func() { _ = proxy.ServeTransparent(tln) }()
 	go func() {
 		_ = (&http.Server{Handler: proxy.ExplicitHandler(), ReadHeaderTimeout: 30 * time.Second}).Serve(eln)
 	}()
 	go func() { _ = dns.ServeTCP(dln) }()
 	go func() { _ = dns.ServeUDP(dpc) }()
-
-	if cfg.Sandbox.Driver != "docker" {
-		logger.Info("egress: proxy listening; no firewall (not using the docker driver)")
-		return nil
-	}
-	fw := egress.Firewall{
-		Pool:      netip.MustParsePrefix(cfg.Sandbox.Docker.NetworkPool),
-		ProxyPort: eg.ProxyPort, DNSPort: eg.DNSPort,
-		OpenPorts: []int{tunnelPort, eg.ExplicitPort},
-	}
-	if err := fw.Install(); err != nil {
-		return err
-	}
-	logger.Info("egress: firewall installed", "pool", fw.Pool, "dns_upstream", upstream)
+	logger.Info("egress: proxy listening", "dns_upstream", upstream)
 	return nil
 }
 
-func newDriver(ctx context.Context, cfg *config.Config, egressOn bool, logger *slog.Logger) (sandbox.Driver, error) {
+func newDriver(ctx context.Context, cfg *config.Config, fw *egress.Firewall, shutdown func(context.Context, sandbox.ID) error, logger *slog.Logger) (sandbox.Driver, error) {
 	switch cfg.Sandbox.Driver {
 	case "fake":
 		logger.Warn("using the fake sandbox driver: terminals run on this machine as the server's user")
@@ -307,52 +350,30 @@ func newDriver(ctx context.Context, cfg *config.Config, egressOn bool, logger *s
 		d := fake.New(cfg.Sandbox.FakeDir)
 		d.RunSandboxd("127.0.0.1", logger)
 		return d, nil
-	default:
-		dc := cfg.Sandbox.Docker
-		dcfg := docker.Config{
-			Host: dc.Host, NamePrefix: dc.NamePrefix, NetworkPool: netip.MustParsePrefix(dc.NetworkPool),
-			SubnetBits: dc.SubnetBits, Runtime: dc.Runtime, ServerContainer: dc.ServerContainer,
-			PIDsLimit: cfg.Sandbox.PIDsLimit, TunnelHost: dc.TunnelHost, Logger: logger,
-			Egress: egressOn && dc.TunnelHost == "",
-		}
-		if dc.SandboxdVolumeDir != "" {
-			if err := installSandboxd(cfg.Sandbox.SandboxdPath, dc.SandboxdVolumeDir); err != nil {
+	case "firecracker":
+		fc := cfg.Sandbox.Firecracker
+		paths := []*string{&fc.Binary, &fc.Jailer, &fc.Kernel, &fc.BaseImage}
+		for _, p := range paths {
+			abs, err := filepath.Abs(*p)
+			if err != nil {
 				return nil, err
 			}
-			dcfg.SandboxdSource = dc.SandboxdVolume
-		} else {
-			dcfg.SandboxdSource = filepath.Dir(cfg.Sandbox.SandboxdPath)
+			*p = abs
 		}
-		return docker.New(ctx, dcfg)
+		dataDir, err := filepath.Abs(cfg.DataDir)
+		if err != nil {
+			return nil, err
+		}
+		return firecracker.New(ctx, firecracker.Config{
+			DataDir: dataDir, BaseImagePath: fc.BaseImage, KernelPath: fc.Kernel,
+			FirecrackerPath: fc.Binary, JailerPath: fc.Jailer,
+			NetworkPool:      netip.MustParsePrefix(cfg.Sandbox.NetworkPool),
+			OverlaySizeBytes: fc.OverlayGB << 30, HomeSizeBytes: fc.HomeGB << 30,
+			Shutdown: shutdown, RegisterNetwork: fw.Register, UnregisterNetwork: fw.Unregister,
+		})
+	default:
+		return nil, fmt.Errorf("unknown sandbox driver %q", cfg.Sandbox.Driver)
 	}
-}
-
-// installSandboxd copies sandboxd (and the scripted test agent, if it was
-// built) into the volume shared with sandboxes.
-func installSandboxd(src, dir string) error {
-	if err := installBinary(src, filepath.Join(dir, "sandboxd")); err != nil {
-		return fmt.Errorf("install sandboxd (sandbox.sandboxd_path): %w", err)
-	}
-	fa := filepath.Join(filepath.Dir(src), "fakeagent")
-	if _, err := os.Stat(fa); err == nil {
-		return installBinary(fa, filepath.Join(dir, "fakeagent"))
-	}
-	return nil
-}
-
-func installBinary(src, dst string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	if cur, err := os.ReadFile(dst); err == nil && bytes.Equal(cur, data) {
-		return nil
-	}
-	tmp := dst + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o755); err != nil {
-		return err
-	}
-	return os.Rename(tmp, dst)
 }
 
 func tunnelMux(hub *tunnel.Hub) http.Handler {

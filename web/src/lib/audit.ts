@@ -16,7 +16,7 @@ const ACTIONS: Record<string, string> = {
   'agent.delete': 'Deleted the agent',
   'agent.start': 'Started the agent',
   'agent.stop': 'Stopped the agent',
-  'agent.rebuild': 'Rebuilt the agent',
+  'agent.rebuild': 'Reset the agent system',
   'share.add': 'Shared',
   'share.remove': 'Stopped sharing',
   'secret.attach': 'Attached a secret',

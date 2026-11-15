@@ -24,18 +24,18 @@ func TestAgentLifecycleAndAccess(t *testing.T) {
 
 	var limits gen.SandboxLimits
 	expect(t, "limits", bob.do("GET", "/sandbox/limits", nil, &limits), 200)
-	if limits.Driver != "fake" || limits.DefaultImage == "" {
+	if limits.Driver != "fake" {
 		t.Fatalf("limits = %+v", limits)
 	}
 
 	// Validation.
 	expect(t, "too many cpus", bob.do("POST", "/agents", gen.AgentInput{Name: "x", Cpus: ptr(float32(99))}, nil), 400)
-	expect(t, "bad image", bob.do("POST", "/agents", gen.AgentInput{Name: "x", Image: ptr("a b")}, nil), 400)
+	expect(t, "image rejected on create", bob.do("POST", "/agents", map[string]any{"name": "x", "image": "ubuntu:24.04"}, nil), 400)
 	expect(t, "anonymous creates", e.anon().do("POST", "/agents", gen.AgentInput{Name: "x"}, nil), 401)
 
 	var ag gen.Agent
 	expect(t, "create", bob.do("POST", "/agents", gen.AgentInput{Name: "Bob's agent", MemoryMb: ptr(int64(1024))}, &ag), 201)
-	if ag.Image != limits.DefaultImage || ag.Role != gen.Owner || ag.Owner.Name != "Bob" {
+	if ag.Role != gen.Owner || ag.Owner.Name != "Bob" {
 		t.Fatalf("created = %+v", ag)
 	}
 	e.sandboxes.Wait()
@@ -66,10 +66,12 @@ func TestAgentLifecycleAndAccess(t *testing.T) {
 	expect(t, "start", bob.do("POST", "/agents/"+ag.Id+"/start", nil, nil), 202)
 	e.sandboxes.Wait()
 
-	// Changing the image marks a rebuild as pending.
+	expect(t, "image rejected on patch", bob.do("PATCH", "/agents/"+ag.Id, map[string]any{"image": "ubuntu:24.04"}, nil), 400)
+
+	// Resource changes mark a reset as pending.
 	var upd gen.Agent
-	expect(t, "patch", bob.do("PATCH", "/agents/"+ag.Id, gen.AgentPatch{Image: ptr("ubuntu:24.04")}, &upd), 200)
-	if !upd.NeedsRebuild || upd.Image != "ubuntu:24.04" {
+	expect(t, "patch", bob.do("PATCH", "/agents/"+ag.Id, gen.AgentPatch{MemoryMb: ptr(int64(2048))}, &upd), 200)
+	if !upd.NeedsRebuild || upd.MemoryMb != 2048 {
 		t.Fatalf("after patch: %+v", upd)
 	}
 	expect(t, "rebuild", bob.do("POST", "/agents/"+ag.Id+"/rebuild", nil, nil), 202)
@@ -77,8 +79,8 @@ func TestAgentLifecycleAndAccess(t *testing.T) {
 	if got := bob.agent(ag.Id); got.NeedsRebuild || got.State != gen.SandboxStateRunning {
 		t.Fatalf("after rebuild: %+v", got)
 	}
-	if sb, _ := e.driver.Get(sandbox.ID("fake-" + ag.Id)); sb.Spec.Image != "ubuntu:24.04" {
-		t.Fatalf("driver image = %s", sb.Spec.Image)
+	if sb, _ := e.driver.Get(sandbox.ID("fake-" + ag.Id)); sb.Spec.Image != "base" || sb.Spec.Resources.MemoryMB != 2048 {
+		t.Fatalf("driver spec = %+v", sb.Spec)
 	}
 
 	expect(t, "delete", bob.do("DELETE", "/agents/"+ag.Id, nil, nil), 202)

@@ -1,12 +1,12 @@
-# Live reload for the server in the dev compose stack.
+# Live reload the native server inside the Lima VM.
 root = "."
 tmp_dir = "tmp"
 
 [build]
-cmd = "go build -o ./tmp/agenthold ./cmd/agenthold && CGO_ENABLED=0 go build -o ./tmp/sandboxd ./cmd/sandboxd && CGO_ENABLED=0 go build -o ./tmp/fakeagent ./internal/harness/fakeagent"
+cmd = "go build -o ./tmp/agenthold ./cmd/agenthold"
 entrypoint = ["./tmp/agenthold"]
 include_ext = ["go", "yaml", "sql"]
-exclude_dir = ["web", "tmp", "bin", ".git", "deploy"]
+exclude_dir = ["web", "tmp", "bin", "build", ".git", "deploy"]
 delay = 200
 stop_on_error = true
 poll = true

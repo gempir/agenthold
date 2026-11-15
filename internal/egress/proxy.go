@@ -36,8 +36,11 @@ type Agent struct {
 // Responder may answer HTTPS requests to Host. Handle returns false to let
 // the request through; it must then leave the request body readable.
 type Responder struct {
-	Host   string
-	Handle func(w http.ResponseWriter, r *http.Request) bool
+	Host        string
+	Method      string
+	Path        string
+	Placeholder string
+	Handle      func(w http.ResponseWriter, r *http.Request) bool
 }
 
 func (a *Agent) respondersFor(host string) []Responder {
@@ -80,6 +83,9 @@ type Proxy struct {
 	CA     *CA
 	Agents Agents
 	Names  *NameCache
+	// GuestPool is never reachable upstream, including when an operator uses
+	// public addresses for the VM network.
+	GuestPool netip.Prefix
 	// Log, if set, receives every event. It must not block.
 
 	Log func(Event)
@@ -126,10 +132,27 @@ func (p *Proxy) logger() *slog.Logger {
 }
 
 func (p *Proxy) reachable(ip netip.Addr) bool {
+	if p.GuestPool.IsValid() && p.GuestPool.Contains(ip.Unmap()) {
+		return false
+	}
 	if p.Reachable != nil {
 		return p.Reachable(ip)
 	}
-	return PublicAddr(ip)
+	if !PublicAddr(ip) {
+		return false
+	}
+	// A node can have a public address too. Do not let the proxy turn a
+	// guest request for it into access to an unrelated host listener.
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, addr := range addrs {
+		if prefix, err := netip.ParsePrefix(addr.String()); err == nil && prefix.Addr().Unmap() == ip.Unmap() {
+			return false
+		}
+	}
+	return true
 }
 
 func (p *Proxy) lookup(ctx context.Context, host string) ([]netip.Addr, error) {

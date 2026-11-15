@@ -17,13 +17,13 @@ import (
 	"github.com/gempir/agenthold/internal/egress"
 	"github.com/gempir/agenthold/internal/idle"
 	"github.com/gempir/agenthold/internal/logins"
+	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/trigger"
-	"github.com/gempir/agenthold/internal/tunnel"
 )
 
 // Deps are the services the API needs.
@@ -32,10 +32,9 @@ type Deps struct {
 	Auth      *auth.Service
 	PublicURL string
 	Sandboxes *sandbox.Manager
-	Tunnel    *tunnel.Hub
+	Node      node.Node
 	Box       *secrets.Box
 	Egress    *egress.Directory
-	CA        *egress.CA
 	Sessions  *session.Manager
 	Idle      *idle.Sleeper
 	Audit     *audit.Log

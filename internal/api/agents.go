@@ -20,7 +20,7 @@ import (
 func (a *API) GetSandboxLimits(context.Context, gen.GetSandboxLimitsRequestObject) (gen.GetSandboxLimitsResponseObject, error) {
 	l := a.Limits
 	return gen.GetSandboxLimits200JSONResponse{
-		Driver: l.Driver, DefaultImage: l.DefaultImage, DefaultCpus: float32(l.DefaultCPUs),
+		Driver: l.Driver, DefaultCpus: float32(l.DefaultCPUs),
 		DefaultMemoryMb: l.DefaultMemoryMB, MaxCpus: float32(l.MaxCPUs), MaxMemoryMb: l.MaxMemoryMB,
 	}, nil
 }
@@ -45,7 +45,7 @@ func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role aut
 	}
 	return gen.Agent{
 		LastActivityAt: lastActivity, SleepsAt: sleepsAt,
-		Id: ag.ID, Name: ag.Name, Owner: apiUser(owner), Image: ag.Image,
+		Id: ag.ID, Name: ag.Name, Owner: apiUser(owner),
 		Harness: ag.Harness, Cpus: float32(ag.Cpus), MemoryMb: ag.MemoryMb, IdleMinutes: int(ag.IdleMinutes),
 		State: gen.SandboxState(sb.State), StateError: sb.Error, StateChangedAt: ts(sb.StateChangedAt),
 		NeedsRebuild: a.Sandboxes.NeedsRebuild(ag, sb), Role: gen.AgentRole(role),
@@ -57,7 +57,7 @@ func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role aut
 
 // agentSettings validates and normalizes agent settings.
 type agentSettings struct {
-	name, image string
+	name        string
 	cpus        float64
 	memoryMB    int64
 	idleMinutes int64
@@ -70,13 +70,6 @@ func (a *API) validateSettings(s *agentSettings) error {
 	var err error
 	if s.name, err = validName(s.name); err != nil {
 		return err
-	}
-	s.image = strings.TrimSpace(s.image)
-	if s.image == "" {
-		s.image = a.Limits.DefaultImage
-	}
-	if strings.ContainsAny(s.image, " \t\n") || len(s.image) > 255 {
-		return badRequest("image must be an OCI image reference")
 	}
 	if s.cpus <= 0 || s.cpus > a.Limits.MaxCPUs {
 		return badRequest(fmt.Sprintf("cpus must be greater than 0 and at most %g", a.Limits.MaxCPUs))
@@ -130,9 +123,6 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 	u := me(ctx)
 	b := req.Body
 	s := agentSettings{name: b.Name, cpus: a.Limits.DefaultCPUs, memoryMB: a.Limits.DefaultMemoryMB, idleMinutes: 15}
-	if b.Image != nil {
-		s.image = *b.Image
-	}
 	if b.Cpus != nil {
 		s.cpus = float64(*b.Cpus)
 	}
@@ -160,7 +150,7 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 	err := a.Store.Tx(ctx, func(q *db.Queries) error {
 		// New agents use their owner's account logins (shown on the agent).
 		if err := q.CreateAgent(ctx, db.CreateAgentParams{
-			ID: agentID, OwnerID: u.ID, Name: s.name, Image: s.image,
+			ID: agentID, OwnerID: u.ID, Name: s.name, Image: "base",
 			Harness: s.harness, Model: s.model, Cpus: s.cpus, MemoryMb: s.memoryMB, IdleMinutes: s.idleMinutes,
 			PermissionPolicy: s.policy, LoginUserID: u.ID, CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
@@ -178,7 +168,7 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 	if err != nil {
 		return nil, err
 	}
-	a.record(ctx, row.Agent, audit.AgentCreate, row.Agent.Name, map[string]any{"image": s.image, "harness": s.harness})
+	a.record(ctx, row.Agent, audit.AgentCreate, row.Agent.Name, map[string]any{"harness": s.harness})
 	out, err := a.apiAgent(ctx, row.Agent, row.Sandbox, authz.Owner)
 	if err != nil {
 		return nil, err
@@ -207,7 +197,7 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	}
 	ag := acc.Row.Agent
 	s := agentSettings{
-		name: ag.Name, image: ag.Image, cpus: ag.Cpus, memoryMB: ag.MemoryMb, idleMinutes: ag.IdleMinutes,
+		name: ag.Name, cpus: ag.Cpus, memoryMB: ag.MemoryMb, idleMinutes: ag.IdleMinutes,
 		harness: ag.Harness, model: ag.Model, policy: ag.PermissionPolicy,
 	}
 	b := req.Body
@@ -223,9 +213,6 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	if b.Name != nil {
 		s.name = *b.Name
 	}
-	if b.Image != nil {
-		s.image = *b.Image
-	}
 	if b.Cpus != nil {
 		s.cpus = float64(*b.Cpus)
 	}
@@ -239,7 +226,7 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 		return nil, err
 	}
 	if err := a.Store.UpdateAgent(ctx, db.UpdateAgentParams{
-		Name: s.name, Image: s.image, Cpus: s.cpus, MemoryMb: s.memoryMB, IdleMinutes: s.idleMinutes,
+		Name: s.name, Image: ag.Image, Cpus: s.cpus, MemoryMb: s.memoryMB, IdleMinutes: s.idleMinutes,
 		UpdatedAt: a.Now().Unix(), ID: ag.ID,
 	}); err != nil {
 		return nil, err
@@ -259,7 +246,7 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 		return nil, err
 	}
 	a.record(ctx, ag, audit.AgentUpdate, ag.Name, map[string]any{
-		"name": s.name, "image": s.image, "cpus": s.cpus, "memoryMb": s.memoryMB, "idleMinutes": s.idleMinutes,
+		"name": s.name, "cpus": s.cpus, "memoryMb": s.memoryMB, "idleMinutes": s.idleMinutes,
 		"harness": s.harness, "model": s.model, "permissionPolicy": s.policy,
 	})
 	return gen.UpdateAgent200JSONResponse(g), nil

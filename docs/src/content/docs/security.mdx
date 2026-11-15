@@ -1,74 +1,30 @@
 ---
 title: "Security"
-description: "The threat model and the layers that protect the host, other agents and your secrets."
+description: "The trust model and boundaries around agents and credentials."
 ---
 
-## Threat model
+Agents execute code and may encounter hostile prompts or content. Users authenticate and can access only
+agents they own or that have been shared with them. The host, its operator and any node are trusted: the
+node runs as root and holds decrypted secrets in memory for the agents it hosts.
 
-agenthold runs code that AI agents decide to run, on behalf of many users. It assumes:
+Each agent runs in a Firecracker microVM with a separate guest kernel and disks. The jailer constrains the
+VMM, and host nftables rules direct guest traffic through the egress proxy and DNS forwarder while blocking
+access to other guests and unrelated host services. A fresh boot token authenticates the guest tunnel. Treat
+KVM, Firecracker, the host kernel and the node as part of the trusted computing base; isolation is not a
+promise that vulnerabilities cannot occur. See [host hardening](/hardening/) and [sandboxes](/sandboxes/).
 
-- **Agents are untrusted.** Whatever runs inside a sandbox (the harness, the model's tool calls, a prompt-injected
-  web page) may try to escape, read other agents' data, steal secrets or misuse the network.
-- **Users are partly trusted.** They are authenticated, and they reach only the agents they own or that were
-  shared with them.
-- **The host and its operator are trusted.** The server controls Docker, so it is effectively root on the host.
+Secret values are encrypted at rest and delivered to the node's proxy, which injects them only for configured
+destinations. Sandboxes receive placeholders. A destination that echoes requests can reveal an injected
+secret, and account credentials explicitly saved through a terminal remain readable inside that sandbox.
+See [egress and secrets](/egress/).
 
-## Boundaries
+All agents can reach public internet destinations. An agent can exfiltrate data it can read, and prompt
+injection can cause it to act on hostile content. The system does not prevent either. Share agents and
+provider logins only with users you trust to use them.
 
-| Boundary | How it is enforced |
-| --- | --- |
-| Sandbox ↔ host | Docker containers with default capabilities, no privileged mode, CPU, memory and PID limits, no Docker socket. Optional gVisor or Sysbox ([hardened runtimes](/hardening/)). The only privileged step, `sandboxd net-setup`, runs a read-only, statically linked binary as a short exec. |
-| Sandbox ↔ network | Internal Docker network in isolated gateway mode: no route to the host or the internet. All TCP and DNS are redirected to the egress proxy by nftables in the server's namespace. Private, loopback, link-local (metadata), CGNAT and multicast destinations are never reachable. The proxy resolves names itself, so a forged SNI or Host header cannot reach a different address. Public destinations are open to every agent. |
-| Sandbox ↔ server | Sandboxes can reach only the tunnel and the explicit proxy port on the server. The tunnel authenticates each boot with a fresh 256-bit token (only its hash is stored, accepted only while the sandbox runs). The server identifies the agent behind every call by its tunnel, never by what the sandbox says. |
-| Sandbox ↔ secrets | Secret values never enter a sandbox: it sees placeholders, and the proxy injects values into HTTPS requests to the hosts in the secret's rule only. TLS is intercepted only for those hosts. Values are encrypted at rest (XChaCha20-Poly1305, AAD bound to the secret id) and never returned by the API. Account provider logins work the same way, with injection limited to one header (and for some, URL paths); refresh tokens stay on the server, which answers sandboxes' refresh requests itself. |
-| User ↔ user logins | A provider login belongs to one user; the API only ever acts on the caller's own. An agent uses a user's logins only if that user chose it on an agent they own, it is shown on the agent, it stops if they lose access to the agent, and they can withdraw it at any time. Connecting needs a browser session, not an API token. |
-| Agent ↔ agent | Separate networks, volumes and tunnels. An agent may message only agents its owner owns or that are shared with its owner; messages are audited and stop at depth 4. |
-| User ↔ user | Every handler asks `internal/authz`: owner, shared user or nobody. Strangers get 404, shared users 403 for owner-only actions. A table-driven test checks the agent endpoints for all three. Secrets, MCP servers and skills belong to one user and are invisible to others. |
-| Browser ↔ server | OIDC or GitHub OAuth with PKCE, state and nonce, or the one local admin (argon2id hash in the config, constant-time comparison, rate limited). Session cookies are `HttpOnly`, `SameSite=Lax` and `Secure` on HTTPS, and stored hashed. Cross-origin state-changing requests are rejected (`http.CrossOriginProtection`). WebSockets check the Origin. The UI gets a strict CSP, `X-Frame-Options: DENY`, `nosniff` and a referrer policy. Login redirects only go to local paths. |
-| API clients | Personal tokens (256 bits, hashed, optional expiry, revocable) act with their user's permissions. A token cannot create further tokens. |
-| Webhooks | Unguessable URLs (hashed), optional HMAC-SHA256 signatures (constant-time check), 256 KiB bodies. Payloads reach the agent between "untrusted data" markers it cannot forge. |
+The server uses OIDC, GitHub OAuth or one local administrator; owners control configuration and sharing,
+while shared users can use the agent. API tokens inherit their user's permissions. Session cookies and
+WebSocket origin checks protect browser sessions. Put the plain HTTP service behind an HTTPS reverse proxy
+or tunnel and consider rate limits at that boundary.
 
-## Known limits and accepted risks
-
-- **Kernel sharing.** Without gVisor or Sysbox, a kernel exploit in a sandbox reaches the host.
-- **Shared provider logins.** Everyone who can prompt an agent that uses someone's account login spends that
-  login (subscription limits or API bill), and an agent can send any request its harness could to the injected
-  hosts while it runs (for a ChatGPT login: `chatgpt.com/backend-api/`). It cannot read the credential itself.
-- **Harness logins inside the sandbox.** Logins made in an agent's terminal are stored on the agent's disk,
-  so the agent and everyone it is shared with can read them (shared users have a terminal). Such agents are
-  marked "credentials inside sandbox".
-- **Services that echo requests.** If a secret's hosts include a service that reflects request headers back,
-  the agent can read the injected value. Only list APIs you trust in a rule.
-- **Open network.** Every agent can reach any public address, which allows exfiltrating anything it can read.
-  There is no per-agent allowlist; do not give agents data they must not leak.
-- **Prompt injection.** Agents act on what they read (web pages, webhook payloads, files). The platform limits
-  the damage (sandbox, no secrets in the sandbox, depth limit); it cannot prevent the agent from
-  being misled.
-- **The server is root on the host.** It needs the Docker socket and `CAP_NET_ADMIN`. Protect the host
-  accordingly.
-- **No rate limiting.** Apart from local admin sign-in attempts there are no rate limits yet. Put the server behind a proxy with limits if
-  untrusted people can reach it.
-
-## Review for the first release
-
-**Checked:**
-- **Dependencies:** `govulncheck` for Go and `pnpm audit --prod` for the web app.
-- **Authorization:** all endpoints, covered by the access matrix (owner, shared user, stranger).
-- **Identity:** the login flow (state, PKCE, nonce, open redirects), session and token handling.
-- **Browser protections:** CSRF and WebSocket origins.
-- **Sandbox network:** egress (private destinations, SNI and Host spoofing, DNS rebinding), the sandbox firewall, and access from the sandbox to the server.
-- **Secrets:** injection scope.
-- **File access:** file API access by relation to the agent.
-- **Triggers:** webhook signatures and body limits.
-- **Agent-to-agent:** identity and depth.
-
-**Found and fixed in this release:**
-- **Dependencies:** the Go toolchain moved to 1.26.11 (standard library advisories in `net/http`, `crypto/tls`, `crypto/x509`, `net/url`), `kin-openapi` was upgraded, and the `diff` npm package moved to 8.0.3.
-- **Plain HTTP:** secrets could be injected into plain-HTTP requests to a rule's host, sending the value unencrypted. Injection now happens over HTTPS only.
-- **Token persistence:** a personal access token could create more tokens and so survive its own revocation. Tokens can now only be created from a browser session.
-- **Body sizes:** request bodies (other than file uploads) are capped at 8 MiB, and prompts at 256 KiB.
-- **Viewer file access:** viewers could download harness credential files or sandboxd's boot file through the file API, even through a symlink the agent planted. These paths are now refused after resolving symlinks.
-- **Security headers:** the web UI now sends a Content Security Policy and the related headers.
-- **Server recreate:** after the server container was recreated (an upgrade), running sandboxes lost their tunnel and egress until restarted. Reconcile now reattaches the server to their networks.
-
-**Reporting:** please report vulnerabilities privately through GitHub security advisories of the repository.
+Report vulnerabilities privately through the repository's GitHub security advisories.

@@ -19,7 +19,6 @@ const agent = (over: Partial<Agent> = {}): Agent => ({
   id: 'a1',
   name: 'builder',
   owner: me.user,
-  image: 'ubuntu:24.04',
   harness: 'claude-code',
   model: '',
   permissionPolicy: 'ask',
@@ -55,7 +54,7 @@ it('renders agent list with state badges', async () => {
   );
   const two = within(main).getByText('two').closest('a')!;
   expect(within(two).getByText('error')).toBeInTheDocument();
-  expect(within(two).getByText('rebuild pending')).toBeInTheDocument();
+  expect(within(two).getByText('reset pending')).toBeInTheDocument();
 });
 
 it('shows Start for a sleeping agent and hides owner controls from a shared user', async () => {
@@ -67,10 +66,27 @@ it('shows Start for a sleeping agent and hides owner controls from a shared user
   });
   renderApp('/a/a1/settings');
   expect(await screen.findByRole('button', { name: 'Start' })).toBeVisible();
-  expect(screen.queryByRole('button', { name: 'Rebuild' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Reset system' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+});
+
+it('lets an owner reset the system without an image setting', async () => {
+  const { calls } = mockApi({
+    'GET /me': me,
+    'GET /agents/a1': agent({ role: 'owner', needsRebuild: true }),
+    'GET /agents/a1/sessions': [],
+    'GET /harnesses': [],
+    'POST /agents/a1/rebuild': agent({ role: 'owner', state: 'rebuilding' }),
+  });
+  renderApp('/a/a1/settings');
+  expect(await screen.findByText(/Reset the system to apply/)).toBeVisible();
+  expect(screen.queryByLabelText('Image')).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: 'Reset system' }));
+  await vi.waitFor(() =>
+    expect(calls.some((c) => c.key === 'POST /agents/a1/rebuild')).toBe(true),
+  );
 });
 
 it('polls fast while transient and slowly while running', () => {

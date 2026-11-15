@@ -2,18 +2,14 @@
 
 package egress
 
-import (
-	"errors"
-	"net/netip"
-)
-
-// Firewall describes the server-side rules for sandbox traffic (Linux only).
-type Firewall struct {
-	Pool      netip.Prefix
-	ProxyPort int
-	DNSPort   int
-	OpenPorts []int
-}
+import "errors"
 
 // Install is unsupported outside Linux.
-func (Firewall) Install() error { return errors.New("the egress firewall requires Linux") }
+func (f *Firewall) Install() error {
+	if err := f.validate(); err != nil {
+		return err
+	}
+	return errors.New("the guest firewall requires Linux")
+}
+
+func updateGuestSet([]byte, bool) error { return errors.New("the guest firewall requires Linux") }

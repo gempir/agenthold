@@ -140,7 +140,7 @@ function AttachedSecrets({
         </ul>
       )}
       <p className="text-xs text-muted-foreground">
-        Changing environment variables requires a rebuild.
+        Changing environment variables requires a system reset.
       </p>
       <ErrorText error={detach.error} />
       {isOwner && (

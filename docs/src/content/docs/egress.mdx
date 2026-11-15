@@ -1,27 +1,22 @@
 ---
 title: "Egress and secrets"
-description: "Sandboxes have no route to the internet of their own. All of their traffic goes through the server's proxy, which keeps private networks out of reach and injects secrets."
+description: "Sandboxes have no route to the internet of their own. All of their traffic goes through the node's proxy, which keeps private networks out of reach and injects secrets."
 ---
 
-Sandboxes have no route to the internet of their own. All of their traffic goes through the server's proxy.
+Sandboxes have no route to the internet of their own. All of their traffic goes through the node's proxy.
 Every agent has open access to public internet addresses through it; the proxy keeps private networks out of
 reach and injects secrets, so secret values never enter a sandbox. There are no per-agent allowlists and no
 request log.
 
 ## How traffic is intercepted
 
-Each agent network is an internal Docker network in isolated gateway mode (Docker 28 or newer), so it has
-no gateway to the host. After every start the server runs `sandboxd net-setup` as a privileged exec in the
-sandbox. It points the sandbox's default route and DNS at the server's address on that network (`.2`). The
-sandbox itself never gets `NET_ADMIN`.
+Each microVM has its own tap interface and a /30 subnet. The node installs host nftables rules for
+registered guest interfaces:
 
-Inside its own network namespace, the server (which needs `CAP_NET_ADMIN`) installs nftables rules:
-
-- DNS (UDP and TCP port 53) from agent networks goes to the server's resolver.
-- All other TCP that is not addressed to the server goes to the transparent proxy. The proxy reads the
-  original destination with `SO_ORIGINAL_DST`.
-- Sandboxes can reach only the tunnel port and the explicit proxy port on the server itself. Other traffic
-  to the server, and anything the server would have to forward (UDP other than DNS, ICMP), is dropped.
+- DNS (UDP and TCP port 53) goes to the node's resolver.
+- Other guest TCP goes to the transparent proxy, which reads the original destination.
+- The guest may reach its tunnel and explicit proxy ports on the node. Other host services, other guests,
+  and traffic that is not redirected or explicitly allowed are blocked.
 
 This catches programs that ignore `HTTPS_PROXY`: SSH, raw sockets, package managers. `HTTPS_PROXY` is still
 set in every sandbox as a hint, pointing at the explicit proxy, which goes through the same checks.
@@ -82,4 +77,4 @@ secrets:
   master_key_file: ""   # default <data_dir>/master.key
 ```
 
-The end-to-end check for this milestone runs against the dev stack: `make dev`, then `scripts/e2e/egress.sh`.
+Firewall and KVM checks run on a Linux KVM host with `make test-kvm`.

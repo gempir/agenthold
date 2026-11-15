@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -51,6 +52,15 @@ func (h *Hub) HandleIncoming(fn IncomingHandler) {
 }
 
 func (h *Hub) acceptIncoming(s *Session) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-s.mux.CloseChan():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	for {
 		st, err := s.mux.AcceptStream()
 		if err != nil {
@@ -65,7 +75,7 @@ func (h *Hub) acceptIncoming(s *Session) {
 			if err := ReadJSON(st, &o); err != nil || fn == nil {
 				return
 			}
-			fn(context.Background(), s, st, o)
+			fn(ctx, s, st, o)
 		}()
 	}
 }
@@ -77,6 +87,13 @@ type Session struct {
 	ConnectedAt time.Time
 	mux         *yamux.Session
 	hub         *Hub
+	opener      func(context.Context, Open) (io.ReadWriteCloser, error)
+}
+
+// NewClient builds a protocol client over a stream-opening transport. The
+// client has no access to the node's underlying tunnel session.
+func NewClient(agentID string, opener func(context.Context, Open) (io.ReadWriteCloser, error)) *Session {
+	return &Session{AgentID: agentID, opener: opener}
 }
 
 // Hub returns the hub the session belongs to.
@@ -163,7 +180,9 @@ func (s *Session) hello(ctx context.Context) error {
 		return err
 	}
 	defer c.Close()
-	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+	if conn, ok := c.(net.Conn); ok {
+		_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	}
 	return ReadJSON(c, &s.Hello)
 }
 
@@ -223,6 +242,20 @@ func (h *Hub) Wait(ctx context.Context, agentID string) (*Session, error) {
 		select {
 		case <-ch:
 		case <-ctx.Done():
+			h.mu.Lock()
+			ws := h.waiters[agentID]
+			for i, w := range ws {
+				if w == ch {
+					ws = append(ws[:i], ws[i+1:]...)
+					break
+				}
+			}
+			if len(ws) == 0 {
+				delete(h.waiters, agentID)
+			} else {
+				h.waiters[agentID] = ws
+			}
+			h.mu.Unlock()
 			return nil, fmt.Errorf("waiting for sandbox: %w", ctx.Err())
 		}
 	}
@@ -236,7 +269,10 @@ func (h *Hub) Disconnect(agentID string) {
 }
 
 // Open opens a channel to sandboxd.
-func (s *Session) Open(ctx context.Context, o Open) (net.Conn, error) {
+func (s *Session) Open(ctx context.Context, o Open) (io.ReadWriteCloser, error) {
+	if s.opener != nil {
+		return s.opener(ctx, o)
+	}
 	type result struct {
 		c   net.Conn
 		err error
@@ -259,12 +295,18 @@ func (s *Session) Open(ctx context.Context, o Open) (net.Conn, error) {
 	case r := <-ch:
 		return r.c, r.err
 	case <-ctx.Done():
+		go func() {
+			r := <-ch
+			if r.c != nil {
+				_ = r.c.Close()
+			}
+		}()
 		return nil, ctx.Err()
 	}
 }
 
 // Closed reports whether the session has ended.
-func (s *Session) Closed() bool { return s.mux.IsClosed() }
+func (s *Session) Closed() bool { return s.mux != nil && s.mux.IsClosed() }
 
 // WaitConnected implements sandbox.Tunnel.
 func (h *Hub) WaitConnected(ctx context.Context, agentID string) error {

@@ -42,7 +42,7 @@ type Config struct {
 type Egress struct {
 	// Disabled turns interception off: sandboxes then have no network access at all.
 	Disabled bool `yaml:"disabled"`
-	// Ports the server listens on (inside its own container).
+	// Ports the node listens on.
 	ProxyPort    int `yaml:"proxy_port"`    // transparent, receives redirected TCP
 	ExplicitPort int `yaml:"explicit_port"` // HTTP proxy for HTTPS_PROXY
 	DNSPort      int `yaml:"dns_port"`      // receives redirected DNS
@@ -60,17 +60,16 @@ type Secrets struct {
 
 // Sandbox configures agent sandboxes.
 type Sandbox struct {
-	// Driver is "docker" (default) or "fake" (in-process, for development without Docker).
+	// Driver is "firecracker" (default) or "fake" (in-process, for UI development).
 	Driver string `yaml:"driver"`
-	// DefaultImage is used when an agent does not name an image.
-	DefaultImage string `yaml:"default_image"`
 	// Defaults and upper bounds for agent resources.
-	DefaultCPUs     float64 `yaml:"default_cpus"`
-	DefaultMemoryMB int64   `yaml:"default_memory_mb"`
-	MaxCPUs         float64 `yaml:"max_cpus"`
-	MaxMemoryMB     int64   `yaml:"max_memory_mb"`
-	PIDsLimit       int64   `yaml:"pids_limit"`
-	Docker          Docker  `yaml:"docker"`
+	DefaultCPUs     float64     `yaml:"default_cpus"`
+	DefaultMemoryMB int64       `yaml:"default_memory_mb"`
+	MaxCPUs         float64     `yaml:"max_cpus"`
+	MaxMemoryMB     int64       `yaml:"max_memory_mb"`
+	Firecracker     Firecracker `yaml:"firecracker"`
+	// NetworkPool is divided into isolated /30 networks, one per agent.
+	NetworkPool string `yaml:"network_pool"`
 	// FakeDir is where the fake driver keeps sandbox home directories.
 	FakeDir string `yaml:"fake_dir"`
 	// TunnelListen is the address sandboxd connects to (only reachable from
@@ -83,32 +82,15 @@ type Sandbox struct {
 	SandboxdPath string `yaml:"sandboxd_path"`
 }
 
-// Docker configures the Docker sandbox driver.
-type Docker struct {
-	// Host overrides DOCKER_HOST.
-	Host string `yaml:"host"`
-	// NamePrefix prefixes all containers, networks and volumes. Change it to
-	// run several installations on one Docker host.
-	NamePrefix string `yaml:"name_prefix"`
-	// NetworkPool is the address range per-agent networks are carved from.
-	NetworkPool string `yaml:"network_pool"`
-	// SubnetBits is the prefix length of each agent network (default 28: 14 hosts).
-	SubnetBits int `yaml:"subnet_bits"`
-	// Runtime is an optional OCI runtime, e.g. "sysbox-runc" or "runsc".
-	Runtime string `yaml:"runtime"`
-	// ServerContainer is the server's own container, which is attached to every
-	// agent network. Empty means autodetect when running in a container.
-	ServerContainer string `yaml:"server_container"`
-	// SandboxdVolume is the Docker volume that carries sandboxd into sandboxes
-	// (mounted read-only at /opt/agenthold). Default "<name_prefix>-bin".
-	SandboxdVolume string `yaml:"sandboxd_volume"`
-	// SandboxdVolumeDir is where that volume is mounted inside the server's
-	// container; the server copies sandboxd there at startup. Required when
-	// the server runs in a container. When the server runs on the host,
-	// sandboxd_path's directory is bind-mounted instead.
-	SandboxdVolumeDir string `yaml:"sandboxd_volume_dir"`
-	// TunnelHost overrides the address sandboxes dial to reach the server.
-	TunnelHost string `yaml:"tunnel_host"`
+// Firecracker configures the microVM runtime. Release builds extract the
+// runtime artifacts automatically; explicit paths support development builds.
+type Firecracker struct {
+	Binary    string `yaml:"binary"`
+	Jailer    string `yaml:"jailer"`
+	Kernel    string `yaml:"kernel"`
+	BaseImage string `yaml:"base_image"`
+	OverlayGB int64  `yaml:"overlay_gb"`
+	HomeGB    int64  `yaml:"home_gb"`
 }
 
 // Auth configures sign-in.
@@ -245,10 +227,7 @@ func ApplyDefaults(cfg *Config) {
 	}
 	sb := &cfg.Sandbox
 	if sb.Driver == "" {
-		sb.Driver = "docker"
-	}
-	if sb.DefaultImage == "" {
-		sb.DefaultImage = "debian:bookworm-slim"
+		sb.Driver = "firecracker"
 	}
 	if sb.DefaultCPUs == 0 {
 		sb.DefaultCPUs = 2
@@ -262,22 +241,30 @@ func ApplyDefaults(cfg *Config) {
 	if sb.MaxMemoryMB == 0 {
 		sb.MaxMemoryMB = 16384
 	}
-	if sb.PIDsLimit == 0 {
-		sb.PIDsLimit = 4096
-	}
 	if sb.FakeDir == "" {
 		sb.FakeDir = filepath.Join(cfg.DataDir, "fake-sandboxes")
 	}
-	if sb.Docker.NamePrefix == "" {
-		sb.Docker.NamePrefix = "agenthold"
+	if sb.NetworkPool == "" {
+		sb.NetworkPool = "10.213.0.0/16"
 	}
-	if sb.Docker.SandboxdVolume == "" {
-		sb.Docker.SandboxdVolume = sb.Docker.NamePrefix + "-bin"
+	fc := &sb.Firecracker
+	if fc.Binary == "" {
+		fc.Binary = filepath.Join(cfg.DataDir, "runtime", "firecracker")
 	}
-	if sb.Docker.SandboxdVolumeDir == "" && fileExists("/.dockerenv") {
-		// In a container the server cannot bind-mount its own files into
-		// sandboxes; it shares sandboxd through a volume mounted here.
-		sb.Docker.SandboxdVolumeDir = "/var/lib/agenthold/bin"
+	if fc.Jailer == "" {
+		fc.Jailer = filepath.Join(cfg.DataDir, "runtime", "jailer")
+	}
+	if fc.Kernel == "" {
+		fc.Kernel = filepath.Join(cfg.DataDir, "runtime", "vmlinux")
+	}
+	if fc.BaseImage == "" {
+		fc.BaseImage = filepath.Join(cfg.DataDir, "base", "base.ext4")
+	}
+	if fc.OverlayGB == 0 {
+		fc.OverlayGB = 8
+	}
+	if fc.HomeGB == 0 {
+		fc.HomeGB = 10
 	}
 	if sb.IdleCheckInterval == 0 {
 		sb.IdleCheckInterval = 30 * time.Second
@@ -292,12 +279,6 @@ func ApplyDefaults(cfg *Config) {
 				sb.SandboxdPath = p
 			}
 		}
-	}
-	if sb.Docker.NetworkPool == "" {
-		sb.Docker.NetworkPool = "10.213.0.0/16"
-	}
-	if sb.Docker.SubnetBits == 0 {
-		sb.Docker.SubnetBits = 28
 	}
 	eg := &cfg.Egress
 	if eg.ProxyPort == 0 {
@@ -346,14 +327,15 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Errorf("public_url: %w", err))
 	}
 	switch c.Sandbox.Driver {
-	case "docker", "fake":
+	case "firecracker", "fake":
 	default:
-		errs = append(errs, fmt.Errorf("sandbox.driver: unknown driver %q (want docker or fake)", c.Sandbox.Driver))
+		errs = append(errs, fmt.Errorf("sandbox.driver: unknown driver %q (want firecracker or fake)", c.Sandbox.Driver))
 	}
-	if p, err := netip.ParsePrefix(c.Sandbox.Docker.NetworkPool); err != nil || !p.Addr().Is4() {
-		errs = append(errs, fmt.Errorf("sandbox.docker.network_pool: want an IPv4 CIDR, got %q", c.Sandbox.Docker.NetworkPool))
-	} else if b := c.Sandbox.Docker.SubnetBits; b < p.Bits() || b > 29 {
-		errs = append(errs, fmt.Errorf("sandbox.docker.subnet_bits: must be between %d and 29", p.Bits()))
+	if p, err := netip.ParsePrefix(c.Sandbox.NetworkPool); err != nil || !p.Addr().Is4() || p.Bits() < 8 || p.Bits() > 30 || p.Masked() != p {
+		errs = append(errs, fmt.Errorf("sandbox.network_pool: want an aligned IPv4 CIDR between /8 and /30, got %q", c.Sandbox.NetworkPool))
+	}
+	if c.Sandbox.Firecracker.OverlayGB < 1 || c.Sandbox.Firecracker.HomeGB < 1 {
+		errs = append(errs, errors.New("sandbox.firecracker: overlay_gb and home_gb must be positive"))
 	}
 	seen := map[string]bool{}
 	for i, p := range c.Auth.Providers {

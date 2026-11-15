@@ -69,8 +69,11 @@ func canManageSecret(userID string, s db.Secret) bool {
 }
 
 // GetEgressCA implements gen.StrictServerInterface.
-func (a *API) GetEgressCA(context.Context, gen.GetEgressCARequestObject) (gen.GetEgressCAResponseObject, error) {
-	pem := a.CA.CertPEM()
+func (a *API) GetEgressCA(ctx context.Context, _ gen.GetEgressCARequestObject) (gen.GetEgressCAResponseObject, error) {
+	pem, err := a.Node.CACertificate(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return gen.GetEgressCA200ApplicationxPemFileResponse{Body: bytes.NewReader(pem), ContentLength: int64(len(pem))}, nil
 }
 

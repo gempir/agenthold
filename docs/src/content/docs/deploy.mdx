@@ -1,97 +1,80 @@
 ---
-title: "Automatic deploys"
-description: "Deploy every push to main to your host automatically with GitHub Actions: setup, secrets and rollback."
+title: "Deployment"
+description: "Deploy the native binary behind your own HTTPS proxy or tunnel."
 ---
 
-Every push to `main` is deployed to the production host once CI is green. The workflow
-[`deploy.yml`](https://github.com/gempir/agenthold/blob/main/.github/workflows/deploy.yml) runs after the `ci` workflow succeeds for a push to `main`:
+Automatic demo deployment is disabled during the Firecracker transition. The replacement deployment for
+`scarif.local` has not been configured; pushing to `main` does not deploy a server.
 
-1. Builds the server image and the base image (`images/base`) for that commit, for `linux/arm64`, and pushes them
-   to `ghcr.io/<owner>/agenthold` and `agenthold-base` tagged `sha-<commit>`. The production host is arm64, so only
-   that platform is built (natively, on a GitHub arm64 runner). Tag releases (`release.yml`) still publish
-   multi-arch `latest` and version tags and are not affected.
-2. Resolves both tags to digests and connects to the host over SSH with a dedicated key.
-3. [`deploy/production/deploy.sh`](https://github.com/gempir/agenthold/blob/main/deploy/production/deploy.sh) on the host pulls the images **by digest**,
-   restarts only the `agenthold` service on them, waits for the compose health check, checks that the running
-   container uses exactly the pulled image and runs `agenthold healthcheck` in it. On any failure it switches back to
-   the previous images and exits non-zero, so the workflow run fails.
-4. If the repository variable `DEPLOY_URL` is set, the workflow finally requests `<DEPLOY_URL>/healthz`.
+On a Linux KVM host, follow [Install](/install/), put the foreground service behind an HTTPS reverse proxy or
+tunnel, and keep its configuration and data directory persistent. Upgrade by backing up the database, keys
+and agent disks, stopping the service, replacing the binary and starting it again. The base disk is shared;
+resetting an agent's system replaces its writable system overlay while preserving its home disk.
 
-Only one deploy runs at a time (a waiting one is replaced by a newer one), and a commit that is no longer the head
-of `main` is skipped, so an older build never replaces a newer deploy. A failing CI run deploys nothing.
+Native release assets, automated installation and rollback procedures will be documented with the release
+workflow. Verify backups before upgrading.
 
-## What the host looks like
+## HTTPS examples
 
-- A checkout of this repository at `~/agenthold` (compose file in `deploy/production`), Docker 28+ with
-  Compose, and `git` and `flock`. The configured stack (`.env`, `agenthold.yaml`, the optional Cloudflare Tunnel
-  override) stays as installed per [the install guide](/install/).
-- `~/agenthold-deploy.sh`, a copy of `deploy/production/deploy.sh`. It refreshes itself from the checkout on every
-  deploy.
-- The deploy user's `~/.ssh/authorized_keys` has the deploy key with a forced command, so the key can do nothing
-  but run this script (which only accepts digest references into `ghcr.io/<owner>/agenthold*`):
+Choose one of these approaches. Each assumes agenthold listens on `127.0.0.1:8080` and
+`public_url` is `https://agents.example.com`. Configure DNS and firewall access for your own host.
 
-  ```
-  command="/home/opc/agenthold-deploy.sh",no-port-forwarding,no-agent-forwarding,no-pty,no-X11-forwarding,no-user-rc ssh-ed25519 AAAA... agenthold-github-actions-deploy
-  ```
+### Caddy
 
-The script updates the checkout with `git merge --ff-only` (so compose changes arrive; local edits such as
-`agenthold.yaml` stay) and keeps the images in use in `deploy/production/.deploy.env`, which compose reads on top
-of `.env`. `.env` itself is never changed. That file also holds `AGENTHOLD_BASE_IMAGE`, the image new agents use:
-it is pinned to the base image of the deployed commit. Existing agents keep their image until rebuilt.
-Run compose by hand on the host with both files, otherwise it falls back to the images named in `.env`:
+With DNS pointing to the proxy and ports 80 and 443 available, Caddy can obtain and renew a certificate.
+Its reverse proxy handles WebSocket upgrades:
 
-```sh
-cd ~/agenthold/deploy/production
-docker compose --env-file .env --env-file .deploy.env ps
+```caddy
+agents.example.com {
+  reverse_proxy 127.0.0.1:8080
+}
 ```
 
-Older `ghcr.io/<owner>/agenthold*` images are removed after a successful deploy, except the current and previous
-ones and any image a container still uses.
+See the [Caddy reverse proxy guide](https://caddyserver.com/docs/quick-starts/reverse-proxy).
 
-## GitHub configuration
+### nginx
 
-| Name | Kind | Value |
-| --- | --- | --- |
-| `DEPLOY_SSH_KEY` | secret | private half of the deploy key (ed25519) |
-| `DEPLOY_KNOWN_HOSTS` | secret | the host's `known_hosts` line(s); the workflow uses strict host key checking |
-| `DEPLOY_HOST` | secret | host name or IP |
-| `DEPLOY_USER` | secret | SSH user on the host (`opc`) |
-| `DEPLOY_URL` | variable, optional | public base URL, for the final `/healthz` check |
+Place the `map` inside nginx's `http` block, and provide your own certificate and key:
 
-The workflow uses its own `GITHUB_TOKEN` (`packages: write` to push, `packages: read` for the host's pull, handed
-over once on stdin and never stored on the host). It runs in the `production` environment, where you can add
-required reviewers or a deployment branch rule if you want a manual gate.
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+server {
+    listen 443 ssl;
+    server_name agents.example.com;
+    ssl_certificate /etc/ssl/agents/fullchain.pem;
+    ssl_certificate_key /etc/ssl/agents/privkey.pem;
 
-## Setting up another host or rotating the key
-
-```sh
-ssh-keygen -t ed25519 -N '' -C agenthold-github-actions-deploy -f deploy_key
-scp deploy/production/deploy.sh user@host:agenthold-deploy.sh && ssh user@host chmod 755 agenthold-deploy.sh
-# on the host: add to ~/.ssh/authorized_keys the line shown above, with deploy_key.pub's contents
-ssh-keyscan -t ed25519 host | grep -v '^#' | gh secret set DEPLOY_KNOWN_HOSTS
-gh secret set DEPLOY_SSH_KEY < deploy_key
-gh secret set DEPLOY_HOST --body host; gh secret set DEPLOY_USER --body user
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 3600s;
+    }
+}
 ```
 
-Check the host key fingerprint (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the host) against what you
-pinned. Then delete the local `deploy_key`. To test the forced command without deploying anything:
-`ssh -i deploy_key user@host status`.
+See [nginx WebSocket proxying](https://nginx.org/en/docs/http/websocket.html). Configure certificate
+renewal and HTTP-to-HTTPS redirects separately.
 
-## Roll back
+### Cloudflare Tunnel
 
-Every deploy is a commit. Redeploy an earlier one from its already published images: **Actions → deploy → Run
-workflow** on `main`, with the full commit sha in `sha`. Nothing is rebuilt. (Images of commits that were pruned from
-the host are pulled again from ghcr.io; ghcr.io keeps all of them.)
+Create a tunnel and its DNS route in your Cloudflare account, then configure a locally managed `cloudflared`
+tunnel with its credentials file:
 
-On the host, the previous deploy is also one file away:
-
-```sh
-cd ~/agenthold/deploy/production
-cat .deploy.log                       # history
-cp .deploy.env.prev .deploy.env       # the images before the last deploy
-docker compose --env-file .env --env-file .deploy.env up -d --no-deps agenthold
+```yaml
+tunnel: YOUR_TUNNEL_ID
+credentials-file: /etc/cloudflared/YOUR_TUNNEL_ID.json
+ingress:
+  - hostname: agents.example.com
+    service: http://127.0.0.1:8080
+  - service: http_status:404
 ```
 
-Removing `.deploy.env` goes back to the images named in `.env` (the locally built `agenthold:local` on the current
-host, as long as that image is still there). Database migrations run forward at startup and are not undone; a
-rollback across a migration needs a [backup](/install/#back-up) restore.
+Run `cloudflared` as a service using that configuration. See the [Cloudflare Tunnel configuration
+reference](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/configuration-file/).

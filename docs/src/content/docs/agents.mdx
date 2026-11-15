@@ -36,6 +36,3 @@ The harness starts the platform MCP server as `/opt/agenthold/sandboxd mcp` (std
 sandboxd over a unix socket, `~/.agenthold/platform.sock`, owned by the agent user. sandboxd forwards each call over
 its tunnel to the server, which identifies the calling agent by the tunnel, not by anything the sandbox says. The
 per-boot token stays readable only by root.
-
-The end-to-end check runs against the dev stack: `scripts/e2e/agents.sh`. It covers the scripted harness, a
-loop stopped by the limit, and a real OpenCode model delegating through the `ask` tool.

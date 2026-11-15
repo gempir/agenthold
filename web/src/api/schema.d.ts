@@ -170,7 +170,7 @@ export interface paths {
         delete: operations["deleteAgent"];
         options?: never;
         head?: never;
-        /** @description Image and resource changes take effect after a rebuild (see `needsRebuild`). */
+        /** @description Resource changes take effect after a system reset (see `needsRebuild`). */
         patch: operations["updateAgent"];
         trace?: never;
     };
@@ -412,7 +412,7 @@ export interface paths {
         get?: never;
         /**
          * @description Attach one of your secrets to an agent you own.
-         *     Injection works immediately; a changed environment variable needs a rebuild.
+         *     Injection works immediately; a changed environment variable needs a system reset.
          */
         put: operations["attachSecret"];
         post?: never;
@@ -1073,7 +1073,6 @@ export interface components {
             id: string;
             name: string;
             owner: components["schemas"]["User"];
-            image: string;
             harness: string;
             cpus: number;
             /** Format: int64 */
@@ -1083,7 +1082,7 @@ export interface components {
             stateError: string;
             /** Format: date-time */
             stateChangedAt: string;
-            /** @description Image or resources changed since the sandbox was built. */
+            /** @description Resources or environment changed since the sandbox was built. */
             needsRebuild: boolean;
             model: string;
             /** @enum {string} */
@@ -1109,8 +1108,6 @@ export interface components {
         };
         AgentInput: {
             name: string;
-            /** @description OCI image. Defaults to the server's default image. */
-            image?: string;
             cpus?: number;
             /** Format: int64 */
             memoryMb?: number;
@@ -1123,7 +1120,6 @@ export interface components {
         };
         AgentPatch: {
             name?: string;
-            image?: string;
             cpus?: number;
             /** Format: int64 */
             memoryMb?: number;
@@ -1136,7 +1132,6 @@ export interface components {
         };
         SandboxLimits: {
             driver: string;
-            defaultImage: string;
             defaultCpus: number;
             /** Format: int64 */
             defaultMemoryMb: number;
@@ -1845,7 +1840,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Rebuilding from the current image and resources; the home volume is kept. */
+            /** @description Resetting the system and applying current resources; the home disk is kept. */
             202: {
                 headers: {
                     [name: string]: unknown;

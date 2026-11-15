@@ -44,12 +44,65 @@ type Options struct {
 	BootFiles func(ctx context.Context, agentID string) (map[string][]byte, error)
 }
 
+// Backend is the lifecycle part of the node boundary. All calls carry a
+// context and values so a remote node can implement it.
+type Backend interface {
+	Name(context.Context) (string, error)
+	Create(context.Context, Spec) (ID, error)
+	Start(context.Context, ID, Boot) error
+	Stop(context.Context, ID) error
+	Destroy(context.Context, ID, DestroyOpts) error
+	Status(context.Context, ID) (Status, error)
+	Rebuild(context.Context, ID, Spec) error
+	Attach(context.Context, ID) error
+	WaitConnected(context.Context, string) error
+	Disconnect(context.Context, string) error
+	SetTunnelToken(context.Context, string, string) error
+}
+
+type driverBackend struct {
+	Driver
+	tunnel Tunnel
+}
+
+func (d driverBackend) SetTunnelToken(context.Context, string, string) error { return nil }
+func (d driverBackend) Name(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return d.Driver.Name(), nil
+}
+
+func (d driverBackend) Attach(ctx context.Context, id ID) error {
+	if a, ok := d.Driver.(Attacher); ok {
+		return a.Attach(ctx, id)
+	}
+	return ctx.Err()
+}
+
+func (d driverBackend) WaitConnected(ctx context.Context, id string) error {
+	if d.tunnel != nil {
+		return d.tunnel.WaitConnected(ctx, id)
+	}
+	return nil
+}
+
+func (d driverBackend) Disconnect(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if d.tunnel != nil {
+		d.tunnel.Disconnect(id)
+	}
+	return nil
+}
+
 // Manager drives agents' sandboxes through their lifecycle. Every operation
 // first moves the persisted state with a guarded UPDATE (so concurrent requests
 // cannot both win) and then performs the driver call in the background.
 type Manager struct {
 	store  *store.Store
-	driver Driver
+	driver Backend
 	spec   SpecFunc
 	opts   Options
 	log    *slog.Logger
@@ -71,6 +124,11 @@ func NewManager(st *store.Store, d Driver, spec SpecFunc, log *slog.Logger) *Man
 
 // NewManagerWithOptions returns a manager with options.
 func NewManagerWithOptions(st *store.Store, d Driver, spec SpecFunc, opts Options, log *slog.Logger) *Manager {
+	return NewManagerWithNode(st, driverBackend{Driver: d, tunnel: opts.Tunnel}, spec, opts, log)
+}
+
+// NewManagerWithNode constructs a controller lifecycle manager backed by a node.
+func NewManagerWithNode(st *store.Store, d Backend, spec SpecFunc, opts Options, log *slog.Logger) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	if log == nil {
 		log = slog.Default()
@@ -109,6 +167,9 @@ func (m *Manager) boot(ctx context.Context, agentID string, id ID) error {
 	if err := m.store.SetBootToken(ctx, db.SetBootTokenParams{BootTokenHash: hashToken(token), AgentID: agentID}); err != nil {
 		return err
 	}
+	if err := m.driver.SetTunnelToken(ctx, agentID, hashToken(token)); err != nil {
+		return err
+	}
 	boot := Boot{AgentID: agentID, Token: token, TunnelPort: m.opts.TunnelPort}
 	if m.opts.BootFiles != nil {
 		files, err := m.opts.BootFiles(ctx, agentID)
@@ -126,10 +187,10 @@ func (m *Manager) boot(ctx context.Context, agentID string, id ID) error {
 		}
 		m.notify(agentID, PhaseStarting)
 	}
-	if m.opts.Tunnel != nil {
+	{
 		wctx, cancel := context.WithTimeout(ctx, m.opts.ConnectTimeout)
 		defer cancel()
-		if err := m.opts.Tunnel.WaitConnected(wctx, agentID); err != nil {
+		if err := m.driver.WaitConnected(wctx, agentID); err != nil {
 			st, _ := m.driver.Status(ctx, id)
 			detail := ""
 			if st.State != StateRunning {
@@ -141,9 +202,6 @@ func (m *Manager) boot(ctx context.Context, agentID string, id ID) error {
 	m.set(agentID, PhaseRunning, "")
 	return nil
 }
-
-// Driver returns the manager's driver.
-func (m *Manager) Driver() Driver { return m.driver }
 
 // OnChange registers a callback for phase changes (used for live UI updates
 // and, later, waking agents).
@@ -196,6 +254,9 @@ func (m *Manager) transition(ctx context.Context, agentID string, from []Phase, 
 }
 
 func (m *Manager) set(agentID string, p Phase, errMsg string) {
+	if p == PhaseError {
+		_ = m.driver.SetTunnelToken(m.ctx, agentID, "")
+	}
 	if err := m.store.SetSandboxState(m.ctx, db.SetSandboxStateParams{
 		State: string(p), Error: errMsg, StateChangedAt: m.now().Unix(), AgentID: agentID,
 	}); err != nil {
@@ -240,8 +301,12 @@ func (m *Manager) NeedsRebuild(a db.Agent, sb db.Sandbox) bool {
 // transaction q) and returns a function that starts provisioning; call it
 // after the transaction commits.
 func (m *Manager) Provision(ctx context.Context, q *db.Queries, agentID string) (start func(), err error) {
+	name, err := m.driver.Name(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if err := q.CreateSandbox(ctx, db.CreateSandboxParams{
-		AgentID: agentID, Driver: m.driver.Name(), State: string(PhaseCreating), StateChangedAt: m.now().Unix(),
+		AgentID: agentID, Driver: name, State: string(PhaseCreating), StateChangedAt: m.now().Unix(),
 	}); err != nil {
 		return nil, err
 	}
@@ -336,7 +401,7 @@ func (m *Manager) Rebuild(ctx context.Context, agentID string) error {
 	if err := m.transition(ctx, agentID, rebuildFrom, PhaseRebuilding); err != nil {
 		return err
 	}
-	m.background(agentID, "rebuild", func(ctx context.Context) error {
+	m.background(agentID, "reset system", func(ctx context.Context) error {
 		a, err := m.store.GetAgent(ctx, agentID)
 		if err != nil {
 			return err
@@ -368,9 +433,8 @@ func (m *Manager) Rebuild(ctx context.Context, agentID string) error {
 }
 
 func (m *Manager) disconnect(agentID string) {
-	if m.opts.Tunnel != nil {
-		m.opts.Tunnel.Disconnect(agentID)
-	}
+	_ = m.driver.SetTunnelToken(m.ctx, agentID, "")
+	_ = m.driver.Disconnect(m.ctx, agentID)
 }
 
 // Destroy removes the sandbox, its home volume and finally the agent row.
@@ -412,6 +476,11 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	}
 	for _, sb := range sbs {
 		phase := Phase(sb.State)
+		if phase == PhaseRunning || phase == PhaseStarting {
+			if err := m.driver.SetTunnelToken(ctx, sb.AgentID, sb.BootTokenHash); err != nil {
+				return err
+			}
+		}
 		switch {
 		case phase == PhaseDestroying:
 			m.background(sb.AgentID, "destroy", m.destroy(sb.AgentID))
@@ -433,15 +502,13 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 		case StateRunning:
 			actual = PhaseRunning
 			// A recreated server container is not on the agent's network yet.
-			if at, ok := m.driver.(Attacher); ok {
-				if err := at.Attach(ctx, ID(sb.DriverID)); err != nil {
-					m.log.Warn("reconcile: reattach", "agent", sb.AgentID, "err", err)
-				}
+			if err := m.driver.Attach(ctx, ID(sb.DriverID)); err != nil {
+				m.log.Warn("reconcile: reattach", "agent", sb.AgentID, "err", err)
 			}
 		case StateCreated, StateStopped:
 			actual = PhaseSleeping
 		case StateMissing:
-			actual, msg = PhaseError, "sandbox no longer exists in the driver; rebuild to recreate it"
+			actual, msg = PhaseError, "sandbox no longer exists on the node; reset the system to recreate it"
 		}
 		if actual == phase && (phase != PhaseError || sb.Error != "") {
 			continue

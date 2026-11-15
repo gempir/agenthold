@@ -103,5 +103,7 @@ provision:
 message: |
   agenthold dev VM is up.
     shell:   make dev-vm-shell
-    spike:   scripts/spike/firecracker.sh
+    setup:   make runtime guest-kernel guest-base
+    server:  make dev
+    tests:   make test-kvm
     repo:    mounted writable at the same path as on the Mac

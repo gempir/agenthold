@@ -1,37 +1,39 @@
 # agenthold
 
-Self-hostable, multi-user platform for running many persistent AI agents, each in its own sandbox.
-See [PLAN.md](PLAN.md) for the design and milestones.
+agenthold is a self-hosted, multi-user platform for persistent AI agents. Each agent runs in its own
+Firecracker microVM with persistent disks and conversations. See [PLAN.md](PLAN.md) for the design.
 
-## Run it
+## Run
 
-Follow [the install guide](https://agenthold.dev/install/): a Linux server with Docker, a domain, and a GitHub OAuth app or any
-OpenID Connect provider. `deploy/production` has the compose file.
+A Linux x86_64 or arm64 host needs `/dev/kvm`, root privileges, nftables and a reverse proxy or tunnel
+for HTTPS. Configure one local administrator or an external OIDC/GitHub provider in YAML. Follow the
+[install guide](https://agenthold.dev/install/) for setup, backup and operational details.
 
-## Documentation
-
-The documentation is at [agenthold.dev](https://agenthold.dev), built from [`docs/`](docs) with [Nimbus](https://github.com/cloudflare/nimbus). A live instance runs at [demo.agenthold.dev](https://demo.agenthold.dev).
-
-- [Install, upgrade, back up](https://agenthold.dev/install/), [automatic deploys from `main`](https://agenthold.dev/deploy/)
-- [Authentication](https://agenthold.dev/auth/): [Keycloak and OIDC](https://agenthold.dev/auth-keycloak/), [GitHub](https://agenthold.dev/auth-github/)
-- [Sandboxes](https://agenthold.dev/sandboxes/), [egress and secrets](https://agenthold.dev/egress/), [hardened runtimes](https://agenthold.dev/hardening/)
-- [Sessions and harnesses](https://agenthold.dev/sessions/), [MCP servers and skills](https://agenthold.dev/tools/), [agent to agent](https://agenthold.dev/agents/)
-- [Sharing and audit](https://agenthold.dev/sharing/), [API, tokens, schedules, webhooks](https://agenthold.dev/automation/)
-- [Security](https://agenthold.dev/security/)
+Release packaging and the new demo deployment are in progress; there is no migration from the former
+container deployment. Automatic deployment remains disabled.
 
 ## Development
 
-Requirements: Go 1.26, Node 26 with pnpm 11, Docker (OrbStack on macOS), golangci-lint v2.
+On macOS use an Apple M3 or newer, macOS 15 or newer, and Lima with nested virtualization. Install Go,
+Node and pnpm to run the host-side tests and build the web UI. The VM installs its own Go toolchain.
 
 ```sh
-make dev     # server (live reload via air) + Vite in containers -> http://localhost:8080
-make test    # Go and web tests
-make lint    # golangci-lint, eslint, prettier
-make build   # web app + bin/agenthold + bin/sandboxd
-make image   # production server image
-scripts/e2e/run-all.sh   # end-to-end checks against make dev (needs make base-image)
-cd web && pnpm e2e       # Playwright UI tests against make dev
+make dev-vm                         # create and start the Lima VM
+make runtime guest-kernel guest-base # prepare the node and guest artifacts
+make dev                            # native server with Go live reload, http://localhost:8080
+make test                           # Go and web tests, no KVM required
+make test-kvm                       # Linux KVM tests in the dev VM
+make test-guest                     # boot the guest and check its disks and tunnel
+make lint
+make build
 ```
 
-In development the server proxies everything outside `/api` and `/healthz` to the Vite dev server,
-so the UI hot-reloads through the server's own port. Release builds embed `web/dist` into the binary.
+The development server uses the embedded web build. Rebuild it with `make web` after UI changes.
+See [development](https://agenthold.dev/development/) and [guest artifacts](https://agenthold.dev/guest-artifacts/)
+for artifact preparation, testing and the development-only local administrator.
+
+## Documentation
+
+Documentation lives in [`docs/`](docs), including [authentication](https://agenthold.dev/auth/),
+[sandbox isolation](https://agenthold.dev/sandboxes/), [secrets](https://agenthold.dev/egress/),
+[sharing](https://agenthold.dev/sharing/) and [security](https://agenthold.dev/security/).

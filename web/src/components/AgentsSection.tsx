@@ -38,11 +38,10 @@ export function AgentList({ agents }: { agents: Agent[] }) {
             <AgentStateBadge state={a.state} sleepsAt={a.sleepsAt} />
             {a.needsRebuild && (
               <span className="text-xs text-amber-600 dark:text-amber-400">
-                rebuild pending
+                reset pending
               </span>
             )}
             <span className="ml-auto text-xs text-muted-foreground">
-              {a.image} ·{' '}
               {a.role === 'owner' ? 'yours' : `shared by ${a.owner.name}`}
             </span>
           </Link>
@@ -82,7 +81,6 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
   const harness = picked || harnesses.data?.find((h) => h.default)?.id || '';
   const [model, setModel] = useState('');
   const [name, setName] = useState('');
-  const [image, setImage] = useState('');
   const [cpus, setCpus] = useState<string>('');
   const [mem, setMem] = useState<string>('');
   const [idle, setIdle] = useState('15');
@@ -93,7 +91,6 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
         api.POST('/agents', {
           body: {
             name: name.trim(),
-            ...(image.trim() && { image: image.trim() }),
             cpus: Number(cpus || l?.defaultCpus),
             memoryMb: Number(mem || l?.defaultMemoryMb),
             idleMinutes: Number(idle),
@@ -132,14 +129,6 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-            />
-          </label>
-          <label className="grid gap-1 text-sm">
-            Image
-            <Input
-              value={image}
-              placeholder={l?.defaultImage}
-              onChange={(e) => setImage(e.target.value)}
             />
           </label>
           <div className="grid grid-cols-3 gap-3">

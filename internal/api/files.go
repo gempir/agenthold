@@ -11,6 +11,7 @@ import (
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/harness"
+	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/tunnel"
 )
@@ -29,19 +30,22 @@ func (a *API) connectedAgent(ctx context.Context, agentID string, action authz.A
 	if err != nil {
 		return nil, db.Agent{}, err
 	}
-	s, err := a.session(agentID)
+	s, err := a.session(ctx, agentID)
 	return s, acc.Row.Agent, err
 }
 
-func (a *API) session(agentID string) (*tunnel.Session, error) {
-	s, ok := a.Tunnel.Session(agentID)
+func (a *API) session(ctx context.Context, agentID string) (*tunnel.Session, error) {
+	ok, err := a.Node.Connected(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return nil, tunnel.ErrNotConnected
 	}
 	if a.Idle != nil {
 		a.Idle.Tracker.Touch(agentID)
 	}
-	return s, nil
+	return node.Client(a.Node, agentID), nil
 }
 
 func requirePath(p *string) (string, error) {
@@ -81,7 +85,7 @@ func (a *API) DownloadFile(ctx context.Context, req gen.DownloadFileRequestObjec
 	if err != nil {
 		return nil, err
 	}
-	s, err := a.session(req.AgentId)
+	s, err := a.session(ctx, req.AgentId)
 	if err != nil {
 		return nil, err
 	}

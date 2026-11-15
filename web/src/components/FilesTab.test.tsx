@@ -13,7 +13,6 @@ const agent = (role: Agent['role']): Agent => ({
   id: 'a1',
   name: 'builder',
   owner: me.user,
-  image: 'ubuntu:24.04',
   harness: 'claude-code',
   model: '',
   permissionPolicy: 'ask',

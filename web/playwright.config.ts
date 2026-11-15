@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// End-to-end UI tests against a running dev stack (make dev).
+// End-to-end UI tests against a running native development server (make dev).
 export default defineConfig({
   testDir: './e2e',
   timeout: 120_000,

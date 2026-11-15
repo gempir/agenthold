@@ -18,6 +18,7 @@ const (
 	OpHarness  = "harness"  // agent harness process speaking ACP on stdio
 	OpPlatform = "platform" // opened by sandboxd: a platform MCP tool call
 	OpHello    = "hello"    // the server asks sandboxd who it is right after connecting
+	OpShutdown = "shutdown" // power the sandbox off (microVM init mode); answered with OK first
 )
 
 // Open is the first frame on every stream.

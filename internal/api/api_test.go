@@ -31,6 +31,7 @@ import (
 	_ "github.com/gempir/agenthold/internal/harness/opencode"
 	"github.com/gempir/agenthold/internal/idle"
 	"github.com/gempir/agenthold/internal/logins"
+	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/password"
 	"github.com/gempir/agenthold/internal/platform"
 	"github.com/gempir/agenthold/internal/sandbox"
@@ -133,13 +134,15 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	cfg.Sandbox.Driver = "fake"
 	e := &env{t: t, srv: srv, idp: idp, github: gh, driver: fake.New(t.TempDir())}
 	e.driver.RunSandboxd("127.0.0.1", nil)
+	var localNode *node.Local
 	e.hub = tunnel.NewHub(func(ctx context.Context, agentID, token string) error {
-		return e.sandboxes.AuthenticateTunnel(ctx, agentID, token)
+		return localNode.AuthenticateTunnel(ctx, agentID, token)
 	}, nil)
 	tunnelSrv := httptest.NewServer(e.hub)
 	t.Cleanup(tunnelSrv.Close)
 	port, _ := strconv.Atoi(tunnelSrv.URL[strings.LastIndex(tunnelSrv.URL, ":")+1:])
-	e.sandboxes = sandbox.NewManagerWithOptions(st, e.driver, egress.SpecFunc(st, 15002), sandbox.Options{Tunnel: e.hub, TunnelPort: port, ConnectTimeout: 10 * time.Second}, nil)
+	localNode = node.NewLocal(e.driver, e.hub)
+	e.sandboxes = sandbox.NewManagerWithNode(st, localNode, egress.SpecFunc(st, 15002), sandbox.Options{TunnelPort: port, ConnectTimeout: 10 * time.Second}, nil)
 	t.Cleanup(func() {
 		// Stop in-process sandboxd goroutines.
 		rows, _ := st.ListSandboxes(context.Background())
@@ -153,6 +156,7 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
+	localNode.SetCA(ca)
 	e.directory = &egress.Directory{Store: st, Box: box}
 	e.logins = &logins.Service{Store: st, Box: box, Audit: &audit.Log{Store: st}, Invalidate: e.directory.Invalidate}
 	e.directory.Logins = e.logins
@@ -161,16 +165,25 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	e.sessions.SetLogins(e.logins)
 	e.logins.Restart = e.sessions.Restart
 	e.sessions.SetTools(tools.Provider{Store: st, PlatformCommand: sandboxdBin})
-	e.hub.HandleIncoming((&platform.Service{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}).Handle)
+	platformSvc := &platform.Service{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}
+	go func() {
+		for {
+			info, stream, err := localNode.NextIncoming(t.Context())
+			if err != nil {
+				return
+			}
+			go func() { defer stream.Close(); platformSvc.Handle(t.Context(), info.AgentID, stream, info.Open) }()
+		}
+	}()
 	e.clock = &clock{t: time.Now()}
 	e.tracker = idle.NewTracker()
 	e.tracker.SetClock(e.clock.Now)
 	e.sessions.OnActivity(e.tracker.Touch)
 	e.scheduler = &trigger.Scheduler{Log: slogDiscard{}, Now: e.clock.Now}
-	e.sleeper = &idle.Sleeper{Store: st, Sandboxes: e.sandboxes, Tracker: e.tracker, Busy: e.sessions.AgentBusy, Tunnel: e.hub, Now: e.clock.Now}
+	e.sleeper = &idle.Sleeper{Store: st, Sandboxes: e.sandboxes, Tracker: e.tracker, Busy: e.sessions.AgentBusy, Node: localNode, Now: e.clock.Now}
 	a := api.New(api.Deps{
-		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Tunnel: e.hub, Limits: cfg.Sandbox,
-		Box: box, Egress: e.directory, CA: ca, Sessions: e.sessions, Idle: e.sleeper, Audit: &audit.Log{Store: st}, ShowTestHarness: true,
+		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Node: localNode, Limits: cfg.Sandbox,
+		Box: box, Egress: e.directory, Sessions: e.sessions, Idle: e.sleeper, Audit: &audit.Log{Store: st}, ShowTestHarness: true,
 		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins,
 	})
 	e.sessions.SetWaker(a.Wake)

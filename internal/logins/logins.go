@@ -448,7 +448,7 @@ func (s *Service) Egress(ctx context.Context, ag db.Agent) ([]secrets.Injection,
 		if !canRefresh {
 			continue
 		}
-		resp = append(resp, egress.Responder{Host: ic.Host, Handle: s.interceptHandler(ic, l.ID, rf)})
+		resp = append(resp, egress.Responder{Host: ic.Host, Method: ic.Method, Path: ic.Path, Placeholder: ic.Placeholder, Handle: s.interceptHandler(ic, l.ID, rf)})
 	}
 	return injs, resp, nil
 }

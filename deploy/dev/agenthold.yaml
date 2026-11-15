@@ -1,40 +1,18 @@
-# Server config for `make dev` (mounted via AGENTHOLD_CONFIG).
-data_dir: /data
+# Native development server, run as root inside the Lima VM by make dev.
+data_dir: /var/lib/agenthold-dev
 public_url: http://localhost:8080
-dev_proxy: http://web:5173
 test_harness: true
 auth:
-  # Local admin for development: username admin, password admin
-  # (hash from `agenthold hash-password`). Works without Keycloak.
+  # Development only: admin / admin. Generate your own with agenthold hash-password.
   local:
     username: admin
     password_hash: $argon2id$v=19$m=65536,t=3,p=4$n+qTSj1iaT9J18JcHD66TA$krvYz+qGs3qgHCmCGqfow/9RituEvdbFMufWxGqBacQ
-  providers:
-    - id: keycloak
-      type: oidc
-      name: Keycloak (dev)
-      # Issuer and browser redirects use the host-visible name; the server
-      # fetches discovery, tokens and keys over the compose network.
-      issuer: http://localhost:8081/realms/agenthold
-      discovery_url: http://keycloak:8081/realms/agenthold
-      client_id: agenthold
-      client_secret: agenthold-dev-secret
-
-    # GitHub login: create an OAuth app (see https://agenthold.dev/auth-github/) and export
-    # GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET before `make dev`, then uncomment.
-    # - id: github
-    #   type: github
-    #   name: GitHub
-    #   client_id: ${GITHUB_CLIENT_ID}
-    #   client_secret: ${GITHUB_CLIENT_SECRET}
-
 sandbox:
-  driver: docker
-  # Build it with: make base-image
-  default_image: agenthold/base:dev
+  driver: firecracker
+  network_pool: 10.213.0.0/16
   idle_check_interval: 10s
-  sandboxd_path: /src/tmp/sandboxd
-  docker:
-    name_prefix: agenthold-dev
-    sandboxd_volume: agenthold-dev-bin
-    sandboxd_volume_dir: /var/lib/agenthold/bin
+  firecracker:
+    binary: build/runtime/firecracker
+    jailer: build/runtime/jailer
+    kernel: build/guest/arm64/vmlinux-6.1.188-agenthold
+    base_image: build/guest/arm64/base-arm64.ext4

@@ -15,7 +15,7 @@ import (
 	"github.com/gempir/agenthold/internal/tunnel"
 )
 
-func setup(t *testing.T) (*tunnel.Session, string) {
+func setup(t *testing.T, onShutdown ...func()) (*tunnel.Session, string) {
 	t.Helper()
 	hub := tunnel.NewHub(func(_ context.Context, agentID, token string) error {
 		if agentID != "ag_1" || token != "secret" {
@@ -27,9 +27,14 @@ func setup(t *testing.T) (*tunnel.Session, string) {
 	t.Cleanup(srv.Close)
 
 	home := t.TempDir()
+	var shutdown func()
+	if len(onShutdown) > 0 {
+		shutdown = onShutdown[0]
+	}
 	d, err := sandboxd.New(sandboxd.Config{
-		Boot: sandboxd.Boot{AgentID: "ag_1", Token: "secret", TunnelURL: "ws" + strings.TrimPrefix(srv.URL, "http")},
-		Home: home, Version: "test",
+		OnShutdown: shutdown,
+		Boot:       sandboxd.Boot{AgentID: "ag_1", Token: "secret", TunnelURL: "ws" + strings.TrimPrefix(srv.URL, "http")},
+		Home:       home, Version: "test",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -49,6 +54,28 @@ func setup(t *testing.T) (*tunnel.Session, string) {
 		t.Fatalf("hello = %+v", s.Hello)
 	}
 	return s, home
+}
+
+func TestShutdown(t *testing.T) {
+	called := make(chan struct{}, 1)
+	s, _ := setup(t, func() { called <- struct{}{} })
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if err := s.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-called:
+	case <-ctx.Done():
+		t.Fatal("shutdown callback not invoked")
+	}
+}
+
+func TestShutdownUnsupported(t *testing.T) {
+	s, _ := setup(t)
+	if err := s.Shutdown(t.Context()); err == nil {
+		t.Fatal("shutdown without callback must be refused")
+	}
 }
 
 func TestRejectsBadToken(t *testing.T) {

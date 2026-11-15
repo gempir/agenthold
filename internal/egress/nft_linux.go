@@ -14,39 +14,49 @@ import (
 
 const tableName = "agenthold"
 
-// Firewall describes the server-side rules for sandbox traffic.
-type Firewall struct {
-	// Pool contains every agent network.
-	Pool netip.Prefix
-	// ProxyPort receives all redirected TCP from sandboxes.
-	ProxyPort int
-	// DNSPort receives redirected DNS (UDP and TCP port 53).
-	DNSPort int
-	// OpenPorts on the server that sandboxes may connect to directly (the
-	// tunnel and the explicit proxy). Everything else is dropped.
-	OpenPorts []int
-}
-
 // Install replaces the agenthold nftables table in the current network namespace.
-func (f Firewall) Install() error {
-	if !f.Pool.Addr().Is4() {
-		return fmt.Errorf("pool %s is not IPv4", f.Pool)
+func (f *Firewall) Install() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.validate(); err != nil {
+		return err
 	}
 	c, err := nftables.New()
 	if err != nil {
 		return err
 	}
-	if tables, err := c.ListTablesOfFamily(nftables.TableFamilyIPv4); err == nil {
-		for _, t := range tables {
-			if t.Name == tableName {
-				c.DelTable(t)
-			}
-		}
-		if err := c.Flush(); err != nil {
-			return fmt.Errorf("remove old rules: %w", err)
+	tables, err := c.ListTablesOfFamily(nftables.TableFamilyINet)
+	if err != nil {
+		return fmt.Errorf("list firewall tables: %w", err)
+	}
+	for _, t := range tables {
+		if t.Name == tableName {
+			c.DelTable(t)
 		}
 	}
-	t := c.AddTable(&nftables.Table{Family: nftables.TableFamilyIPv4, Name: tableName})
+	// Replacement and creation are one netlink transaction: no unfiltered gap.
+
+	t := c.AddTable(&nftables.Table{Family: nftables.TableFamilyINet, Name: tableName})
+
+	guests := guestSet(t)
+	if err := c.AddSet(guests, nil); err != nil {
+		return err
+	}
+	// Validate identity before conntrack/NAT. Drop IPv6 and forged source IPs,
+	// even if the guest configures another address or routes packets manually.
+	raw := c.AddChain(&nftables.Chain{
+		Name: "guest_identity", Table: t, Type: nftables.ChainTypeFilter,
+		Hooknum: nftables.ChainHookPrerouting, Priority: nftables.ChainPriorityRaw,
+	})
+	c.AddRule(&nftables.Rule{Table: t, Chain: raw, Exprs: concat(fromTap(), []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.NFPROTO_IPV4}},
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Payload{DestRegister: 2, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4},
+		&expr.Lookup{SourceRegister: 1, SetID: guests.ID, SetName: guests.Name},
+		&expr.Verdict{Kind: expr.VerdictAccept},
+	})})
+	c.AddRule(&nftables.Rule{Table: t, Chain: raw, Exprs: concat(fromTap(), []expr.Any{&expr.Verdict{Kind: expr.VerdictDrop}})})
 
 	pre := c.AddChain(&nftables.Chain{
 		Name: "prerouting", Table: t, Type: nftables.ChainTypeNAT,
@@ -54,12 +64,12 @@ func (f Firewall) Install() error {
 	})
 	for _, proto := range []byte{unix.IPPROTO_UDP, unix.IPPROTO_TCP} {
 		c.AddRule(&nftables.Rule{Table: t, Chain: pre, Exprs: concat(
-			f.fromPool(), l4proto(proto), dport(53), redirect(f.DNSPort),
+			fromTap(), l4proto(proto), dport(53), redirect(f.DNSPort),
 		)})
 	}
 	// All other TCP not addressed to the server itself goes to the proxy.
 	c.AddRule(&nftables.Rule{Table: t, Chain: pre, Exprs: concat(
-		f.fromPool(), l4proto(unix.IPPROTO_TCP),
+		fromTap(), l4proto(unix.IPPROTO_TCP),
 		[]expr.Any{
 			&expr.Fib{Register: 1, FlagDADDR: true, ResultADDRTYPE: true},
 			&expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: binaryutil.NativeEndian.PutUint32(unix.RTN_LOCAL)},
@@ -84,23 +94,24 @@ func (f Firewall) Install() error {
 	}})
 	for _, p := range append([]int{f.ProxyPort, f.DNSPort}, f.OpenPorts...) {
 		c.AddRule(&nftables.Rule{Table: t, Chain: input, Exprs: concat(
-			f.fromPool(), l4proto(unix.IPPROTO_TCP), dport(p), []expr.Any{&expr.Verdict{Kind: expr.VerdictAccept}},
+			fromTap(), l4proto(unix.IPPROTO_TCP), dport(p), []expr.Any{&expr.Verdict{Kind: expr.VerdictAccept}},
 		)})
 	}
 	c.AddRule(&nftables.Rule{Table: t, Chain: input, Exprs: concat(
-		f.fromPool(), l4proto(unix.IPPROTO_UDP), dport(f.DNSPort), []expr.Any{&expr.Verdict{Kind: expr.VerdictAccept}},
+		fromTap(), l4proto(unix.IPPROTO_UDP), dport(f.DNSPort), []expr.Any{&expr.Verdict{Kind: expr.VerdictAccept}},
 	)})
-	c.AddRule(&nftables.Rule{Table: t, Chain: input, Exprs: concat(f.fromPool(), []expr.Any{&expr.Verdict{Kind: expr.VerdictDrop}})})
+	c.AddRule(&nftables.Rule{Table: t, Chain: input, Exprs: concat(fromTap(), []expr.Any{&expr.Verdict{Kind: expr.VerdictDrop}})})
 
 	fwd := c.AddChain(&nftables.Chain{
 		Name: "forward", Table: t, Type: nftables.ChainTypeFilter,
 		Hooknum: nftables.ChainHookForward, Priority: nftables.ChainPriorityFilter, Policy: &accept,
 	})
-	c.AddRule(&nftables.Rule{Table: t, Chain: fwd, Exprs: concat(f.fromPool(), []expr.Any{&expr.Verdict{Kind: expr.VerdictDrop}})})
+	c.AddRule(&nftables.Rule{Table: t, Chain: fwd, Exprs: concat(fromTap(), []expr.Any{&expr.Verdict{Kind: expr.VerdictDrop}})})
 
 	if err := c.Flush(); err != nil {
 		return fmt.Errorf("install nftables rules (does the server have CAP_NET_ADMIN?): %w", err)
 	}
+	f.registered = make(map[string]netip.Addr)
 	return nil
 }
 
@@ -114,18 +125,41 @@ func concat(parts ...[]expr.Any) []expr.Any {
 	return out
 }
 
-func (f Firewall) fromPool() []expr.Any {
-	pfx := f.Pool.Masked()
-	mask := make([]byte, 4)
-	for i := range f.Pool.Bits() {
-		mask[i/8] |= 0x80 >> (i % 8)
-	}
-	addr := pfx.Addr().As4()
+func fromTap() []expr.Any {
 	return []expr.Any{
-		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4},
-		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: mask, Xor: []byte{0, 0, 0, 0}},
-		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: addr[:]},
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte(TapPrefix)},
 	}
+}
+
+func guestSet(t *nftables.Table) *nftables.Set {
+	return &nftables.Set{
+		Table: t, Name: "guest_sources",
+		KeyType:       nftables.MustConcatSetType(nftables.TypeIFName, nftables.TypeIPAddr),
+		Concatenation: true,
+	}
+}
+
+func updateGuestSet(key []byte, add bool) error {
+	c, err := nftables.New()
+	if err != nil {
+		return err
+	}
+	t := &nftables.Table{Family: nftables.TableFamilyINet, Name: tableName}
+	s, err := c.GetSetByName(t, "guest_sources")
+	if err != nil {
+		return fmt.Errorf("guest firewall set: %w", err)
+	}
+	elements := []nftables.SetElement{{Key: key}}
+	if add {
+		err = c.SetAddElements(s, elements)
+	} else {
+		err = c.SetDeleteElements(s, elements)
+	}
+	if err != nil {
+		return err
+	}
+	return c.Flush()
 }
 
 func l4proto(p byte) []expr.Any {

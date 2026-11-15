@@ -1,67 +1,20 @@
 ---
-title: "Hardened runtimes"
-description: "Run sandboxes under gVisor or Sysbox for stronger isolation from the host kernel."
+title: "Host hardening"
+description: "Protect the Linux host that runs agenthold microVMs."
 ---
 
-Sandboxes are Docker containers and share the host kernel. agenthold already limits what they can do:
+Each agent runs in a Firecracker microVM with a separate guest kernel, disks and network interface. The
+jailer and host firewall provide additional boundaries. These do not make the host or operator untrusted;
+keep the host patched and restrict administrator access.
 
-- no capabilities beyond Docker's defaults,
-- no privileged mode,
-- CPU, memory and PID limits,
-- an internal network whose only way out is the egress proxy,
-- no Docker socket,
-- secrets never enter the sandbox.
+- Run on a dedicated Linux host with KVM and nftables. The node needs root for tap devices and jailer setup.
+- Expose agenthold through your own HTTPS reverse proxy or tunnel. Restrict administrative services and do
+  not expose the sandbox tunnel or proxy listeners to the internet.
+- Back up the database, master key, CA and agent disks securely. Restrict access to the configuration and
+  data directory.
+- Do not place sensitive host services where guest traffic could reach them. Verify firewall behavior on your
+  host after changing network configuration.
+- Give agents only data they may send to public internet destinations. Secret injection limits where a
+  credential is attached, but an agent can still send data it can read elsewhere.
 
-A kernel exploit inside an agent, however, would reach the host. To add a second boundary, run sandboxes under a
-hardened OCI runtime. Set it in `agenthold.yaml` (or `AGENTHOLD_RUNTIME` in `.env`) and rebuild agents:
-
-```yaml
-sandbox:
-  docker:
-    runtime: runsc        # or sysbox-runc
-```
-
-The runtime applies to sandboxes only, not to the agenthold server.
-
-## gVisor (runsc)
-
-[gVisor](https://gvisor.dev) runs each sandbox against a user-space kernel, so most system calls never reach the
-host kernel. It costs some performance on I/O-heavy work.
-
-```sh
-# Install (Debian/Ubuntu), see https://gvisor.dev/docs/user_guide/install/
-sudo apt-get install -y curl gnupg
-curl -fsSL https://gvisor.dev/archive.key | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" \
-  | sudo tee /etc/apt/sources.list.d/gvisor.list
-sudo apt-get update && sudo apt-get install -y runsc
-sudo runsc install          # registers the runtime in /etc/docker/daemon.json
-sudo systemctl restart docker
-docker run --rm --runtime=runsc hello-world
-```
-
-Then set `runtime: runsc` and rebuild agents.
-
-Tested: on Ubuntu 24.04 (arm64) with Docker 29.9 and gVisor (`runsc version release-20261109.0`), agents run under `runsc` with
-working network setup, egress through the proxy (private addresses still blocked), terminals, files and
-harness sessions (OpenCode).
-
-## Sysbox (sysbox-runc)
-
-[Sysbox](https://github.com/nestybox/sysbox) gives each sandbox a user namespace (root inside is unprivileged
-outside) and lets agents run Docker inside their sandbox. Install the package for your distribution from the
-Sysbox releases. It registers `sysbox-runc` with Docker. Then:
-
-```sh
-docker run --rm --runtime=sysbox-runc alpine id
-```
-
-Set `runtime: sysbox-runc` and rebuild agents. Docker-in-Docker inside an agent needs the Docker engine in its
-image (the base image does not include one). Sysbox has not been tested with agenthold yet.
-
-## Checking
-
-After rebuilding, `docker inspect agenthold-<agent id> --format '{{.HostConfig.Runtime}}'` shows the runtime. The
-agent's terminal and network should work as before. If network setup fails at start ("network setup failed"),
-the runtime does not support the netlink route change that `sandboxd net-setup` makes. Report the runtime and its
-version.
+See [security](/security/) for the trust model and limitations and [egress](/egress/) for traffic handling.

@@ -180,7 +180,7 @@ paths:
     patch:
       operationId: updateAgent
       tags: [agents]
-      description: Image and resource changes take effect after a rebuild (see `needsRebuild`).
+      description: Resource changes take effect after a system reset (see `needsRebuild`).
       requestBody:
         required: true
         content:
@@ -246,7 +246,7 @@ paths:
       tags: [agents]
       responses:
         "202":
-          description: Rebuilding from the current image and resources; the home volume is kept.
+          description: Resetting the system and applying current resources; the home disk is kept.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Agent" }
@@ -472,7 +472,7 @@ paths:
       tags: [secrets]
       description: |
         Attach one of your secrets to an agent you own.
-        Injection works immediately; a changed environment variable needs a rebuild.
+        Injection works immediately; a changed environment variable needs a system reset.
       requestBody:
         required: true
         content:
@@ -1352,12 +1352,11 @@ components:
 
     Agent:
       type: object
-      required: [id, name, owner, image, harness, model, permissionPolicy, credentialsInSandbox, login, cpus, memoryMb, idleMinutes, state, stateError, stateChangedAt, needsRebuild, role, createdAt, updatedAt]
+      required: [id, name, owner, harness, model, permissionPolicy, credentialsInSandbox, login, cpus, memoryMb, idleMinutes, state, stateError, stateChangedAt, needsRebuild, role, createdAt, updatedAt]
       properties:
         id: { type: string }
         name: { type: string }
         owner: { $ref: "#/components/schemas/User" }
-        image: { type: string }
         harness: { type: string }
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }
@@ -1367,7 +1366,7 @@ components:
         stateChangedAt: { type: string, format: date-time }
         needsRebuild:
           type: boolean
-          description: Image or resources changed since the sandbox was built.
+          description: Resources or environment changed since the sandbox was built.
         model: { type: string }
         permissionPolicy: { type: string, enum: [auto-approve, ask] }
         credentialsInSandbox:
@@ -1392,7 +1391,6 @@ components:
       required: [name]
       properties:
         name: { type: string, minLength: 1, maxLength: 100 }
-        image: { type: string, description: OCI image. Defaults to the server's default image. }
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }
         idleMinutes: { type: integer, minimum: 1, maximum: 10080 }
@@ -1404,7 +1402,6 @@ components:
       type: object
       properties:
         name: { type: string, minLength: 1, maxLength: 100 }
-        image: { type: string }
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }
         idleMinutes: { type: integer, minimum: 1, maximum: 10080 }
@@ -1414,10 +1411,9 @@ components:
 
     SandboxLimits:
       type: object
-      required: [defaultImage, defaultCpus, defaultMemoryMb, maxCpus, maxMemoryMb, driver]
+      required: [defaultCpus, defaultMemoryMb, maxCpus, maxMemoryMb, driver]
       properties:
         driver: { type: string }
-        defaultImage: { type: string }
         defaultCpus: { type: number }
         defaultMemoryMb: { type: integer, format: int64 }
         maxCpus: { type: number }

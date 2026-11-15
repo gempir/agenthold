@@ -1,25 +1,20 @@
 import { expect, test } from '@playwright/test';
 
-// Signs in through the dev Keycloak, creates an agent with the scripted
-// harness, chats with it, and checks a second user sees it only once shared.
-const image = process.env.E2E_IMAGE ?? 'agenthold/base:dev';
-
-async function signIn(page: import('@playwright/test').Page, user: string) {
+// The native dev VM provides the local admin and scripted test harness.
+async function signIn(page: import('@playwright/test').Page) {
   await page.goto('/');
-  await page.getByRole('link', { name: /Continue with Keycloak/ }).click();
-  await page.locator('#username').fill(user);
-  await page.locator('#password').fill(user);
-  await page.locator('#kc-login').click();
+  await page.getByLabel('Username').fill(process.env.E2E_USER ?? 'admin');
+  await page.getByLabel('Password').fill(process.env.E2E_PASSWORD ?? 'admin');
+  await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('button', { name: 'New agent' })).toBeVisible();
 }
 
-test('chat with an agent', async ({ page, browser }) => {
-  await signIn(page, 'alice');
+test('chat with an agent', async ({ page }) => {
+  await signIn(page);
   const name = `ui-${Date.now()}`;
   await page.getByRole('button', { name: 'New agent' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Name').fill(name);
-  await dialog.getByLabel('Image').fill(image);
   await dialog.getByLabel('Harness').selectOption('fake');
   await dialog.getByRole('button', { name: 'Create' }).click();
 
@@ -63,29 +58,7 @@ test('chat with an agent', async ({ page, browser }) => {
       .getByText('hello from the browser'),
   ).toBeVisible();
 
-  // Someone it is not shared with cannot open it.
-  const url = page.url();
-  const other = await browser.newContext();
-  const bob = await other.newPage();
-  await signIn(bob, 'bob');
-  await bob.goto(url);
-  await expect(bob.getByText(/not found/i)).toBeVisible();
-
-  // Shared by email, bob can chat but not configure it.
-  const agentPath = new URL(url).pathname;
-  await page.goto(`${agentPath}/settings?tab=sharing`);
-  await page.getByLabel('Email').fill('bob@example.com');
-  await page.getByRole('button', { name: 'Share' }).click();
-  await expect(
-    page
-      .getByRole('list', { name: 'People with access' })
-      .getByText('bob@example.com'),
-  ).toBeVisible();
-  await bob.goto(agentPath);
-  await expect(bob.getByRole('textbox', { name: 'Message' })).toBeVisible();
-  await bob.goto(`${agentPath}/settings`);
-  await expect(bob.getByRole('button', { name: 'Delete' })).toHaveCount(0);
-  await other.close();
+  const agentPath = new URL(page.url()).pathname;
 
   // Clean up from the agent's settings.
   const agentId = agentPath.split('/')[2];

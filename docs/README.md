@@ -33,21 +33,5 @@ The Worker project is connected to this repository with these settings:
 | Deploy command | `npx wrangler deploy` |
 | Variable `NODE_VERSION` | `26` (Nimbus needs Node 22.23.4 or later) |
 
-The custom domain is attached in the dashboard (Worker > Settings > Domains & Routes > Add > Custom domain >
-`agenthold.dev`), once the hostname is free: the live app used to be served there and now lives at
-`demo.agenthold.dev`, so move it first.
-
-### Moving the app to demo.agenthold.dev
-
-In this order, so the app is never without a working sign-in:
-
-1. Cloudflare Zero Trust > Networks > Tunnels > your tunnel > Public hostnames: add `demo.agenthold.dev`
-   pointing at `http://agenthold:8080`.
-2. GitHub > Settings > Developer settings > OAuth Apps > agenthold: set the callback URL to
-   `https://demo.agenthold.dev/api/v1/auth/callback/github` and the homepage URL to `https://agenthold.dev`.
-3. On the host, set `AGENTHOLD_DOMAIN=demo.agenthold.dev` in `deploy/production/.env`, then restart with
-   `docker compose --env-file .env --env-file .deploy.env up -d agenthold`.
-4. In GitHub, set the repository variable `DEPLOY_URL` to `https://demo.agenthold.dev` so the deploy
-   workflow checks the new address.
-5. Delete the old `agenthold.dev` public hostname and its DNS record, then add `agenthold.dev` as the Worker's
-   custom domain.
+Attach the `agenthold.dev` custom domain in the Workers dashboard. The native demo deployment is being
+rebuilt separately; no application deployment is triggered by the documentation workflow.

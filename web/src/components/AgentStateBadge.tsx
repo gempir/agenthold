@@ -14,6 +14,7 @@ const colors: Partial<Record<SandboxState, string>> = {
 const labels: Partial<Record<SandboxState, string>> = {
   sleeping: 'Asleep',
   starting: 'Waking…',
+  rebuilding: 'Resetting system…',
 };
 
 export const stateLabel = (s: SandboxState) => labels[s] ?? s;

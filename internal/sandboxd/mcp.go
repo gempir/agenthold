@@ -82,7 +82,7 @@ func ServeMCP(in io.Reader, out io.Writer) error {
 				"protocolVersion": p.ProtocolVersion,
 				"capabilities":    map[string]any{"tools": map[string]any{}},
 				"serverInfo":      map[string]any{"name": "agenthold", "version": "1"},
-				"instructions":    "Tools to work with other agents in your agenthold workspace.",
+				"instructions":    "Tools to work with your other agenthold agents and agents shared with your owner.",
 			})
 		case "ping":
 			reply(map[string]any{})

@@ -1,0 +1,142 @@
+---
+title: "Guest artifacts"
+description: "Build the pinned base ext4 and guest kernel, and verify sandboxd as PID 1 in a real Firecracker microVM."
+---
+
+The N2 guest artifacts are independent of the controller: a read-only ext4 base, a Linux kernel and
+`sandboxd`. The hand-started boot test uses the real authenticated tunnel protocol and a small host
+listener. Release embedding, downloads and the production Firecracker driver are separate milestones.
+
+## Build
+
+On macOS, [start the Lima dev VM](/development), then run these commands from the repository root:
+
+```sh
+scripts/guest/build-kernel.sh
+scripts/guest/build-rootfs.sh
+scripts/guest/boot-test.sh --docker
+```
+
+Each script re-runs itself inside the `agenthold` VM. On Linux, run them directly; the kernel and
+rootfs builds are native arm64 or amd64 builds. Rootfs construction requires root and installs its
+build tools with apt. It uses `mmdebstrap` and a chroot; a container runtime is unnecessary.
+
+Outputs are in `build/guest/<arch>/` (git-ignored). The kernel is
+`vmlinux-6.1.188-agenthold`: an arm64 `Image` or an amd64 ELF `vmlinux`. The base is
+`base-<arch>.ext4`, with a `.sha256`, `.ext4.zst` and `.manifest.json`. The manifest records the
+uncompressed and compressed checksums and sizes. `--no-zstd` skips compression and removes an old
+compressed output. `--sandboxd PATH` supplies an already-built Linux binary. `--squashfs` produces a
+comparison image; the guest always boots ext4.
+
+The scripts cache verified downloads and the provisioned rootfs tree in
+`/var/cache/agenthold-guest`. Kernel sources and object files stay under
+`/var/tmp/agenthold-kernel-<arch>-<uid>`, with downloads in `~/.cache/agenthold-kernel`.
+
+## Pinned inputs
+
+| Input | Pin |
+| --- | --- |
+| Base version | `2026.11.15-1` |
+| Debian | `trixie`, snapshot `20261110T000000Z`, including updates and security |
+| Debian archive keyring | `2025.1`, downloaded package checked by sha256 |
+| Node.js | `24.22.3`, official architecture-specific tarballs checked by sha256 |
+| Claude ACP adapter | `@agentclientprotocol/claude-agent-acp@0.107.0` |
+| Codex ACP adapter | `@agentclientprotocol/codex-acp@2.6.0` |
+| OpenCode | `opencode-ai@1.19.5` |
+| Linux | `6.1.188`, upstream tarball checked by sha256 |
+| Kernel configuration | Firecracker `v1.18.0` microVM + CI configs, checked by sha256, plus committed agenthold fragments |
+| Test VMM | Firecracker `v1.18.0`, architecture-specific release archive checked by sha256 |
+
+`images/base/versions.env`, `packages.txt`, `package.json` and `package-lock.json` are the source of
+truth. Debian packages resolve against the dated snapshot; `npm ci` installs the locked dependency
+graph and verifies registry integrity hashes, including the optional native packages for each
+architecture. The runtime apt sources use the live Debian archive so the agent can install updates.
+The image includes Chromium, Python, a compiler toolchain, Git and the three harness adapters.
+Docker is installed only by the optional boot test, rather than in the base.
+
+The builds fix filesystem UUID/hash seed, image timestamps, kernel build metadata and Go paths.
+The sandboxd binary hash is part of the manifest. Keep the Go compiler, GCC, e2fsprogs and mmdebstrap
+versions fixed when comparing output bytes; the kernel manifest records GCC. These pins do not imply
+that different build toolchains produce byte-identical artifacts.
+
+## Boot contract
+
+Attach these virtio block devices in this order:
+
+| Device | Content | Access |
+| --- | --- | --- |
+| `/dev/vda` | Shared base ext4 | Read-only |
+| `/dev/vdb` | Per-agent overlay ext4, or a new zero-filled sparse disk | Read-write |
+| `/dev/vdc` | Per-agent home ext4, or a new zero-filled sparse disk | Read-write |
+| `/dev/vdd` | Boot configuration | Read-only |
+
+The kernel command line includes:
+
+```text
+console=ttyS0 reboot=k panic=1 root=/dev/vda ro rootfstype=ext4 init=/opt/agenthold/sandboxd ip=172.31.254.2::172.31.254.1:255.255.255.252::eth0:off
+```
+
+The host encodes `sandboxd.GuestBoot` with `EncodeGuestBoot`: one versioned JSON object, zero-padded
+to 4096-byte alignment, at most 16 MiB. Required fields are `agentId`, `token`, and either
+`tunnelUrl` or `tunnelPort`. The latter derives `ws://<gateway>:<port>/tunnel` from `ip=`.
+Optional fields set the hostname, environment and boot files (absolute guest paths, base64-encoded
+bytes). Environment values and the tunnel URL support the literal `{{server}}` gateway placeholder.
+The configuration is per boot; it carries the tunnel credential, CA certificate and harness files,
+not provider API secrets. The guest has passwordless sudo: the VM is the isolation boundary.
+
+PID 1 reads the configuration before starting the daemon. It formats new disks, mounts overlayfs
+for `/`, mounts the home disk at `/home/agent`, configures the static network and resolver, and
+starts a sandboxd child. The boot credential file is mode 0600 on tmpfs. Mounts for
+`/var/lib/docker`, `/var/lib/containerd` and `/var/lib/containers` bind directly to the overlay disk's
+ext4, allowing nested container overlay mounts. System changes and container storage survive a
+cold shutdown. Replacing the overlay disk resets the system while keeping home.
+
+Only freshly created zero-filled disks and existing ext4 disks belong in the writable slots.
+The formatter checks the first 128 KiB and refuses unrecognized data there; this probe does not
+establish that an arbitrary existing disk is empty. Enlarged ext4 filesystems grow during boot.
+The host can override device paths with `agenthold.overlay=`, `agenthold.home=` and
+`agenthold.config=` kernel arguments.
+
+PID 1 reaps the daemon and adopted children, restarts a crashed daemon with backoff, and handles
+SIGTERM, SIGINT and SIGPWR. An authenticated tunnel `shutdown` operation acknowledges first and
+signals init. Init sends SIGTERM, allows three seconds, sends SIGKILL, waits up to two seconds,
+syncs and unmounts filesystems, remounts the overlay read-only and powers off. On x86, `reboot=k`
+uses the reset mechanism Firecracker handles. The boot test enforces an eight-second shutdown
+budget and checks ext4 consistency afterwards.
+
+## Verification
+
+On 2026-11-15, the arm64 artifacts were exercised on an M4 through Lima 2.3.0, Ubuntu 24.04 and
+nested KVM. The custom kernel is `6.1.188-agenthold`, built with GCC `13.3.0` (18,868,736 bytes).
+
+```sh
+go test -race ./cmd/sandboxd ./internal/sandboxd ./internal/tunnel ./scripts/guest/testhost
+golangci-lint run ./cmd/sandboxd/... ./internal/sandboxd/... ./internal/tunnel/... ./scripts/guest/testhost/...
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 golangci-lint run ./cmd/sandboxd/... ./internal/sandboxd/... ./internal/tunnel/... ./scripts/guest/testhost/...
+limactl shell agenthold -- bash scripts/guest/boot-test.sh --docker
+```
+
+The boot test authenticates sandboxd, checks commands run as uid 1000 in `/home/agent`, verifies boot
+files and environment, and writes both home and system files plus a dpkg-installed package. It
+boots the same disks again to check persistence, replaces only the overlay to check system reset,
+and tests shutdown from inside the guest. The optional Docker boot installs Debian's
+`26.1.5+dfsg1`, starts dockerd with overlay2 and cgroup v2, runs hello-world, and checks container DNS
+and HTTP access to Debian. NAT and a small DNS relay exist only for this test; production egress
+uses the node's proxy. Reports and serial logs remain in `/var/lib/agenthold-boot-test` in Lima.
+
+The measured arm64 base is 2,590,867,456 bytes (2,470.84 MiB). Compressed with
+`zstd -6 --long=27`, it is 810,451,809 bytes (772.91 MiB), 31.3% of the raw size.
+Publish one `.ext4.zst` release asset plus checksums and the manifest: this fits the project's
+2 GB per-file budget without splitting. Release builds should enforce the same size budget for
+each architecture. The raw base sha256 is
+`68cc3a5b3a1ec1c2fd783025b48805043d1b0d40162e8b2e4ffbb549fcd918a6`;
+the compressed sha256 is `4465ad0548b77e1ddd5e27a92c9b4690b5b13f8e66454760b4ed5bf130489129`.
+The first three main boots connected in 3.6–4.9 seconds and shut down in 301–348 ms.
+
+The amd64 build path and pins are present; amd64 KVM validation has not been run locally.
+
+The final five-boot run ended `BOOT TEST OK`: Docker's shutdown took 1,607 ms, all three disk
+checks passed and the immutable base checksum stayed unchanged. Docker's logs reported swap-limit
+and conntrack-cleanup warnings; the tests above establish basic Docker execution and networking,
+not every Docker resource-control feature. The Docker boot ran alongside another KVM test and
+compression; its 41.6-second startup reflects that load rather than the main boot measurements.

@@ -3,7 +3,6 @@ package tunnel
 import (
 	"context"
 	"io"
-	"net"
 	"os"
 	"sync"
 )
@@ -16,7 +15,7 @@ func (s *Session) List(ctx context.Context, path string) (ListReply, error) {
 		return out, err
 	}
 	defer c.Close()
-	stopOnCancel(ctx, c)
+	defer stopOnCancel(ctx, c)()
 	err = ReadJSON(c, &out)
 	return out, err
 }
@@ -29,7 +28,7 @@ func (s *Session) ReadFile(ctx context.Context, path string, size func(int64), w
 		return err
 	}
 	defer c.Close()
-	stopOnCancel(ctx, c)
+	defer stopOnCancel(ctx, c)()
 	var rr ReadReply
 	if err := ReadJSON(c, &rr); err != nil {
 		return err
@@ -48,7 +47,7 @@ func (s *Session) WriteFile(ctx context.Context, path string, mode os.FileMode, 
 		return err
 	}
 	defer c.Close()
-	stopOnCancel(ctx, c)
+	defer stopOnCancel(ctx, c)()
 	if _, err := io.Copy(DataWriter(c), r); err != nil {
 		return err
 	}
@@ -78,7 +77,7 @@ func (s *Session) simple(ctx context.Context, o Open) error {
 		return err
 	}
 	defer c.Close()
-	stopOnCancel(ctx, c)
+	defer stopOnCancel(ctx, c)()
 	var ok OK
 	return ReadJSON(c, &ok)
 }
@@ -99,7 +98,7 @@ func (s *Session) PTY(ctx context.Context, o Open) (*Terminal, error) {
 }
 
 // Terminal is an open pty channel.
-type Terminal struct{ c net.Conn }
+type Terminal struct{ c io.ReadWriteCloser }
 
 // Write sends input.
 func (t *Terminal) Write(p []byte) (int, error) { return DataWriter(t.c).Write(p) }
@@ -137,18 +136,15 @@ func (t *Terminal) ReadOutput(w io.Writer) (int, error) {
 // Close ends the terminal (the process is killed if still running).
 func (t *Terminal) Close() error { return t.c.Close() }
 
-func stopOnCancel(ctx context.Context, c net.Conn) {
-	go func() {
-		<-ctx.Done()
-		_ = c.Close()
-	}()
+func stopOnCancel(ctx context.Context, c io.ReadWriteCloser) func() bool {
+	return context.AfterFunc(ctx, func() { _ = c.Close() })
 }
 
 // Process is a harness process in the sandbox: Stdout and Stdin carry its
 // raw stdio.
 type Process struct {
 	wmu    sync.Mutex
-	c      net.Conn
+	c      io.ReadWriteCloser
 	Stdout *io.PipeReader
 	out    *io.PipeWriter
 	done   chan struct{}
@@ -235,7 +231,20 @@ func (s *Session) Stats(ctx context.Context) (Stats, error) {
 		return out, err
 	}
 	defer c.Close()
-	stopOnCancel(ctx, c)
+	defer stopOnCancel(ctx, c)()
 	err = ReadJSON(c, &out)
 	return out, err
+}
+
+// Shutdown asks sandboxd to power the sandbox off. It returns once sandboxd
+// has acknowledged; the tunnel then drops and, for a microVM, the VMM exits.
+func (s *Session) Shutdown(ctx context.Context) error {
+	c, err := s.Open(ctx, Open{Op: OpShutdown})
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	defer stopOnCancel(ctx, c)()
+	var ok OK
+	return ReadJSON(c, &ok)
 }

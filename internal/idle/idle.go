@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/store"
-	"github.com/gempir/agenthold/internal/tunnel"
 )
 
 // Tracker records the last activity per agent.
@@ -78,11 +78,6 @@ func (t *Tracker) forget(agentID string) {
 // Busy reports whether an agent has a running turn.
 type Busy func(agentID string) bool
 
-// Sessions provides the tunnel session of a connected sandbox.
-type Sessions interface {
-	Session(agentID string) (*tunnel.Session, bool)
-}
-
 // CPUThreshold is the share of one core above which a sandbox counts as busy.
 const CPUThreshold = 0.05
 
@@ -92,7 +87,7 @@ type Sleeper struct {
 	Sandboxes *sandbox.Manager
 	Tracker   *Tracker
 	Busy      Busy
-	Tunnel    Sessions
+	Node      node.Node
 	Log       *slog.Logger
 	// Interval between checks. Default 30s.
 	Interval time.Duration
@@ -186,16 +181,16 @@ func (s *Sleeper) Tick(ctx context.Context) error {
 
 // cpuBusy compares the sandbox's CPU time with the previous reading.
 func (s *Sleeper) cpuBusy(ctx context.Context, agentID string, now time.Time) bool {
-	if s.Tunnel == nil {
+	if s.Node == nil {
 		return false
 	}
-	ts, ok := s.Tunnel.Session(agentID)
-	if !ok {
+	ok, err := s.Node.Connected(ctx, agentID)
+	if err != nil || !ok {
 		return false
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	st, err := ts.Stats(ctx)
+	st, err := node.Client(s.Node, agentID).Stats(ctx)
 	if err != nil {
 		return false
 	}

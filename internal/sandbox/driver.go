@@ -1,7 +1,5 @@
 // Package sandbox defines the driver interface that isolates agents and the
 // manager that drives each agent's sandbox through its lifecycle.
-//
-// Nothing outside the driver packages may import a container runtime SDK.
 package sandbox
 
 import (
@@ -16,33 +14,20 @@ type ID string
 
 // Resources limits a sandbox. Zero means "driver default / unlimited".
 type Resources struct {
-	CPUs      float64 // fractional cores
-	MemoryMB  int64
-	DiskGB    int64 // best effort; not every driver can enforce it
-	PIDsLimit int64
-}
-
-// Mount is an extra read-only bind mount (for example sandboxd).
-type Mount struct {
-	Source, Target string
-	ReadOnly       bool
+	CPUs     float64 // fractional cores
+	MemoryMB int64
+	DiskGB   int64 // best effort; not every driver can enforce it
 }
 
 // Spec describes a sandbox.
 type Spec struct {
 	// AgentID is the platform's agent id. Drivers use it to name and label resources.
-	AgentID   string
+	AgentID string
+	// Image is the internal base revision used when comparing applied specs.
 	Image     string
 	Resources Resources
-	// Env is the environment of the sandbox's entrypoint.
+	// Env is added to processes started by sandboxd.
 	Env map[string]string
-	// Entrypoint and Cmd override the image's. Empty means image default.
-	Entrypoint []string
-	Cmd        []string
-	Mounts     []Mount
-	// HomeVolume is the name of the persistent volume mounted at /home/agent.
-	// Empty means the driver derives it from AgentID.
-	HomeVolume string
 }
 
 // State is what a driver reports about a sandbox.
@@ -82,7 +67,7 @@ type Boot struct {
 // use to reach the server.
 const ServerPlaceholder = "{{server}}"
 
-// SandboxdDir is where drivers mount the sandboxd binary inside a sandbox.
+// SandboxdDir is where the guest base image contains the sandboxd binary.
 const SandboxdDir = "/opt/agenthold"
 
 // DestroyOpts controls what Destroy removes.
@@ -93,12 +78,12 @@ type DestroyOpts struct {
 // Driver isolates sandboxes. Implementations must be safe for concurrent use
 // and idempotent where noted.
 type Driver interface {
-	// Name is the driver's name, e.g. "docker".
+	// Name is the driver's name, e.g. "firecracker".
 	Name() string
-	// Create provisions a sandbox (network, volume, container) without starting it.
+	// Create provisions persistent disks and a private network without starting the guest.
 	Create(ctx context.Context, spec Spec) (ID, error)
 	// Start starts a created or stopped sandbox with a fresh boot configuration
-	// (written to sandboxd's boot file before the entrypoint runs). Starting a
+	// (delivered through a read-only config disk before sandboxd runs). Starting a
 	// running sandbox is a no-op.
 	Start(ctx context.Context, id ID, boot Boot) error
 	// Stop stops a sandbox and keeps its disk ("sleep"). Stopping a stopped sandbox is a no-op.
@@ -107,8 +92,8 @@ type Driver interface {
 	Destroy(ctx context.Context, id ID, opts DestroyOpts) error
 	// Status reports the sandbox's state. Unknown ids report StateMissing, not an error.
 	Status(ctx context.Context, id ID) (Status, error)
-	// Rebuild replaces the sandbox with one built from spec (new image), keeping
-	// the id and the home volume. The sandbox ends up stopped.
+	// Rebuild resets the system disk using spec and the current base image,
+	// keeping the id and home disk. The sandbox ends up stopped.
 	Rebuild(ctx context.Context, id ID, spec Spec) error
 }
 

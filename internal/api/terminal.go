@@ -14,6 +14,7 @@ import (
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/authz"
+	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/tunnel"
 )
@@ -23,8 +24,10 @@ const wakeTimeout = 2 * time.Minute
 // Wake returns the agent's tunnel session, starting the sandbox if it is
 // asleep. status is called with progress messages.
 func (a *API) Wake(ctx context.Context, agentID string, status func(string)) (*tunnel.Session, error) {
-	if s, ok := a.Tunnel.Session(agentID); ok && !s.Closed() {
-		return s, nil
+	if ok, err := a.Node.Connected(ctx, agentID); err != nil {
+		return nil, err
+	} else if ok {
+		return node.Client(a.Node, agentID), nil
 	}
 	row, err := a.Store.GetSandbox(ctx, agentID)
 	if err != nil {
@@ -49,8 +52,8 @@ func (a *API) Wake(ctx context.Context, agentID string, status func(string)) (*t
 	}
 	ch := make(chan res, 1)
 	go func() {
-		s, err := a.Tunnel.Wait(wctx, agentID)
-		ch <- res{s, err}
+		err := a.Node.WaitConnected(wctx, agentID)
+		ch <- res{node.Client(a.Node, agentID), err}
 	}()
 	for {
 		select {

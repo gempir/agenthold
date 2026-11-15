@@ -73,7 +73,6 @@ const agent = (login: Agent['login'], role: Agent['role']): Agent => ({
   id: 'a1',
   name: 'builder',
   owner: me.user,
-  image: 'img',
   harness: 'claude-code',
   model: '',
   permissionPolicy: 'ask',

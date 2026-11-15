@@ -46,7 +46,7 @@ export function AgentControls({
       {a.needsRebuild && (
         <p className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
           <RefreshCw className="size-3.5" aria-hidden />
-          Rebuild to apply image/resource changes
+          Reset the system to apply resource or environment changes
         </p>
       )}
       {canUse && (
@@ -81,10 +81,16 @@ export function AgentControls({
                 disabled={busy}
                 onClick={() => action.mutate('rebuild')}
               >
-                Rebuild
+                Reset system
               </Button>
             )}
         </div>
+      )}
+      {a.role === 'owner' && (
+        <p className="text-xs text-muted-foreground">
+          Resetting the system discards system changes and keeps your home
+          files.
+        </p>
       )}
       <ErrorText error={action.error} />
     </div>
@@ -105,10 +111,6 @@ export function AgentDetails({
         className,
       )}
     >
-      <dt className="text-muted-foreground">Image</dt>
-      <dd className="min-w-0 truncate font-mono text-xs leading-5">
-        {a.image}
-      </dd>
       <dt className="text-muted-foreground">CPUs</dt>
       <dd>{a.cpus}</dd>
       <dt className="text-muted-foreground">Memory</dt>
@@ -132,7 +134,6 @@ export function AgentSettingsForm({
 }) {
   const qc = useQueryClient();
   const [name, setName] = useState(agent.name);
-  const [image, setImage] = useState(agent.image);
   const [cpus, setCpus] = useState(String(agent.cpus));
   const [mem, setMem] = useState(String(agent.memoryMb));
   const [idle, setIdle] = useState(String(agent.idleMinutes));
@@ -144,7 +145,6 @@ export function AgentSettingsForm({
           params: { path: { agentId: agent.id } },
           body: {
             name: name.trim(),
-            image: image.trim(),
             cpus: Number(cpus),
             memoryMb: Number(mem),
             idleMinutes: Number(idle),
@@ -172,14 +172,6 @@ export function AgentSettingsForm({
           required
           value={name}
           onChange={(e) => setName(e.target.value)}
-        />
-      </label>
-      <label className="grid gap-1 text-sm">
-        Image
-        <Input
-          required
-          value={image}
-          onChange={(e) => setImage(e.target.value)}
         />
       </label>
       <div className="grid gap-3 sm:grid-cols-3">

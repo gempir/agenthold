@@ -22,6 +22,8 @@ type Directory struct {
 	Log   *slog.Logger
 	// Logins adds the injections of the account login an agent uses.
 	Logins AccountLogins
+	// OnInvalidate schedules a push of the updated controller configuration.
+	OnInvalidate func()
 
 	mu        sync.Mutex
 	subnets   map[netip.Prefix]string
@@ -156,9 +158,12 @@ func (d *Directory) injection(s db.Secret) (secrets.Injection, error) {
 // Invalidate drops cached data, after secret, tool or sandbox changes.
 func (d *Directory) Invalidate() {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	d.agents = nil
 	d.subnetsAt = time.Time{}
+	d.mu.Unlock()
+	if d.OnInvalidate != nil {
+		d.OnInvalidate()
+	}
 }
 
 func (d *Directory) logger() *slog.Logger {

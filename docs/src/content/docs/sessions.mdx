@@ -83,13 +83,13 @@ login.
 Connecting, disconnecting and refresh failures are recorded in your account's audit entries; using a
 login (once per harness start), attaching and detaching it are recorded on the agent.
 
-Changes take effect without a rebuild: the proxy picks them up within seconds, and the harness restarts with the
+Changes take effect without a system reset: the proxy picks them up within seconds, and the harness restarts with the
 new login once its running turns have finished.
 
 ### API keys as secrets
 
 API keys can also go through the egress proxy as ordinary secrets: create a secret (for example the Anthropic
-preset), attach it to the agent with an environment variable (`ANTHROPIC_API_KEY`), and rebuild. The sandbox only
+preset), attach it to the agent with an environment variable (`ANTHROPIC_API_KEY`), and reset the system. The sandbox only
 ever sees a placeholder.
 
 ### Signing in inside one sandbox
@@ -97,7 +97,7 @@ ever sees a placeholder.
 The per-agent sign-in is a secondary override, under **Overview → Sign in inside this sandbox instead**. The server
 starts the harness, reads the login methods it advertises in `initialize`, and runs the chosen method in the agent's
 web terminal (for Claude Code `claude /login`). The harness stores the resulting token on the agent's home volume,
-so it survives sleep and rebuilds. Such agents are marked "credentials inside sandbox", because the agent can read
+so it survives sleep and system resets. Such agents are marked "credentials inside sandbox", because the agent can read
 its own login. A connected account login takes precedence over it (for Codex, a ChatGPT login delivered from the
 account replaces `~/.codex/auth.json`; the previous file is kept as `auth.json.agenthold-backup`). Agents that were
 signed in this way before account logins existed keep their sandbox login: they do not use anyone's account logins
@@ -106,8 +106,7 @@ until their owner chooses **Use my logins**.
 ## Harness adapters
 
 An adapter (`internal/harness/<name>`) says how to start the harness in ACP mode, which environment it needs
-(never secret values), which secret presets fit it, where it keeps logins, and how to install it in a custom
-image. Optionally, it can name the terminal command for a login method the harness advertises without one
+(never secret values), which secret presets fit it, and where it keeps logins. Optionally, it can name the terminal command for a login method the harness advertises without one
 (`TerminalLoginer`), and list login methods the server may call on its own when the harness asks for
 authentication, such as an API key provided as a secret (`AutoAuthenticator`). Adapters whose login can live on the
 account implement `AccountLoginer` (what can be connected, how it is validated, and how it reaches the harness as
@@ -133,23 +132,13 @@ Signing in:
 - **OpenCode** has no account logins: it supports many providers with its own login file, which does not fit one
   login per harness. Use secrets or its terminal login.
 
-For a custom image, install the harness so that its command is on `PATH` for the `agent` user. For Claude Code:
-`npm install -g @agentclientprotocol/claude-agent-acp@0.107.0` (Node.js 20 or newer).
-
 ## Base image
 
-`images/base` (`make base-image`) is Debian trixie with Node.js 24, the Claude Code and Codex ACP adapters, OpenCode, git, Python 3,
+`images/base` (`make guest-base`) is Debian trixie with Node.js 24, the Claude Code and Codex ACP adapters, OpenCode, git, Python 3,
 build tools, ripgrep, jq and headless Chromium (`CHROME_BIN`, Playwright and Puppeteer variables set). The
 `agent` user has passwordless sudo inside its own sandbox.
 
-## End-to-end checks
+## Testing
 
-Against the dev stack (`make dev`, `make base-image`):
-
-- `scripts/e2e/sessions.sh`: the scripted harness edits files in a real sandbox, a reload mid-turn continues
-  from the cursor, and a terminal login survives sleep.
-- `scripts/e2e/provider-logins.sh`: an account login reaches a real sandbox as a placeholder only, the proxy
-  injects the value, and disconnecting takes it away.
-- `scripts/e2e/claude-harness.sh`: starts the real Claude Code harness and shows what it advertises.
-- `scripts/e2e/opencode.sh`: a real conversation with OpenCode (free model) that edits a file, replays from
-  the cursor, and survives sleep with its history.
+Use `make test` for the Go and web suites and `make test-kvm` on a KVM host. The scripted fake harness
+is available for development and tests; it is not included in the production guest image.

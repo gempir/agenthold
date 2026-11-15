@@ -1,48 +1,11 @@
 ---
 title: "Keycloak"
-description: "Sign in with Keycloak or any OpenID Connect provider, including the development setup."
+description: "Sign in with Keycloak or any OpenID Connect provider."
 ---
 
-## Development
-
-`make dev` starts Keycloak 26 next to the server and imports `deploy/dev/keycloak/realm-agenthold.json`.
-
-| | |
-| --- | --- |
-| Admin console | http://localhost:8081 (admin / admin) |
-| Realm | `agenthold` |
-| Client | `agenthold`, secret `agenthold-dev-secret` |
-| Users | `alice` / `alice`, `bob` / `bob` (emails verified) |
-
-The server uses `deploy/dev/agenthold.yaml`, which has this provider:
-
-```yaml
-- id: keycloak
-  type: oidc
-  name: Keycloak (dev)
-  issuer: http://localhost:8081/realms/agenthold
-  discovery_url: http://keycloak:8081/realms/agenthold
-  client_id: agenthold
-  client_secret: agenthold-dev-secret
-```
-
-Open http://localhost:8080 and choose Keycloak. To test sharing, sign in as alice in one browser profile and
-bob in another (or log out of Keycloak between them).
-
-### Why `discovery_url`
-
-Your browser reaches Keycloak as `localhost:8081`, but inside the compose network the server must use
-`keycloak:8081`. With `KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true`, discovery fetched via `keycloak:8081` returns
-`issuer` and `authorization_endpoint` on `localhost:8081` (what the browser and ID tokens use) and
-`token_endpoint` / `jwks_uri` on `keycloak:8081` (what the server calls). `issuer` in the config stays the
-public name so token validation matches.
-
-Set `discovery_url` only when the server cannot reach the issuer URL under its public name. In a normal
-deployment leave it out.
-
-The realm is imported only when it does not exist yet. After editing the JSON, remove the Keycloak container
-state (`docker compose -f deploy/docker-compose.dev.yml down`; the dev Keycloak uses an internal H2 database
-in the container) and start again.
+Bring your own Keycloak server or another OpenID Connect provider. For local development, the default
+configuration uses a local administrator; an external provider is only needed when testing federated sign-in
+or sharing between users.
 
 ## Production
 

@@ -73,7 +73,9 @@ main() {
   # Registry login in a throwaway config dir; nothing is stored on the host.
   local tmp token=
   tmp=$(mktemp -d)
-  trap 'rm -rf "$tmp"' EXIT
+  # Expanded now: tmp is local to main and gone by the time EXIT fires.
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" EXIT
   export DOCKER_CONFIG=$tmp
   if [[ ! -t 0 ]]; then IFS= read -r -t 10 token || true; fi
   if [[ -n $token ]]; then

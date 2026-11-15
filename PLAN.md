@@ -158,6 +158,7 @@ XChaCha20-Poly1305 secrets, slog.
   tests covering them. Do not push unless told to.
 - Tests that need KVM carry the build tag `kvm` and run inside the Lima VM (`make test-kvm`) and in
   CI on x86. Everything else uses the fake driver and must pass on macOS.
+- The demo database is now live: never edit an applied migration. Add `00002_...` etc. (both engines). Editing `00001_init.sql` in place broke the first auto-deploy (`no such table: nodes`) and needed a manual DB reset.
 - Change `api/openapi.yaml` first, regenerate, then implement.
 - Delete what a decision removes: code, config fields, UI, docs, tests. No compatibility shims.
 - No new dependency without a one-line justification in the commit message.

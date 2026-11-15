@@ -5,9 +5,7 @@ docker image inspect agenthold/base:dev >/dev/null 2>&1 || docker build -q -t ag
 
 JAR=$(login alice alice)
 AG=$(new_agent "$JAR" agenthold/base:dev)
-WS=$(api "$JAR" "$BASE/api/v1/me" | json 'd["personalWorkspaceId"]')
 echo "agent $AG"
-policy() { api "$JAR" -X PUT "$BASE/api/v1/agents/$AG/network-policy" -d "$1" >/dev/null; sleep 6; }
 
 echo "Reaches the internet only through the proxy"
 [[ $(in_sandbox "$AG" 'curl -sS -o /dev/null -w "%{http_code}" https://example.com') == 200 ]] && pass "HTTPS with HTTPS_PROXY" || fail "HTTPS with HTTPS_PROXY"
@@ -22,21 +20,13 @@ SRV=$(in_sandbox "$AG" "awk '/nameserver/{print \$2}' /etc/resolv.conf")
 code=$(in_sandbox "$AG" "curl -sS -m 5 -o /dev/null -w '%{http_code}' http://$SRV:8080/healthz")
 [[ $code == *000 ]] && pass "server API not reachable from the sandbox" || fail "server API returned $code"
 
-echo "git over SSH"
-policy '{"mode":"allowlist","allow":["example.com","postman-echo.com"]}'
+echo "git over SSH (every agent has open network access)"
 out=$(in_sandbox "$AG" 'timeout 15 ssh -T -o BatchMode=yes -o StrictHostKeyChecking=accept-new git@github.com')
-[[ $out != *"Permission denied (publickey)"* ]] && pass "denied when not allowed" || fail "ssh connected while denied"
-policy '{"mode":"allowlist","allow":["example.com","postman-echo.com","github.com:22"]}'
-out=$(in_sandbox "$AG" 'timeout 15 ssh -T -o BatchMode=yes -o StrictHostKeyChecking=accept-new git@github.com')
-[[ $out == *"Permission denied (publickey)"* ]] && pass "works when allowed (reaches GitHub's SSH server)" || fail "ssh: $out"
-sleep 2 # connections are logged when they close
-log=$(api "$JAR" "$BASE/api/v1/agents/$AG/egress-log?limit=200")
-echo "$log" | json 'any(e["host"]=="github.com" and not e["allowed"] for e in d)' | grep -q True && pass "denied attempt is in the request log" || fail "no denied github.com entry"
-echo "$log" | json 'any(e["host"]=="github.com" and e["port"]==22 and e["allowed"] for e in d)' | grep -q True && pass "allowed SSH is in the request log" || fail "no allowed ssh entry"
+[[ $out == *"Permission denied (publickey)"* ]] && pass "reaches GitHub's SSH server" || fail "ssh: $out"
 
 echo "Secrets"
 VALUE="e2e-real-$RANDOM$RANDOM"
-SEC=$(api "$JAR" -X POST "$BASE/api/v1/workspaces/$WS/secrets" -d "{\"name\":\"e2e-$RANDOM\",\"value\":\"$VALUE\",\"rule\":{\"hosts\":[\"postman-echo.com\"],\"header\":\"X-E2E\",\"template\":\"{{.Value}}\"}}" | json 'd["id"]')
+SEC=$(api "$JAR" -X POST "$BASE/api/v1/secrets" -d "{\"name\":\"e2e-$RANDOM\",\"value\":\"$VALUE\",\"rule\":{\"hosts\":[\"postman-echo.com\"],\"header\":\"X-E2E\",\"template\":\"{{.Value}}\"}}" | json 'd["id"]')
 api "$JAR" -X PUT "$BASE/api/v1/agents/$AG/secrets/$SEC" -d '{"envVar":"E2E_TOKEN"}' >/dev/null
 api "$JAR" -X POST "$BASE/api/v1/agents/$AG/rebuild" >/dev/null
 sleep 2; wait_running "$JAR" "$AG"

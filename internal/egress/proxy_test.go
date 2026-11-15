@@ -78,7 +78,7 @@ func newFixture(t *testing.T) *fixture {
 	t.Cleanup(f.tlsUp.Close)
 	roots := x509.NewCertPool()
 	roots.AddCert(f.tlsUp.Certificate())
-	f.agent = &Agent{ID: "ag_1", Policy: Policy{Mode: ModeOpen}}
+	f.agent = &Agent{ID: "ag_1"}
 	f.proxy = &Proxy{
 		CA: ca, Agents: staticAgents{f.agent}, Names: NewNameCache(), Log: f.events.add,
 		// Every name resolves to loopback, which the tests allow.
@@ -155,27 +155,6 @@ func TestPassthroughWithoutInjection(t *testing.T) {
 		t.Fatalf("unexpected auth %q", got)
 	}
 	if ev, ok := f.events.find("example.com"); !ok || ev.Kind != "tls" || !ev.Allowed || ev.BytesDown == 0 {
-		t.Fatalf("event %+v", ev)
-	}
-}
-
-func TestAllowlist(t *testing.T) {
-	f := newFixture(t)
-	f.agent.Policy = Policy{Mode: ModeAllowlist, Allow: []string{fmt.Sprintf("example.com:%d", f.upPort())}}
-	roots := x509.NewCertPool()
-	roots.AddCert(f.tlsUp.Certificate())
-	c := f.explicitClient(roots)
-	c.Transport.(*http.Transport).TLSClientConfig.ServerName = "example.com"
-	if res, err := c.Get(fmt.Sprintf("https://example.com:%d/", f.upPort())); err != nil {
-		t.Fatalf("allowed host: %v", err)
-	} else {
-		res.Body.Close()
-	}
-	c.Transport.(*http.Transport).TLSClientConfig.ServerName = "other.example.org"
-	if _, err := c.Get(fmt.Sprintf("https://other.example.org:%d/", f.upPort())); err == nil {
-		t.Fatal("denied host reachable")
-	}
-	if ev, ok := f.events.find("other.example.org"); !ok || ev.Allowed || ev.Reason != "not in allowlist" {
 		t.Fatalf("event %+v", ev)
 	}
 }
@@ -259,7 +238,6 @@ func TestRawTCPUsesDNSNames(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	ip := netip.MustParseAddr("127.0.0.1")
 	f.proxy.Names.Add("ag_1", "github.com", ip, time.Minute)
-	f.agent.Policy = Policy{Mode: ModeAllowlist, Allow: []string{fmt.Sprintf("github.com:%d", port)}}
 
 	c := f.transparent(netip.AddrPortFrom(ip, uint16(port)))
 	line, err := bufio.NewReader(c).ReadString('\n')
@@ -270,22 +248,9 @@ func TestRawTCPUsesDNSNames(t *testing.T) {
 	if ev, ok := f.events.find("github.com"); !ok || ev.Kind != "tcp" || !ev.Allowed {
 		t.Fatalf("event %+v", ev)
 	}
-
-	// Not allowed: the same server under a name that is not on the list.
-	f.proxy.Names.Add("ag_1", "gitlab.com", ip, time.Minute)
-	f.proxy.Names = NewNameCache()
-	f.proxy.Names.Add("ag_1", "gitlab.com", ip, time.Minute)
-	c = f.transparent(netip.AddrPortFrom(ip, uint16(port)))
-	_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
-	if n, _ := c.Read(make([]byte, 10)); n != 0 {
-		t.Fatal("denied connection got data")
-	}
-	if ev, ok := f.events.find("gitlab.com"); !ok || ev.Allowed {
-		t.Fatalf("event %+v", ev)
-	}
 }
 
-func TestPrivateAddressesBlockedEvenWhenOpen(t *testing.T) {
+func TestPrivateAddressesBlocked(t *testing.T) {
 	f := newFixture(t)
 	f.proxy.Reachable = nil // production rule: only public addresses
 	f.proxy.Lookup = func(context.Context, string) ([]netip.Addr, error) {
@@ -310,42 +275,6 @@ func TestPrivateAddressesBlockedEvenWhenOpen(t *testing.T) {
 	}
 	if !PublicAddr(netip.MustParseAddr("1.1.1.1")) {
 		t.Error("1.1.1.1 not public")
-	}
-}
-
-func TestPolicy(t *testing.T) {
-	p := Policy{Mode: ModeAllowlist, Allow: []string{"github.com:22", "*.npmjs.org", "registry.example.com:*", "1.2.3.0/24:443"}}
-	if err := p.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	ip := netip.Addr{}
-	tests := []struct {
-		host string
-		ip   netip.Addr
-		port int
-		want bool
-	}{
-		{"github.com", ip, 22, true},
-		{"github.com", ip, 443, false},
-		{"registry.npmjs.org", ip, 443, true},
-		{"npmjs.org", ip, 443, false},
-		{"registry.example.com", ip, 5000, true},
-		{"", netip.MustParseAddr("1.2.3.4"), 443, true},
-		{"", netip.MustParseAddr("1.2.4.4"), 443, false},
-		{"evil.com", ip, 80, false},
-	}
-	for _, tt := range tests {
-		if got := p.Allows(tt.host, tt.ip, tt.port); got != tt.want {
-			t.Errorf("Allows(%q, %v, %d) = %v", tt.host, tt.ip, tt.port, got)
-		}
-	}
-	if !p.AllowsName("github.com") || p.AllowsName("evil.com") {
-		t.Error("AllowsName")
-	}
-	for _, bad := range []Policy{{Mode: "x"}, {Mode: ModeAllowlist, Allow: []string{"*"}}, {Mode: ModeAllowlist, Allow: []string{"a.com:99999"}}} {
-		if bad.Validate() == nil {
-			t.Errorf("accepted %+v", bad)
-		}
 	}
 }
 
@@ -375,10 +304,9 @@ func TestDNS(t *testing.T) {
 			_, _ = pc.WriteTo(out, addr)
 		}
 	}()
-	agent := &Agent{ID: "ag_1", Policy: Policy{Mode: ModeAllowlist, Allow: []string{"github.com:22"}}}
+	agent := &Agent{ID: "ag_1"}
 	names := NewNameCache()
-	var evs events
-	d := &DNS{Agents: staticAgents{agent}, Names: names, Upstream: pc.LocalAddr().String(), Log: evs.add}
+	d := &DNS{Agents: staticAgents{agent}, Names: names, Upstream: pc.LocalAddr().String()}
 
 	query := func(name string) dnsmessage.RCode {
 		b := dnsmessage.NewBuilder(nil, dnsmessage.Header{ID: 7, RecursionDesired: true})
@@ -394,16 +322,10 @@ func TestDNS(t *testing.T) {
 		return h.RCode
 	}
 	if rc := query("github.com."); rc != dnsmessage.RCodeSuccess {
-		t.Fatalf("allowed name: %v", rc)
+		t.Fatalf("query: %v", rc)
 	}
 	if got := names.Lookup("ag_1", netip.MustParseAddr("93.184.216.34")); got != "github.com" {
 		t.Fatalf("name cache = %q", got)
-	}
-	if rc := query("data-to-exfiltrate.evil.com."); rc != dnsmessage.RCodeNameError {
-		t.Fatalf("denied name: %v", rc)
-	}
-	if ev, ok := evs.find("data-to-exfiltrate.evil.com"); !ok || ev.Kind != "dns" || ev.Allowed {
-		t.Fatalf("event %+v", ev)
 	}
 }
 

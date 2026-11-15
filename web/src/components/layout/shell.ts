@@ -7,9 +7,6 @@ export interface ShellState {
   /** Desktop: the sidebar is hidden to give the chat the full width. */
   collapsed: boolean;
   setCollapsed: (c: boolean) => void;
-  /** Workspace filter for the sidebar and new agents; 'all' shows everything. */
-  scope: string;
-  setScope: (s: string) => void;
   openNewAgent: () => void;
 }
 

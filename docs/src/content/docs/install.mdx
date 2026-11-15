@@ -85,12 +85,13 @@ If you use the published base image, pull it now, so creating the first agent do
 
 ## 5. First agent
 
-1. Open `https://<domain>` and sign in. The first login creates your user and a personal workspace.
+1. Open `https://<domain>` and sign in. The first login creates your user. For a
+   single-user install you can instead configure a local admin (`auth.local`, see [authentication](/auth/#local-admin)).
 2. **New agent**: give it a name and keep the defaults (base image, Claude Code). Wait until it shows
    *running*.
 3. Sign the harness in once for all your agents: open **Provider logins** (top right), choose **Claude Code →
    Connect**, run `claude setup-token` on your computer and paste the token (or paste an Anthropic API key). Your
-   agents use it from their next turn. Alternatively add an API key under the workspace's **Secrets** (preset
+   agents use it from their next turn. Alternatively add an API key under **Settings → Secrets** (preset
    "Anthropic API key") and attach it to the agent as `ANTHROPIC_API_KEY`, or sign in inside one agent under
    **Overview → Sign in inside this sandbox instead**.
    To try it without an account, set the agent's harness to **OpenCode**, which has free models.

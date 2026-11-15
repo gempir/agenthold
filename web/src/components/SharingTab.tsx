@@ -1,83 +1,67 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import { api, unwrap } from '@/api/client';
-import {
-  accessQuery,
-  membersQuery,
-  type AgentRole,
-  type Grant,
-} from '@/api/queries';
-import { Avatar } from '@/components/MembersList';
+import { accessQuery, agentsQuery, meQuery } from '@/api/queries';
+import { Avatar } from '@/components/Avatar';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Select } from '@/components/ui/select';
-import { ROLE_HELP, VIA_LABEL } from '@/lib/audit';
+import { Input } from '@/components/ui/input';
+import { SHARED_HELP } from '@/lib/audit';
 
-const ROLES: AgentRole[] = ['viewer', 'operator', 'admin'];
-
+/** Who can use the agent: its owner and the users it is shared with. */
 export function SharingTab({
   agentId,
-  workspaceId,
-  admin,
+  isOwner,
 }: {
   agentId: string;
-  workspaceId: string;
-  admin: boolean;
+  isOwner: boolean;
 }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const me = useQuery(meQuery);
   const q = useQuery(accessQuery(agentId));
-  const members = useQuery({ ...membersQuery(workspaceId), enabled: admin });
-  const [subject, setSubject] = useState('workspace');
-  const [role, setRole] = useState<AgentRole>('viewer');
+  const [email, setEmail] = useState('');
 
   const refresh = () =>
-    qc.invalidateQueries({ queryKey: ['agents', agentId, 'grants'] });
+    qc.invalidateQueries({ queryKey: accessQuery(agentId).queryKey });
 
-  const set = useMutation({
-    mutationFn: (b: {
-      subjectType: 'user' | 'workspace';
-      userId?: string;
-      role: AgentRole;
-    }) =>
+  const share = useMutation({
+    mutationFn: () =>
       unwrap(
-        api.POST('/agents/{agentId}/grants', {
+        api.POST('/agents/{agentId}/shares', {
           params: { path: { agentId } },
-          body: b,
+          body: { email: email.trim() },
         }),
       ),
-    onSuccess: refresh,
+    onSuccess: async () => {
+      setEmail('');
+      await refresh();
+    },
   });
   const remove = useMutation({
-    mutationFn: (grantId: string) =>
+    mutationFn: (userId: string) =>
       unwrap(
-        api.DELETE('/agents/{agentId}/grants/{grantId}', {
-          params: { path: { agentId, grantId } },
+        api.DELETE('/agents/{agentId}/shares/{userId}', {
+          params: { path: { agentId, userId } },
         }),
       ),
-    onSuccess: refresh,
+    onSuccess: async (_d, userId) => {
+      if (userId === me.data?.user.id) {
+        // Left the agent: it is gone from this user's view.
+        await qc.invalidateQueries({ queryKey: agentsQuery.queryKey });
+        await navigate({ to: '/' });
+        return;
+      }
+      await refresh();
+    },
   });
 
   if (q.isPending) return <Loading />;
   if (q.error) return <ErrorText error={q.error} />;
-  const { effective, grants } = q.data;
-
-  const implicit = new Set(
-    effective
-      .filter((e) => e.via === 'owner' || e.via === 'workspace_admin')
-      .map((e) => e.user.id),
-  );
-  const candidates = (members.data ?? []).filter(
-    (m) => !implicit.has(m.user.id),
-  );
-  const busy = set.isPending || remove.isPending;
-
-  const changeRole = (g: Grant, r: AgentRole) =>
-    set.mutate(
-      g.subjectType === 'workspace'
-        ? { subjectType: 'workspace', role: r }
-        : { subjectType: 'user', userId: g.user?.id, role: r },
-    );
+  const { owner, shares } = q.data;
+  const myId = me.data?.user.id;
 
   return (
     <div className="grid gap-6">
@@ -87,135 +71,82 @@ export function SharingTab({
           aria-label="People with access"
           className="divide-y rounded-lg border"
         >
-          {effective.map((e) => (
-            <li
-              key={e.user.id}
-              className="flex flex-wrap items-center gap-3 p-3"
-            >
-              <Avatar name={e.user.name} url={e.user.avatarUrl} />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">
-                  {e.user.name}
-                </div>
-                <div className="truncate text-xs text-muted-foreground">
-                  {e.user.email}
-                </div>
-              </div>
-              <span className="text-xs text-muted-foreground">
-                {VIA_LABEL[e.via] ?? e.via}
-              </span>
-              <Badge>{e.role}</Badge>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section className="grid gap-2">
-        <h2 className="text-sm font-semibold">Grants</h2>
-        {grants.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            Nothing has been shared yet.
-          </p>
-        )}
-        <ul aria-label="Grants" className="divide-y rounded-lg border">
-          {grants.map((g) => {
-            const who =
-              g.subjectType === 'workspace'
-                ? 'Everyone in this workspace'
-                : (g.user?.name ?? 'Unknown user');
+          <li className="flex flex-wrap items-center gap-3 p-3">
+            <Avatar name={owner.name} url={owner.avatarUrl} />
+            <Person name={owner.name} email={owner.email} />
+            <Badge>owner</Badge>
+          </li>
+          {shares.map((s) => {
+            const self = s.user.id === myId;
             return (
-              <li key={g.id} className="flex flex-wrap items-center gap-3 p-3">
-                <span className="min-w-0 flex-1 truncate text-sm">{who}</span>
-                {admin ? (
-                  <>
-                    <Select
-                      aria-label={`Role for ${who}`}
-                      value={g.role}
-                      disabled={busy}
-                      onChange={(e) =>
-                        changeRole(g, e.target.value as AgentRole)
-                      }
-                    >
-                      {ROLES.map((r) => (
-                        <option key={r} value={r}>
-                          {r}
-                        </option>
-                      ))}
-                    </Select>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busy}
-                      aria-label={`Remove ${who}`}
-                      onClick={() => remove.mutate(g.id)}
-                    >
-                      Remove
-                    </Button>
-                  </>
-                ) : (
-                  <Badge>{g.role}</Badge>
+              <li
+                key={s.user.id}
+                className="flex flex-wrap items-center gap-3 p-3"
+              >
+                <Avatar name={s.user.name} url={s.user.avatarUrl} />
+                <Person name={s.user.name} email={s.user.email} />
+                <Badge variant="outline">shared</Badge>
+                {(isOwner || self) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={remove.isPending}
+                    aria-label={self ? 'Leave' : `Remove ${s.user.name}`}
+                    onClick={() => remove.mutate(s.user.id)}
+                  >
+                    {self ? 'Leave' : 'Remove'}
+                  </Button>
                 )}
               </li>
             );
           })}
         </ul>
+        {shares.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            Not shared with anyone.
+          </p>
+        )}
         <ErrorText error={remove.error} />
       </section>
 
-      {admin && (
+      {isOwner && (
         <form
           className="grid gap-3 rounded-lg border p-4"
           onSubmit={(e) => {
             e.preventDefault();
-            set.mutate(
-              subject === 'workspace'
-                ? { subjectType: 'workspace', role }
-                : { subjectType: 'user', userId: subject, role },
-            );
+            share.mutate();
           }}
         >
           <h2 className="text-sm font-semibold">Share</h2>
           <label className="grid gap-1 text-sm">
-            With
-            <Select
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-            >
-              <option value="workspace">Everyone in this workspace</option>
-              {candidates.map((m) => (
-                <option key={m.user.id} value={m.user.id}>
-                  {m.user.name} ({m.user.email})
-                </option>
-              ))}
-            </Select>
+            Email
+            <Input
+              type="email"
+              required
+              placeholder="someone@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
           </label>
-          <label className="grid gap-1 text-sm">
-            Role
-            <Select
-              value={role}
-              onChange={(e) => setRole(e.target.value as AgentRole)}
-            >
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <p className="text-xs text-muted-foreground">
-            {ROLES.map((r) => (
-              <span key={r} className="block">
-                <strong>{r}</strong>: {ROLE_HELP[r]}
-              </span>
-            ))}
-          </p>
-          <ErrorText error={set.error} />
+          <p className="text-xs text-muted-foreground">{SHARED_HELP}</p>
+          <ErrorText error={share.error} />
           <div>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" disabled={!email.trim() || share.isPending}>
               Share
             </Button>
           </div>
         </form>
+      )}
+    </div>
+  );
+}
+
+function Person({ name, email }: { name: string; email: string }) {
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="truncate text-sm font-medium">{name}</div>
+      {email && (
+        <div className="truncate text-xs text-muted-foreground">{email}</div>
       )}
     </div>
   );

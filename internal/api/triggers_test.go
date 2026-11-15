@@ -41,7 +41,7 @@ func TestTokenScriptCreatesAndPromptsAgent(t *testing.T) {
 	var me gen.Me
 	expect(t, "me via token", script.do("GET", "/me", nil, &me), 200)
 	var ag gen.Agent
-	expect(t, "create agent via token", script.do("POST", "/workspaces/"+me.PersonalWorkspaceId+"/agents", gen.AgentInput{Name: "scripted", Harness: ptr("fake")}, &ag), 201)
+	expect(t, "create agent via token", script.do("POST", "/agents", gen.AgentInput{Name: "scripted", Harness: ptr("fake")}, &ag), 201)
 	e.sandboxes.Wait()
 	var sess gen.Session
 	expect(t, "session via token", script.do("POST", "/agents/"+ag.Id+"/sessions", map[string]string{}, &sess), 201)

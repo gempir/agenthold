@@ -23,12 +23,12 @@ type Entry = {
 
 export function FilesTab({
   agentId,
-  operator,
+  canUse,
   onStart,
   starting,
 }: {
   agentId: string;
-  operator: boolean;
+  canUse: boolean;
   onStart: () => void;
   starting: boolean;
 }) {
@@ -115,7 +115,7 @@ export function FilesTab({
           <p role="alert" className="text-sm">
             {q.error.message}
           </p>
-          {operator && (
+          {canUse && (
             <Button
               disabled={starting}
               onClick={() => {
@@ -161,7 +161,7 @@ export function FilesTab({
             </span>
           ))}
         </nav>
-        {operator && (
+        {canUse && (
           <div className="flex gap-2">
             <Button
               size="sm"
@@ -230,7 +230,7 @@ export function FilesTab({
               <span className="hidden w-44 text-muted-foreground sm:inline">
                 {new Date(e.modTime).toLocaleString()}
               </span>
-              {operator && (
+              {canUse && (
                 <Button
                   size="icon"
                   variant="ghost"

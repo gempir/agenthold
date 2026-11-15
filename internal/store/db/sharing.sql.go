@@ -9,115 +9,38 @@ import (
 	"context"
 )
 
-const deleteGrant = `-- name: DeleteGrant :execrows
-DELETE FROM agent_grants WHERE id = ? AND agent_id = ?
+const getShare = `-- name: GetShare :one
+SELECT agent_id, user_id, created_at FROM agent_shares WHERE agent_id = ? AND user_id = ?
 `
 
-type DeleteGrantParams struct {
-	ID      string
+type GetShareParams struct {
 	AgentID string
+	UserID  string
 }
 
-func (q *Queries) DeleteGrant(ctx context.Context, arg DeleteGrantParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteGrant, arg.ID, arg.AgentID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const deleteUserGrantsInWorkspace = `-- name: DeleteUserGrantsInWorkspace :exec
-DELETE FROM agent_grants WHERE subject_type = 'user' AND subject_id = ?1
-AND agent_id IN (SELECT id FROM agents WHERE workspace_id = ?2)
-`
-
-type DeleteUserGrantsInWorkspaceParams struct {
-	UserID      string
-	WorkspaceID string
-}
-
-// When someone leaves a workspace, their grants on its agents go too.
-func (q *Queries) DeleteUserGrantsInWorkspace(ctx context.Context, arg DeleteUserGrantsInWorkspaceParams) error {
-	_, err := q.db.ExecContext(ctx, deleteUserGrantsInWorkspace, arg.UserID, arg.WorkspaceID)
-	return err
-}
-
-const getGrant = `-- name: GetGrant :one
-SELECT id, agent_id, subject_type, subject_id, role, created_by, created_at FROM agent_grants WHERE id = ? AND agent_id = ?
-`
-
-type GetGrantParams struct {
-	ID      string
-	AgentID string
-}
-
-func (q *Queries) GetGrant(ctx context.Context, arg GetGrantParams) (AgentGrant, error) {
-	row := q.db.QueryRowContext(ctx, getGrant, arg.ID, arg.AgentID)
-	var i AgentGrant
-	err := row.Scan(
-		&i.ID,
-		&i.AgentID,
-		&i.SubjectType,
-		&i.SubjectID,
-		&i.Role,
-		&i.CreatedBy,
-		&i.CreatedAt,
-	)
+func (q *Queries) GetShare(ctx context.Context, arg GetShareParams) (AgentShare, error) {
+	row := q.db.QueryRowContext(ctx, getShare, arg.AgentID, arg.UserID)
+	var i AgentShare
+	err := row.Scan(&i.AgentID, &i.UserID, &i.CreatedAt)
 	return i, err
 }
 
-const grantRolesFor = `-- name: GrantRolesFor :many
-SELECT role FROM agent_grants
-WHERE agent_id = ? AND (subject_type = 'workspace' OR (subject_type = 'user' AND subject_id = ?))
-`
-
-type GrantRolesForParams struct {
-	AgentID   string
-	SubjectID string
-}
-
-// The roles a user holds on an agent through grants.
-func (q *Queries) GrantRolesFor(ctx context.Context, arg GrantRolesForParams) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, grantRolesFor, arg.AgentID, arg.SubjectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var role string
-		if err := rows.Scan(&role); err != nil {
-			return nil, err
-		}
-		items = append(items, role)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const insertAudit = `-- name: InsertAudit :exec
-INSERT INTO audit_log (at, workspace_id, agent_id, user_id, action, target, details) VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO audit_log (at, agent_id, user_id, action, target, details) VALUES (?, ?, ?, ?, ?, ?)
 `
 
 type InsertAuditParams struct {
-	At          int64
-	WorkspaceID string
-	AgentID     string
-	UserID      string
-	Action      string
-	Target      string
-	Details     string
+	At      int64
+	AgentID string
+	UserID  string
+	Action  string
+	Target  string
+	Details string
 }
 
 func (q *Queries) InsertAudit(ctx context.Context, arg InsertAuditParams) error {
 	_, err := q.db.ExecContext(ctx, insertAudit,
 		arg.At,
-		arg.WorkspaceID,
 		arg.AgentID,
 		arg.UserID,
 		arg.Action,
@@ -127,8 +50,24 @@ func (q *Queries) InsertAudit(ctx context.Context, arg InsertAuditParams) error 
 	return err
 }
 
+const isSharedWith = `-- name: IsSharedWith :one
+SELECT COUNT(*) FROM agent_shares WHERE agent_id = ? AND user_id = ?
+`
+
+type IsSharedWithParams struct {
+	AgentID string
+	UserID  string
+}
+
+func (q *Queries) IsSharedWith(ctx context.Context, arg IsSharedWithParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, isSharedWith, arg.AgentID, arg.UserID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const listAgentAudit = `-- name: ListAgentAudit :many
-SELECT id, at, workspace_id, agent_id, user_id, "action", target, details FROM audit_log WHERE agent_id = ? AND id < ? ORDER BY id DESC LIMIT ?
+SELECT id, at, agent_id, user_id, "action", target, details FROM audit_log WHERE agent_id = ? AND id < ? ORDER BY id DESC LIMIT ?
 `
 
 type ListAgentAuditParams struct {
@@ -149,7 +88,6 @@ func (q *Queries) ListAgentAudit(ctx context.Context, arg ListAgentAuditParams) 
 		if err := rows.Scan(
 			&i.ID,
 			&i.At,
-			&i.WorkspaceID,
 			&i.AgentID,
 			&i.UserID,
 			&i.Action,
@@ -169,27 +107,36 @@ func (q *Queries) ListAgentAudit(ctx context.Context, arg ListAgentAuditParams) 
 	return items, nil
 }
 
-const listAgentGrants = `-- name: ListAgentGrants :many
-SELECT id, agent_id, subject_type, subject_id, role, created_by, created_at FROM agent_grants WHERE agent_id = ? ORDER BY subject_type DESC, created_at
+const listAgentShares = `-- name: ListAgentShares :many
+SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, agent_shares.created_at AS shared_at
+FROM agent_shares JOIN users ON users.id = agent_shares.user_id
+WHERE agent_shares.agent_id = ?
+ORDER BY users.name, users.email, users.id
 `
 
-func (q *Queries) ListAgentGrants(ctx context.Context, agentID string) ([]AgentGrant, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentGrants, agentID)
+type ListAgentSharesRow struct {
+	User     User
+	SharedAt int64
+}
+
+func (q *Queries) ListAgentShares(ctx context.Context, agentID string) ([]ListAgentSharesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentShares, agentID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []AgentGrant{}
+	items := []ListAgentSharesRow{}
 	for rows.Next() {
-		var i AgentGrant
+		var i ListAgentSharesRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.AgentID,
-			&i.SubjectType,
-			&i.SubjectID,
-			&i.Role,
-			&i.CreatedBy,
-			&i.CreatedAt,
+			&i.User.ID,
+			&i.User.Email,
+			&i.User.EmailVerified,
+			&i.User.Name,
+			&i.User.AvatarUrl,
+			&i.User.CreatedAt,
+			&i.User.UpdatedAt,
+			&i.SharedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -204,73 +151,35 @@ func (q *Queries) ListAgentGrants(ctx context.Context, agentID string) ([]AgentG
 	return items, nil
 }
 
-const listWorkspaceAudit = `-- name: ListWorkspaceAudit :many
-SELECT id, at, workspace_id, agent_id, user_id, "action", target, details FROM audit_log WHERE workspace_id = ? AND id < ? ORDER BY id DESC LIMIT ?
+const shareAgent = `-- name: ShareAgent :exec
+INSERT INTO agent_shares (agent_id, user_id, created_at) VALUES (?, ?, ?)
+ON CONFLICT (agent_id, user_id) DO NOTHING
 `
 
-type ListWorkspaceAuditParams struct {
-	WorkspaceID string
-	ID          int64
-	Limit       int64
+type ShareAgentParams struct {
+	AgentID   string
+	UserID    string
+	CreatedAt int64
 }
 
-func (q *Queries) ListWorkspaceAudit(ctx context.Context, arg ListWorkspaceAuditParams) ([]AuditLog, error) {
-	rows, err := q.db.QueryContext(ctx, listWorkspaceAudit, arg.WorkspaceID, arg.ID, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AuditLog{}
-	for rows.Next() {
-		var i AuditLog
-		if err := rows.Scan(
-			&i.ID,
-			&i.At,
-			&i.WorkspaceID,
-			&i.AgentID,
-			&i.UserID,
-			&i.Action,
-			&i.Target,
-			&i.Details,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const upsertGrant = `-- name: UpsertGrant :exec
-INSERT INTO agent_grants (id, agent_id, subject_type, subject_id, role, created_by, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (agent_id, subject_type, subject_id) DO UPDATE SET role = excluded.role
-`
-
-type UpsertGrantParams struct {
-	ID          string
-	AgentID     string
-	SubjectType string
-	SubjectID   string
-	Role        string
-	CreatedBy   string
-	CreatedAt   int64
-}
-
-func (q *Queries) UpsertGrant(ctx context.Context, arg UpsertGrantParams) error {
-	_, err := q.db.ExecContext(ctx, upsertGrant,
-		arg.ID,
-		arg.AgentID,
-		arg.SubjectType,
-		arg.SubjectID,
-		arg.Role,
-		arg.CreatedBy,
-		arg.CreatedAt,
-	)
+func (q *Queries) ShareAgent(ctx context.Context, arg ShareAgentParams) error {
+	_, err := q.db.ExecContext(ctx, shareAgent, arg.AgentID, arg.UserID, arg.CreatedAt)
 	return err
+}
+
+const unshareAgent = `-- name: UnshareAgent :execrows
+DELETE FROM agent_shares WHERE agent_id = ? AND user_id = ?
+`
+
+type UnshareAgentParams struct {
+	AgentID string
+	UserID  string
+}
+
+func (q *Queries) UnshareAgent(ctx context.Context, arg UnshareAgentParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, unshareAgent, arg.AgentID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

@@ -53,7 +53,6 @@ func testTunnel(t *testing.T, image string) {
 	}
 	defer st.Close()
 	_ = st.CreateUser(ctx, db.CreateUserParams{ID: "usr_1", CreatedAt: 1, UpdatedAt: 1})
-	_ = st.CreateWorkspace(ctx, db.CreateWorkspaceParams{ID: "ws_1", Name: "w", CreatedAt: 1, UpdatedAt: 1})
 
 	// The tunnel listener runs on the host; sandboxes reach it via host.docker.internal.
 	ln, err := net.Listen("tcp", "0.0.0.0:0")
@@ -86,7 +85,7 @@ func testTunnel(t *testing.T, image string) {
 	var provision func()
 	if err := st.Tx(ctx, func(q *db.Queries) error {
 		if err := q.CreateAgent(ctx, db.CreateAgentParams{
-			ID: agentID, WorkspaceID: "ws_1", OwnerID: "usr_1", Name: "a", Image: image,
+			ID: agentID, OwnerID: "usr_1", Name: "a", Image: image,
 			Harness: "claude-code", Cpus: 1, MemoryMb: 256, IdleMinutes: 15, CreatedAt: 1, UpdatedAt: 1,
 		}); err != nil {
 			return err

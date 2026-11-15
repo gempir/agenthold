@@ -12,18 +12,10 @@ type MCPServer = components['schemas']['MCPServer'];
 type MCPServerInput = components['schemas']['MCPServerInput'];
 type Skill = components['schemas']['Skill'];
 
-const wsServersKey = (ws: string) => ['workspaces', ws, 'mcp-servers'];
-const wsSkillsKey = (ws: string) => ['workspaces', ws, 'skills'];
+const libServersKey = ['mcp-servers'];
+const libSkillsKey = ['skills'];
 const agentServersKey = (ag: string) => ['agents', ag, 'mcp-servers'];
 const agentSkillsKey = (ag: string) => ['agents', ag, 'skills'];
-
-function useWorkspaceServers(workspaceId: string) {
-  return useQuery(wsServersQueryOpts(workspaceId));
-}
-
-function useWorkspaceSkills(workspaceId: string) {
-  return useQuery(wsSkillsQueryOpts(workspaceId));
-}
 
 /** "KEY=value" lines <-> object. */
 export function parsePairs(text: string, sep: string): Record<string, string> {
@@ -247,31 +239,24 @@ function SkillForm({
   );
 }
 
-/** Workspace Tools tab: the MCP server and skills libraries. */
-export function WorkspaceToolsPanel({
-  workspaceId,
-  admin,
-}: {
-  workspaceId: string;
-  admin: boolean;
-}) {
+/** Your MCP server and skills libraries, attachable to agents you own. */
+export function LibraryToolsPanel() {
   const qc = useQueryClient();
-  const servers = useWorkspaceServers(workspaceId);
-  const skills = useWorkspaceSkills(workspaceId);
+  const servers = useQuery(libServersQueryOpts);
+  const skills = useQuery(libSkillsQueryOpts);
   const [adding, setAdding] = useState<'' | 'server' | 'skill'>('');
   const [editing, setEditing] = useState<string>('');
 
   const createServer = useMutation({
     mutationFn: (body: MCPServerInput) =>
       unwrap(
-        api.POST('/workspaces/{workspaceId}/mcp-servers', {
-          params: { path: { workspaceId } },
+        api.POST('/mcp-servers', {
           body,
         }),
       ),
     onSuccess: async () => {
       setAdding('');
-      await qc.invalidateQueries({ queryKey: wsServersKey(workspaceId) });
+      await qc.invalidateQueries({ queryKey: libServersKey });
     },
   });
   const updateServer = useMutation({
@@ -284,7 +269,7 @@ export function WorkspaceToolsPanel({
       ),
     onSuccess: async () => {
       setEditing('');
-      await qc.invalidateQueries({ queryKey: wsServersKey(workspaceId) });
+      await qc.invalidateQueries({ queryKey: libServersKey });
     },
   });
   const deleteServer = useMutation({
@@ -294,8 +279,7 @@ export function WorkspaceToolsPanel({
           params: { path: { serverId: id } },
         }),
       ),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: wsServersKey(workspaceId) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: libServersKey }),
   });
   const createSkill = useMutation({
     mutationFn: (body: {
@@ -304,14 +288,13 @@ export function WorkspaceToolsPanel({
       content: string;
     }) =>
       unwrap(
-        api.POST('/workspaces/{workspaceId}/skills', {
-          params: { path: { workspaceId } },
+        api.POST('/skills', {
           body,
         }),
       ),
     onSuccess: async () => {
       setAdding('');
-      await qc.invalidateQueries({ queryKey: wsSkillsKey(workspaceId) });
+      await qc.invalidateQueries({ queryKey: libSkillsKey });
     },
   });
   const updateSkill = useMutation({
@@ -330,7 +313,7 @@ export function WorkspaceToolsPanel({
       ),
     onSuccess: async () => {
       setEditing('');
-      await qc.invalidateQueries({ queryKey: wsSkillsKey(workspaceId) });
+      await qc.invalidateQueries({ queryKey: libSkillsKey });
     },
   });
   const deleteSkill = useMutation({
@@ -338,8 +321,7 @@ export function WorkspaceToolsPanel({
       unwrap(
         api.DELETE('/skills/{skillId}', { params: { path: { skillId: id } } }),
       ),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: wsSkillsKey(workspaceId) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: libSkillsKey }),
   });
 
   return (
@@ -347,18 +329,16 @@ export function WorkspaceToolsPanel({
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">MCP servers</h2>
-          {admin && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setAdding('server')}
-            >
-              Add server
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setAdding('server')}
+          >
+            Add server
+          </Button>
         </div>
         <p className="text-sm text-muted-foreground">
-          Servers here can be attached to any agent in this workspace.
+          Servers here can be attached to any agent you own.
         </p>
         {adding === 'server' && (
           <MCPServerForm
@@ -384,31 +364,29 @@ export function WorkspaceToolsPanel({
                 <code className="truncate text-xs text-muted-foreground">
                   {describe(s)}
                 </code>
-                {admin && (
-                  <span className="ml-auto flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setEditing(s.id)}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        if (
-                          confirm(
-                            `Delete ${s.name}? It is removed from every agent.`,
-                          )
+                <span className="ml-auto flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setEditing(s.id)}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      if (
+                        confirm(
+                          `Delete ${s.name}? It is removed from every agent.`,
                         )
-                          deleteServer.mutate(s.id);
-                      }}
-                    >
-                      Delete
-                    </Button>
-                  </span>
-                )}
+                      )
+                        deleteServer.mutate(s.id);
+                    }}
+                  >
+                    Delete
+                  </Button>
+                </span>
               </div>
               {s.secretRefs.length > 0 && (
                 <span className="text-xs text-muted-foreground">
@@ -432,15 +410,13 @@ export function WorkspaceToolsPanel({
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Skills</h2>
-          {admin && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setAdding('skill')}
-            >
-              Add skill
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setAdding('skill')}
+          >
+            Add skill
+          </Button>
         </div>
         <p className="text-sm text-muted-foreground">
           Instructions agents load when a task matches. Attached skills are
@@ -469,27 +445,25 @@ export function WorkspaceToolsPanel({
                 <span className="truncate text-sm text-muted-foreground">
                   {s.description}
                 </span>
-                {admin && (
-                  <span className="ml-auto flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setEditing(s.id)}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        if (confirm(`Delete the skill ${s.name}?`))
-                          deleteSkill.mutate(s.id);
-                      }}
-                    >
-                      Delete
-                    </Button>
-                  </span>
-                )}
+                <span className="ml-auto flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setEditing(s.id)}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      if (confirm(`Delete the skill ${s.name}?`))
+                        deleteSkill.mutate(s.id);
+                    }}
+                  >
+                    Delete
+                  </Button>
+                </span>
               </div>
               {editing === s.id && (
                 <SkillForm
@@ -511,12 +485,10 @@ export function WorkspaceToolsPanel({
 /** Agent Tools tab: what the agent uses, attach and detach. */
 export function AgentToolsPanel({
   agentId,
-  workspaceId,
-  admin,
+  isOwner,
 }: {
   agentId: string;
-  workspaceId: string;
-  admin: boolean;
+  isOwner: boolean;
 }) {
   const qc = useQueryClient();
   const servers = useQuery({
@@ -535,14 +507,8 @@ export function AgentToolsPanel({
         api.GET('/agents/{agentId}/skills', { params: { path: { agentId } } }),
       ),
   });
-  const wsServers = useQuery({
-    ...wsServersQueryOpts(workspaceId),
-    enabled: admin,
-  });
-  const wsSkills = useQuery({
-    ...wsSkillsQueryOpts(workspaceId),
-    enabled: admin,
-  });
+  const wsServers = useQuery({ ...libServersQueryOpts, enabled: isOwner });
+  const wsSkills = useQuery({ ...libSkillsQueryOpts, enabled: isOwner });
   const [adding, setAdding] = useState(false);
   const [pickServer, setPickServer] = useState('');
   const [pickSkill, setPickSkill] = useState('');
@@ -636,12 +602,12 @@ export function AgentToolsPanel({
               <span className="font-medium">{s.name}</span>
               <Badge variant="outline">{s.transport}</Badge>
               <Badge variant="secondary">
-                {s.scope === 'agent' ? 'this agent' : 'workspace'}
+                {s.scope === 'agent' ? 'this agent' : 'library'}
               </Badge>
               <code className="truncate text-xs text-muted-foreground">
                 {describe(s)}
               </code>
-              {admin && (
+              {isOwner && (
                 <Button
                   className="ml-auto"
                   size="sm"
@@ -654,12 +620,12 @@ export function AgentToolsPanel({
             </li>
           ))}
         </ul>
-        {admin && (
+        {isOwner && (
           <div className="flex flex-wrap items-end gap-2">
             <label className="grid gap-1 text-sm">
-              Attach a workspace server
+              Attach a library server
               <Select
-                aria-label="Workspace server"
+                aria-label="Library server"
                 value={pickServer}
                 onChange={(e) => setPickServer(e.target.value)}
               >
@@ -708,7 +674,7 @@ export function AgentToolsPanel({
               <span className="truncate text-sm text-muted-foreground">
                 {s.description}
               </span>
-              {admin && (
+              {isOwner && (
                 <Button
                   className="ml-auto"
                   size="sm"
@@ -721,7 +687,7 @@ export function AgentToolsPanel({
             </li>
           ))}
         </ul>
-        {admin && (
+        {isOwner && (
           <div className="flex items-end gap-2">
             <label className="grid gap-1 text-sm">
               Attach a skill
@@ -752,22 +718,12 @@ export function AgentToolsPanel({
   );
 }
 
-const wsServersQueryOpts = (workspaceId: string) => ({
-  queryKey: wsServersKey(workspaceId),
-  queryFn: () =>
-    unwrap(
-      api.GET('/workspaces/{workspaceId}/mcp-servers', {
-        params: { path: { workspaceId } },
-      }),
-    ),
-});
+const libServersQueryOpts = {
+  queryKey: libServersKey,
+  queryFn: () => unwrap(api.GET('/mcp-servers')),
+};
 
-const wsSkillsQueryOpts = (workspaceId: string) => ({
-  queryKey: wsSkillsKey(workspaceId),
-  queryFn: () =>
-    unwrap(
-      api.GET('/workspaces/{workspaceId}/skills', {
-        params: { path: { workspaceId } },
-      }),
-    ),
-});
+const libSkillsQueryOpts = {
+  queryKey: libSkillsKey,
+  queryFn: () => unwrap(api.GET('/skills')),
+};

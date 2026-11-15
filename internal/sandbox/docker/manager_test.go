@@ -32,7 +32,6 @@ func TestManagerAcceptance(t *testing.T) {
 		}
 	}
 	must(st.CreateUser(ctx, db.CreateUserParams{ID: "usr_1", CreatedAt: 1, UpdatedAt: 1}))
-	must(st.CreateWorkspace(ctx, db.CreateWorkspaceParams{ID: "ws_1", Name: "w", CreatedAt: 1, UpdatedAt: 1}))
 
 	spec := func(a db.Agent) sandbox.Spec {
 		s := sandbox.BaseSpec(a)
@@ -44,7 +43,7 @@ func TestManagerAcceptance(t *testing.T) {
 	var provision func()
 	must(st.Tx(ctx, func(q *db.Queries) error {
 		if err := q.CreateAgent(ctx, db.CreateAgentParams{
-			ID: agentID, WorkspaceID: "ws_1", OwnerID: "usr_1", Name: "a", Image: testImage,
+			ID: agentID, OwnerID: "usr_1", Name: "a", Image: testImage,
 			Harness: "claude-code", Cpus: 0.5, MemoryMb: 256, IdleMinutes: 15, CreatedAt: 1, UpdatedAt: 1,
 		}); err != nil {
 			return err

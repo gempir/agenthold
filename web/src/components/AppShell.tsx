@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Outlet, useRouterState } from '@tanstack/react-router';
-import { meQuery, workspacesQuery } from '@/api/queries';
+import { meQuery } from '@/api/queries';
 import { NewAgentDialog } from '@/components/AgentsSection';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Sidebar } from '@/components/layout/Sidebar';
@@ -18,7 +18,6 @@ import {
  */
 export function AppShell() {
   const me = useQuery(meQuery);
-  const workspaces = useQuery(workspacesQuery);
   const href = useRouterState({ select: (s) => s.location.href });
   // The mobile drawer remembers the location it was opened at, so any
   // navigation closes it.
@@ -27,7 +26,6 @@ export function AppShell() {
   const [collapsed, setCollapsedState] = useState(
     () => readPref('sidebar', 'open') === 'collapsed',
   );
-  const [scope, setScopeState] = useState(() => readPref('scope', 'all'));
   const [newAgent, setNewAgent] = useState(false);
 
   const shell = useMemo<ShellState>(
@@ -39,14 +37,9 @@ export function AppShell() {
         setCollapsedState(c);
         writePref('sidebar', c ? 'collapsed' : 'open');
       },
-      scope,
-      setScope: (s) => {
-        setScopeState(s);
-        writePref('scope', s);
-      },
       openNewAgent: () => setNewAgent(true),
     }),
-    [drawerOpen, href, collapsed, scope],
+    [drawerOpen, href, collapsed],
   );
 
   if (me.isPending)
@@ -61,11 +54,6 @@ export function AppShell() {
         <ErrorText error={me.error} />
       </div>
     );
-
-  const wsList = workspaces.data ?? [];
-  const defaultWs = wsList.some((w) => w.id === scope)
-    ? scope
-    : me.data.personalWorkspaceId;
 
   return (
     <ShellContext.Provider value={shell}>
@@ -91,13 +79,7 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
-      {newAgent && (
-        <NewAgentDialog
-          workspaceId={defaultWs}
-          workspaces={wsList}
-          onClose={() => setNewAgent(false)}
-        />
-      )}
+      {newAgent && <NewAgentDialog onClose={() => setNewAgent(false)} />}
     </ShellContext.Provider>
   );
 }

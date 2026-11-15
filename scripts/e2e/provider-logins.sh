@@ -7,14 +7,13 @@ D=$(dirname "$0")
 JAR=$(login alice alice)
 COOKIE=$(awk '/agenthold_session/{print $7}' "$JAR")
 WSURL=${BASE/http/ws}
-WS=$(api "$JAR" "$BASE/api/v1/me" | json 'd["personalWorkspaceId"]')
 VALUE="fake-e2e-$RANDOM$RANDOM$RANDOM"
 
 echo "Connect a login on the account"
 code=$(api "$JAR" -o "$WORK/connect" -w '%{http_code}' -X PUT "$BASE/api/v1/me/provider-logins/fake" -d "{\"kind\":\"token\",\"credential\":\"$VALUE\"}")
 [[ $code == 200 ]] && ! grep -q "$VALUE" "$WORK/connect" && pass "connected, the value is not echoed" || fail "connect: $code $(cat "$WORK/connect")"
 
-AG=$(api "$JAR" -X POST "$BASE/api/v1/workspaces/$WS/agents" -d '{"name":"e2e-logins","image":"'"$IMG"'","harness":"fake","memoryMb":512}' | json 'd["id"]')
+AG=$(api "$JAR" -X POST "$BASE/api/v1/agents" -d '{"name":"e2e-logins","image":"'"$IMG"'","harness":"fake","memoryMb":512}' | json 'd["id"]')
 wait_running "$JAR" "$AG"
 echo "agent $AG"
 [[ $(api "$JAR" "$BASE/api/v1/agents/$AG" | json 'd["login"]["source"]+" "+str(d["login"]["connected"])') == "account True" ]] && pass "new agent uses its creator's login" || fail "agent login: $(api "$JAR" "$BASE/api/v1/agents/$AG" | json 'd["login"]')"

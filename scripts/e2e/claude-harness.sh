@@ -3,8 +3,7 @@
 # advertises. Without a login, the prompt must fail with a clear message.
 source "$(dirname "$0")/lib.sh"
 JAR=$(login alice alice)
-WS=$(api "$JAR" "$BASE/api/v1/me" | json 'd["personalWorkspaceId"]')
-AG=$(api "$JAR" -X POST "$BASE/api/v1/workspaces/$WS/agents" -d '{"name":"claude","image":"agenthold/base:dev","memoryMb":2048}' | json 'd["id"]')
+AG=$(api "$JAR" -X POST "$BASE/api/v1/agents" -d '{"name":"claude","image":"agenthold/base:dev","memoryMb":2048}' | json 'd["id"]')
 wait_running "$JAR" "$AG"
 echo "agent $AG"
 api "$JAR" "$BASE/api/v1/agents/$AG/harness?connect=true" | python3 -m json.tool

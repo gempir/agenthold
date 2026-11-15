@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 // Signs in through the dev Keycloak, creates an agent with the scripted
-// harness, chats with it, and checks a second user cannot see it.
+// harness, chats with it, and checks a second user sees it only once shared.
 const image = process.env.E2E_IMAGE ?? 'agenthold/base:dev';
 
 async function signIn(page: import('@playwright/test').Page, user: string) {
@@ -63,17 +63,33 @@ test('chat with an agent', async ({ page, browser }) => {
       .getByText('hello from the browser'),
   ).toBeVisible();
 
-  // Someone else in another workspace cannot open it.
+  // Someone it is not shared with cannot open it.
   const url = page.url();
   const other = await browser.newContext();
   const bob = await other.newPage();
   await signIn(bob, 'bob');
   await bob.goto(url);
   await expect(bob.getByText(/not found/i)).toBeVisible();
+
+  // Shared by email, bob can chat but not configure it.
+  const agentPath = new URL(url).pathname;
+  await page.goto(`${agentPath}/settings?tab=sharing`);
+  await page.getByLabel('Email').fill('bob@example.com');
+  await page.getByRole('button', { name: 'Share' }).click();
+  await expect(
+    page
+      .getByRole('list', { name: 'People with access' })
+      .getByText('bob@example.com'),
+  ).toBeVisible();
+  await bob.goto(agentPath);
+  await expect(bob.getByRole('textbox', { name: 'Message' })).toBeVisible();
+  await bob.goto(`${agentPath}/settings`);
+  await expect(bob.getByRole('button', { name: 'Delete' })).toHaveCount(0);
   await other.close();
 
   // Clean up from the agent's settings.
-  const agentId = new URL(url).pathname.split('/')[2];
+  const agentId = agentPath.split('/')[2];
+  await page.goto(agentPath);
   await page.getByRole('link', { name: 'Agent settings' }).click();
   await page.getByRole('button', { name: 'Delete' }).click();
   await page

@@ -1,17 +1,45 @@
 ---
 title: "Authentication"
-description: "agenthold has no passwords of its own."
+description: "Sign in through OIDC or GitHub, or as the one local admin from the config file."
 ---
 
-agenthold has no passwords of its own. Users sign in through an external identity provider, configured in the
-server config file (path in `AGENTHOLD_CONFIG`, YAML, `${VAR}` references are expanded from the environment).
+Users sign in through an external identity provider, or as the single **local admin** defined in the server
+config file (path in `AGENTHOLD_CONFIG`, YAML, `${VAR}` and `${VAR:-default}` references are expanded from the
+environment; `$` without braces is kept as is). There is no signup and there are no other passwords.
 
 Supported provider types:
 
 - `oidc`: any OpenID Connect provider (Keycloak, Authentik, Okta, Google, ...). See [Keycloak and OIDC](/auth-keycloak/).
 - `github`: GitHub or GitHub Enterprise Server via OAuth2. See [GitHub sign-in](/auth-github/).
 
-## How sign-in works
+## Local admin
+
+For a single-user install, or to get in before an identity provider is set up, configure exactly one local
+admin with a username and an argon2id password hash:
+
+```sh
+agenthold hash-password        # asks for the password twice (or reads one line from stdin)
+```
+
+```yaml
+auth:
+  local:
+    username: admin
+    password_hash: $argon2id$v=19$m=65536,t=3,p=4$...   # output of agenthold hash-password
+```
+
+The login page then shows a username and password form (`POST /api/v1/auth/local`). Wrong credentials and wrong
+usernames take the same time to answer, and attempts are rate limited per client address (10 per 5 minutes) and
+overall (60 per 5 minutes). Behind a reverse proxy the client address is the proxy's, so the per-client limit
+applies to everyone together. The local admin is an ordinary user (identity provider `local`, subject = username)
+with no email address, so other users cannot share agents with it by email. Changing the username creates a new
+user.
+
+If neither `auth.local` nor any provider is configured, nobody can sign in: the server still starts, logs a
+warning that says what to add, and the login page says that sign-in is not set up. agenthold never generates
+credentials.
+
+## How sign-in works with a provider
 
 1. The browser visits `/api/v1/auth/login/<provider id>`.
 2. The server redirects to the provider (authorization code flow; OIDC uses PKCE).
@@ -22,11 +50,8 @@ An identity is stored as (provider `id`, subject). Changing a provider's `id` de
 so pick it once. Accounts are never merged by email address: signing in with Keycloak and with GitHub
 creates two separate users, because an email claim alone does not prove that both logins belong to the same person.
 
-An invite restricted to an email address can only be accepted by a user whose provider reported that email
-as verified.
-
-On a user's first login a personal workspace is created for them. Further workspaces and invites are managed
-inside the app.
+A user exists once they have signed in. Agents are shared by the email address a provider reported as
+verified; see [Sharing and audit](/sharing/).
 
 ## Sessions
 
@@ -40,6 +65,9 @@ public_url: https://agenthold.example.com   # default http://localhost:8080; use
 data_dir: /data                    # default ./data
 auth:
   session_ttl: 720h                # Go duration, default 30 days
+  local:                           # optional, the one local admin
+    username: admin
+    password_hash: $argon2id$...   # from agenthold hash-password
   providers:
     - id: keycloak                 # URL path segment, unique, no / ? #
       type: oidc                   # oidc | github
@@ -55,7 +83,7 @@ auth:
 
 | Field | Types | Notes |
 | --- | --- | --- |
-| `id` | all | Used in `/api/v1/auth/login/{id}` and the callback URL. |
+| `id` | all | Used in `/api/v1/auth/login/{id}` and the callback URL. `local` is reserved. |
 | `type` | all | `oidc` or `github`. |
 | `name` | all | Display name. |
 | `client_id`, `client_secret` | all | From the provider. Use `${ENV}` for the secret. |

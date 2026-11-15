@@ -8,6 +8,10 @@ SELECT * FROM users WHERE id = ?;
 -- name: UpdateUserProfile :exec
 UPDATE users SET email = ?, email_verified = ?, name = ?, avatar_url = ?, updated_at = ? WHERE id = ?;
 
+-- name: ListUsersByVerifiedEmail :many
+-- Users with this verified email, for sharing. Emails are compared case-insensitively.
+SELECT * FROM users WHERE LOWER(email) = LOWER(?) AND email_verified = 1 ORDER BY created_at;
+
 -- name: GetIdentity :one
 SELECT * FROM identities WHERE provider = ? AND subject = ?;
 

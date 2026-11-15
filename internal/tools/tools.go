@@ -66,15 +66,15 @@ func (s Server) Refs() []string {
 // ErrUnknownSecret is returned for references to secrets that do not exist.
 var ErrUnknownSecret = errors.New("unknown secret")
 
-// Secrets resolves the secrets an agent's MCP servers reference.
-func Secrets(ctx context.Context, st *store.Store, workspaceID string, servers []Server) (map[string]db.Secret, error) {
+// Secrets resolves the secrets MCP servers reference, among ownerID's secrets.
+func Secrets(ctx context.Context, st *store.Store, ownerID string, servers []Server) (map[string]db.Secret, error) {
 	out := map[string]db.Secret{}
 	for _, s := range servers {
 		for _, name := range s.Refs() {
 			if _, ok := out[name]; ok {
 				continue
 			}
-			sec, err := st.GetSecretByName(ctx, db.GetSecretByNameParams{WorkspaceID: workspaceID, Name: name})
+			sec, err := st.GetSecretByName(ctx, db.GetSecretByNameParams{OwnerID: ownerID, Name: name})
 			if errors.Is(err, sql.ErrNoRows) {
 				return nil, fmt.Errorf("%w %q", ErrUnknownSecret, name)
 			}
@@ -119,7 +119,7 @@ func ACPServers(ctx context.Context, st *store.Store, agent db.Agent, caps acp.M
 	if err != nil {
 		return nil, err
 	}
-	secrets, err := Secrets(ctx, st, agent.WorkspaceID, servers)
+	secrets, err := Secrets(ctx, st, agent.OwnerID, servers)
 	if err != nil {
 		return nil, err
 	}

@@ -29,9 +29,8 @@ const (
 	AgentStart    = "agent.start"
 	AgentStop     = "agent.stop"
 	AgentRebuild  = "agent.rebuild"
-	GrantSet      = "grant.set"
-	GrantDelete   = "grant.delete"
-	PolicySet     = "network_policy.set"
+	ShareAdd      = "share.add"
+	ShareRemove   = "share.remove"
 	SecretAttach  = "secret.attach"
 	SecretDetach  = "secret.detach"
 	MCPAdd        = "mcp.add"
@@ -41,14 +40,13 @@ const (
 	SkillDetach   = "skill.detach"
 )
 
-// Entry is one audit record.
+// Entry is one audit record. AgentID is empty for account-level actions.
 type Entry struct {
-	WorkspaceID string
-	AgentID     string
-	UserID      string
-	Action      string
-	Target      string
-	Details     map[string]any
+	AgentID string
+	UserID  string
+	Action  string
+	Target  string
+	Details map[string]any
 }
 
 // Log writes audit entries.
@@ -70,7 +68,7 @@ func (l *Log) Record(ctx context.Context, e Entry) {
 		}
 	}
 	if err := l.Store.InsertAudit(context.WithoutCancel(ctx), db.InsertAuditParams{
-		At: time.Now().UnixMilli(), WorkspaceID: e.WorkspaceID, AgentID: e.AgentID, UserID: e.UserID,
+		At: time.Now().UnixMilli(), AgentID: e.AgentID, UserID: e.UserID,
 		Action: e.Action, Target: e.Target, Details: details,
 	}); err != nil && l.Log != nil {
 		l.Log.Error("audit", "action", e.Action, "err", err)

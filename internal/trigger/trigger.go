@@ -53,7 +53,7 @@ type Runner struct {
 var ErrBusy = errors.New("the session is busy with another turn")
 
 // ErrNoAccess means the trigger's creator can no longer prompt the agent.
-var ErrNoAccess = errors.New("the trigger's creator no longer has operator access to the agent")
+var ErrNoAccess = errors.New("the trigger's creator no longer has access to the agent")
 
 // Fire prompts the session as the trigger's creator.
 func (r *Runner) Fire(ctx context.Context, agentID, sessionID, creatorID, source, text string, details map[string]any) error {
@@ -61,11 +61,11 @@ func (r *Runner) Fire(ctx context.Context, agentID, sessionID, creatorID, source
 	if err != nil {
 		return err
 	}
-	_, role, err := authz.Checker{Q: r.Store.Queries}.AgentRoleOf(ctx, creatorID, agent)
+	role, err := authz.Checker{Q: r.Store.Queries}.RoleOf(ctx, creatorID, agent)
 	if err != nil {
 		return err
 	}
-	if !authz.CanAgent(role, authz.AgentPrompt) {
+	if !authz.Can(role, authz.AgentPrompt) {
 		return ErrNoAccess
 	}
 	if r.Sessions.Running(sessionID) {
@@ -85,7 +85,7 @@ func (r *Runner) Fire(ctx context.Context, agentID, sessionID, creatorID, source
 		details = map[string]any{}
 	}
 	details["text"] = truncate(text, 500)
-	r.Audit.Record(ctx, audit.Entry{WorkspaceID: agent.WorkspaceID, AgentID: agent.ID, UserID: creatorID, Action: audit.Prompt, Target: sessionID, Details: details})
+	r.Audit.Record(ctx, audit.Entry{AgentID: agent.ID, UserID: creatorID, Action: audit.Prompt, Target: sessionID, Details: details})
 	return nil
 }
 

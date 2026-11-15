@@ -31,6 +31,7 @@ import (
 	_ "github.com/gempir/agenthold/internal/harness/opencode"
 	"github.com/gempir/agenthold/internal/idle"
 	"github.com/gempir/agenthold/internal/logins"
+	"github.com/gempir/agenthold/internal/password"
 	"github.com/gempir/agenthold/internal/platform"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
@@ -98,7 +99,11 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T) *env { return newEnvWith(t, nil) }
+
+// newEnvWith builds an environment; configure may change the configuration
+// (auth settings) before the server is built.
+func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	t.Helper()
 	idp := authtest.NewIdP(t)
 	gh := authtest.NewGitHub(t)
@@ -111,6 +116,9 @@ func newEnv(t *testing.T) *env {
 		{ID: "oidc", Type: config.ProviderOIDC, Name: "Test IdP", Issuer: idp.URL, ClientID: idp.ClientID, ClientSecret: idp.ClientSecret},
 		{ID: "github", Type: config.ProviderGitHub, Name: "GitHub", ClientID: gh.ClientID, ClientSecret: gh.ClientSecret, GitHubURL: gh.URL, GitHubAPIURL: gh.URL + "/api"},
 	}}}
+	if configure != nil {
+		configure(cfg)
+	}
 	config.ApplyDefaults(cfg)
 
 	st, err := store.Open(t.Context(), ":memory:")
@@ -240,6 +248,13 @@ func expect(t *testing.T, what string, got, want int) {
 	}
 }
 
+func (c *client) me() gen.User {
+	c.t.Helper()
+	var m gen.Me
+	expect(c.t, "me", c.do("GET", "/me", nil, &m), 200)
+	return m.User
+}
+
 func TestPublicAndUnauthenticated(t *testing.T) {
 	e := newEnv(t)
 	c := e.anon()
@@ -249,136 +264,115 @@ func TestPublicAndUnauthenticated(t *testing.T) {
 		t.Fatalf("providers = %+v", providers)
 	}
 	expect(t, "me", c.do("GET", "/me", nil, nil), 401)
-	expect(t, "workspaces", c.do("GET", "/workspaces", nil, nil), 401)
+	expect(t, "agents", c.do("GET", "/agents", nil, nil), 401)
 	expect(t, "unknown provider", c.do("GET", "/auth/login/nope", nil, nil), 404)
+	expect(t, "local login without auth.local", c.do("POST", "/auth/local", map[string]string{"username": "admin", "password": "x"}, nil), 404)
 }
 
-func TestFirstLoginCreatesPersonalWorkspace(t *testing.T) {
+func TestFirstLoginCreatesUser(t *testing.T) {
 	e := newEnv(t)
 	alice := e.login("alice-sub", "Alice", "alice@example.com")
-
-	var me gen.Me
-	expect(t, "me", alice.do("GET", "/me", nil, &me), 200)
-	if me.User.Name != "Alice" || me.User.Email != "alice@example.com" || me.PersonalWorkspaceId == "" {
-		t.Fatalf("me = %+v", me)
+	u := alice.me()
+	if u.Name != "Alice" || u.Email != "alice@example.com" {
+		t.Fatalf("me = %+v", u)
 	}
-	var wss []gen.Workspace
-	alice.do("GET", "/workspaces", nil, &wss)
-	if len(wss) != 1 || !wss[0].Personal || wss[0].Role != gen.WorkspaceRoleOwner || wss[0].Id != me.PersonalWorkspaceId {
-		t.Fatalf("workspaces = %+v", wss)
+	var agents []gen.Agent
+	expect(t, "agents", alice.do("GET", "/agents", nil, &agents), 200)
+	if len(agents) != 0 {
+		t.Fatalf("new user has agents: %+v", agents)
 	}
-	expect(t, "delete personal", alice.do("DELETE", "/workspaces/"+me.PersonalWorkspaceId, nil, nil), 409)
-
-	// Second login: same user, still one workspace.
-	again := e.login("alice-sub", "Alice A.", "alice@example.com")
-	var me2 gen.Me
-	again.do("GET", "/me", nil, &me2)
-	if me2.User.Id != me.User.Id || me2.User.Name != "Alice A." {
-		t.Fatalf("second login me = %+v", me2)
-	}
-	again.do("GET", "/workspaces", nil, &wss)
-	if len(wss) != 1 {
-		t.Fatalf("workspaces after second login = %d", len(wss))
+	// Second login: same user, profile updated.
+	again := e.login("alice-sub", "Alice A.", "alice@example.com").me()
+	if again.Id != u.Id || again.Name != "Alice A." {
+		t.Fatalf("second login me = %+v", again)
 	}
 }
 
-func TestInviteAndRoles(t *testing.T) {
-	e := newEnv(t)
-	alice := e.login("alice", "Alice", "alice@example.com")
-	bob := e.login("bob", "Bob", "bob@example.com")
-	carol := e.login("carol", "Carol", "carol@example.com")
-
-	var team gen.Workspace
-	expect(t, "create", alice.do("POST", "/workspaces", gen.WorkspaceInput{Name: "Team"}, &team), 201)
-	expect(t, "empty name", alice.do("POST", "/workspaces", gen.WorkspaceInput{Name: "  "}, nil), 400)
-	ws := "/workspaces/" + team.Id
-
-	expect(t, "outsider get", bob.do("GET", ws, nil, nil), 404)
-	expect(t, "outsider invite", bob.do("POST", ws+"/invites", gen.InviteInput{Role: "member"}, nil), 404)
-
-	var inv gen.CreatedInvite
-	expect(t, "invite", alice.do("POST", ws+"/invites", gen.InviteInput{Role: "member"}, &inv), 201)
-	if !strings.HasSuffix(inv.Url, "/invite/"+inv.Token) {
-		t.Fatalf("invite url %q", inv.Url)
+func localEnv(t *testing.T, username, pw string) *env {
+	t.Helper()
+	hash, err := password.New(pw)
+	if err != nil {
+		t.Fatal(err)
 	}
-	expect(t, "owner invite", alice.do("POST", ws+"/invites", map[string]string{"role": "owner"}, nil), 400)
+	return newEnvWith(t, func(c *config.Config) {
+		c.Auth.Local = &config.Local{Username: username, PasswordHash: hash}
+	})
+}
 
-	var preview gen.InvitePreview
-	expect(t, "preview", bob.do("GET", "/invites/"+inv.Token, nil, &preview), 200)
-	if preview.WorkspaceName != "Team" || preview.InvitedBy != "Alice" || preview.AlreadyMember {
-		t.Fatalf("preview = %+v", preview)
-	}
-	var joined gen.Workspace
-	expect(t, "accept", bob.do("POST", "/invites/"+inv.Token+"/accept", nil, &joined), 200)
-	if joined.Id != team.Id || joined.Role != gen.WorkspaceRoleMember {
-		t.Fatalf("joined = %+v", joined)
-	}
-	expect(t, "reuse invite", carol.do("POST", "/invites/"+inv.Token+"/accept", nil, nil), 404)
+func (e *env) localLogin(username, pw string) (*client, int) {
+	c := e.anon()
+	return c, c.do("POST", "/auth/local", map[string]string{"username": username, "password": pw}, nil)
+}
 
-	var members []gen.Member
-	expect(t, "member lists members", bob.do("GET", ws+"/members", nil, &members), 200)
-	if len(members) != 2 {
-		t.Fatalf("members = %+v", members)
+func TestLocalAdminLogin(t *testing.T) {
+	e := localEnv(t, "admin", "s3cret pw")
+	var providers []gen.AuthProvider
+	expect(t, "providers", e.anon().do("GET", "/auth/providers", nil, &providers), 200)
+	if len(providers) != 3 || providers[0].Type != gen.Local || providers[0].Id != "local" {
+		t.Fatalf("providers = %+v", providers)
 	}
-	bobID := ""
-	for _, m := range members {
-		if m.User.Name == "Bob" {
-			bobID = m.User.Id
+
+	for _, bad := range []struct{ user, pw string }{{"admin", "wrong"}, {"Admin", "s3cret pw"}, {"", ""}, {"admin", "s3cret pw "}} {
+		c, status := e.localLogin(bad.user, bad.pw)
+		expect(t, "bad credentials "+bad.user+"/"+bad.pw, status, 401)
+		expect(t, "no session after failure", c.do("GET", "/me", nil, nil), 401)
+	}
+	res := e.anon().raw("POST", "/auth/local", strings.NewReader("not json"))
+	res.Body.Close()
+	expect(t, "malformed body", res.StatusCode, 400)
+
+	admin, status := e.localLogin("admin", "s3cret pw")
+	expect(t, "login", status, 204)
+	u := admin.me()
+	if u.Name != "admin" || u.Email != "" {
+		t.Fatalf("me = %+v", u)
+	}
+	// The same local user every time.
+	again, _ := e.localLogin("admin", "s3cret pw")
+	if again.me().Id != u.Id {
+		t.Fatal("second login created another user")
+	}
+	// The local admin is a normal user: it creates and owns agents.
+	var ag gen.Agent
+	expect(t, "create agent", admin.do("POST", "/agents", gen.AgentInput{Name: "mine", Harness: ptr("fake")}, &ag), 201)
+	e.sandboxes.Wait()
+	if ag.Role != gen.Owner || ag.Owner.Id != u.Id {
+		t.Fatalf("agent = %+v", ag)
+	}
+	expect(t, "logout", admin.do("POST", "/auth/logout", nil, nil), 204)
+	expect(t, "me after logout", admin.do("GET", "/me", nil, nil), 401)
+}
+
+func TestLocalAdminLoginRateLimited(t *testing.T) {
+	e := localEnv(t, "admin", "pw")
+	limited := false
+	for i := 0; i < 12 && !limited; i++ {
+		_, status := e.localLogin("admin", "guess")
+		switch status {
+		case 401:
+		case 429:
+			limited = true
+		default:
+			t.Fatalf("attempt %d: status %d", i, status)
 		}
 	}
-
-	// A member cannot manage.
-	expect(t, "member invites", bob.do("POST", ws+"/invites", gen.InviteInput{Role: "member"}, nil), 403)
-	expect(t, "member lists invites", bob.do("GET", ws+"/invites", nil, nil), 403)
-	expect(t, "member renames", bob.do("PATCH", ws, gen.WorkspaceInput{Name: "Mine"}, nil), 403)
-	expect(t, "member promotes self", bob.do("PATCH", ws+"/members/"+bobID, map[string]string{"role": "admin"}, nil), 403)
-
-	// Promote to admin; admin can invite and rename but not delete or touch owners.
-	expect(t, "promote", alice.do("PATCH", ws+"/members/"+bobID, map[string]string{"role": "admin"}, nil), 200)
-	expect(t, "admin invites", bob.do("POST", ws+"/invites", gen.InviteInput{Role: "admin"}, nil), 201)
-	expect(t, "admin renames", bob.do("PATCH", ws, gen.WorkspaceInput{Name: "Team 2"}, nil), 200)
-	expect(t, "admin deletes", bob.do("DELETE", ws, nil, nil), 403)
-	var me gen.Me
-	alice.do("GET", "/me", nil, &me)
-	expect(t, "admin demotes owner", bob.do("PATCH", ws+"/members/"+me.User.Id, map[string]string{"role": "member"}, nil), 403)
-	expect(t, "admin makes owner", bob.do("PATCH", ws+"/members/"+bobID, map[string]string{"role": "owner"}, nil), 403)
-
-	// Last owner protection.
-	expect(t, "last owner leaves", alice.do("DELETE", ws+"/members/"+me.User.Id, nil, nil), 409)
-	expect(t, "last owner demotes self", alice.do("PATCH", ws+"/members/"+me.User.Id, map[string]string{"role": "admin"}, nil), 409)
-
-	// Invites list and revoke.
-	var pending []gen.Invite
-	expect(t, "list invites", alice.do("GET", ws+"/invites", nil, &pending), 200)
-	if len(pending) != 1 {
-		t.Fatalf("pending = %+v", pending)
+	if !limited {
+		t.Fatal("never rate limited")
 	}
-	expect(t, "revoke", alice.do("DELETE", ws+"/invites/"+pending[0].Id, nil, nil), 204)
-	expect(t, "revoke again", alice.do("DELETE", ws+"/invites/"+pending[0].Id, nil, nil), 404)
-
-	// Leaving works for non-owners; then the workspace is invisible.
-	expect(t, "bob leaves", bob.do("DELETE", ws+"/members/"+bobID, nil, nil), 204)
-	expect(t, "bob after leaving", bob.do("GET", ws, nil, nil), 404)
-
-	expect(t, "owner deletes", alice.do("DELETE", ws, nil, nil), 204)
-	expect(t, "deleted", alice.do("GET", ws, nil, nil), 404)
+	// Even the right password is refused until the window passes.
+	_, status := e.localLogin("admin", "pw")
+	expect(t, "right password while limited", status, 429)
 }
 
-func TestInviteRestrictedToEmail(t *testing.T) {
-	e := newEnv(t)
-	alice := e.login("alice", "Alice", "alice@example.com")
-	bob := e.login("bob", "Bob", "bob@example.com")
-	mallory := e.login("mallory", "Mallory", "mallory@example.com")
-
-	var team gen.Workspace
-	alice.do("POST", "/workspaces", gen.WorkspaceInput{Name: "Team"}, &team)
-	email := "Bob@Example.com"
-	var inv gen.CreatedInvite
-	alice.do("POST", "/workspaces/"+team.Id+"/invites", gen.InviteInput{Role: "member", Email: &email}, &inv)
-
-	expect(t, "wrong email", mallory.do("POST", "/invites/"+inv.Token+"/accept", nil, nil), 403)
-	expect(t, "right email", bob.do("POST", "/invites/"+inv.Token+"/accept", nil, nil), 200)
-	expect(t, "unknown token", bob.do("GET", "/invites/nope", nil, nil), 404)
+func TestNoSignInConfigured(t *testing.T) {
+	e := newEnvWith(t, func(c *config.Config) { c.Auth.Providers = nil })
+	var providers []gen.AuthProvider
+	expect(t, "providers", e.anon().do("GET", "/auth/providers", nil, &providers), 200)
+	if len(providers) != 0 {
+		t.Fatalf("providers = %+v", providers)
+	}
+	_, status := e.localLogin("admin", "admin")
+	expect(t, "local login", status, 404)
 }
 
 func TestGitHubLogin(t *testing.T) {

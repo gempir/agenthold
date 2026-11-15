@@ -85,11 +85,11 @@ func (a *API) DownloadFile(ctx context.Context, req gen.DownloadFileRequestObjec
 	if err != nil {
 		return nil, err
 	}
-	// Viewers cannot open a terminal, so this is their only way to read files:
-	// keep harness logins and sandboxd's boot file out of reach. (Operators can
-	// read them in the terminal; such agents are marked credentialsInSandbox.)
+	// Users who cannot open a terminal must not read harness logins and
+	// sandboxd's boot file through downloads. (Everyone with a terminal can
+	// read them there; such agents are marked credentialsInSandbox.)
 	var deny []string
-	if !authz.CanAgent(acc.Role, authz.AgentTerminal) {
+	if !authz.Can(acc.Role, authz.AgentTerminal) {
 		deny = append(deny, "/etc/agenthold")
 		if ad, ok := harness.Get(acc.Row.Agent.Harness); ok {
 			for _, p := range ad.CredentialPaths() {
@@ -147,7 +147,7 @@ func sanitizeFilename(n string) string {
 
 // UploadFile implements gen.StrictServerInterface.
 func (a *API) UploadFile(ctx context.Context, req gen.UploadFileRequestObject) (gen.UploadFileResponseObject, error) {
-	s, ag, err := a.connectedAgent(ctx, req.AgentId, authz.AgentPrompt)
+	s, ag, err := a.connectedAgent(ctx, req.AgentId, authz.AgentFilesWrite)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +163,7 @@ func (a *API) UploadFile(ctx context.Context, req gen.UploadFileRequestObject) (
 
 // MakeDirectory implements gen.StrictServerInterface.
 func (a *API) MakeDirectory(ctx context.Context, req gen.MakeDirectoryRequestObject) (gen.MakeDirectoryResponseObject, error) {
-	s, ag, err := a.connectedAgent(ctx, req.AgentId, authz.AgentPrompt)
+	s, ag, err := a.connectedAgent(ctx, req.AgentId, authz.AgentFilesWrite)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +180,7 @@ func (a *API) MakeDirectory(ctx context.Context, req gen.MakeDirectoryRequestObj
 
 // DeleteFile implements gen.StrictServerInterface.
 func (a *API) DeleteFile(ctx context.Context, req gen.DeleteFileRequestObject) (gen.DeleteFileResponseObject, error) {
-	s, ag, err := a.connectedAgent(ctx, req.AgentId, authz.AgentPrompt)
+	s, ag, err := a.connectedAgent(ctx, req.AgentId, authz.AgentFilesWrite)
 	if err != nil {
 		return nil, err
 	}

@@ -5,7 +5,7 @@
 # With arguments, runs only those checks: run-all.sh sleep api
 set -uo pipefail
 cd "$(dirname "$0")"
-checks=(sessions sleep api agents)
+checks=(sharing sessions sleep api agents)
 # These run curl inside the sandbox, so they need the base image.
 [[ -n ${SKIP_BASE:-} ]] || checks=(egress provider-logins "${checks[@]}")
 [[ -n ${SKIP_BASE:-} || -n ${SKIP_REAL_MODEL:-} ]] || checks+=(opencode tools)

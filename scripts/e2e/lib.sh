@@ -18,14 +18,22 @@ login() {
   curl -s -c "$jar" -b "$jar" -o /dev/null -L --data-urlencode "username=$1" --data-urlencode "password=$2" "$action"
   echo "$jar"
 }
+# login_local USER PASS: signs in as the local admin (auth.local) and stores the cookie jar.
+login_local() {
+  local jar="$WORK/local-$1.jar"
+  curl -s -c "$jar" -o /dev/null -H content-type:application/json -X POST "$BASE/api/v1/auth/local" \
+    -d "$(python3 -c 'import json,sys;print(json.dumps({"username":sys.argv[1],"password":sys.argv[2]}))' "$1" "$2")"
+  echo "$jar"
+}
 api() { local jar=$1; shift; curl -s -b "$jar" -H content-type:application/json "$@"; }
+# status JAR CURL-ARGS...: prints only the HTTP status code.
+status() { local jar=$1; shift; curl -s -o /dev/null -w '%{http_code}' -b "$jar" -H content-type:application/json "$@"; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 
-# new_agent JAR IMAGE: creates an agent in the personal workspace and waits until it runs.
+# new_agent JAR IMAGE: creates an agent owned by the signed-in user and waits until it runs.
 new_agent() {
-  local ws id st
-  ws=$(api "$1" "$BASE/api/v1/me" | json 'd["personalWorkspaceId"]')
-  id=$(api "$1" -X POST "$BASE/api/v1/workspaces/$ws/agents" -d "{\"name\":\"e2e-$RANDOM\",\"image\":\"$2\",\"memoryMb\":512}" | json 'd["id"]')
+  local id
+  id=$(api "$1" -X POST "$BASE/api/v1/agents" -d "{\"name\":\"e2e-$RANDOM\",\"image\":\"$2\",\"memoryMb\":512}" | json 'd["id"]')
   wait_running "$1" "$id"
   echo "$id"
 }

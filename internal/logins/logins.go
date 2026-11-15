@@ -154,16 +154,11 @@ func unix(t time.Time) int64 {
 }
 
 func (s *Service) recordAccount(ctx context.Context, userID, action, provider string, details map[string]any) {
-	ws, err := s.Store.GetPersonalWorkspaceID(ctx, userID)
-	if err != nil {
-		s.log().Error("audit: personal workspace", "user", userID, "err", err)
-		return
-	}
-	s.Audit.Record(ctx, audit.Entry{WorkspaceID: ws, UserID: userID, Action: action, Target: provider, Details: details})
+	s.Audit.Record(ctx, audit.Entry{UserID: userID, Action: action, Target: provider, Details: details})
 }
 
 func (s *Service) recordAgent(ctx context.Context, ag db.Agent, userID, action, target string, details map[string]any) {
-	s.Audit.Record(ctx, audit.Entry{WorkspaceID: ag.WorkspaceID, AgentID: ag.ID, UserID: userID, Action: action, Target: target, Details: details})
+	s.Audit.Record(ctx, audit.Entry{AgentID: ag.ID, UserID: userID, Action: action, Target: target, Details: details})
 }
 
 // changed tells caches and harnesses that the logins of userID's agents for
@@ -283,14 +278,6 @@ func (s *Service) Unbind(ctx context.Context, ag db.Agent, actorID string) error
 	return nil
 }
 
-// AgentsChanged is called after agents' login users changed elsewhere (a
-// member left their workspace).
-func (s *Service) AgentsChanged(agentIDs ...string) {
-	for _, id := range agentIDs {
-		s.agentChanged(id)
-	}
-}
-
 func (s *Service) agentChanged(agentID string) {
 	if s.Invalidate != nil {
 		s.Invalidate()
@@ -330,11 +317,11 @@ func (s *Service) StateOf(ctx context.Context, ag db.Agent) (State, error) {
 	}
 	// The login user must still have access to the agent; when they leave
 	// it, their login stops being used.
-	_, role, err := authz.Checker{Q: s.Store.Queries}.AgentRoleOf(ctx, ag.LoginUserID, ag)
+	role, err := authz.Checker{Q: s.Store.Queries}.RoleOf(ctx, ag.LoginUserID, ag)
 	if err != nil {
 		return st, err
 	}
-	if !authz.CanAgent(role, authz.AgentRead) {
+	if !authz.Can(role, authz.AgentRead) {
 		st.Reason = "the login's owner no longer has access to this agent"
 		return st, nil
 	}

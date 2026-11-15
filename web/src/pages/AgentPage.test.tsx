@@ -14,18 +14,9 @@ afterEach(() => vi.unstubAllGlobals());
 
 const me = {
   user: { id: 'u1', email: 'a@x.io', name: 'Alice', avatarUrl: '' },
-  personalWorkspaceId: 'w1',
-};
-const ws = {
-  id: 'w1',
-  name: 'Acme',
-  personal: false,
-  role: 'member',
-  createdAt: '2030-01-01T00:00:00Z',
 };
 const agent = (over: Partial<Agent> = {}): Agent => ({
   id: 'a1',
-  workspaceId: 'w1',
   name: 'builder',
   owner: me.user,
   image: 'ubuntu:24.04',
@@ -41,7 +32,7 @@ const agent = (over: Partial<Agent> = {}): Agent => ({
   stateError: '',
   stateChangedAt: '2030-01-01T00:00:00Z',
   needsRebuild: false,
-  role: 'operator',
+  role: 'shared',
   createdAt: '2030-01-01T00:00:00Z',
   updatedAt: '2030-01-01T00:00:00Z',
   ...over,
@@ -50,15 +41,12 @@ const agent = (over: Partial<Agent> = {}): Agent => ({
 it('renders agent list with state badges', async () => {
   mockApi({
     'GET /me': me,
-    'GET /workspaces': [ws],
-    'GET /workspaces/w1': ws,
-    'GET /workspaces/w1/members': [],
-    'GET /workspaces/w1/agents': [
+    'GET /agents': [
       agent({ id: 'a1', name: 'one', state: 'running' }),
       agent({ id: 'a2', name: 'two', state: 'error', needsRebuild: true }),
     ],
   });
-  renderApp('/w/w1');
+  renderApp('/settings/agents');
   const main = await screen.findByRole('main');
   const one = (await within(main).findByText('one')).closest('a')!;
   expect(within(one).getByText('running')).toHaveAttribute(
@@ -70,17 +58,16 @@ it('renders agent list with state badges', async () => {
   expect(within(two).getByText('rebuild pending')).toBeInTheDocument();
 });
 
-it('shows Start for sleeping agent and hides admin controls for operator', async () => {
+it('shows Start for a sleeping agent and hides owner controls from a shared user', async () => {
   mockApi({
     'GET /me': me,
-    'GET /workspaces': [ws],
     'GET /agents/a1': agent(),
     'GET /agents/a1/sessions': [],
     'GET /harnesses': [],
   });
   renderApp('/a/a1/settings');
   expect(await screen.findByRole('button', { name: 'Start' })).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Rebuild' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Rebuild' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
@@ -118,7 +105,6 @@ it('badge shows Asleep and sleeps-in text', () => {
 it('sleeping banner Wake now posts start', async () => {
   const { calls } = mockApi({
     'GET /me': me,
-    'GET /workspaces': [ws],
     'GET /agents/a1': agent(),
     'GET /agents/a1/sessions': [],
     'POST /agents/a1/start': agent({ state: 'starting' }),
@@ -134,70 +120,66 @@ it('sleeping banner Wake now posts start', async () => {
 const bob = { id: 'u2', email: 'b@x.io', name: 'Bob', avatarUrl: '' };
 const carol = { id: 'u3', email: 'c@x.io', name: 'Carol', avatarUrl: '' };
 
-it('sharing tab lists access and posts a user grant', async () => {
+it('sharing tab lists access and shares by email', async () => {
   const { calls } = mockApi({
     'GET /me': me,
-    'GET /workspaces': [ws],
-    'GET /agents/a1': agent({ role: 'admin' }),
+    'GET /agents/a1': agent({ role: 'owner' }),
     'GET /agents/a1/sessions': [],
     'GET /harnesses': [],
-    'GET /workspaces/w1/members': [
-      { user: me.user, role: 'owner', joinedAt: '2030-01-01T00:00:00Z' },
-      { user: bob, role: 'member', joinedAt: '2030-01-01T00:00:00Z' },
-      { user: carol, role: 'member', joinedAt: '2030-01-01T00:00:00Z' },
-    ],
-    'GET /agents/a1/grants': {
-      grants: [],
-      effective: [
-        { user: me.user, role: 'admin', via: 'owner' },
-        { user: bob, role: 'viewer', via: 'workspace_grant' },
-      ],
+    'GET /agents/a1/shares': {
+      owner: me.user,
+      shares: [{ user: bob, createdAt: '2030-01-01T00:00:00Z' }],
     },
-    'POST /agents/a1/grants': {
-      id: 'g1',
-      subjectType: 'user',
-      role: 'operator',
+    'POST /agents/a1/shares': {
+      user: carol,
       createdAt: '2030-01-01T00:00:00Z',
     },
   });
   renderApp('/a/a1/settings?tab=sharing');
-  expect(await screen.findByText('Owner')).toBeInTheDocument();
-  expect(screen.getByText('Everyone in workspace')).toBeInTheDocument();
-  const withSel = await screen.findByLabelText('With');
-  // Alice (owner) is excluded from the picker.
-  expect(within(withSel).queryByRole('option', { name: /Alice/ })).toBeNull();
-  await userEvent.selectOptions(withSel, 'u3');
-  await userEvent.selectOptions(screen.getByLabelText('Role'), 'operator');
+  const people = await screen.findByRole('list', {
+    name: 'People with access',
+  });
+  expect(within(people).getByText('Alice')).toBeInTheDocument();
+  expect(within(people).getByText('Bob')).toBeInTheDocument();
+  expect(
+    within(people).getByRole('button', { name: 'Remove Bob' }),
+  ).toBeVisible();
+  await userEvent.type(screen.getByLabelText('Email'), 'c@x.io');
   await userEvent.click(screen.getByRole('button', { name: 'Share' }));
   await vi.waitFor(() =>
-    expect(calls.find((c) => c.key === 'POST /agents/a1/grants')?.body).toEqual(
-      { subjectType: 'user', userId: 'u3', role: 'operator' },
+    expect(calls.find((c) => c.key === 'POST /agents/a1/shares')?.body).toEqual(
+      { email: 'c@x.io' },
     ),
   );
 });
 
-it('viewer sees no composer, terminal, activity or share form', async () => {
+it('shared user chats but sees no activity, owner settings or share form', async () => {
+  vi.stubGlobal('WebSocket', FakeSocket);
   mockApi({
-    'GET /me': me,
-    'GET /workspaces': [ws],
-    'GET /agents/a1': agent({ role: 'viewer', state: 'running' }),
+    'GET /me': { user: bob },
+    'GET /harnesses': [],
+    'GET /agents/a1': agent({ role: 'shared', state: 'running' }),
     'GET /agents/a1/sessions': [],
-    'GET /agents/a1/grants': { grants: [], effective: [] },
+    'GET /agents/a1/shares': {
+      owner: me.user,
+      shares: [{ user: bob, createdAt: '2030-01-01T00:00:00Z' }],
+    },
   });
   renderApp('/a/a1');
   expect(
-    await screen.findByText(/read-only access to this agent/),
+    await screen.findByRole('textbox', { name: 'Message' }),
   ).toBeInTheDocument();
-  expect(screen.queryByRole('textbox', { name: 'Message' })).toBeNull();
-  expect(screen.queryByRole('link', { name: 'New chat' })).toBeNull();
 
   await userEvent.click(screen.getByRole('link', { name: 'Agent settings' }));
   const nav = await screen.findByRole('navigation', { name: 'Agent settings' });
-  expect(within(nav).queryByRole('link', { name: 'Terminal' })).toBeNull();
+  expect(within(nav).getByRole('link', { name: 'Terminal' })).toBeVisible();
   expect(within(nav).queryByRole('link', { name: 'Activity' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
   await userEvent.click(within(nav).getByRole('link', { name: 'Sharing' }));
   await screen.findByText('People with access', { selector: 'h2' });
   expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Leave' })).toBeVisible();
 });
 
 const session = (over: Partial<Session> = {}): Session => ({
@@ -223,9 +205,8 @@ it('lands in the most recent chat across agents', async () => {
   vi.stubGlobal('WebSocket', FakeSocket);
   mockApi({
     'GET /me': me,
-    'GET /workspaces': [ws],
     'GET /harnesses': [],
-    'GET /workspaces/w1/agents': [
+    'GET /agents': [
       agent({ id: 'a1', name: 'one', state: 'running' }),
       agent({ id: 'a2', name: 'two' }),
     ],
@@ -268,9 +249,8 @@ it('does not land in an agent that is being deleted', async () => {
   vi.stubGlobal('WebSocket', FakeSocket);
   mockApi({
     'GET /me': me,
-    'GET /workspaces': [ws],
     'GET /harnesses': [],
-    'GET /workspaces/w1/agents': [
+    'GET /agents': [
       agent({ id: 'a1', name: 'one', state: 'running' }),
       agent({ id: 'a2', name: 'two', state: 'destroying' }),
     ],
@@ -297,7 +277,6 @@ it('starts a chat from the draft composer', async () => {
   vi.stubGlobal('WebSocket', FakeSocket);
   const { calls } = mockApi({
     'GET /me': me,
-    'GET /workspaces': [ws],
     'GET /harnesses': [
       { id: 'claude-code', name: 'Claude Code', default: true },
     ],
@@ -329,7 +308,6 @@ it('toggles the agent panel with its chats and manage links', async () => {
   vi.stubGlobal('WebSocket', FakeSocket);
   mockApi({
     'GET /me': me,
-    'GET /workspaces': [ws],
     'GET /harnesses': [],
     'GET /agents/a1': agent({ state: 'running' }),
     'GET /agents/a1/sessions': [session()],
@@ -344,9 +322,9 @@ it('toggles the agent panel with its chats and manage links', async () => {
   expect(router.state.location.search).toEqual({ s: 's1', panel: 'overview' });
   const list = within(panel).getByRole('list', { name: 'Sessions' });
   expect(within(list).getByText('Fix the build')).toBeVisible();
-  expect(within(panel).getByRole('link', { name: /Network/ })).toHaveAttribute(
+  expect(within(panel).getByRole('link', { name: /Secrets/ })).toHaveAttribute(
     'href',
-    '/a/a1/settings?tab=network',
+    '/a/a1/settings?tab=secrets',
   );
   await userEvent.click(
     within(panel).getByRole('button', { name: 'Close panel' }),

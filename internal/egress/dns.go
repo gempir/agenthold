@@ -15,14 +15,13 @@ import (
 	"golang.org/x/net/dns/dnsmessage"
 )
 
-// DNS answers sandboxes' DNS queries. Names the agent's policy does not
-// allow get NXDOMAIN (so DNS cannot be used to smuggle data out); others are
-// forwarded upstream, and the answers are recorded for host-based TCP policies.
+// DNS answers sandboxes' DNS queries: queries from known agents are
+// forwarded upstream, and the answers are recorded so the proxy knows which
+// name a later TCP connection to an address was for.
 type DNS struct {
 	Agents   Agents
 	Names    *NameCache
 	Upstream string // host:port
-	Log      func(Event)
 }
 
 // UpstreamFromResolvConf returns the first nameserver of /etc/resolv.conf.
@@ -121,13 +120,6 @@ func (d *DNS) Handle(ctx context.Context, q []byte, src netip.Addr, network stri
 	agent, err := d.Agents.AgentForSource(ctx, src)
 	if err != nil || agent == nil {
 		return reply(hdr, &question, dnsmessage.RCodeRefused)
-	}
-	name := strings.ToLower(strings.TrimSuffix(question.Name.String(), "."))
-	if !agent.Policy.AllowsName(name) {
-		if d.Log != nil {
-			d.Log(Event{AgentID: agent.ID, At: time.Now(), Kind: "dns", Host: name, Port: 53, Reason: "not in allowlist"})
-		}
-		return reply(hdr, &question, dnsmessage.RCodeNameError)
 	}
 	res, err := d.forward(ctx, q, network)
 	if err != nil {

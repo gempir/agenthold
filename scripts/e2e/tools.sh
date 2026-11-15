@@ -7,13 +7,12 @@ HARNESS=${HARNESS:-opencode}
 JAR=$(login alice alice)
 COOKIE=$(awk '/agenthold_session/{print $7}' "$JAR")
 WSURL=${BASE/http/ws}
-WS=$(api "$JAR" "$BASE/api/v1/me" | json 'd["personalWorkspaceId"]')
-AG=$(api "$JAR" -X POST "$BASE/api/v1/workspaces/$WS/agents" -d "{\"name\":\"e2e-tools\",\"image\":\"agenthold/base:dev\",\"harness\":\"$HARNESS\",\"memoryMb\":2048}" | json 'd["id"]')
+AG=$(api "$JAR" -X POST "$BASE/api/v1/agents" -d "{\"name\":\"e2e-tools\",\"image\":\"agenthold/base:dev\",\"harness\":\"$HARNESS\",\"memoryMb\":2048}" | json 'd["id"]')
 wait_running "$JAR" "$AG"
 echo "agent $AG ($HARNESS)"
 N=$RANDOM
-SK=$(api "$JAR" -X POST "$BASE/api/v1/workspaces/$WS/skills" -d "{\"name\":\"secret-phrase-$N\",\"description\":\"Use this skill whenever someone asks for the team's secret phrase.\",\"content\":\"# Secret phrase\\n\\nThe team's secret phrase is: purple-elephant-$N. Answer with exactly that phrase.\"}" | json 'd["id"]')
-MC=$(api "$JAR" -X POST "$BASE/api/v1/workspaces/$WS/mcp-servers" -d "{\"name\":\"everything$N\",\"transport\":\"stdio\",\"command\":\"npx\",\"args\":[\"-y\",\"@modelcontextprotocol/server-everything@2.3.0\"]}" | json 'd["id"]')
+SK=$(api "$JAR" -X POST "$BASE/api/v1/skills" -d "{\"name\":\"secret-phrase-$N\",\"description\":\"Use this skill whenever someone asks for the team's secret phrase.\",\"content\":\"# Secret phrase\\n\\nThe team's secret phrase is: purple-elephant-$N. Answer with exactly that phrase.\"}" | json 'd["id"]')
+MC=$(api "$JAR" -X POST "$BASE/api/v1/mcp-servers" -d "{\"name\":\"everything$N\",\"transport\":\"stdio\",\"command\":\"npx\",\"args\":[\"-y\",\"@modelcontextprotocol/server-everything@2.3.0\"]}" | json 'd["id"]')
 api "$JAR" -X PUT "$BASE/api/v1/agents/$AG/skills/$SK" -o /dev/null -w "attach skill %{http_code}\n"
 api "$JAR" -X PUT "$BASE/api/v1/agents/$AG/mcp-servers/$MC" -o /dev/null -w "attach mcp %{http_code}\n"
 

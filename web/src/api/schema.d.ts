@@ -84,6 +84,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/local": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Sign in as the local admin configured in `auth.local`. Sets the
+         *     session cookie. Attempts are rate limited per client address.
+         */
+        post: operations["localLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/logout": {
         parameters: {
             query?: never;
@@ -116,163 +136,17 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/workspaces": {
+    "/agents": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["listWorkspaces"];
-        put?: never;
-        post: operations["createWorkspace"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/workspaces/{workspaceId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
-            cookie?: never;
-        };
-        get: operations["getWorkspace"];
-        put?: never;
-        post?: never;
-        delete: operations["deleteWorkspace"];
-        options?: never;
-        head?: never;
-        patch: operations["updateWorkspace"];
-        trace?: never;
-    };
-    "/workspaces/{workspaceId}/members": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
-            cookie?: never;
-        };
-        get: operations["listMembers"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/workspaces/{workspaceId}/members/{userId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-                userId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** @description Remove a member. Members may remove themselves (leave). */
-        delete: operations["removeMember"];
-        options?: never;
-        head?: never;
-        patch: operations["updateMember"];
-        trace?: never;
-    };
-    "/workspaces/{workspaceId}/invites": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
-            cookie?: never;
-        };
-        get: operations["listInvites"];
-        put?: never;
-        post: operations["createInvite"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/workspaces/{workspaceId}/invites/{inviteId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-                inviteId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete: operations["revokeInvite"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/invites/{token}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                token: string;
-            };
-            cookie?: never;
-        };
-        get: operations["getInvite"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/invites/{token}/accept": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                token: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["acceptInvite"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/workspaces/{workspaceId}/agents": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
-            cookie?: never;
-        };
-        /** @description Agents in the workspace that the caller can see. */
+        /** @description Agents you own and agents shared with you. */
         get: operations["listAgents"];
         put?: never;
+        /** @description Create an agent. You become its owner. */
         post: operations["createAgent"];
         delete?: never;
         options?: never;
@@ -347,6 +221,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Owner only. */
         post: operations["rebuildAgent"];
         delete?: never;
         options?: never;
@@ -364,7 +239,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * @description WebSocket upgrade to an interactive shell in the sandbox (operator role).
+         * @description WebSocket upgrade to an interactive shell in the sandbox (owner or shared user).
          *     A sleeping agent is woken. Binary messages carry terminal input and
          *     output. Text messages are JSON: the client sends
          *     `{"type":"resize","cols":N,"rows":N}`; the server sends
@@ -411,7 +286,7 @@ export interface paths {
             cookie?: never;
         };
         get: operations["downloadFile"];
-        /** @description Create or replace a file (operator role). Missing parent directories are created. */
+        /** @description Create or replace a file (owner or shared user). Missing parent directories are created. */
         put: operations["uploadFile"];
         post?: never;
         delete?: never;
@@ -471,16 +346,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/workspaces/{workspaceId}/secrets": {
+    "/secrets": {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
+            path?: never;
             cookie?: never;
         };
-        /** @description Secrets the caller can attach (their own; all of them for workspace admins). Values are never returned. */
+        /** @description Your secrets. Values are never returned. */
         get: operations["listSecrets"];
         put?: never;
         post: operations["createSecret"];
@@ -538,49 +411,12 @@ export interface paths {
         };
         get?: never;
         /**
-         * @description Attach a secret (agent admin; the secret's owner or a workspace admin).
+         * @description Attach one of your secrets to an agent you own.
          *     Injection works immediately; a changed environment variable needs a rebuild.
          */
         put: operations["attachSecret"];
         post?: never;
         delete: operations["detachSecret"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/agents/{agentId}/network-policy": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agentId: components["parameters"]["AgentId"];
-            };
-            cookie?: never;
-        };
-        get: operations["getNetworkPolicy"];
-        /** @description Takes effect within seconds, without a restart. */
-        put: operations["setNetworkPolicy"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/agents/{agentId}/egress-log": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agentId: components["parameters"]["AgentId"];
-            };
-            cookie?: never;
-        };
-        get: operations["listEgressLog"];
-        put?: never;
-        post?: never;
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -668,7 +504,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Start a turn (operator role). Wakes the agent if it sleeps. Progress arrives on the event stream. */
+        /** @description Start a turn (owner or shared user). Wakes the agent if it sleeps. Progress arrives on the event stream. */
         post: operations["promptSession"];
         delete?: never;
         options?: never;
@@ -757,7 +593,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/agents/{agentId}/grants": {
+    "/agents/{agentId}/shares": {
         parameters: {
             query?: never;
             header?: never;
@@ -766,31 +602,36 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** @description Who has access to the agent, including implicit access (owner, workspace owners and admins). */
-        get: operations["listGrants"];
+        /** @description The agent's owner and the users it is shared with. */
+        get: operations["listShares"];
         put?: never;
-        /** @description Grant a role to a workspace member or to the whole workspace (agent admin). Replaces an existing grant for the same subject. */
-        post: operations["setGrant"];
+        /**
+         * @description Share the agent with another user (owner only), found by verified
+         *     email. A user exists once they have signed in. Shared users can use
+         *     the agent (chat, terminal, files) but not configure, share or delete it.
+         */
+        post: operations["shareAgent"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/agents/{agentId}/grants/{grantId}": {
+    "/agents/{agentId}/shares/{userId}": {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentId"];
-                grantId: string;
+                userId: string;
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
         post?: never;
-        delete: operations["deleteGrant"];
+        /** @description Stop sharing with a user (owner), or leave an agent shared with you. */
+        delete: operations["unshareAgent"];
         options?: never;
         head?: never;
         patch?: never;
@@ -805,29 +646,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** @description Who did what to this agent (agent admin). Newest first. */
+        /** @description Who did what to this agent (owner only). Newest first. */
         get: operations["listAgentAudit"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/workspaces/{workspaceId}/mcp-servers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
-            cookie?: never;
-        };
-        get: operations["listWorkspaceMCPServers"];
-        put?: never;
-        /** @description Workspace admins only. */
-        post: operations["createWorkspaceMCPServer"];
         delete?: never;
         options?: never;
         head?: never;
@@ -843,10 +665,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** @description The agent's own servers and attached workspace servers. */
+        /** @description The agent's own servers and attached library servers. */
         get: operations["listAgentMCPServers"];
         put?: never;
-        /** @description A server only this agent uses (agent admin). */
+        /** @description A server only this agent uses (owner only). */
         post: operations["createAgentMCPServer"];
         delete?: never;
         options?: never;
@@ -865,11 +687,27 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** @description Attach a workspace server (agent admin). Takes effect in the next session. */
+        /** @description Attach one of your library servers (owner only). Takes effect in the next session. */
         put: operations["attachMCPServer"];
         post?: never;
-        /** @description Detach a workspace server, or delete one of the agent's own servers. */
+        /** @description Detach a library server, or delete one of the agent's own servers. */
         delete: operations["detachMCPServer"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mcp-servers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listMCPServers"];
+        put?: never;
+        post: operations["createMCPServer"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -893,18 +731,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/workspaces/{workspaceId}/skills": {
+    "/skills": {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
+            path?: never;
             cookie?: never;
         };
         get: operations["listSkills"];
         put?: never;
-        /** @description Workspace admins only. */
         post: operations["createSkill"];
         delete?: never;
         options?: never;
@@ -959,7 +794,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** @description Attach a skill (agent admin). It is written into the sandbox for the next session. */
+        /** @description Attach one of your skills (owner only). It is written into the sandbox for the next session. */
         put: operations["attachSkill"];
         post?: never;
         delete: operations["detachSkill"];
@@ -1062,15 +897,14 @@ export interface paths {
         };
         get?: never;
         /**
-         * @description Make the agent's harness use your account logins. Agent admins only,
-         *     and only for themselves. Everyone who can prompt the agent then uses
-         *     your login through it.
+         * @description Make the agent's harness use your account logins. Owner only. Users
+         *     the agent is shared with then use your login through it.
          */
         put: operations["useMyLogins"];
         post?: never;
         /**
          * @description Stop using account logins: the harness then uses what is signed in
-         *     inside its sandbox. Agent admins, and the login's owner.
+         *     inside its sandbox. The agent's owner, and the login's owner.
          */
         delete: operations["stopUsingLogins"];
         options?: never;
@@ -1089,7 +923,7 @@ export interface paths {
         };
         get: operations["listSchedules"];
         put?: never;
-        /** @description Agent admin. The schedule prompts its own session as you. */
+        /** @description Owner only. The schedule prompts its own session as you. */
         post: operations["createSchedule"];
         delete?: never;
         options?: never;
@@ -1126,7 +960,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Run now (operator). */
+        /** @description Run now (owner or shared user). */
         post: operations["runSchedule"];
         delete?: never;
         options?: never;
@@ -1145,7 +979,7 @@ export interface paths {
         };
         get: operations["listWebhooks"];
         put?: never;
-        /** @description Agent admin. The URL is shown once; deliveries prompt the webhook's session as you. */
+        /** @description Owner only. The URL is shown once; deliveries prompt the webhook's session as you. */
         post: operations["createWebhook"];
         delete?: never;
         options?: never;
@@ -1209,8 +1043,15 @@ export interface components {
         AuthProvider: {
             id: string;
             name: string;
-            /** @enum {string} */
-            type: "oidc" | "github";
+            /**
+             * @description local: sign in with username and password (POST /auth/local).
+             * @enum {string}
+             */
+            type: "oidc" | "github" | "local";
+        };
+        LocalLoginInput: {
+            username: string;
+            password: string;
         };
         User: {
             id: string;
@@ -1220,68 +1061,16 @@ export interface components {
         };
         Me: {
             user: components["schemas"]["User"];
-            personalWorkspaceId: string;
-        };
-        /** @enum {string} */
-        WorkspaceRole: "owner" | "admin" | "member";
-        Workspace: {
-            id: string;
-            name: string;
-            personal: boolean;
-            role: components["schemas"]["WorkspaceRole"];
-            /** Format: date-time */
-            createdAt: string;
-        };
-        WorkspaceInput: {
-            name: string;
-        };
-        Member: {
-            user: components["schemas"]["User"];
-            role: components["schemas"]["WorkspaceRole"];
-            /** Format: date-time */
-            joinedAt: string;
-        };
-        InviteInput: {
-            /** @enum {string} */
-            role: "admin" | "member";
-            /** @description If set, only a user with this email can accept. */
-            email?: string;
-            /** @description Defaults to 168 (7 days). */
-            expiresInHours?: number;
-        };
-        Invite: {
-            id: string;
-            /** @enum {string} */
-            role: "admin" | "member";
-            email: string;
-            createdBy: string;
-            /** Format: date-time */
-            createdAt: string;
-            /** Format: date-time */
-            expiresAt: string;
-        };
-        CreatedInvite: components["schemas"]["Invite"] & {
-            token: string;
-            /** @description Link to share with the invitee. */
-            url: string;
-        };
-        InvitePreview: {
-            workspaceId: string;
-            workspaceName: string;
-            /** @enum {string} */
-            role: "admin" | "member";
-            invitedBy: string;
-            /** Format: date-time */
-            expiresAt: string;
-            alreadyMember: boolean;
         };
         /** @enum {string} */
         SandboxState: "creating" | "starting" | "running" | "stopping" | "sleeping" | "rebuilding" | "destroying" | "error";
-        /** @enum {string} */
-        AgentRole: "viewer" | "operator" | "admin";
+        /**
+         * @description owner: full control. shared: use the agent (chat, terminal, files), not configure it.
+         * @enum {string}
+         */
+        AgentRole: "owner" | "shared";
         Agent: {
             id: string;
-            workspaceId: string;
             name: string;
             owner: components["schemas"]["User"];
             image: string;
@@ -1386,7 +1175,6 @@ export interface components {
         };
         Secret: {
             id: string;
-            workspaceId: string;
             name: string;
             rule: components["schemas"]["SecretRule"];
             /** @description What sandboxes see instead of the value. */
@@ -1413,35 +1201,6 @@ export interface components {
         AttachedSecret: {
             secret: components["schemas"]["Secret"];
             envVar: string;
-        };
-        NetworkPolicy: {
-            /** @enum {string} */
-            mode: "open" | "allowlist";
-            /** @description Entries like "github.com", "*.npmjs.org", "github.com:22", "host:*", "1.2.3.0/24:443". Without a port: 80 and 443. */
-            allow: string[];
-        };
-        EgressEvent: {
-            /** Format: int64 */
-            id: number;
-            /** Format: date-time */
-            at: string;
-            /** @enum {string} */
-            kind: "https" | "http" | "tls" | "tcp" | "dns";
-            host: string;
-            ip: string;
-            port: number;
-            method: string;
-            path: string;
-            status: number;
-            allowed: boolean;
-            reason: string;
-            injected: boolean;
-            /** Format: int64 */
-            bytesUp: number;
-            /** Format: int64 */
-            bytesDown: number;
-            /** Format: int64 */
-            durationMs: number;
         };
         HarnessType: {
             id: string;
@@ -1509,7 +1268,6 @@ export interface components {
         LoginAgent: {
             id: string;
             name: string;
-            workspaceId: string;
         };
         ProviderLoginInput: {
             kind: string;
@@ -1568,32 +1326,18 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        GrantInput: {
-            /** @enum {string} */
-            subjectType: "user" | "workspace";
-            /** @description Required for subjectType user; must be a workspace member. */
-            userId?: string;
-            role: components["schemas"]["AgentRole"];
+        ShareInput: {
+            /** @description The verified email of a user who has signed in before. */
+            email: string;
         };
-        Grant: {
-            id: string;
-            /** @enum {string} */
-            subjectType: "user" | "workspace";
-            user?: components["schemas"]["User"];
-            role: components["schemas"]["AgentRole"];
+        Share: {
+            user: components["schemas"]["User"];
             /** Format: date-time */
             createdAt: string;
         };
-        AccessEntry: {
-            user: components["schemas"]["User"];
-            role: components["schemas"]["AgentRole"];
-            /** @enum {string} */
-            via: "owner" | "workspace_admin" | "grant" | "workspace_grant";
-        };
         AccessList: {
-            grants: components["schemas"]["Grant"][];
-            /** @description Every workspace member with access and their effective role. */
-            effective: components["schemas"]["AccessEntry"][];
+            owner: components["schemas"]["User"];
+            shares: components["schemas"]["Share"][];
         };
         AuditEntry: {
             /** Format: int64 */
@@ -1628,9 +1372,12 @@ export interface components {
         };
         MCPServer: components["schemas"]["MCPServerInput"] & {
             id: string;
-            workspaceId: string;
-            /** @enum {string} */
-            scope: "workspace" | "agent";
+            ownerId: string;
+            /**
+             * @description library: in your library, attachable to your agents. agent: belongs to one agent.
+             * @enum {string}
+             */
+            scope: "library" | "agent";
             agentId?: string;
             secretRefs: string[];
             /** Format: date-time */
@@ -1648,7 +1395,7 @@ export interface components {
         };
         Skill: components["schemas"]["SkillInput"] & {
             id: string;
-            workspaceId: string;
+            ownerId: string;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -1736,7 +1483,6 @@ export interface components {
     parameters: {
         SessionId: string;
         AgentId: string;
-        WorkspaceId: string;
     };
     requestBodies: never;
     headers: never;
@@ -1853,6 +1599,32 @@ export interface operations {
             400: components["responses"]["Error"];
         };
     };
+    localLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalLoginInput"];
+            };
+        };
+        responses: {
+            /** @description Signed in; session cookie set. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+        };
+    };
     logout: {
         parameters: {
             query?: never;
@@ -1892,336 +1664,11 @@ export interface operations {
             401: components["responses"]["Error"];
         };
     };
-    listWorkspaces: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Workspaces the user is a member of. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Workspace"][];
-                };
-            };
-        };
-    };
-    createWorkspace: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["WorkspaceInput"];
-            };
-        };
-        responses: {
-            /** @description Created. The caller becomes its owner. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Workspace"];
-                };
-            };
-            400: components["responses"]["Error"];
-        };
-    };
-    getWorkspace: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The workspace. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Workspace"];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    deleteWorkspace: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Deleted. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-        };
-    };
-    updateWorkspace: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["WorkspaceInput"];
-            };
-        };
-        responses: {
-            /** @description Updated. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Workspace"];
-                };
-            };
-            400: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-        };
-    };
-    listMembers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Members of the workspace. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Member"][];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    removeMember: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-                userId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Removed. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-        };
-    };
-    updateMember: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-                userId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    role: components["schemas"]["WorkspaceRole"];
-                };
-            };
-        };
-        responses: {
-            /** @description Updated. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Member"];
-                };
-            };
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-        };
-    };
-    listInvites: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Pending invites. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Invite"][];
-                };
-            };
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-        };
-    };
-    createInvite: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["InviteInput"];
-            };
-        };
-        responses: {
-            /** @description Created. The token is only returned once. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CreatedInvite"];
-                };
-            };
-            400: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-        };
-    };
-    revokeInvite: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-                inviteId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Revoked. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-        };
-    };
-    getInvite: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                token: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description What accepting this invite would do. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InvitePreview"];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    acceptInvite: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                token: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Joined. Returns the workspace. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Workspace"];
-                };
-            };
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-        };
-    };
     listAgents: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -2235,16 +1682,13 @@ export interface operations {
                     "application/json": components["schemas"]["Agent"][];
                 };
             };
-            404: components["responses"]["Error"];
         };
     };
     createAgent: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody: {
@@ -2263,7 +1707,6 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
-            404: components["responses"]["Error"];
         };
     };
     getAgent: {
@@ -2421,7 +1864,7 @@ export interface operations {
             query?: {
                 cols?: number;
                 rows?: number;
-                /** @description Run this harness login method (agent admin) instead of a shell. */
+                /** @description Run this harness login method (owner only) instead of a shell. */
                 auth?: string;
             };
             header?: never;
@@ -2628,9 +2071,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -2644,16 +2085,13 @@ export interface operations {
                     "application/json": components["schemas"]["Secret"][];
                 };
             };
-            404: components["responses"]["Error"];
         };
     };
     createSecret: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody: {
@@ -2672,7 +2110,6 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
-            404: components["responses"]["Error"];
             409: components["responses"]["Error"];
         };
     };
@@ -2803,85 +2240,6 @@ export interface operations {
                 content?: never;
             };
             403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-        };
-    };
-    getNetworkPolicy: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agentId: components["parameters"]["AgentId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The agent's network policy. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NetworkPolicy"];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    setNetworkPolicy: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agentId: components["parameters"]["AgentId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NetworkPolicy"];
-            };
-        };
-        responses: {
-            /** @description Saved. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NetworkPolicy"];
-                };
-            };
-            400: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-        };
-    };
-    listEgressLog: {
-        parameters: {
-            query?: {
-                /** @description Return entries older than this id. */
-                before?: number;
-                limit?: number;
-            };
-            header?: never;
-            path: {
-                agentId: components["parameters"]["AgentId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Newest first. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EgressEvent"][];
-                };
-            };
             404: components["responses"]["Error"];
         };
     };
@@ -3191,7 +2549,7 @@ export interface operations {
             404: components["responses"]["Error"];
         };
     };
-    listGrants: {
+    listShares: {
         parameters: {
             query?: never;
             header?: never;
@@ -3214,7 +2572,7 @@ export interface operations {
             404: components["responses"]["Error"];
         };
     };
-    setGrant: {
+    shareAgent: {
         parameters: {
             query?: never;
             header?: never;
@@ -3225,37 +2583,38 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["GrantInput"];
+                "application/json": components["schemas"]["ShareInput"];
             };
         };
         responses: {
-            /** @description Saved. */
+            /** @description Shared (or already shared). */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Grant"];
+                    "application/json": components["schemas"]["Share"];
                 };
             };
             400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
         };
     };
-    deleteGrant: {
+    unshareAgent: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentId"];
-                grantId: string;
+                userId: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Revoked. */
+            /** @description Removed. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -3291,59 +2650,6 @@ export interface operations {
             };
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
-        };
-    };
-    listWorkspaceMCPServers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Workspace-level MCP servers (attachable to agents). */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MCPServer"][];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    createWorkspaceMCPServer: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MCPServerInput"];
-            };
-        };
-        responses: {
-            /** @description Created. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MCPServer"];
-                };
-            };
-            400: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
         };
     };
     listAgentMCPServers: {
@@ -3445,6 +2751,53 @@ export interface operations {
             404: components["responses"]["Error"];
         };
     };
+    listMCPServers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Your MCP server library (attachable to your agents). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPServer"][];
+                };
+            };
+        };
+    };
+    createMCPServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPServerInput"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPServer"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
     updateMCPServer: {
         parameters: {
             query?: never;
@@ -3500,14 +2853,12 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description The workspace skills library. */
+            /** @description Your skills library. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3516,16 +2867,13 @@ export interface operations {
                     "application/json": components["schemas"]["Skill"][];
                 };
             };
-            404: components["responses"]["Error"];
         };
     };
     createSkill: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                workspaceId: components["parameters"]["WorkspaceId"];
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody: {
@@ -3544,8 +2892,6 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
             409: components["responses"]["Error"];
         };
     };

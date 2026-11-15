@@ -42,7 +42,8 @@ export function AgentList({ agents }: { agents: Agent[] }) {
               </span>
             )}
             <span className="ml-auto text-xs text-muted-foreground">
-              {a.image} · {a.owner.name}
+              {a.image} ·{' '}
+              {a.role === 'owner' ? 'yours' : `shared by ${a.owner.name}`}
             </span>
           </Link>
         </li>
@@ -51,8 +52,8 @@ export function AgentList({ agents }: { agents: Agent[] }) {
   );
 }
 
-export function AgentsSection({ workspaceId }: { workspaceId: string }) {
-  const agents = useQuery(agentsQuery(workspaceId));
+export function AgentsSection() {
+  const agents = useQuery(agentsQuery);
   const [open, setOpen] = useState(false);
   return (
     <section className="flex flex-col gap-3">
@@ -65,27 +66,12 @@ export function AgentsSection({ workspaceId }: { workspaceId: string }) {
       {agents.isPending && <Loading />}
       <ErrorText error={agents.error} />
       {agents.data && <AgentList agents={agents.data} />}
-      {open && (
-        <NewAgentDialog
-          workspaceId={workspaceId}
-          onClose={() => setOpen(false)}
-        />
-      )}
+      {open && <NewAgentDialog onClose={() => setOpen(false)} />}
     </section>
   );
 }
 
-export function NewAgentDialog({
-  workspaceId: initialWorkspace,
-  workspaces,
-  onClose,
-}: {
-  workspaceId: string;
-  /** When given (and more than one), the dialog offers a workspace picker. */
-  workspaces?: { id: string; name: string }[];
-  onClose: () => void;
-}) {
-  const [workspaceId, setWorkspaceId] = useState(initialWorkspace);
+export function NewAgentDialog({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const limits = useQuery(sandboxLimitsQuery);
@@ -104,8 +90,7 @@ export function NewAgentDialog({
   const create = useMutation({
     mutationFn: () =>
       unwrap(
-        api.POST('/workspaces/{workspaceId}/agents', {
-          params: { path: { workspaceId } },
+        api.POST('/agents', {
           body: {
             name: name.trim(),
             ...(image.trim() && { image: image.trim() }),
@@ -118,9 +103,7 @@ export function NewAgentDialog({
         }),
       ),
     onSuccess: async (a) => {
-      await qc.invalidateQueries({
-        queryKey: ['workspaces', workspaceId, 'agents'],
-      });
+      await qc.invalidateQueries({ queryKey: agentsQuery.queryKey });
       onClose();
       await navigate({ to: '/a/$agentId', params: { agentId: a.id } });
     },
@@ -132,7 +115,7 @@ export function NewAgentDialog({
         <DialogHeader>
           <DialogTitle>New agent</DialogTitle>
           <DialogDescription>
-            Creates a sandbox for this workspace.
+            Creates an agent with its own sandbox. You are its owner.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -142,21 +125,6 @@ export function NewAgentDialog({
             create.mutate();
           }}
         >
-          {workspaces && workspaces.length > 1 && (
-            <label className="grid gap-1 text-sm">
-              Workspace
-              <Select
-                value={workspaceId}
-                onChange={(e) => setWorkspaceId(e.target.value)}
-              >
-                {workspaces.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          )}
           <label className="grid gap-1 text-sm">
             Name
             <Input

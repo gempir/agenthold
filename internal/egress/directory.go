@@ -15,7 +15,7 @@ import (
 )
 
 // Directory implements Agents from the database: it maps source addresses
-// to agents through their sandbox subnets and resolves policies and secrets.
+// to agents through their sandbox subnets and resolves their secrets.
 type Directory struct {
 	Store *store.Store
 	Box   *secrets.Box
@@ -81,7 +81,7 @@ func (d *Directory) agentID(ctx context.Context, ip netip.Addr) (string, error) 
 	return find(), nil
 }
 
-// Agent loads an agent's policy and injections (cached briefly).
+// Agent loads an agent's injections (cached briefly).
 func (d *Directory) Agent(ctx context.Context, agentID string) (*Agent, error) {
 	d.mu.Lock()
 	if c, ok := d.agents[agentID]; ok && time.Since(c.at) < directoryTTL {
@@ -94,7 +94,7 @@ func (d *Directory) Agent(ctx context.Context, agentID string) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := &Agent{ID: agentID, Policy: ParsePolicy(a.NetworkPolicy)}
+	out := &Agent{ID: agentID}
 	rows, err := d.Store.ListAgentSecrets(ctx, agentID)
 	if err != nil {
 		return nil, err
@@ -118,7 +118,7 @@ func (d *Directory) Agent(ctx context.Context, agentID string) (*Agent, error) {
 	// Secrets referenced by the agent's MCP servers ({{secret:NAME}}) are
 	// injected too: their placeholders are in the servers' headers or env.
 	if servers, err := tools.AgentServers(ctx, d.Store, agentID); err == nil {
-		if refs, err := tools.Secrets(ctx, d.Store, a.WorkspaceID, servers); err == nil {
+		if refs, err := tools.Secrets(ctx, d.Store, a.OwnerID, servers); err == nil {
 			for _, s := range refs {
 				use(s)
 			}
@@ -153,7 +153,7 @@ func (d *Directory) injection(s db.Secret) (secrets.Injection, error) {
 	return secrets.Injection{SecretID: s.ID, Rule: rule, Value: string(val), Placeholder: s.Placeholder}, nil
 }
 
-// Invalidate drops cached data, after policy, secret or sandbox changes.
+// Invalidate drops cached data, after secret, tool or sandbox changes.
 func (d *Directory) Invalidate() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -166,87 +166,4 @@ func (d *Directory) logger() *slog.Logger {
 		return d.Log
 	}
 	return slog.Default()
-}
-
-// ParsePolicy decodes a stored policy; empty or invalid means the default.
-func ParsePolicy(s string) Policy {
-	if s == "" {
-		return DefaultPolicy()
-	}
-	var p Policy
-	if err := json.Unmarshal([]byte(s), &p); err != nil || p.Validate() != nil {
-		return DefaultPolicy()
-	}
-	return p
-}
-
-// Recorder writes events to the request log in the background.
-type Recorder struct {
-	Store *store.Store
-	// Keep is how many events are kept per agent. Default 5000.
-	Keep int
-	ch   chan Event
-	once sync.Once
-	done chan struct{}
-}
-
-// Record queues an event; it never blocks (events are dropped under overload).
-func (r *Recorder) Record(e Event) {
-	r.once.Do(r.start)
-	select {
-	case r.ch <- e:
-	default:
-	}
-}
-
-func (r *Recorder) start() {
-	r.ch = make(chan Event, 4096)
-	r.done = make(chan struct{})
-	if r.Keep == 0 {
-		r.Keep = 5000
-	}
-	go r.loop()
-}
-
-// Flush waits until queued events are written (tests).
-func (r *Recorder) Flush() {
-	r.once.Do(r.start)
-	for len(r.ch) > 0 {
-		time.Sleep(10 * time.Millisecond)
-	}
-	time.Sleep(20 * time.Millisecond)
-}
-
-func (r *Recorder) loop() {
-	written := map[string]int{}
-	for e := range r.ch {
-		ctx := context.Background()
-		err := r.Store.InsertEgressEvent(ctx, db.InsertEgressEventParams{
-			AgentID: e.AgentID, At: e.At.UnixMilli(), Kind: e.Kind, Host: e.Host, Ip: e.IP, Port: int64(e.Port),
-			Method: e.Method, Path: truncate(e.Path, 512), Status: int64(e.Status), Allowed: b2i(e.Allowed),
-			Reason: truncate(e.Reason, 512), Injected: b2i(e.Injected), BytesUp: e.BytesUp, BytesDown: e.BytesDown,
-			DurationMs: e.Duration.Milliseconds(),
-		})
-		if err != nil {
-			continue // the agent may have been deleted meanwhile
-		}
-		written[e.AgentID]++
-		if written[e.AgentID]%200 == 0 {
-			_ = r.Store.PruneEgressEvents(ctx, db.PruneEgressEventsParams{AgentID: e.AgentID, Keep: int64(r.Keep)})
-		}
-	}
-}
-
-func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
-	}
-	return s
-}
-
-func b2i(b bool) int64 {
-	if b {
-		return 1
-	}
-	return 0
 }

@@ -1,12 +1,13 @@
 ---
 title: "MCP servers and skills"
-description: "Attach MCP servers and Agent Skills to a workspace or a single agent."
+description: "Keep MCP servers and Agent Skills in your library and attach them to your agents."
 ---
 
 ## MCP servers
 
-An MCP server is defined either for a whole workspace (by workspace admins) and then attached to agents, or for
-one agent only (by that agent's admins).
+MCP servers, skills and secrets belong to a user. An MCP server is defined either in your **library**
+(Settings, Tools) and then attached to any of your agents, or for one agent only. Only an agent's owner attaches
+servers and skills to it; users it is shared with can see what it uses.
 
 - **Remote (HTTP):** a URL and optional headers.
 - **Local (stdio):** a command, arguments and environment. The command runs inside the agent's sandbox, so it
@@ -18,17 +19,17 @@ Changes take effect in the agent's next session.
 
 ### Authentication through the proxy
 
-Header, environment, argument and URL values may reference a workspace secret as `{{secret:NAME}}`. The sandbox
+Header, environment, argument and URL values may reference a secret as `{{secret:NAME}}`. The sandbox
 only gets the secret's placeholder. The egress proxy injects the secret for the hosts in its rule, both by setting
 the rule's header and by replacing the placeholder wherever it appears. For example, a remote MCP server at
 `mcp.example.com` with the header `Authorization: Bearer {{secret:example-token}}` works when the
 `example-token` secret's rule lists `mcp.example.com`. A secret referenced this way is injected for the agent even
-if it is not attached to the agent. Only users who can manage a secret (its owner and workspace admins) can
-reference it.
+if it is not attached to the agent. Names resolve among the secrets of the server's owner (the agent's owner),
+so nobody can route another user's secret through their own server.
 
 ## Skills
 
-The workspace skills library holds [Agent Skills](https://agentskills.io): a name, a description of when to use it,
+Your skills library holds [Agent Skills](https://agentskills.io): a name, a description of when to use it,
 and Markdown instructions. Attached skills are written into the agent's sandbox as `<dir>/<name>/SKILL.md`, in the
 directory its harness reads:
 

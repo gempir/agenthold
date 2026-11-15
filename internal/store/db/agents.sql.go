@@ -11,29 +11,29 @@ import (
 )
 
 const createAgent = `-- name: CreateAgent :exec
-INSERT INTO agents (id, workspace_id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO agents (id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, permission_policy, login_user_id, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateAgentParams struct {
-	ID          string
-	WorkspaceID string
-	OwnerID     string
-	Name        string
-	Image       string
-	Harness     string
-	Model       string
-	Cpus        float64
-	MemoryMb    int64
-	IdleMinutes int64
-	CreatedAt   int64
-	UpdatedAt   int64
+	ID               string
+	OwnerID          string
+	Name             string
+	Image            string
+	Harness          string
+	Model            string
+	Cpus             float64
+	MemoryMb         int64
+	IdleMinutes      int64
+	PermissionPolicy string
+	LoginUserID      string
+	CreatedAt        int64
+	UpdatedAt        int64
 }
 
 func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) error {
 	_, err := q.db.ExecContext(ctx, createAgent,
 		arg.ID,
-		arg.WorkspaceID,
 		arg.OwnerID,
 		arg.Name,
 		arg.Image,
@@ -42,6 +42,8 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) error 
 		arg.Cpus,
 		arg.MemoryMb,
 		arg.IdleMinutes,
+		arg.PermissionPolicy,
+		arg.LoginUserID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -79,7 +81,7 @@ func (q *Queries) DeleteAgent(ctx context.Context, id string) error {
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, workspace_id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, created_at, updated_at, network_policy, permission_policy, credentials_in_sandbox, login_user_id FROM agents WHERE id = ?
+SELECT id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, permission_policy, credentials_in_sandbox, login_user_id, created_at, updated_at FROM agents WHERE id = ?
 `
 
 func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
@@ -87,7 +89,6 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
 	var i Agent
 	err := row.Scan(
 		&i.ID,
-		&i.WorkspaceID,
 		&i.OwnerID,
 		&i.Name,
 		&i.Image,
@@ -96,18 +97,17 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
 		&i.Cpus,
 		&i.MemoryMb,
 		&i.IdleMinutes,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.NetworkPolicy,
 		&i.PermissionPolicy,
 		&i.CredentialsInSandbox,
 		&i.LoginUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const getAgentWithSandbox = `-- name: GetAgentWithSandbox :one
-SELECT agents.id, agents.workspace_id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.created_at, agents.updated_at, agents.network_policy, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, sandboxes.agent_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet
+SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, sandboxes.agent_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet
 FROM agents JOIN sandboxes ON sandboxes.agent_id = agents.id
 WHERE agents.id = ?
 `
@@ -122,7 +122,6 @@ func (q *Queries) GetAgentWithSandbox(ctx context.Context, id string) (GetAgentW
 	var i GetAgentWithSandboxRow
 	err := row.Scan(
 		&i.Agent.ID,
-		&i.Agent.WorkspaceID,
 		&i.Agent.OwnerID,
 		&i.Agent.Name,
 		&i.Agent.Image,
@@ -131,12 +130,11 @@ func (q *Queries) GetAgentWithSandbox(ctx context.Context, id string) (GetAgentW
 		&i.Agent.Cpus,
 		&i.Agent.MemoryMb,
 		&i.Agent.IdleMinutes,
-		&i.Agent.CreatedAt,
-		&i.Agent.UpdatedAt,
-		&i.Agent.NetworkPolicy,
 		&i.Agent.PermissionPolicy,
 		&i.Agent.CredentialsInSandbox,
 		&i.Agent.LoginUserID,
+		&i.Agent.CreatedAt,
+		&i.Agent.UpdatedAt,
 		&i.Sandbox.AgentID,
 		&i.Sandbox.Driver,
 		&i.Sandbox.DriverID,
@@ -169,6 +167,38 @@ func (q *Queries) GetSandbox(ctx context.Context, agentID string) (Sandbox, erro
 		&i.Subnet,
 	)
 	return i, err
+}
+
+const listSandboxSubnets = `-- name: ListSandboxSubnets :many
+SELECT agent_id, subnet FROM sandboxes WHERE subnet != ''
+`
+
+type ListSandboxSubnetsRow struct {
+	AgentID string
+	Subnet  string
+}
+
+func (q *Queries) ListSandboxSubnets(ctx context.Context) ([]ListSandboxSubnetsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSandboxSubnets)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSandboxSubnetsRow{}
+	for rows.Next() {
+		var i ListSandboxSubnetsRow
+		if err := rows.Scan(&i.AgentID, &i.Subnet); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listSandboxes = `-- name: ListSandboxes :many
@@ -208,30 +238,31 @@ func (q *Queries) ListSandboxes(ctx context.Context) ([]Sandbox, error) {
 	return items, nil
 }
 
-const listWorkspaceAgents = `-- name: ListWorkspaceAgents :many
-SELECT agents.id, agents.workspace_id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.created_at, agents.updated_at, agents.network_policy, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, sandboxes.agent_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet
+const listUserAgents = `-- name: ListUserAgents :many
+SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, sandboxes.agent_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet
 FROM agents JOIN sandboxes ON sandboxes.agent_id = agents.id
-WHERE agents.workspace_id = ?
-ORDER BY agents.name
+WHERE agents.owner_id = ?1
+   OR agents.id IN (SELECT agent_shares.agent_id FROM agent_shares WHERE agent_shares.user_id = ?1)
+ORDER BY agents.name, agents.id
 `
 
-type ListWorkspaceAgentsRow struct {
+type ListUserAgentsRow struct {
 	Agent   Agent
 	Sandbox Sandbox
 }
 
-func (q *Queries) ListWorkspaceAgents(ctx context.Context, workspaceID string) ([]ListWorkspaceAgentsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listWorkspaceAgents, workspaceID)
+// Agents the user owns or that are shared with them.
+func (q *Queries) ListUserAgents(ctx context.Context, userID string) ([]ListUserAgentsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUserAgents, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListWorkspaceAgentsRow{}
+	items := []ListUserAgentsRow{}
 	for rows.Next() {
-		var i ListWorkspaceAgentsRow
+		var i ListUserAgentsRow
 		if err := rows.Scan(
 			&i.Agent.ID,
-			&i.Agent.WorkspaceID,
 			&i.Agent.OwnerID,
 			&i.Agent.Name,
 			&i.Agent.Image,
@@ -240,12 +271,11 @@ func (q *Queries) ListWorkspaceAgents(ctx context.Context, workspaceID string) (
 			&i.Agent.Cpus,
 			&i.Agent.MemoryMb,
 			&i.Agent.IdleMinutes,
-			&i.Agent.CreatedAt,
-			&i.Agent.UpdatedAt,
-			&i.Agent.NetworkPolicy,
 			&i.Agent.PermissionPolicy,
 			&i.Agent.CredentialsInSandbox,
 			&i.Agent.LoginUserID,
+			&i.Agent.CreatedAt,
+			&i.Agent.UpdatedAt,
 			&i.Sandbox.AgentID,
 			&i.Sandbox.Driver,
 			&i.Sandbox.DriverID,
@@ -316,6 +346,20 @@ func (q *Queries) SetSandboxState(ctx context.Context, arg SetSandboxStateParams
 		arg.StateChangedAt,
 		arg.AgentID,
 	)
+	return err
+}
+
+const setSandboxSubnet = `-- name: SetSandboxSubnet :exec
+UPDATE sandboxes SET subnet = ? WHERE agent_id = ?
+`
+
+type SetSandboxSubnetParams struct {
+	Subnet  string
+	AgentID string
+}
+
+func (q *Queries) SetSandboxSubnet(ctx context.Context, arg SetSandboxSubnetParams) error {
+	_, err := q.db.ExecContext(ctx, setSandboxSubnet, arg.Subnet, arg.AgentID)
 	return err
 }
 

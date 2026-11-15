@@ -231,6 +231,42 @@ func (q *Queries) GetUser(ctx context.Context, id string) (User, error) {
 	return i, err
 }
 
+const listUsersByVerifiedEmail = `-- name: ListUsersByVerifiedEmail :many
+SELECT id, email, email_verified, name, avatar_url, created_at, updated_at FROM users WHERE LOWER(email) = LOWER(?) AND email_verified = 1 ORDER BY created_at
+`
+
+// Users with this verified email, for sharing. Emails are compared case-insensitively.
+func (q *Queries) ListUsersByVerifiedEmail(ctx context.Context, lower string) ([]User, error) {
+	rows, err := q.db.QueryContext(ctx, listUsersByVerifiedEmail, lower)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []User{}
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.EmailVerified,
+			&i.Name,
+			&i.AvatarUrl,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const takeLoginState = `-- name: TakeLoginState :one
 DELETE FROM login_states WHERE state = ? AND expires_at > ? RETURNING state, provider, verifier, nonce, redirect_to, expires_at
 `

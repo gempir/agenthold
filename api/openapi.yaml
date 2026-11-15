@@ -11,8 +11,6 @@ tags:
   - name: auth-flow
     description: Browser redirects of the login flow. Not JSON endpoints.
   - name: auth
-  - name: workspaces
-  - name: invites
   - name: agents
   - name: files
   - name: sessions
@@ -97,6 +95,26 @@ paths:
         "302": { description: "Session cookie set, redirect into the app." }
         "400": { $ref: "#/components/responses/Error" }
 
+  /auth/local:
+    post:
+      operationId: localLogin
+      tags: [auth-flow]
+      security: []
+      description: |
+        Sign in as the local admin configured in `auth.local`. Sets the
+        session cookie. Attempts are rate limited per client address.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LocalLoginInput" }
+      responses:
+        "204": { description: Signed in; session cookie set. }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+
   /auth/logout:
     post:
       operationId: logout
@@ -116,207 +134,11 @@ paths:
               schema: { $ref: "#/components/schemas/Me" }
         "401": { $ref: "#/components/responses/Error" }
 
-  /workspaces:
-    get:
-      operationId: listWorkspaces
-      tags: [workspaces]
-      responses:
-        "200":
-          description: Workspaces the user is a member of.
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/Workspace" }
-    post:
-      operationId: createWorkspace
-      tags: [workspaces]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/WorkspaceInput" }
-      responses:
-        "201":
-          description: Created. The caller becomes its owner.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Workspace" }
-        "400": { $ref: "#/components/responses/Error" }
-
-  /workspaces/{workspaceId}:
-    parameters:
-      - $ref: "#/components/parameters/WorkspaceId"
-    get:
-      operationId: getWorkspace
-      tags: [workspaces]
-      responses:
-        "200":
-          description: The workspace.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Workspace" }
-        "404": { $ref: "#/components/responses/Error" }
-    patch:
-      operationId: updateWorkspace
-      tags: [workspaces]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/WorkspaceInput" }
-      responses:
-        "200":
-          description: Updated.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Workspace" }
-        "400": { $ref: "#/components/responses/Error" }
-        "403": { $ref: "#/components/responses/Error" }
-        "404": { $ref: "#/components/responses/Error" }
-    delete:
-      operationId: deleteWorkspace
-      tags: [workspaces]
-      responses:
-        "204": { description: Deleted. }
-        "403": { $ref: "#/components/responses/Error" }
-        "404": { $ref: "#/components/responses/Error" }
-        "409": { $ref: "#/components/responses/Error" }
-
-  /workspaces/{workspaceId}/members:
-    parameters:
-      - $ref: "#/components/parameters/WorkspaceId"
-    get:
-      operationId: listMembers
-      tags: [workspaces]
-      responses:
-        "200":
-          description: Members of the workspace.
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/Member" }
-        "404": { $ref: "#/components/responses/Error" }
-
-  /workspaces/{workspaceId}/members/{userId}:
-    parameters:
-      - $ref: "#/components/parameters/WorkspaceId"
-      - { name: userId, in: path, required: true, schema: { type: string } }
-    patch:
-      operationId: updateMember
-      tags: [workspaces]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [role]
-              properties:
-                role: { $ref: "#/components/schemas/WorkspaceRole" }
-      responses:
-        "200":
-          description: Updated.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Member" }
-        "403": { $ref: "#/components/responses/Error" }
-        "404": { $ref: "#/components/responses/Error" }
-        "409": { $ref: "#/components/responses/Error" }
-    delete:
-      operationId: removeMember
-      tags: [workspaces]
-      description: Remove a member. Members may remove themselves (leave).
-      responses:
-        "204": { description: Removed. }
-        "403": { $ref: "#/components/responses/Error" }
-        "404": { $ref: "#/components/responses/Error" }
-        "409": { $ref: "#/components/responses/Error" }
-
-  /workspaces/{workspaceId}/invites:
-    parameters:
-      - $ref: "#/components/parameters/WorkspaceId"
-    get:
-      operationId: listInvites
-      tags: [invites]
-      responses:
-        "200":
-          description: Pending invites.
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/Invite" }
-        "403": { $ref: "#/components/responses/Error" }
-        "404": { $ref: "#/components/responses/Error" }
-    post:
-      operationId: createInvite
-      tags: [invites]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/InviteInput" }
-      responses:
-        "201":
-          description: Created. The token is only returned once.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CreatedInvite" }
-        "400": { $ref: "#/components/responses/Error" }
-        "403": { $ref: "#/components/responses/Error" }
-        "404": { $ref: "#/components/responses/Error" }
-
-  /workspaces/{workspaceId}/invites/{inviteId}:
-    parameters:
-      - $ref: "#/components/parameters/WorkspaceId"
-      - { name: inviteId, in: path, required: true, schema: { type: string } }
-    delete:
-      operationId: revokeInvite
-      tags: [invites]
-      responses:
-        "204": { description: Revoked. }
-        "403": { $ref: "#/components/responses/Error" }
-        "404": { $ref: "#/components/responses/Error" }
-
-  /invites/{token}:
-    parameters:
-      - { name: token, in: path, required: true, schema: { type: string } }
-    get:
-      operationId: getInvite
-      tags: [invites]
-      responses:
-        "200":
-          description: What accepting this invite would do.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/InvitePreview" }
-        "404": { $ref: "#/components/responses/Error" }
-
-  /invites/{token}/accept:
-    parameters:
-      - { name: token, in: path, required: true, schema: { type: string } }
-    post:
-      operationId: acceptInvite
-      tags: [invites]
-      responses:
-        "200":
-          description: Joined. Returns the workspace.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Workspace" }
-        "403": { $ref: "#/components/responses/Error" }
-        "404": { $ref: "#/components/responses/Error" }
-        "409": { $ref: "#/components/responses/Error" }
-
-  /workspaces/{workspaceId}/agents:
-    parameters:
-      - $ref: "#/components/parameters/WorkspaceId"
+  /agents:
     get:
       operationId: listAgents
       tags: [agents]
-      description: Agents in the workspace that the caller can see.
+      description: Agents you own and agents shared with you.
       responses:
         "200":
           description: Agents.
@@ -325,10 +147,10 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/Agent" }
-        "404": { $ref: "#/components/responses/Error" }
     post:
       operationId: createAgent
       tags: [agents]
+      description: Create an agent. You become its owner.
       requestBody:
         required: true
         content:
@@ -341,7 +163,6 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Agent" }
         "400": { $ref: "#/components/responses/Error" }
-        "404": { $ref: "#/components/responses/Error" }
 
   /agents/{agentId}:
     parameters:
@@ -421,6 +242,7 @@ paths:
       - $ref: "#/components/parameters/AgentId"
     post:
       operationId: rebuildAgent
+      description: Owner only.
       tags: [agents]
       responses:
         "202":
@@ -439,7 +261,7 @@ paths:
       operationId: openTerminal
       tags: [streams]
       description: |
-        WebSocket upgrade to an interactive shell in the sandbox (operator role).
+        WebSocket upgrade to an interactive shell in the sandbox (owner or shared user).
         A sleeping agent is woken. Binary messages carry terminal input and
         output. Text messages are JSON: the client sends
         `{"type":"resize","cols":N,"rows":N}`; the server sends
@@ -450,7 +272,7 @@ paths:
         - { name: rows, in: query, schema: { type: integer } }
         - name: auth
           in: query
-          description: Run this harness login method (agent admin) instead of a shell.
+          description: Run this harness login method (owner only) instead of a shell.
           schema: { type: string }
       responses:
         "101": { description: Switching to WebSocket. }
@@ -507,7 +329,7 @@ paths:
     put:
       operationId: uploadFile
       tags: [files]
-      description: Create or replace a file (operator role). Missing parent directories are created.
+      description: Create or replace a file (owner or shared user). Missing parent directories are created.
       requestBody:
         required: true
         content:
@@ -567,13 +389,11 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/SecretPreset" }
 
-  /workspaces/{workspaceId}/secrets:
-    parameters:
-      - $ref: "#/components/parameters/WorkspaceId"
+  /secrets:
     get:
       operationId: listSecrets
       tags: [secrets]
-      description: Secrets the caller can attach (their own; all of them for workspace admins). Values are never returned.
+      description: Your secrets. Values are never returned.
       responses:
         "200":
           description: Secrets.
@@ -582,7 +402,6 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/Secret" }
-        "404": { $ref: "#/components/responses/Error" }
     post:
       operationId: createSecret
       tags: [secrets]
@@ -598,7 +417,6 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Secret" }
         "400": { $ref: "#/components/responses/Error" }
-        "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
   /secrets/{secretId}:
@@ -653,7 +471,7 @@ paths:
       operationId: attachSecret
       tags: [secrets]
       description: |
-        Attach a secret (agent admin; the secret's owner or a workspace admin).
+        Attach one of your secrets to an agent you own.
         Injection works immediately; a changed environment variable needs a rebuild.
       requestBody:
         required: true
@@ -678,57 +496,6 @@ paths:
       responses:
         "204": { description: Detached. }
         "403": { $ref: "#/components/responses/Error" }
-        "404": { $ref: "#/components/responses/Error" }
-
-  /agents/{agentId}/network-policy:
-    parameters:
-      - $ref: "#/components/parameters/AgentId"
-    get:
-      operationId: getNetworkPolicy
-      tags: [egress]
-      responses:
-        "200":
-          description: The agent's network policy.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/NetworkPolicy" }
-        "404": { $ref: "#/components/responses/Error" }
-    put:
-      operationId: setNetworkPolicy
-      tags: [egress]
-      description: Takes effect within seconds, without a restart.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/NetworkPolicy" }
-      responses:
-        "200":
-          description: Saved.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/NetworkPolicy" }
-        "400": { $ref: "#/components/responses/Error" }
-        "403": { $ref: "#/components/responses/Error" }
-        "404": { $ref: "#/components/responses/Error" }
-
-  /agents/{agentId}/egress-log:
-    parameters:
-      - $ref: "#/components/parameters/AgentId"
-    get:
-      operationId: listEgressLog
-      tags: [egress]
-      parameters:
-        - { name: before, in: query, description: Return entries older than this id., schema: { type: integer, format: int64 } }
-        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500 } }
-      responses:
-        "200":
-          description: Newest first.
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/EgressEvent" }
         "404": { $ref: "#/components/responses/Error" }
 
   /harnesses:
@@ -844,7 +611,7 @@ paths:
     post:
       operationId: promptSession
       tags: [sessions]
-      description: Start a turn (operator role). Wakes the agent if it sleeps. Progress arrives on the event stream.
+      description: Start a turn (owner or shared user). Wakes the agent if it sleeps. Progress arrives on the event stream.
       requestBody:
         required: true
         content:
@@ -932,13 +699,13 @@ paths:
         "101": { description: Switching to WebSocket. }
         "404": { $ref: "#/components/responses/Error" }
 
-  /agents/{agentId}/grants:
+  /agents/{agentId}/shares:
     parameters:
       - $ref: "#/components/parameters/AgentId"
     get:
-      operationId: listGrants
+      operationId: listShares
       tags: [sharing]
-      description: Who has access to the agent, including implicit access (owner, workspace owners and admins).
+      description: The agent's owner and the users it is shared with.
       responses:
         "200":
           description: Access list.
@@ -947,33 +714,38 @@ paths:
               schema: { $ref: "#/components/schemas/AccessList" }
         "404": { $ref: "#/components/responses/Error" }
     post:
-      operationId: setGrant
+      operationId: shareAgent
       tags: [sharing]
-      description: Grant a role to a workspace member or to the whole workspace (agent admin). Replaces an existing grant for the same subject.
+      description: |
+        Share the agent with another user (owner only), found by verified
+        email. A user exists once they have signed in. Shared users can use
+        the agent (chat, terminal, files) but not configure, share or delete it.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/GrantInput" }
+            schema: { $ref: "#/components/schemas/ShareInput" }
       responses:
         "200":
-          description: Saved.
+          description: Shared (or already shared).
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Grant" }
+              schema: { $ref: "#/components/schemas/Share" }
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
-  /agents/{agentId}/grants/{grantId}:
+  /agents/{agentId}/shares/{userId}:
     parameters:
       - $ref: "#/components/parameters/AgentId"
-      - { name: grantId, in: path, required: true, schema: { type: string } }
+      - { name: userId, in: path, required: true, schema: { type: string } }
     delete:
-      operationId: deleteGrant
+      operationId: unshareAgent
       tags: [sharing]
+      description: Stop sharing with a user (owner), or leave an agent shared with you.
       responses:
-        "204": { description: Revoked. }
+        "204": { description: Removed. }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 
@@ -983,7 +755,7 @@ paths:
     get:
       operationId: listAgentAudit
       tags: [sharing]
-      description: Who did what to this agent (agent admin). Newest first.
+      description: Who did what to this agent (owner only). Newest first.
       parameters:
         - { name: before, in: query, schema: { type: integer, format: int64 } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500 } }
@@ -998,48 +770,13 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 
-  /workspaces/{workspaceId}/mcp-servers:
-    parameters:
-      - $ref: "#/components/parameters/WorkspaceId"
-    get:
-      operationId: listWorkspaceMCPServers
-      tags: [tools]
-      responses:
-        "200":
-          description: Workspace-level MCP servers (attachable to agents).
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/MCPServer" }
-        "404": { $ref: "#/components/responses/Error" }
-    post:
-      operationId: createWorkspaceMCPServer
-      tags: [tools]
-      description: Workspace admins only.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/MCPServerInput" }
-      responses:
-        "201":
-          description: Created.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/MCPServer" }
-        "400": { $ref: "#/components/responses/Error" }
-        "403": { $ref: "#/components/responses/Error" }
-        "404": { $ref: "#/components/responses/Error" }
-        "409": { $ref: "#/components/responses/Error" }
-
   /agents/{agentId}/mcp-servers:
     parameters:
       - $ref: "#/components/parameters/AgentId"
     get:
       operationId: listAgentMCPServers
       tags: [tools]
-      description: The agent's own servers and attached workspace servers.
+      description: The agent's own servers and attached library servers.
       responses:
         "200":
           description: MCP servers used by the agent.
@@ -1052,7 +789,7 @@ paths:
     post:
       operationId: createAgentMCPServer
       tags: [tools]
-      description: A server only this agent uses (agent admin).
+      description: A server only this agent uses (owner only).
       requestBody:
         required: true
         content:
@@ -1076,7 +813,7 @@ paths:
     put:
       operationId: attachMCPServer
       tags: [tools]
-      description: Attach a workspace server (agent admin). Takes effect in the next session.
+      description: Attach one of your library servers (owner only). Takes effect in the next session.
       responses:
         "204": { description: Attached. }
         "403": { $ref: "#/components/responses/Error" }
@@ -1084,11 +821,41 @@ paths:
     delete:
       operationId: detachMCPServer
       tags: [tools]
-      description: Detach a workspace server, or delete one of the agent's own servers.
+      description: Detach a library server, or delete one of the agent's own servers.
       responses:
         "204": { description: Detached. }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+
+  /mcp-servers:
+    get:
+      operationId: listMCPServers
+      tags: [tools]
+      responses:
+        "200":
+          description: Your MCP server library (attachable to your agents).
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MCPServer" }
+    post:
+      operationId: createMCPServer
+      tags: [tools]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MCPServerInput" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MCPServer" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
   /mcp-servers/{serverId}:
     parameters:
@@ -1118,25 +885,21 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 
-  /workspaces/{workspaceId}/skills:
-    parameters:
-      - $ref: "#/components/parameters/WorkspaceId"
+  /skills:
     get:
       operationId: listSkills
       tags: [tools]
       responses:
         "200":
-          description: The workspace skills library.
+          description: Your skills library.
           content:
             application/json:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/Skill" }
-        "404": { $ref: "#/components/responses/Error" }
     post:
       operationId: createSkill
       tags: [tools]
-      description: Workspace admins only.
       requestBody:
         required: true
         content:
@@ -1149,8 +912,6 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Skill" }
         "400": { $ref: "#/components/responses/Error" }
-        "403": { $ref: "#/components/responses/Error" }
-        "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
   /skills/{skillId}:
@@ -1204,7 +965,7 @@ paths:
     put:
       operationId: attachSkill
       tags: [tools]
-      description: Attach a skill (agent admin). It is written into the sandbox for the next session.
+      description: Attach one of your skills (owner only). It is written into the sandbox for the next session.
       responses:
         "204": { description: Attached. }
         "403": { $ref: "#/components/responses/Error" }
@@ -1318,9 +1079,8 @@ paths:
       operationId: useMyLogins
       tags: [provider-logins]
       description: |
-        Make the agent's harness use your account logins. Agent admins only,
-        and only for themselves. Everyone who can prompt the agent then uses
-        your login through it.
+        Make the agent's harness use your account logins. Owner only. Users
+        the agent is shared with then use your login through it.
       responses:
         "200":
           description: The agent.
@@ -1334,7 +1094,7 @@ paths:
       tags: [provider-logins]
       description: |
         Stop using account logins: the harness then uses what is signed in
-        inside its sandbox. Agent admins, and the login's owner.
+        inside its sandbox. The agent's owner, and the login's owner.
       responses:
         "200":
           description: The agent.
@@ -1362,7 +1122,7 @@ paths:
     post:
       operationId: createSchedule
       tags: [triggers]
-      description: Agent admin. The schedule prompts its own session as you.
+      description: Owner only. The schedule prompts its own session as you.
       requestBody:
         required: true
         content:
@@ -1412,7 +1172,7 @@ paths:
     post:
       operationId: runSchedule
       tags: [triggers]
-      description: Run now (operator).
+      description: Run now (owner or shared user).
       responses:
         "202": { description: The turn started. }
         "403": { $ref: "#/components/responses/Error" }
@@ -1437,7 +1197,7 @@ paths:
     post:
       operationId: createWebhook
       tags: [triggers]
-      description: Agent admin. The URL is shown once; deliveries prompt the webhook's session as you.
+      description: Owner only. The URL is shown once; deliveries prompt the webhook's session as you.
       requestBody:
         required: true
         content:
@@ -1530,12 +1290,6 @@ components:
       in: path
       required: true
       schema: { type: string }
-    WorkspaceId:
-      name: workspaceId
-      in: path
-      required: true
-      schema: { type: string }
-
   responses:
     Error:
       description: Error.
@@ -1563,7 +1317,14 @@ components:
       properties:
         id: { type: string }
         name: { type: string }
-        type: { type: string, enum: [oidc, github] }
+        type: { type: string, enum: [oidc, github, local], description: 'local: sign in with username and password (POST /auth/local).' }
+
+    LocalLoginInput:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, maxLength: 256 }
+        password: { type: string, maxLength: 1024 }
 
     User:
       type: object
@@ -1576,86 +1337,9 @@ components:
 
     Me:
       type: object
-      required: [user, personalWorkspaceId]
+      required: [user]
       properties:
         user: { $ref: "#/components/schemas/User" }
-        personalWorkspaceId: { type: string }
-
-    WorkspaceRole:
-      type: string
-      enum: [owner, admin, member]
-
-    Workspace:
-      type: object
-      required: [id, name, personal, role, createdAt]
-      properties:
-        id: { type: string }
-        name: { type: string }
-        personal: { type: boolean }
-        role:
-          $ref: "#/components/schemas/WorkspaceRole"
-        createdAt: { type: string, format: date-time }
-
-    WorkspaceInput:
-      type: object
-      required: [name]
-      properties:
-        name: { type: string, minLength: 1, maxLength: 100 }
-
-    Member:
-      type: object
-      required: [user, role, joinedAt]
-      properties:
-        user: { $ref: "#/components/schemas/User" }
-        role: { $ref: "#/components/schemas/WorkspaceRole" }
-        joinedAt: { type: string, format: date-time }
-
-    InviteInput:
-      type: object
-      required: [role]
-      properties:
-        role:
-          type: string
-          enum: [admin, member]
-        email:
-          type: string
-          description: If set, only a user with this email can accept.
-        expiresInHours:
-          type: integer
-          minimum: 1
-          maximum: 720
-          description: Defaults to 168 (7 days).
-
-    Invite:
-      type: object
-      required: [id, role, email, createdAt, expiresAt, createdBy]
-      properties:
-        id: { type: string }
-        role: { type: string, enum: [admin, member] }
-        email: { type: string }
-        createdBy: { type: string }
-        createdAt: { type: string, format: date-time }
-        expiresAt: { type: string, format: date-time }
-
-    CreatedInvite:
-      allOf:
-        - $ref: "#/components/schemas/Invite"
-        - type: object
-          required: [token, url]
-          properties:
-            token: { type: string }
-            url: { type: string, description: Link to share with the invitee. }
-
-    InvitePreview:
-      type: object
-      required: [workspaceId, workspaceName, role, invitedBy, expiresAt, alreadyMember]
-      properties:
-        workspaceId: { type: string }
-        workspaceName: { type: string }
-        role: { type: string, enum: [admin, member] }
-        invitedBy: { type: string }
-        expiresAt: { type: string, format: date-time }
-        alreadyMember: { type: boolean }
 
     SandboxState:
       type: string
@@ -1663,14 +1347,14 @@ components:
 
     AgentRole:
       type: string
-      enum: [viewer, operator, admin]
+      enum: [owner, shared]
+      description: 'owner: full control. shared: use the agent (chat, terminal, files), not configure it.'
 
     Agent:
       type: object
-      required: [id, workspaceId, name, owner, image, harness, model, permissionPolicy, credentialsInSandbox, login, cpus, memoryMb, idleMinutes, state, stateError, stateChangedAt, needsRebuild, role, createdAt, updatedAt]
+      required: [id, name, owner, image, harness, model, permissionPolicy, credentialsInSandbox, login, cpus, memoryMb, idleMinutes, state, stateError, stateChangedAt, needsRebuild, role, createdAt, updatedAt]
       properties:
         id: { type: string }
-        workspaceId: { type: string }
         name: { type: string }
         owner: { $ref: "#/components/schemas/User" }
         image: { type: string }
@@ -1782,10 +1466,9 @@ components:
 
     Secret:
       type: object
-      required: [id, workspaceId, name, rule, placeholder, owner, canManage, createdAt, updatedAt]
+      required: [id, name, rule, placeholder, owner, canManage, createdAt, updatedAt]
       properties:
         id: { type: string }
-        workspaceId: { type: string }
         name: { type: string }
         rule: { $ref: "#/components/schemas/SecretRule" }
         placeholder: { type: string, description: What sandboxes see instead of the value. }
@@ -1816,36 +1499,6 @@ components:
       properties:
         secret: { $ref: "#/components/schemas/Secret" }
         envVar: { type: string }
-
-    NetworkPolicy:
-      type: object
-      required: [mode, allow]
-      properties:
-        mode: { type: string, enum: [open, allowlist] }
-        allow:
-          type: array
-          items: { type: string }
-          description: 'Entries like "github.com", "*.npmjs.org", "github.com:22", "host:*", "1.2.3.0/24:443". Without a port: 80 and 443.'
-
-    EgressEvent:
-      type: object
-      required: [id, at, kind, host, ip, port, method, path, status, allowed, reason, injected, bytesUp, bytesDown, durationMs]
-      properties:
-        id: { type: integer, format: int64 }
-        at: { type: string, format: date-time }
-        kind: { type: string, enum: [https, http, tls, tcp, dns] }
-        host: { type: string }
-        ip: { type: string }
-        port: { type: integer }
-        method: { type: string }
-        path: { type: string }
-        status: { type: integer }
-        allowed: { type: boolean }
-        reason: { type: string }
-        injected: { type: boolean }
-        bytesUp: { type: integer, format: int64 }
-        bytesDown: { type: integer, format: int64 }
-        durationMs: { type: integer, format: int64 }
 
     HarnessType:
       type: object
@@ -1920,11 +1573,10 @@ components:
 
     LoginAgent:
       type: object
-      required: [id, name, workspaceId]
+      required: [id, name]
       properties:
         id: { type: string }
         name: { type: string }
-        workspaceId: { type: string }
 
     ProviderLoginInput:
       type: object
@@ -1995,45 +1647,27 @@ components:
           type: object
           additionalProperties: true
 
-    GrantInput:
+    ShareInput:
       type: object
-      required: [subjectType, role]
+      required: [email]
       properties:
-        subjectType: { type: string, enum: [user, workspace] }
-        userId: { type: string, description: Required for subjectType user; must be a workspace member. }
-        role: { $ref: "#/components/schemas/AgentRole" }
+        email: { type: string, minLength: 1, maxLength: 320, description: The verified email of a user who has signed in before. }
 
-    Grant:
+    Share:
       type: object
-      required: [id, subjectType, role, createdAt]
+      required: [user, createdAt]
       properties:
-        id: { type: string }
-        subjectType: { type: string, enum: [user, workspace] }
         user: { $ref: "#/components/schemas/User" }
-        role: { $ref: "#/components/schemas/AgentRole" }
         createdAt: { type: string, format: date-time }
-
-    AccessEntry:
-      type: object
-      required: [user, role, via]
-      properties:
-        user: { $ref: "#/components/schemas/User" }
-        role: { $ref: "#/components/schemas/AgentRole" }
-        via:
-          type: string
-          enum: [owner, workspace_admin, grant, workspace_grant]
 
     AccessList:
       type: object
-      required: [grants, effective]
+      required: [owner, shares]
       properties:
-        grants:
+        owner: { $ref: "#/components/schemas/User" }
+        shares:
           type: array
-          items: { $ref: "#/components/schemas/Grant" }
-        effective:
-          type: array
-          description: Every workspace member with access and their effective role.
-          items: { $ref: "#/components/schemas/AccessEntry" }
+          items: { $ref: "#/components/schemas/Share" }
 
     AuditEntry:
       type: object
@@ -2072,11 +1706,11 @@ components:
       allOf:
         - $ref: "#/components/schemas/MCPServerInput"
         - type: object
-          required: [id, workspaceId, scope, secretRefs, createdAt, updatedAt, args, env, headers, command, url]
+          required: [id, ownerId, scope, secretRefs, createdAt, updatedAt, args, env, headers, command, url]
           properties:
             id: { type: string }
-            workspaceId: { type: string }
-            scope: { type: string, enum: [workspace, agent] }
+            ownerId: { type: string }
+            scope: { type: string, enum: [library, agent], description: 'library: in your library, attachable to your agents. agent: belongs to one agent.' }
             agentId: { type: string }
             secretRefs:
               type: array
@@ -2096,10 +1730,11 @@ components:
       allOf:
         - $ref: "#/components/schemas/SkillInput"
         - type: object
-          required: [id, workspaceId, createdAt, updatedAt]
+          required: [id, ownerId, createdAt, updatedAt]
           properties:
             id: { type: string }
-            workspaceId: { type: string }
+            ownerId: { type: string }
+
             createdAt: { type: string, format: date-time }
             updatedAt: { type: string, format: date-time }
 

@@ -19,33 +19,23 @@ func (c *client) agent(id string) gen.Agent {
 
 func TestAgentLifecycleAndAccess(t *testing.T) {
 	e := newEnv(t)
-	alice := e.login("alice", "Alice", "alice@example.com")
 	bob := e.login("bob", "Bob", "bob@example.com")
 	carol := e.login("carol", "Carol", "carol@example.com")
 
-	var team gen.Workspace
-	alice.do("POST", "/workspaces", gen.WorkspaceInput{Name: "Team"}, &team)
-	ws := "/workspaces/" + team.Id
-	for _, who := range []*client{bob, carol} {
-		var inv gen.CreatedInvite
-		alice.do("POST", ws+"/invites", gen.InviteInput{Role: "member"}, &inv)
-		expect(t, "accept", who.do("POST", "/invites/"+inv.Token+"/accept", nil, nil), 200)
-	}
-
 	var limits gen.SandboxLimits
-	expect(t, "limits", alice.do("GET", "/sandbox/limits", nil, &limits), 200)
+	expect(t, "limits", bob.do("GET", "/sandbox/limits", nil, &limits), 200)
 	if limits.Driver != "fake" || limits.DefaultImage == "" {
 		t.Fatalf("limits = %+v", limits)
 	}
 
 	// Validation.
-	expect(t, "too many cpus", alice.do("POST", ws+"/agents", gen.AgentInput{Name: "x", Cpus: ptr(float32(99))}, nil), 400)
-	expect(t, "bad image", alice.do("POST", ws+"/agents", gen.AgentInput{Name: "x", Image: ptr("a b")}, nil), 400)
-	expect(t, "outsider creates", e.login("dave", "Dave", "d@example.com").do("POST", ws+"/agents", gen.AgentInput{Name: "x"}, nil), 404)
+	expect(t, "too many cpus", bob.do("POST", "/agents", gen.AgentInput{Name: "x", Cpus: ptr(float32(99))}, nil), 400)
+	expect(t, "bad image", bob.do("POST", "/agents", gen.AgentInput{Name: "x", Image: ptr("a b")}, nil), 400)
+	expect(t, "anonymous creates", e.anon().do("POST", "/agents", gen.AgentInput{Name: "x"}, nil), 401)
 
 	var ag gen.Agent
-	expect(t, "create", bob.do("POST", ws+"/agents", gen.AgentInput{Name: "Bob's agent", MemoryMb: ptr(int64(1024))}, &ag), 201)
-	if ag.Image != limits.DefaultImage || ag.Role != gen.AgentRoleAdmin || ag.Owner.Name != "Bob" {
+	expect(t, "create", bob.do("POST", "/agents", gen.AgentInput{Name: "Bob's agent", MemoryMb: ptr(int64(1024))}, &ag), 201)
+	if ag.Image != limits.DefaultImage || ag.Role != gen.Owner || ag.Owner.Name != "Bob" {
 		t.Fatalf("created = %+v", ag)
 	}
 	e.sandboxes.Wait()
@@ -53,21 +43,18 @@ func TestAgentLifecycleAndAccess(t *testing.T) {
 		t.Fatalf("state = %s (%s)", got.State, got.StateError)
 	}
 
-	// Visibility: owner and workspace owner see it; another member does not.
+	// Visibility: the owner sees it; another user does not.
 	var list []gen.Agent
-	bob.do("GET", ws+"/agents", nil, &list)
+	bob.do("GET", "/agents", nil, &list)
 	if len(list) != 1 {
 		t.Fatalf("bob sees %d agents", len(list))
 	}
-	carol.do("GET", ws+"/agents", nil, &list)
+	carol.do("GET", "/agents", nil, &list)
 	if len(list) != 0 {
 		t.Fatalf("carol sees %d agents", len(list))
 	}
 	expect(t, "carol gets", carol.do("GET", "/agents/"+ag.Id, nil, nil), 404)
 	expect(t, "carol stops", carol.do("POST", "/agents/"+ag.Id+"/stop", nil, nil), 404)
-	if got := alice.agent(ag.Id); got.Role != gen.AgentRoleAdmin {
-		t.Fatalf("workspace owner role = %s", got.Role)
-	}
 
 	// Lifecycle.
 	expect(t, "stop", bob.do("POST", "/agents/"+ag.Id+"/stop", nil, nil), 202)

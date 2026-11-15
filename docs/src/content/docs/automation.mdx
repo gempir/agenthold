@@ -41,8 +41,8 @@ request must carry the HMAC-SHA256 of the body in the signature header (`X-Hub-S
 
 ## Acting as their creator
 
-Schedules and webhooks prompt as the agent admin who created them. That user's name appears in the session
-log, for example "Alice (webhook: ci)", and the audit log records each run. If the creator later loses operator
-access to the agent, the trigger stops working.
+Schedules and webhooks prompt as the agent owner who created them. That user's name appears in the session
+log, for example "Alice (webhook: ci)", and the audit log records each run. If the creator later loses access
+to the agent, the trigger stops working.
 
 The end-to-end check runs against the dev stack: `scripts/e2e/api.sh`.

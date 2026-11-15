@@ -1,6 +1,6 @@
 -- name: CreateAgent :exec
-INSERT INTO agents (id, workspace_id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO agents (id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, permission_policy, login_user_id, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetAgent :one
 SELECT * FROM agents WHERE id = ?;
@@ -10,11 +10,19 @@ SELECT sqlc.embed(agents), sqlc.embed(sandboxes)
 FROM agents JOIN sandboxes ON sandboxes.agent_id = agents.id
 WHERE agents.id = ?;
 
--- name: ListWorkspaceAgents :many
+-- name: ListUserAgents :many
+-- Agents the user owns or that are shared with them.
 SELECT sqlc.embed(agents), sqlc.embed(sandboxes)
 FROM agents JOIN sandboxes ON sandboxes.agent_id = agents.id
-WHERE agents.workspace_id = ?
-ORDER BY agents.name;
+WHERE agents.owner_id = sqlc.arg(user_id)
+   OR agents.id IN (SELECT agent_shares.agent_id FROM agent_shares WHERE agent_shares.user_id = sqlc.arg(user_id))
+ORDER BY agents.name, agents.id;
+
+-- name: SetSandboxSubnet :exec
+UPDATE sandboxes SET subnet = ? WHERE agent_id = ?;
+
+-- name: ListSandboxSubnets :many
+SELECT agent_id, subnet FROM sandboxes WHERE subnet != '';
 
 -- name: UpdateAgent :exec
 UPDATE agents SET name = ?, image = ?, cpus = ?, memory_mb = ?, idle_minutes = ?, updated_at = ?

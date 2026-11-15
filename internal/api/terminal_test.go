@@ -17,10 +17,8 @@ import (
 
 func (e *env) agentFor(c *client, name string) gen.Agent {
 	e.t.Helper()
-	var me gen.Me
-	c.do("GET", "/me", nil, &me)
 	var ag gen.Agent
-	expect(e.t, "create agent", c.do("POST", "/workspaces/"+me.PersonalWorkspaceId+"/agents", gen.AgentInput{Name: name}, &ag), 201)
+	expect(e.t, "create agent", c.do("POST", "/agents", gen.AgentInput{Name: name}, &ag), 201)
 	e.sandboxes.Wait()
 	got := c.agent(ag.Id)
 	if got.State != gen.SandboxStateRunning {

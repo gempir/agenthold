@@ -17,9 +17,8 @@ const ACTIONS: Record<string, string> = {
   'agent.start': 'Started the agent',
   'agent.stop': 'Stopped the agent',
   'agent.rebuild': 'Rebuilt the agent',
-  'grant.set': 'Shared',
-  'grant.delete': 'Revoked access',
-  'network_policy.set': 'Changed the network policy',
+  'share.add': 'Shared',
+  'share.remove': 'Stopped sharing',
   'secret.attach': 'Attached a secret',
   'secret.detach': 'Detached a secret',
 };
@@ -38,31 +37,10 @@ export function describeDetails(e: Pick<AuditEntry, 'action' | 'details'>) {
     const t = s(d.text);
     return t.length > MAX_TEXT ? `${t.slice(0, MAX_TEXT)}…` : t;
   }
-  if (e.action.startsWith('grant.')) {
-    const subject =
-      s(d.subject) ||
-      s(d.userName) ||
-      s(d.user) ||
-      (d.subjectType === 'workspace' ? 'everyone in the workspace' : '');
-    return [s(d.role) && `role: ${s(d.role)}`, subject && `to: ${subject}`]
-      .filter(Boolean)
-      .join(', ');
-  }
+  if (e.action.startsWith('share.')) return s(d.email) || s(d.userId);
   const t = s(d.text);
   return t.length > MAX_TEXT ? `${t.slice(0, MAX_TEXT)}…` : t;
 }
 
-export const VIA_LABEL: Record<string, string> = {
-  owner: 'Owner',
-  workspace_admin: 'Workspace admin',
-  grant: 'Granted',
-  workspace_grant: 'Everyone in workspace',
-};
-
-export const ROLE_HELP: Record<string, string> = {
-  viewer: 'Can read sessions, files and the activity they are part of.',
-  operator:
-    'Can also prompt, cancel, answer permissions, use the terminal and start or stop the agent.',
-  admin:
-    'Can also change settings, secrets and sharing, view activity and delete the agent.',
-};
+export const SHARED_HELP =
+  'People you share with can chat with the agent, answer its permission requests, use its terminal and files, and start or stop it. Only you can change its settings, tools, secrets and sharing, or delete it.';

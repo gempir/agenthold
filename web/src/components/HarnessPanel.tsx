@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { TriangleAlert } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
-import { harnessesQuery, type Agent } from '@/api/queries';
+import { agentsQuery, harnessesQuery, type Agent } from '@/api/queries';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
 import {
@@ -24,11 +24,11 @@ type Policy = Agent['permissionPolicy'];
 
 export function HarnessPanel({
   agent,
-  admin,
+  isOwner,
   onSaved,
 }: {
   agent: Agent;
-  admin: boolean;
+  isOwner: boolean;
   onSaved: (a: Agent) => void;
 }) {
   return (
@@ -42,7 +42,7 @@ export function HarnessPanel({
           </span>
         )}
       </div>
-      {admin ? (
+      {isOwner ? (
         <HarnessForm key={agent.updatedAt} agent={agent} onSaved={onSaved} />
       ) : (
         <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 text-sm">
@@ -54,8 +54,8 @@ export function HarnessPanel({
           <dd>{agent.permissionPolicy}</dd>
         </dl>
       )}
-      <AccountLogin agent={agent} admin={admin} onSaved={onSaved} />
-      {admin && (
+      <AccountLogin agent={agent} isOwner={isOwner} onSaved={onSaved} />
+      {isOwner && (
         <details className="border-t pt-3">
           <summary className="cursor-pointer text-sm text-muted-foreground">
             Sign in inside this sandbox instead
@@ -70,11 +70,11 @@ export function HarnessPanel({
 /** Which login the harness uses: the account login of agent.login.user. */
 function AccountLogin({
   agent,
-  admin,
+  isOwner,
   onSaved,
 }: {
   agent: Agent;
-  admin: boolean;
+  isOwner: boolean;
   onSaved: (a: Agent) => void;
 }) {
   const harnesses = useQuery(harnessesQuery);
@@ -128,7 +128,7 @@ function AccountLogin({
   } else {
     text = `Uses the login inside its sandbox${l.reason ? ` (${l.reason})` : ''}.`;
   }
-  const canStop = l.user && (admin || l.mine);
+  const canStop = l.user && (isOwner || l.mine);
   return (
     <div className="grid gap-2 border-t pt-3">
       <h3 className="text-sm font-medium">Login</h3>
@@ -136,7 +136,7 @@ function AccountLogin({
         {text}
       </p>
       <div className="flex flex-wrap gap-2">
-        {admin && !l.mine && (
+        {isOwner && !l.mine && (
           <Button
             size="sm"
             variant="outline"
@@ -185,9 +185,7 @@ function HarnessForm({
       ),
     onSuccess: async (a) => {
       onSaved(a);
-      await qc.invalidateQueries({
-        queryKey: ['workspaces', a.workspaceId, 'agents'],
-      });
+      await qc.invalidateQueries({ queryKey: agentsQuery.queryKey });
     },
   });
   return (

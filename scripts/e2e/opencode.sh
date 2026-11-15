@@ -7,8 +7,7 @@ D=$(dirname "$0")
 JAR=$(login alice alice)
 COOKIE=$(awk '/agenthold_session/{print $7}' "$JAR")
 WSURL=${BASE/http/ws}
-WS=$(api "$JAR" "$BASE/api/v1/me" | json 'd["personalWorkspaceId"]')
-AG=$(api "$JAR" -X POST "$BASE/api/v1/workspaces/$WS/agents" -d '{"name":"e2e-opencode","image":"agenthold/base:dev","harness":"opencode","memoryMb":2048}' | json 'd["id"]')
+AG=$(api "$JAR" -X POST "$BASE/api/v1/agents" -d '{"name":"e2e-opencode","image":"agenthold/base:dev","harness":"opencode","memoryMb":2048}' | json 'd["id"]')
 wait_running "$JAR" "$AG"
 echo "agent $AG"
 api "$JAR" "$BASE/api/v1/agents/$AG/harness?connect=true" | json 'd["agentName"]+" "+d["agentVersion"]+" loadSession="+str(d["loadSession"])+" auth="+",".join(m["id"]+":"+m["type"] for m in d["authMethods"])'
@@ -35,8 +34,6 @@ grep -q 'fresh context' "$WORK/t3" && fail "context was reset" || pass "conversa
 ans=$(cat "$WORK/t3" | json_lines_text)
 echo "  answer: ${ans:0:200}"
 [[ $ans == *"agenthold works"* ]] && pass "agent remembers after sleep" || fail "unexpected answer"
-log=$(api "$JAR" "$BASE/api/v1/agents/$AG/egress-log?limit=100")
-echo "$log" | json '"  egress: "+", ".join(sorted(set(e["host"] for e in d if e["allowed"])))'
 
 [[ -n ${KEEP:-} ]] || api "$JAR" -X DELETE "$BASE/api/v1/agents/$AG" >/dev/null
 exit $FAILED

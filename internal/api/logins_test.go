@@ -131,10 +131,7 @@ func TestProviderLoginConnectDeliverDisconnect(t *testing.T) {
 	if !hasAction(audit, logins.ActionUse) {
 		t.Fatalf("no use audit: %+v", audit)
 	}
-	var wsAudit []db.AuditLog
-	if wsAudit, err = e.store.ListWorkspaceAudit(t.Context(), db.ListWorkspaceAuditParams{WorkspaceID: me.PersonalWorkspaceId, ID: 1 << 62, Limit: 100}); err != nil {
-		t.Fatal(err)
-	}
+	wsAudit := mustAudit(t, e, me.User.Id)
 	if !auditHas(wsAudit, logins.ActionConnect) {
 		t.Fatal("no connect audit")
 	}
@@ -164,17 +161,30 @@ func TestProviderLoginConnectDeliverDisconnect(t *testing.T) {
 	if answer := e.ask(alice, ag.Id, "whoami"); answer != "token= account=" {
 		t.Fatalf("after disconnect the harness saw %q", answer)
 	}
-	if !auditHas(mustAudit(t, e, me.PersonalWorkspaceId), logins.ActionDisconnect) {
+	if !auditHas(mustAudit(t, e, me.User.Id), logins.ActionDisconnect) {
 		t.Fatal("no disconnect audit")
 	}
 }
 
-func mustAudit(t *testing.T, e *env, ws string) []db.AuditLog {
-	rows, err := e.store.ListWorkspaceAudit(t.Context(), db.ListWorkspaceAuditParams{WorkspaceID: ws, ID: 1 << 62, Limit: 100})
+// mustAudit returns userID's account-level audit entries (not tied to an agent).
+func mustAudit(t *testing.T, e *env, userID string) []db.AuditLog {
+	rows, err := e.store.DB.QueryContext(t.Context(), `SELECT action, details FROM audit_log WHERE user_id = ? AND agent_id = '' ORDER BY id DESC`, userID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return rows
+	defer rows.Close()
+	var out []db.AuditLog
+	for rows.Next() {
+		var a db.AuditLog
+		if err := rows.Scan(&a.Action, &a.Details); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, a)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 func auditHas(rows []db.AuditLog, action string) bool {
@@ -225,7 +235,7 @@ func TestSwitchingHarnessUsesTheOtherLogin(t *testing.T) {
 
 	// An API key secret attached to the agent for its harness wins.
 	var sec gen.Secret
-	expect(t, "secret", alice.do("POST", "/workspaces/"+alice.personal()+"/secrets", map[string]any{"name": "k", "value": "sk-other", "preset": "openai"}, &sec), 201)
+	expect(t, "secret", alice.do("POST", "/secrets", map[string]any{"name": "k", "value": "sk-other", "preset": "openai"}, &sec), 201)
 	expect(t, "attach", alice.do("PUT", "/agents/"+ag.Id+"/secrets/"+sec.Id, map[string]any{"envVar": "OPENAI_API_KEY"}, nil), 200)
 	if got := alice.agent(ag.Id).Login; got.Source != "secret" {
 		t.Fatalf("with secret: %+v", got)
@@ -237,51 +247,34 @@ func TestSwitchingHarnessUsesTheOtherLogin(t *testing.T) {
 	}
 }
 
-func (c *client) personal() string {
-	var me gen.Me
-	c.do("GET", "/me", nil, &me)
-	return me.PersonalWorkspaceId
-}
-
-// TestProviderLoginIsolation: one member's login is never used by another
-// member's agents unless that member chose it, visibly.
+// TestProviderLoginIsolation: one user's login is never used by another
+// user's agents; sharing an agent lends the owner's login, never takes the
+// shared user's.
 func TestProviderLoginIsolation(t *testing.T) {
 	tm := newTeam(t)
 	e, ag := tm.e, tm.agent.Id
-	tm.grant("bob", "operator")
-	tm.grant("carol", "admin")
+	tm.share("bob")
 	expect(t, "bob connects", tm.bob.connect("fake", "token", "fake-bob-secret-0001"), 200)
-	expect(t, "carol connects", tm.carol.connect("fake", "token", "fake-carol-secret-0002"), 200)
 
 	// Alice's agent uses Alice's logins; she has none, so nothing is injected.
 	if l := tm.alice.agent(ag).Login; l.User == nil || l.User.Id != tm.ids["alice"] || l.Connected {
 		t.Fatalf("login %+v", l)
 	}
 	if len(e.injections(ag).Injections) != 0 {
-		t.Fatal("another member's login injected")
+		t.Fatal("another user's login injected")
 	}
-	// An operator cannot attach their login; there is no way to name someone else's.
-	expect(t, "operator binds", tm.bob.do("PUT", "/agents/"+ag+"/login", nil, nil), 403)
-	expect(t, "outsider binds", e.login("eve", "Eve", "e@example.com").do("PUT", "/agents/"+ag+"/login", nil, nil), 404)
-	expect(t, "operator unbinds", tm.bob.do("DELETE", "/agents/"+ag+"/login", nil, nil), 403)
+	// A shared user cannot attach their login; there is no way to name someone else's.
+	expect(t, "shared user binds", tm.bob.do("PUT", "/agents/"+ag+"/login", nil, nil), 403)
+	expect(t, "stranger binds", tm.dave.do("PUT", "/agents/"+ag+"/login", nil, nil), 404)
+	expect(t, "shared user unbinds", tm.bob.do("DELETE", "/agents/"+ag+"/login", nil, nil), 403)
 
-	// An agent admin attaches their own.
-	var got gen.Agent
-	expect(t, "carol binds", tm.carol.do("PUT", "/agents/"+ag+"/login", nil, &got), 200)
-	if got.Login.User.Id != tm.ids["carol"] || !got.Login.Mine || !got.Login.Connected {
-		t.Fatalf("carol %+v", got.Login)
-	}
-	// Everyone sees whose login it is.
-	if l := tm.bob.agent(ag).Login; l.User.Id != tm.ids["carol"] || l.Mine {
+	// The owner connects; the shared user sees whose login it is and uses it through the agent.
+	expect(t, "alice connects", tm.alice.connect("fake", "token", "fake-alice-secret-0002"), 200)
+	if l := tm.bob.agent(ag).Login; l.User.Id != tm.ids["alice"] || l.Mine || !l.Connected {
 		t.Fatalf("bob sees %+v", l)
 	}
-	if a := e.injections(ag); len(a.Injections) != 1 || a.Injections[0].Value != "fake-carol-secret-0002" {
-		t.Fatal("carol's login not injected")
-	}
-	var audit []gen.AuditEntry
-	tm.alice.do("GET", "/agents/"+ag+"/audit", nil, &audit)
-	if !hasAction(audit, logins.ActionBind) {
-		t.Fatal("bind not audited")
+	if a := e.injections(ag); len(a.Injections) != 1 || a.Injections[0].Value != "fake-alice-secret-0002" {
+		t.Fatal("alice's login not injected")
 	}
 	// Nobody reads another user's logins.
 	var bobList []gen.ProviderLoginInfo
@@ -292,54 +285,27 @@ func TestProviderLoginIsolation(t *testing.T) {
 		}
 	}
 
-	// Carol loses access: her login stops being used at once.
-	tm.revoke("carol")
-	if len(e.injections(ag).Injections) != 0 {
-		t.Fatal("login used after its owner lost access")
-	}
-	if l := tm.alice.agent(ag).Login; l.Source != "sandbox" || l.Reason == nil {
-		t.Fatalf("after revoke %+v", l)
-	}
-	tm.grant("carol", "viewer")
-	if len(e.injections(ag).Injections) != 1 {
-		t.Fatal("viewer access restores the binding")
-	}
-	// The login's owner can always withdraw it, even as a viewer.
-	expect(t, "carol withdraws", tm.carol.do("DELETE", "/agents/"+ag+"/login", nil, nil), 200)
+	// The owner stops using account logins, and uses them again.
+	expect(t, "alice unbinds", tm.alice.do("DELETE", "/agents/"+ag+"/login", nil, nil), 200)
 	if len(e.injections(ag).Injections) != 0 || tm.alice.agent(ag).Login.User != nil {
 		t.Fatal("still bound")
 	}
-
-	// Leaving the workspace ends the binding.
-	tm.grant("carol", "admin")
-	expect(t, "carol binds again", tm.carol.do("PUT", "/agents/"+ag+"/login", nil, nil), 200)
-	expect(t, "remove carol", tm.alice.do("DELETE", "/workspaces/"+tm.ws+"/members/"+tm.ids["carol"], nil, nil), 204)
-	row, _ := e.store.GetAgent(t.Context(), ag)
-	if row.LoginUserID != "" {
-		t.Fatal("binding survived leaving the workspace")
+	var got gen.Agent
+	expect(t, "alice binds", tm.alice.do("PUT", "/agents/"+ag+"/login", nil, &got), 200)
+	if got.Login.User.Id != tm.ids["alice"] || !got.Login.Mine || !got.Login.Connected {
+		t.Fatalf("alice %+v", got.Login)
 	}
-
-	// Admins may detach someone else's login (never attach it).
-	tm.grant("bob", "admin")
-	expect(t, "bob binds", tm.bob.do("PUT", "/agents/"+ag+"/login", nil, nil), 200)
-	expect(t, "alice detaches", tm.alice.do("DELETE", "/agents/"+ag+"/login", nil, nil), 200)
+	var audit []gen.AuditEntry
+	tm.alice.do("GET", "/agents/"+ag+"/audit", nil, &audit)
+	if !hasAction(audit, logins.ActionBind) || !hasAction(audit, logins.ActionUnbind) {
+		t.Fatal("bind not audited")
+	}
 
 	// Tokens cannot connect logins.
 	var tok gen.CreatedAPIToken
 	tm.alice.do("POST", "/me/tokens", map[string]any{"name": "ci"}, &tok)
 	expect(t, "token connects", e.tokenClient(tok.Token).connect("fake", "token", "fake-x-secret-9999"), 403)
 	expect(t, "token lists", e.tokenClient(tok.Token).do("GET", "/me/provider-logins", nil, nil), 200)
-}
-
-func (tm *team) revoke(who string) {
-	tm.e.t.Helper()
-	var access gen.AccessList
-	tm.alice.do("GET", "/agents/"+tm.agent.Id+"/grants", nil, &access)
-	for _, g := range access.Grants {
-		if g.User != nil && g.User.Id == tm.ids[who] {
-			expect(tm.e.t, "revoke", tm.alice.do("DELETE", "/agents/"+tm.agent.Id+"/grants/"+g.Id, nil, nil), 204)
-		}
-	}
 }
 
 // TestRotatingLoginRefreshedCentrally: the server owns the refresh token;

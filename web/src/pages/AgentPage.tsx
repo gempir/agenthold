@@ -2,15 +2,9 @@ import { lazy, Suspense, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Bot, PanelRight, Settings2, SquarePen } from 'lucide-react';
-import {
-  agentQuery,
-  sessionsQuery,
-  workspacesQuery,
-  type Agent,
-} from '@/api/queries';
+import { agentQuery, sessionsQuery, type Agent } from '@/api/queries';
 import { AgentStateDot } from '@/components/AgentStateBadge';
 import { Loading } from '@/components/Spinner';
-import { WorkspaceBadge } from '@/components/WorkspaceBadge';
 import { Button } from '@/components/ui/button';
 import { AgentLoadError } from '@/components/agent/AgentLoadError';
 import { AgentNotice } from '@/components/agent/AgentNotice';
@@ -23,9 +17,10 @@ import { useStartChat } from '@/hooks/useStartChat';
 
 const ChatView = lazy(() => import('@/components/chat/ChatView'));
 
+/** Owners and shared users use an agent; only owners configure it. */
 export const accessOf = (a: Agent) => ({
-  operator: a.role === 'operator' || a.role === 'admin',
-  admin: a.role === 'admin',
+  canUse: a.role === 'owner' || a.role === 'shared',
+  isOwner: a.role === 'owner',
 });
 
 /** The chat with one agent: a session, or a fresh draft when none is open. */
@@ -41,7 +36,6 @@ export function AgentPage({
   onPanel: (p: PanelTab | undefined) => void;
 }) {
   const q = useQuery(agentQuery(agentId));
-  const workspaces = useQuery(workspacesQuery);
   const sessions = useQuery(sessionsQuery(agentId));
   const [wide, setWideState] = useState(
     () => readPref('panelWide', '') === '1',
@@ -65,9 +59,8 @@ export function AgentPage({
 
   const a = q.data;
   const access = accessOf(a);
-  const ws = workspaces.data?.find((w) => w.id === a.workspaceId);
   const selected = sessions.data?.find((s) => s.id === sessionId);
-  const notice = <AgentNotice agent={a} operator={access.operator} />;
+  const notice = <AgentNotice agent={a} canUse={access.canUse} />;
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -75,7 +68,7 @@ export function AgentPage({
         <TopBar
           actions={
             <>
-              {access.operator && sessionId && (
+              {access.canUse && sessionId && (
                 <Button
                   asChild
                   variant="ghost"
@@ -124,15 +117,6 @@ export function AgentPage({
             </>
           }
         >
-          {ws && (
-            <>
-              <Crumb className="hidden sm:flex">
-                <WorkspaceBadge id={ws.id} name={ws.name} />
-                <span className="truncate">{ws.name}</span>
-              </Crumb>
-              <CrumbSep className="hidden sm:inline" />
-            </>
-          )}
           <Crumb current={!selected} className="max-w-[45%] shrink-0">
             <AgentStateDot state={a.state} />
             <Link
@@ -181,7 +165,7 @@ export function AgentPage({
             <ChatView
               key={sessionId}
               sessionId={sessionId}
-              operator={access.operator}
+              canUse={access.canUse}
               agentState={a.state}
               initialRunning={selected?.running}
               composerMeta={<HarnessMeta agent={a} />}
@@ -203,7 +187,7 @@ export function AgentPage({
             }
             meta={<HarnessMeta agent={a} />}
             notice={notice}
-            readOnly={!access.operator}
+            readOnly={!access.canUse}
             placeholder={
               a.state === 'sleeping'
                 ? 'Send a message to wake the agent…'
@@ -219,7 +203,7 @@ export function AgentPage({
         <AgentPanel
           agent={a}
           access={access}
-          tab={panel === 'terminal' && !access.operator ? 'overview' : panel}
+          tab={panel === 'terminal' && !access.canUse ? 'overview' : panel}
           sessionId={sessionId}
           wide={wide}
           onTab={onPanel}

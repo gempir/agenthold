@@ -24,9 +24,9 @@ var mcpNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 func apiMCPServer(s db.McpServer) gen.MCPServer {
 	d := tools.Decode(s)
 	out := gen.MCPServer{
-		Id: s.ID, WorkspaceId: s.WorkspaceID, Name: s.Name, Transport: gen.MCPServerTransport(s.Transport),
+		Id: s.ID, OwnerId: s.OwnerID, Name: s.Name, Transport: gen.MCPServerTransport(s.Transport),
 		Command: s.Command, Args: d.ArgList, Env: d.EnvMap, Url: s.Url, Headers: d.HeaderMap,
-		Scope: "workspace", SecretRefs: d.Refs(), CreatedAt: ts(s.CreatedAt), UpdatedAt: ts(s.UpdatedAt),
+		Scope: gen.MCPServerScopeLibrary, SecretRefs: d.Refs(), CreatedAt: ts(s.CreatedAt), UpdatedAt: ts(s.UpdatedAt),
 	}
 	if out.Args == nil {
 		out.Args = []string{}
@@ -36,15 +36,15 @@ func apiMCPServer(s db.McpServer) gen.MCPServer {
 	}
 	sort.Strings(out.SecretRefs)
 	if s.AgentID != "" {
-		out.Scope = "agent"
+		out.Scope = gen.MCPServerScopeAgent
 		out.AgentId = &s.AgentID
 	}
 	return out
 }
 
 // mcpFromInput validates input and checks that every referenced secret
-// exists and may be used by the caller.
-func (a *API) mcpFromInput(ctx context.Context, workspaceID string, in gen.MCPServerInput) (db.McpServer, error) {
+// exists among ownerID's secrets (servers only use their owner's secrets).
+func (a *API) mcpFromInput(ctx context.Context, ownerID string, in gen.MCPServerInput) (db.McpServer, error) {
 	s := db.McpServer{Name: strings.TrimSpace(in.Name), Transport: string(in.Transport), Args: "[]", Env: "{}", Headers: "{}"}
 	if !mcpNameRe.MatchString(s.Name) {
 		return s, badRequest("name must be 1 to 64 letters, digits, dashes or underscores")
@@ -88,28 +88,20 @@ func (a *API) mcpFromInput(ctx context.Context, workspaceID string, in gen.MCPSe
 		return s, badRequest("transport must be stdio or http")
 	}
 	d := tools.Decode(s)
-	refs, err := tools.Secrets(ctx, a.Store, workspaceID, []tools.Server{d})
+	_, err := tools.Secrets(ctx, a.Store, ownerID, []tools.Server{d})
 	if errors.Is(err, tools.ErrUnknownSecret) {
 		return s, badRequest(err.Error())
 	}
 	if err != nil {
 		return s, err
 	}
-	role, err := a.authz.WorkspaceRoleOf(ctx, me(ctx).ID, workspaceID)
-	if err != nil {
-		return s, err
-	}
-	for name, sec := range refs {
-		if !canManageSecret(me(ctx).ID, role, sec) {
-			return s, errStatus(http.StatusForbidden, "you cannot use the secret "+name)
-		}
-	}
+	s.OwnerID = ownerID
 	return s, nil
 }
 
 func (a *API) insertMCP(ctx context.Context, s db.McpServer) (gen.MCPServer, error) {
 	now := a.Now().Unix()
-	s.ID, s.CreatedBy, s.CreatedAt, s.UpdatedAt = id.New("mcp"), me(ctx).ID, now, now
+	s.ID, s.CreatedAt, s.UpdatedAt = id.New("mcp"), now, now
 	if err := a.Store.CreateMCPServer(ctx, db.CreateMCPServerParams(s)); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return gen.MCPServer{}, errStatus(http.StatusConflict, "a server with this name already exists")
@@ -120,37 +112,30 @@ func (a *API) insertMCP(ctx context.Context, s db.McpServer) (gen.MCPServer, err
 	return apiMCPServer(s), nil
 }
 
-// ListWorkspaceMCPServers implements gen.StrictServerInterface.
-func (a *API) ListWorkspaceMCPServers(ctx context.Context, req gen.ListWorkspaceMCPServersRequestObject) (gen.ListWorkspaceMCPServersResponseObject, error) {
-	if _, err := a.authz.Workspace(ctx, me(ctx).ID, req.WorkspaceId, authz.WorkspaceRead); err != nil {
-		return nil, err
-	}
-	rows, err := a.Store.ListWorkspaceMCPServers(ctx, req.WorkspaceId)
+// ListMCPServers implements gen.StrictServerInterface.
+func (a *API) ListMCPServers(ctx context.Context, _ gen.ListMCPServersRequestObject) (gen.ListMCPServersResponseObject, error) {
+	rows, err := a.Store.ListUserMCPServers(ctx, me(ctx).ID)
 	if err != nil {
 		return nil, err
 	}
-	out := gen.ListWorkspaceMCPServers200JSONResponse{}
+	out := gen.ListMCPServers200JSONResponse{}
 	for _, r := range rows {
 		out = append(out, apiMCPServer(r))
 	}
 	return out, nil
 }
 
-// CreateWorkspaceMCPServer implements gen.StrictServerInterface.
-func (a *API) CreateWorkspaceMCPServer(ctx context.Context, req gen.CreateWorkspaceMCPServerRequestObject) (gen.CreateWorkspaceMCPServerResponseObject, error) {
-	if _, err := a.authz.Workspace(ctx, me(ctx).ID, req.WorkspaceId, authz.WorkspaceConfig); err != nil {
-		return nil, err
-	}
-	s, err := a.mcpFromInput(ctx, req.WorkspaceId, *req.Body)
+// CreateMCPServer implements gen.StrictServerInterface.
+func (a *API) CreateMCPServer(ctx context.Context, req gen.CreateMCPServerRequestObject) (gen.CreateMCPServerResponseObject, error) {
+	s, err := a.mcpFromInput(ctx, me(ctx).ID, *req.Body)
 	if err != nil {
 		return nil, err
 	}
-	s.WorkspaceID = req.WorkspaceId
 	out, err := a.insertMCP(ctx, s)
 	if err != nil {
 		return nil, err
 	}
-	return gen.CreateWorkspaceMCPServer201JSONResponse(out), nil
+	return gen.CreateMCPServer201JSONResponse(out), nil
 }
 
 // ListAgentMCPServers implements gen.StrictServerInterface.
@@ -176,11 +161,11 @@ func (a *API) CreateAgentMCPServer(ctx context.Context, req gen.CreateAgentMCPSe
 		return nil, err
 	}
 	ag := acc.Row.Agent
-	s, err := a.mcpFromInput(ctx, ag.WorkspaceID, *req.Body)
+	s, err := a.mcpFromInput(ctx, ag.OwnerID, *req.Body)
 	if err != nil {
 		return nil, err
 	}
-	s.WorkspaceID, s.AgentID = ag.WorkspaceID, ag.ID
+	s.AgentID = ag.ID
 	out, err := a.insertMCP(ctx, s)
 	if err != nil {
 		return nil, err
@@ -200,8 +185,8 @@ func (a *API) loadMCP(ctx context.Context, serverID string) (db.McpServer, error
 	}
 	if s.AgentID != "" {
 		_, err = a.authz.Agent(ctx, me(ctx).ID, s.AgentID, authz.AgentConfigure)
-	} else {
-		_, err = a.authz.Workspace(ctx, me(ctx).ID, s.WorkspaceID, authz.WorkspaceConfig)
+	} else if s.OwnerID != me(ctx).ID {
+		err = errNotFound // other users' libraries are invisible
 	}
 	return s, err
 }
@@ -212,11 +197,11 @@ func (a *API) UpdateMCPServer(ctx context.Context, req gen.UpdateMCPServerReques
 	if err != nil {
 		return nil, err
 	}
-	s, err := a.mcpFromInput(ctx, cur.WorkspaceID, *req.Body)
+	s, err := a.mcpFromInput(ctx, cur.OwnerID, *req.Body)
 	if err != nil {
 		return nil, err
 	}
-	s.ID, s.WorkspaceID, s.AgentID, s.CreatedBy, s.CreatedAt, s.UpdatedAt = cur.ID, cur.WorkspaceID, cur.AgentID, cur.CreatedBy, cur.CreatedAt, a.Now().Unix()
+	s.ID, s.AgentID, s.CreatedAt, s.UpdatedAt = cur.ID, cur.AgentID, cur.CreatedAt, a.Now().Unix()
 	if err := a.Store.UpdateMCPServer(ctx, db.UpdateMCPServerParams{
 		Name: s.Name, Transport: s.Transport, Command: s.Command, Args: s.Args, Env: s.Env, Url: s.Url, Headers: s.Headers, UpdatedAt: s.UpdatedAt, ID: s.ID,
 	}); err != nil {
@@ -249,7 +234,7 @@ func (a *API) AttachMCPServer(ctx context.Context, req gen.AttachMCPServerReques
 		return nil, err
 	}
 	s, err := a.Store.GetMCPServer(ctx, req.ServerId)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && (s.WorkspaceID != acc.Row.Agent.WorkspaceID || s.AgentID != "")) {
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && (s.OwnerID != acc.Row.Agent.OwnerID || s.AgentID != "")) {
 		return nil, errNotFound
 	}
 	if err != nil {
@@ -294,7 +279,7 @@ func (a *API) DetachMCPServer(ctx context.Context, req gen.DetachMCPServerReques
 }
 
 func apiSkill(s db.Skill) gen.Skill {
-	return gen.Skill{Id: s.ID, WorkspaceId: s.WorkspaceID, Name: s.Name, Description: s.Description, Content: s.Content, CreatedAt: ts(s.CreatedAt), UpdatedAt: ts(s.UpdatedAt)}
+	return gen.Skill{Id: s.ID, OwnerId: s.OwnerID, Name: s.Name, Description: s.Description, Content: s.Content, CreatedAt: ts(s.CreatedAt), UpdatedAt: ts(s.UpdatedAt)}
 }
 
 func validSkill(in gen.SkillInput) (db.Skill, error) {
@@ -312,11 +297,8 @@ func validSkill(in gen.SkillInput) (db.Skill, error) {
 }
 
 // ListSkills implements gen.StrictServerInterface.
-func (a *API) ListSkills(ctx context.Context, req gen.ListSkillsRequestObject) (gen.ListSkillsResponseObject, error) {
-	if _, err := a.authz.Workspace(ctx, me(ctx).ID, req.WorkspaceId, authz.WorkspaceRead); err != nil {
-		return nil, err
-	}
-	rows, err := a.Store.ListWorkspaceSkills(ctx, req.WorkspaceId)
+func (a *API) ListSkills(ctx context.Context, _ gen.ListSkillsRequestObject) (gen.ListSkillsResponseObject, error) {
+	rows, err := a.Store.ListUserSkills(ctx, me(ctx).ID)
 	if err != nil {
 		return nil, err
 	}
@@ -329,15 +311,12 @@ func (a *API) ListSkills(ctx context.Context, req gen.ListSkillsRequestObject) (
 
 // CreateSkill implements gen.StrictServerInterface.
 func (a *API) CreateSkill(ctx context.Context, req gen.CreateSkillRequestObject) (gen.CreateSkillResponseObject, error) {
-	if _, err := a.authz.Workspace(ctx, me(ctx).ID, req.WorkspaceId, authz.WorkspaceConfig); err != nil {
-		return nil, err
-	}
 	s, err := validSkill(*req.Body)
 	if err != nil {
 		return nil, err
 	}
 	now := a.Now().Unix()
-	s.ID, s.WorkspaceID, s.CreatedBy, s.CreatedAt, s.UpdatedAt = id.New("skl"), req.WorkspaceId, me(ctx).ID, now, now
+	s.ID, s.OwnerID, s.CreatedAt, s.UpdatedAt = id.New("skl"), me(ctx).ID, now, now
 	if err := a.Store.CreateSkill(ctx, db.CreateSkillParams(s)); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return nil, errStatus(http.StatusConflict, "a skill with this name already exists")
@@ -347,21 +326,18 @@ func (a *API) CreateSkill(ctx context.Context, req gen.CreateSkillRequestObject)
 	return gen.CreateSkill201JSONResponse(apiSkill(s)), nil
 }
 
-func (a *API) loadSkill(ctx context.Context, skillID string, action authz.Action) (db.Skill, error) {
+// loadSkill returns one of the caller's skills.
+func (a *API) loadSkill(ctx context.Context, skillID string) (db.Skill, error) {
 	s, err := a.Store.GetSkill(ctx, skillID)
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && s.OwnerID != me(ctx).ID) {
 		return s, errNotFound
 	}
-	if err != nil {
-		return s, err
-	}
-	_, err = a.authz.Workspace(ctx, me(ctx).ID, s.WorkspaceID, action)
 	return s, err
 }
 
 // UpdateSkill implements gen.StrictServerInterface.
 func (a *API) UpdateSkill(ctx context.Context, req gen.UpdateSkillRequestObject) (gen.UpdateSkillResponseObject, error) {
-	cur, err := a.loadSkill(ctx, req.SkillId, authz.WorkspaceConfig)
+	cur, err := a.loadSkill(ctx, req.SkillId)
 	if err != nil {
 		return nil, err
 	}
@@ -369,7 +345,7 @@ func (a *API) UpdateSkill(ctx context.Context, req gen.UpdateSkillRequestObject)
 	if err != nil {
 		return nil, err
 	}
-	s.ID, s.WorkspaceID, s.CreatedBy, s.CreatedAt, s.UpdatedAt = cur.ID, cur.WorkspaceID, cur.CreatedBy, cur.CreatedAt, a.Now().Unix()
+	s.ID, s.OwnerID, s.CreatedAt, s.UpdatedAt = cur.ID, cur.OwnerID, cur.CreatedAt, a.Now().Unix()
 	if err := a.Store.UpdateSkill(ctx, db.UpdateSkillParams{Name: s.Name, Description: s.Description, Content: s.Content, UpdatedAt: s.UpdatedAt, ID: s.ID}); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return nil, errStatus(http.StatusConflict, "a skill with this name already exists")
@@ -381,7 +357,7 @@ func (a *API) UpdateSkill(ctx context.Context, req gen.UpdateSkillRequestObject)
 
 // DeleteSkill implements gen.StrictServerInterface.
 func (a *API) DeleteSkill(ctx context.Context, req gen.DeleteSkillRequestObject) (gen.DeleteSkillResponseObject, error) {
-	s, err := a.loadSkill(ctx, req.SkillId, authz.WorkspaceConfig)
+	s, err := a.loadSkill(ctx, req.SkillId)
 	if err != nil {
 		return nil, err
 	}
@@ -414,7 +390,7 @@ func (a *API) AttachSkill(ctx context.Context, req gen.AttachSkillRequestObject)
 		return nil, err
 	}
 	s, err := a.Store.GetSkill(ctx, req.SkillId)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && s.WorkspaceID != acc.Row.Agent.WorkspaceID) {
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && s.OwnerID != acc.Row.Agent.OwnerID) {
 		return nil, errNotFound
 	}
 	if err != nil {

@@ -85,6 +85,7 @@ func (a *API) mountAuthenticated(r chi.Router) {
 		r.Use(a.Auth.Middleware, limitBodies)
 		r.Get("/auth/login/{provider}", a.login)
 		r.Get("/auth/callback/{provider}", a.callback)
+		r.Post("/auth/local", a.localLogin)
 		r.Post("/auth/logout", a.logout)
 		r.Get("/agents/{agentId}/terminal", a.terminal)
 		r.Get("/sessions/{sessionId}/stream", a.stream)

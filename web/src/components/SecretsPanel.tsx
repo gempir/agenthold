@@ -21,17 +21,12 @@ export type Secret = components['schemas']['Secret'];
 export type SecretRule = components['schemas']['SecretRule'];
 export type SecretPreset = components['schemas']['SecretPreset'];
 
-export const secretsQuery = (workspaceId: string) =>
-  queryOptions({
-    queryKey: ['workspaces', workspaceId, 'secrets'],
-    queryFn: () =>
-      unwrap(
-        api.GET('/workspaces/{workspaceId}/secrets', {
-          params: { path: { workspaceId } },
-        }),
-      ),
-    retry: false,
-  });
+/** Your secrets (values are never returned). */
+export const secretsQuery = queryOptions({
+  queryKey: ['secrets'],
+  queryFn: () => unwrap(api.GET('/secrets')),
+  retry: false,
+});
 
 export const presetsQuery = queryOptions({
   queryKey: ['secrets', 'presets'],
@@ -70,15 +65,15 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-export function SecretsPanel({ workspaceId }: { workspaceId: string }) {
+export function SecretsPanel() {
   const qc = useQueryClient();
-  const secrets = useQuery(secretsQuery(workspaceId));
+  const secrets = useQuery(secretsQuery);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Secret | null>(null);
   const [deleting, setDeleting] = useState<Secret | null>(null);
 
   const refresh = () =>
-    qc.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'secrets'] });
+    qc.invalidateQueries({ queryKey: secretsQuery.queryKey });
 
   const del = useMutation({
     mutationFn: (id: string) =>
@@ -114,9 +109,6 @@ export function SecretsPanel({ workspaceId }: { workspaceId: string }) {
             <li key={s.id} className="flex flex-col gap-2 p-3 text-sm">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="font-medium">{s.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  owner {s.owner.name}
-                </span>
                 <span className="flex-1" />
                 {s.canManage && (
                   <>
@@ -153,15 +145,10 @@ export function SecretsPanel({ workspaceId }: { workspaceId: string }) {
       )}
 
       {creating && (
-        <SecretDialog
-          workspaceId={workspaceId}
-          onClose={() => setCreating(false)}
-          onSaved={refresh}
-        />
+        <SecretDialog onClose={() => setCreating(false)} onSaved={refresh} />
       )}
       {editing && (
         <SecretDialog
-          workspaceId={workspaceId}
           secret={editing}
           onClose={() => setEditing(null)}
           onSaved={refresh}
@@ -196,12 +183,10 @@ export function SecretsPanel({ workspaceId }: { workspaceId: string }) {
 }
 
 function SecretDialog({
-  workspaceId,
   secret,
   onClose,
   onSaved,
 }: {
-  workspaceId: string;
   secret?: Secret;
   onClose: () => void;
   onSaved: () => Promise<unknown>;
@@ -236,8 +221,7 @@ function SecretDialog({
             }),
           )
         : unwrap(
-            api.POST('/workspaces/{workspaceId}/secrets', {
-              params: { path: { workspaceId } },
+            api.POST('/secrets', {
               body: {
                 name: name.trim(),
                 value,

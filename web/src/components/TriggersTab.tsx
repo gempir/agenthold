@@ -186,16 +186,16 @@ function WebhookForm({
   );
 }
 
-/** Schedules and webhooks of an agent (admins manage them, operators can run schedules). */
+/** Schedules and webhooks of an agent (the owner manages them; shared users can run schedules). */
 export function TriggersTab({
   agentId,
-  admin,
-  operator,
+  isOwner,
+  canUse,
   onOpenSession,
 }: {
   agentId: string;
-  admin: boolean;
-  operator: boolean;
+  isOwner: boolean;
+  canUse: boolean;
   onOpenSession: (id: string) => void;
 }) {
   const qc = useQueryClient();
@@ -216,7 +216,7 @@ export function TriggersTab({
           params: { path: { agentId } },
         }),
       ),
-    enabled: admin,
+    enabled: isOwner,
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ['agents', agentId] });
   const [form, setForm] = useState<string>(''); // 'new-schedule' | 'new-webhook' | id
@@ -316,7 +316,7 @@ export function TriggersTab({
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Schedules</h2>
-          {admin && (
+          {isOwner && (
             <Button
               size="sm"
               variant="outline"
@@ -363,7 +363,7 @@ export function TriggersTab({
                   >
                     Open session
                   </Button>
-                  {operator && (
+                  {canUse && (
                     <Button
                       size="sm"
                       variant="ghost"
@@ -372,7 +372,7 @@ export function TriggersTab({
                       Run now
                     </Button>
                   )}
-                  {admin && (
+                  {isOwner && (
                     <>
                       <Button
                         size="sm"
@@ -413,7 +413,7 @@ export function TriggersTab({
         </ul>
       </section>
 
-      {admin && (
+      {isOwner && (
         <section className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold">Webhooks</h2>

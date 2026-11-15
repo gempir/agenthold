@@ -65,7 +65,7 @@ func TestSPA(t *testing.T) {
 	}{
 		{"/", http.StatusOK, "app"},
 		{"/index.html", http.StatusOK, "app"},
-		{"/workspaces/123", http.StatusOK, "app"}, // client-side route
+		{"/agents/123", http.StatusOK, "app"}, // client-side route
 		{"/assets/app.js", http.StatusOK, "console.log"},
 		{"/assets/missing.js", http.StatusNotFound, ""},
 		{"/api/unknown", http.StatusNotFound, "not found"},

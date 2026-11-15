@@ -2,7 +2,7 @@ import {
   Activity,
   Cpu,
   FolderOpen,
-  Globe,
+  KeyRound,
   Plug,
   Settings2,
   Share2,
@@ -16,15 +16,15 @@ export type AgentSection =
   | 'harness'
   | 'files'
   | 'terminal'
-  | 'network'
+  | 'secrets'
   | 'tools'
   | 'triggers'
   | 'sharing'
   | 'activity';
 
 export interface Access {
-  operator: boolean;
-  admin: boolean;
+  canUse: boolean;
+  isOwner: boolean;
 }
 
 /** Every secondary surface of an agent; what used to be its tabs. */
@@ -61,13 +61,13 @@ export const AGENT_SECTIONS: {
     label: 'Terminal',
     hint: 'A shell in the sandbox',
     icon: SquareTerminal,
-    show: (a) => a.operator,
+    show: (a) => a.canUse,
   },
   {
-    id: 'network',
-    label: 'Network',
-    hint: 'Egress policy, secrets, request log',
-    icon: Globe,
+    id: 'secrets',
+    label: 'Secrets',
+    hint: 'Credentials the egress proxy injects for this agent',
+    icon: KeyRound,
     show: () => true,
   },
   {
@@ -87,7 +87,7 @@ export const AGENT_SECTIONS: {
   {
     id: 'sharing',
     label: 'Sharing',
-    hint: 'Who can view and operate it',
+    hint: 'Who can use it',
     icon: Share2,
     show: () => true,
   },
@@ -96,7 +96,7 @@ export const AGENT_SECTIONS: {
     label: 'Activity',
     hint: 'Audit log',
     icon: Activity,
-    show: (a) => a.admin,
+    show: (a) => a.isOwner,
   },
 ];
 

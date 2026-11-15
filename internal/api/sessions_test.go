@@ -20,15 +20,13 @@ import (
 // fakeAgent creates an agent that runs the scripted harness.
 func (e *env) fakeAgent(c *client, policy string) gen.Agent {
 	e.t.Helper()
-	var me gen.Me
-	c.do("GET", "/me", nil, &me)
 	var ag gen.Agent
 	in := gen.AgentInput{Name: "chat", Harness: ptr("fake")}
 	if policy != "" {
 		p := gen.AgentInputPermissionPolicy(policy)
 		in.PermissionPolicy = &p
 	}
-	expect(e.t, "create agent", c.do("POST", "/workspaces/"+me.PersonalWorkspaceId+"/agents", in, &ag), 201)
+	expect(e.t, "create agent", c.do("POST", "/agents", in, &ag), 201)
 	e.sandboxes.Wait()
 	return ag
 }
@@ -332,5 +330,5 @@ func TestHarnessList(t *testing.T) {
 	}
 	var me gen.Me
 	alice.do("GET", "/me", nil, &me)
-	expect(t, "unknown harness", alice.do("POST", "/workspaces/"+me.PersonalWorkspaceId+"/agents", gen.AgentInput{Name: "x", Harness: ptr("nope")}, nil), 400)
+	expect(t, "unknown harness", alice.do("POST", "/agents", gen.AgentInput{Name: "x", Harness: ptr("nope")}, nil), 400)
 }

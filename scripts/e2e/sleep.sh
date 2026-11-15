@@ -7,8 +7,7 @@ D=$(dirname "$0")
 JAR=$(login alice alice)
 COOKIE=$(awk '/agenthold_session/{print $7}' "$JAR")
 WSURL=${BASE/http/ws}
-WS=$(api "$JAR" "$BASE/api/v1/me" | json 'd["personalWorkspaceId"]')
-AG=$(api "$JAR" -X POST "$BASE/api/v1/workspaces/$WS/agents" -d '{"name":"e2e-sleep","image":"'"$IMG"'","harness":"fake","memoryMb":512,"idleMinutes":1}' | json 'd["id"]')
+AG=$(api "$JAR" -X POST "$BASE/api/v1/agents" -d '{"name":"e2e-sleep","image":"'"$IMG"'","harness":"fake","memoryMb":512,"idleMinutes":1}' | json 'd["id"]')
 wait_running "$JAR" "$AG"
 echo "agent $AG (idle timeout 1 minute)"
 state() { api "$JAR" "$BASE/api/v1/agents/$AG" | json 'd["state"]'; }

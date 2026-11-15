@@ -25,7 +25,7 @@ func (a *API) GetSandboxLimits(context.Context, gen.GetSandboxLimitsRequestObjec
 	}, nil
 }
 
-func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role authz.AgentRole) (gen.Agent, error) {
+func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role authz.Role) (gen.Agent, error) {
 	owner, err := a.Store.GetUser(ctx, ag.OwnerID)
 	if err != nil {
 		return gen.Agent{}, err
@@ -45,7 +45,7 @@ func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role aut
 	}
 	return gen.Agent{
 		LastActivityAt: lastActivity, SleepsAt: sleepsAt,
-		Id: ag.ID, WorkspaceId: ag.WorkspaceID, Name: ag.Name, Owner: apiUser(owner), Image: ag.Image,
+		Id: ag.ID, Name: ag.Name, Owner: apiUser(owner), Image: ag.Image,
 		Harness: ag.Harness, Cpus: float32(ag.Cpus), MemoryMb: ag.MemoryMb, IdleMinutes: int(ag.IdleMinutes),
 		State: gen.SandboxState(sb.State), StateError: sb.Error, StateChangedAt: ts(sb.StateChangedAt),
 		NeedsRebuild: a.Sandboxes.NeedsRebuild(ag, sb), Role: gen.AgentRole(role),
@@ -107,24 +107,15 @@ func (a *API) validateSettings(s *agentSettings) error {
 }
 
 // ListAgents implements gen.StrictServerInterface.
-func (a *API) ListAgents(ctx context.Context, req gen.ListAgentsRequestObject) (gen.ListAgentsResponseObject, error) {
+func (a *API) ListAgents(ctx context.Context, _ gen.ListAgentsRequestObject) (gen.ListAgentsResponseObject, error) {
 	u := me(ctx)
-	if _, err := a.authz.Workspace(ctx, u.ID, req.WorkspaceId, authz.WorkspaceListAll); err != nil {
-		return nil, err
-	}
-	rows, err := a.Store.ListWorkspaceAgents(ctx, req.WorkspaceId)
+	rows, err := a.Store.ListUserAgents(ctx, u.ID)
 	if err != nil {
 		return nil, err
 	}
 	out := gen.ListAgents200JSONResponse{}
 	for _, r := range rows {
-		_, role, err := a.authz.AgentRoleOf(ctx, u.ID, r.Agent)
-		if err != nil {
-			return nil, err
-		}
-		if !authz.CanAgent(role, authz.AgentRead) {
-			continue
-		}
+		role := authz.RoleOf(u.ID, r.Agent.OwnerID, true) // listed: owned or shared
 		ag, err := a.apiAgent(ctx, r.Agent, r.Sandbox, role)
 		if err != nil {
 			return nil, err
@@ -137,9 +128,6 @@ func (a *API) ListAgents(ctx context.Context, req gen.ListAgentsRequestObject) (
 // CreateAgent implements gen.StrictServerInterface.
 func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject) (gen.CreateAgentResponseObject, error) {
 	u := me(ctx)
-	if _, err := a.authz.Workspace(ctx, u.ID, req.WorkspaceId, authz.AgentCreate); err != nil {
-		return nil, err
-	}
 	b := req.Body
 	s := agentSettings{name: b.Name, cpus: a.Limits.DefaultCPUs, memoryMB: a.Limits.DefaultMemoryMB, idleMinutes: 15}
 	if b.Image != nil {
@@ -170,18 +158,12 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 	agentID := id.New("ag")
 	var provision func()
 	err := a.Store.Tx(ctx, func(q *db.Queries) error {
+		// New agents use their owner's account logins (shown on the agent).
 		if err := q.CreateAgent(ctx, db.CreateAgentParams{
-			ID: agentID, WorkspaceID: req.WorkspaceId, OwnerID: u.ID, Name: s.name, Image: s.image,
+			ID: agentID, OwnerID: u.ID, Name: s.name, Image: s.image,
 			Harness: s.harness, Model: s.model, Cpus: s.cpus, MemoryMb: s.memoryMB, IdleMinutes: s.idleMinutes,
-			CreatedAt: now, UpdatedAt: now,
+			PermissionPolicy: s.policy, LoginUserID: u.ID, CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
-			return err
-		}
-		if err := q.SetPermissionPolicy(ctx, db.SetPermissionPolicyParams{PermissionPolicy: s.policy, UpdatedAt: now, ID: agentID}); err != nil {
-			return err
-		}
-		// New agents use their creator's account logins (shown on the agent).
-		if err := q.SetAgentLoginUser(ctx, db.SetAgentLoginUserParams{LoginUserID: u.ID, ID: agentID}); err != nil {
 			return err
 		}
 		var err error
@@ -197,7 +179,7 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 		return nil, err
 	}
 	a.record(ctx, row.Agent, audit.AgentCreate, row.Agent.Name, map[string]any{"image": s.image, "harness": s.harness})
-	out, err := a.apiAgent(ctx, row.Agent, row.Sandbox, authz.AgentAdmin)
+	out, err := a.apiAgent(ctx, row.Agent, row.Sandbox, authz.Owner)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +265,7 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	return gen.UpdateAgent200JSONResponse(g), nil
 }
 
-func (a *API) reloadAgent(ctx context.Context, agentID string, role authz.AgentRole) (gen.Agent, error) {
+func (a *API) reloadAgent(ctx context.Context, agentID string, role authz.Role) (gen.Agent, error) {
 	row, err := a.Store.GetAgentWithSandbox(ctx, agentID)
 	if err != nil {
 		return gen.Agent{}, err
@@ -304,8 +286,8 @@ func (a *API) DeleteAgent(ctx context.Context, req gen.DeleteAgentRequestObject)
 	return gen.DeleteAgent202Response{}, nil
 }
 
-func (a *API) lifecycle(ctx context.Context, agentID, action string, op func(context.Context, string) error) (gen.Agent, error) {
-	acc, err := a.authz.Agent(ctx, me(ctx).ID, agentID, authz.AgentLifecycle)
+func (a *API) lifecycle(ctx context.Context, agentID string, need authz.Action, action string, op func(context.Context, string) error) (gen.Agent, error) {
+	acc, err := a.authz.Agent(ctx, me(ctx).ID, agentID, need)
 	if err != nil {
 		return gen.Agent{}, err
 	}
@@ -318,7 +300,7 @@ func (a *API) lifecycle(ctx context.Context, agentID, action string, op func(con
 
 // StartAgent implements gen.StrictServerInterface.
 func (a *API) StartAgent(ctx context.Context, req gen.StartAgentRequestObject) (gen.StartAgentResponseObject, error) {
-	g, err := a.lifecycle(ctx, req.AgentId, audit.AgentStart, a.Sandboxes.Start)
+	g, err := a.lifecycle(ctx, req.AgentId, authz.AgentLifecycle, audit.AgentStart, a.Sandboxes.Start)
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +309,7 @@ func (a *API) StartAgent(ctx context.Context, req gen.StartAgentRequestObject) (
 
 // StopAgent implements gen.StrictServerInterface.
 func (a *API) StopAgent(ctx context.Context, req gen.StopAgentRequestObject) (gen.StopAgentResponseObject, error) {
-	g, err := a.lifecycle(ctx, req.AgentId, audit.AgentStop, a.Sandboxes.Stop)
+	g, err := a.lifecycle(ctx, req.AgentId, authz.AgentLifecycle, audit.AgentStop, a.Sandboxes.Stop)
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +318,7 @@ func (a *API) StopAgent(ctx context.Context, req gen.StopAgentRequestObject) (ge
 
 // RebuildAgent implements gen.StrictServerInterface.
 func (a *API) RebuildAgent(ctx context.Context, req gen.RebuildAgentRequestObject) (gen.RebuildAgentResponseObject, error) {
-	g, err := a.lifecycle(ctx, req.AgentId, audit.AgentRebuild, a.Sandboxes.Rebuild)
+	g, err := a.lifecycle(ctx, req.AgentId, authz.AgentRebuild, audit.AgentRebuild, a.Sandboxes.Rebuild)
 	if err != nil {
 		return nil, err
 	}

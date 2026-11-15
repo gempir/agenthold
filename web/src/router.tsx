@@ -18,11 +18,14 @@ import { AccountSettings } from '@/pages/AccountSettings';
 import { AgentPage } from '@/pages/AgentPage';
 import { AgentSettingsPage } from '@/pages/AgentSettingsPage';
 import { HomePage } from '@/pages/HomePage';
-import { InvitePage } from '@/pages/InvitePage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NewChatPage } from '@/pages/NewChatPage';
 import { ProvidersPage } from '@/pages/ProvidersPage';
-import { WorkspacePage, type WorkspaceTab } from '@/pages/WorkspacePage';
+import {
+  AgentsSettingsPage,
+  SecretsSettingsPage,
+  ToolsSettingsPage,
+} from '@/pages/LibraryPages';
 
 const str = (v: unknown) => (v == null || v === '' ? undefined : String(v));
 
@@ -43,15 +46,6 @@ const loginRoute = createRoute({
   },
 });
 
-const inviteRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/invite/$token',
-  component: function Invite() {
-    const { token } = inviteRoute.useParams();
-    return <InvitePage token={token} />;
-  },
-});
-
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: 'app',
@@ -68,21 +62,6 @@ const newChatRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/new',
   component: NewChatPage,
-});
-
-const workspaceRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/w/$workspaceId',
-  validateSearch: (s: Record<string, unknown>): { tab?: WorkspaceTab } => ({
-    ...(str(s.tab) && { tab: str(s.tab) as WorkspaceTab }),
-  }),
-  component: function Workspace() {
-    const { workspaceId } = workspaceRoute.useParams();
-    const { tab } = workspaceRoute.useSearch();
-    return (
-      <WorkspacePage key={workspaceId} workspaceId={workspaceId} tab={tab} />
-    );
-  },
 });
 
 const agentRoute = createRoute({
@@ -157,17 +136,36 @@ const providersRoute = createRoute({
   component: ProvidersPage,
 });
 
+const agentsSettingsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/agents',
+  component: AgentsSettingsPage,
+});
+
+const secretsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/secrets',
+  component: SecretsSettingsPage,
+});
+
+const toolsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/tools',
+  component: ToolsSettingsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
-  inviteRoute,
   appRoute.addChildren([
     indexRoute,
     newChatRoute,
-    workspaceRoute,
     agentRoute,
     agentSettingsRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
+      agentsSettingsRoute,
+      secretsRoute,
+      toolsRoute,
       tokensRoute,
       providersRoute,
     ]),

@@ -7,10 +7,10 @@ import { useAgentActions } from '@/hooks/useAgentActions';
 /** One slim line above the composer when the agent is not simply running. */
 export function AgentNotice({
   agent: a,
-  operator,
+  canUse,
 }: {
   agent: Agent;
-  operator: boolean;
+  canUse: boolean;
 }) {
   const { action, busy } = useAgentActions(a);
   const row =
@@ -21,11 +21,11 @@ export function AgentNotice({
         <Moon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         <p className="min-w-0 flex-1 text-muted-foreground">
           This agent is asleep. Its files and conversations are kept.
-          {operator
+          {canUse
             ? ' Sending a message wakes it.'
-            : ' An operator can wake it.'}
+            : ' Someone who can use it can wake it.'}
         </p>
-        {operator && (
+        {canUse && (
           <Button
             size="sm"
             variant="outline"
@@ -46,7 +46,7 @@ export function AgentNotice({
         <p className="min-w-0 flex-1 text-destructive">
           {a.stateError || 'The sandbox is in an error state.'}
         </p>
-        {operator && (
+        {canUse && (
           <Button
             size="sm"
             variant="outline"

@@ -10,7 +10,6 @@ import (
 
 type Agent struct {
 	ID                   string
-	WorkspaceID          string
 	OwnerID              string
 	Name                 string
 	Image                string
@@ -19,22 +18,11 @@ type Agent struct {
 	Cpus                 float64
 	MemoryMb             int64
 	IdleMinutes          int64
-	CreatedAt            int64
-	UpdatedAt            int64
-	NetworkPolicy        string
 	PermissionPolicy     string
 	CredentialsInSandbox int64
 	LoginUserID          string
-}
-
-type AgentGrant struct {
-	ID          string
-	AgentID     string
-	SubjectType string
-	SubjectID   string
-	Role        string
-	CreatedBy   string
-	CreatedAt   int64
+	CreatedAt            int64
+	UpdatedAt            int64
 }
 
 type AgentMcpServer struct {
@@ -71,6 +59,12 @@ type AgentSessionEvent struct {
 	Data      string
 }
 
+type AgentShare struct {
+	AgentID   string
+	UserID    string
+	CreatedAt int64
+}
+
 type AgentSkill struct {
 	AgentID string
 	SkillID string
@@ -88,33 +82,13 @@ type ApiToken struct {
 }
 
 type AuditLog struct {
-	ID          int64
-	At          int64
-	WorkspaceID string
-	AgentID     string
-	UserID      string
-	Action      string
-	Target      string
-	Details     string
-}
-
-type EgressEvent struct {
-	ID         int64
-	AgentID    string
-	At         int64
-	Kind       string
-	Host       string
-	Ip         string
-	Port       int64
-	Method     string
-	Path       string
-	Status     int64
-	Allowed    int64
-	Reason     string
-	Injected   int64
-	BytesUp    int64
-	BytesDown  int64
-	DurationMs int64
+	ID      int64
+	At      int64
+	AgentID string
+	UserID  string
+	Action  string
+	Target  string
+	Details string
 }
 
 type Identity struct {
@@ -127,19 +101,6 @@ type Identity struct {
 	LastLoginAt int64
 }
 
-type Invite struct {
-	ID          string
-	WorkspaceID string
-	TokenHash   string
-	Role        string
-	Email       string
-	CreatedBy   string
-	CreatedAt   int64
-	ExpiresAt   int64
-	AcceptedBy  sql.NullString
-	AcceptedAt  sql.NullInt64
-}
-
 type LoginState struct {
 	State      string
 	Provider   string
@@ -150,31 +111,18 @@ type LoginState struct {
 }
 
 type McpServer struct {
-	ID          string
-	WorkspaceID string
-	AgentID     string
-	Name        string
-	Transport   string
-	Command     string
-	Args        string
-	Env         string
-	Url         string
-	Headers     string
-	CreatedBy   string
-	CreatedAt   int64
-	UpdatedAt   int64
-}
-
-type Membership struct {
-	WorkspaceID string
-	UserID      string
-	Role        string
-	CreatedAt   int64
-}
-
-type PersonalWorkspace struct {
-	UserID      string
-	WorkspaceID string
+	ID        string
+	OwnerID   string
+	AgentID   string
+	Name      string
+	Transport string
+	Command   string
+	Args      string
+	Env       string
+	Url       string
+	Headers   string
+	CreatedAt int64
+	UpdatedAt int64
 }
 
 type ProviderLogin struct {
@@ -225,7 +173,6 @@ type Schedule struct {
 
 type Secret struct {
 	ID          string
-	WorkspaceID string
 	OwnerID     string
 	Name        string
 	Ciphertext  []byte
@@ -245,11 +192,10 @@ type Session struct {
 
 type Skill struct {
 	ID          string
-	WorkspaceID string
+	OwnerID     string
 	Name        string
 	Description string
 	Content     string
-	CreatedBy   string
 	CreatedAt   int64
 	UpdatedAt   int64
 }
@@ -279,12 +225,4 @@ type Webhook struct {
 	UpdatedAt       int64
 	LastDeliveryAt  sql.NullInt64
 	LastError       string
-}
-
-type Workspace struct {
-	ID        string
-	Name      string
-	Personal  int64
-	CreatedAt int64
-	UpdatedAt int64
 }

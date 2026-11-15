@@ -1,5 +1,12 @@
 import { Link, Outlet, useRouterState } from '@tanstack/react-router';
-import { KeyRound, Plug, type LucideIcon } from 'lucide-react';
+import {
+  Bot,
+  KeyRound,
+  LockKeyhole,
+  Plug,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react';
 import {
   SettingsLayout,
   SettingsNavItem,
@@ -15,6 +22,9 @@ export const ACCOUNT_SETTINGS_NAV: {
   label: string;
   icon: LucideIcon;
 }[] = [
+  { to: '/settings/agents', label: 'Agents', icon: Bot },
+  { to: '/settings/secrets', label: 'Secrets', icon: LockKeyhole },
+  { to: '/settings/tools', label: 'Tools', icon: Wrench },
   { to: '/settings/providers', label: 'Provider logins', icon: Plug },
   { to: '/settings/tokens', label: 'API tokens', icon: KeyRound },
 ];

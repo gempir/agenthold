@@ -1,14 +1,14 @@
 ---
 title: "Agent to agent"
-description: "Let agents in a workspace delegate tasks to each other through the platform MCP server."
+description: "Let agents delegate tasks to each other through the platform MCP server."
 ---
 
-Agents in a workspace can work together. Every session gets a platform MCP server named `agenthold` with these
+Agents can work together. Every session gets a platform MCP server named `agenthold` with these
 tools:
 
 | Tool | Does |
 | --- | --- |
-| `list_agents` | lists the workspace's other agents that this agent may message, with their state |
+| `list_agents` | lists the other agents this agent may message, with their state |
 | `send_message(agent, text)` | prompts another agent and returns at once; it works on it in its own session |
 | `ask(agent, text)` | prompts another agent, waits for its turn to end and returns its final answer |
 
@@ -16,9 +16,10 @@ tools:
 
 ## Rules
 
-- Both agents must be in the same workspace.
-- The calling agent's **owner** must hold at least the operator role on the target. Messages are sent in the
-  owner's name ("agent planner (for Alice)") and appear in the target's audit log.
+- An agent may message the agents its **owner** owns and the agents that are shared with its owner. Any other
+  agent does not exist for it, not even by id. Sharing is one-way: if Alice shares an agent with Bob, Bob's
+  agents can message it, but Alice's agents cannot message Bob's.
+- Messages are sent in the owner's name ("agent planner (for Alice)") and appear in the target's audit log.
 - Every turn has a depth: 0 when a person, a schedule or a webhook started it, and one more than the deepest turn
   the calling agent is running when an agent started it. A call that would exceed depth 4 fails with an error
   ("too many agents in a row"), which stops loops such as A asking B asking A. The server computes the depth; the

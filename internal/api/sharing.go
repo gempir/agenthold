@@ -2,161 +2,103 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"math"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gempir/agenthold/internal/api/gen"
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
-	"github.com/gempir/agenthold/internal/id"
 	"github.com/gempir/agenthold/internal/store/db"
 )
 
 // record writes an audit entry for an agent action by the current user.
 func (a *API) record(ctx context.Context, ag db.Agent, action, target string, details map[string]any) {
 	a.Audit.Record(ctx, audit.Entry{
-		WorkspaceID: ag.WorkspaceID, AgentID: ag.ID, UserID: me(ctx).ID,
+		AgentID: ag.ID, UserID: me(ctx).ID,
 		Action: action, Target: target, Details: details,
 	})
 }
 
-func (a *API) apiGrant(ctx context.Context, g db.AgentGrant) (gen.Grant, error) {
-	out := gen.Grant{Id: g.ID, SubjectType: gen.GrantSubjectType(g.SubjectType), Role: gen.AgentRole(g.Role), CreatedAt: ts(g.CreatedAt)}
-	if g.SubjectType == "user" {
-		u, err := a.Store.GetUser(ctx, g.SubjectID)
-		if err != nil {
-			return out, err
-		}
-		au := apiUser(u)
-		out.User = &au
-	}
-	return out, nil
-}
-
-// ListGrants implements gen.StrictServerInterface.
-func (a *API) ListGrants(ctx context.Context, req gen.ListGrantsRequestObject) (gen.ListGrantsResponseObject, error) {
+// ListShares implements gen.StrictServerInterface.
+func (a *API) ListShares(ctx context.Context, req gen.ListSharesRequestObject) (gen.ListSharesResponseObject, error) {
 	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentRead)
 	if err != nil {
 		return nil, err
 	}
-	ag := acc.Row.Agent
-	rows, err := a.Store.ListAgentGrants(ctx, ag.ID)
+	owner, err := a.Store.GetUser(ctx, acc.Row.Agent.OwnerID)
 	if err != nil {
 		return nil, err
 	}
-	out := gen.ListGrants200JSONResponse{Grants: []gen.Grant{}, Effective: []gen.AccessEntry{}}
-	direct := map[string]bool{}
-	wsGrant := false
-	for _, g := range rows {
-		ag, err := a.apiGrant(ctx, g)
-		if err != nil {
-			return nil, err
-		}
-		out.Grants = append(out.Grants, ag)
-		if g.SubjectType == "user" {
-			direct[g.SubjectID] = true
-		} else {
-			wsGrant = true
-		}
-	}
-	members, err := a.Store.ListMembers(ctx, ag.WorkspaceID)
+	rows, err := a.Store.ListAgentShares(ctx, req.AgentId)
 	if err != nil {
 		return nil, err
 	}
-	for _, m := range members {
-		_, role, err := a.authz.AgentRoleOf(ctx, m.User.ID, ag)
-		if err != nil {
-			return nil, err
-		}
-		if !role.Valid() {
-			continue
-		}
-		via := gen.AccessEntryVia("grant")
-		switch {
-		case m.User.ID == ag.OwnerID:
-			via = "owner"
-		case authz.WorkspaceRole(m.Role).AtLeast(authz.WorkspaceAdmin):
-			via = "workspace_admin"
-		case !direct[m.User.ID] && wsGrant:
-			via = "workspace_grant"
-		}
-		out.Effective = append(out.Effective, gen.AccessEntry{User: apiUser(m.User), Role: gen.AgentRole(role), Via: via})
+	out := gen.ListShares200JSONResponse{Owner: apiUser(owner), Shares: []gen.Share{}}
+	for _, r := range rows {
+		out.Shares = append(out.Shares, gen.Share{User: apiUser(r.User), CreatedAt: ts(r.SharedAt)})
 	}
 	return out, nil
 }
 
-// SetGrant implements gen.StrictServerInterface.
-func (a *API) SetGrant(ctx context.Context, req gen.SetGrantRequestObject) (gen.SetGrantResponseObject, error) {
-	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentGrants)
+// ShareAgent implements gen.StrictServerInterface.
+func (a *API) ShareAgent(ctx context.Context, req gen.ShareAgentRequestObject) (gen.ShareAgentResponseObject, error) {
+	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentShare)
 	if err != nil {
 		return nil, err
 	}
 	ag := acc.Row.Agent
-	b := req.Body
-	if !authz.AgentRole(b.Role).Valid() {
-		return nil, badRequest("role must be viewer, operator or admin")
+	email := strings.TrimSpace(req.Body.Email)
+	if email == "" || len(email) > 320 || !strings.Contains(email, "@") {
+		return nil, badRequest("email must be an email address")
 	}
-	subjectID := ""
-	switch b.SubjectType {
-	case "workspace":
-	case "user":
-		if b.UserId == nil || *b.UserId == "" {
-			return nil, badRequest("userId is required")
-		}
-		role, err := a.authz.WorkspaceRoleOf(ctx, *b.UserId, ag.WorkspaceID)
-		if err != nil {
-			return nil, err
-		}
-		if !role.Valid() {
-			return nil, badRequest("the user is not a member of this workspace")
-		}
-		subjectID = *b.UserId
+	users, err := a.Store.ListUsersByVerifiedEmail(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+	switch len(users) {
+	case 0:
+		return nil, errStatus(http.StatusNotFound, "nobody with this verified email has signed in yet")
+	case 1:
 	default:
-		return nil, badRequest("subjectType must be user or workspace")
+		return nil, errStatus(http.StatusConflict, "several accounts use this email address")
 	}
-	g := db.AgentGrant{ID: id.New("grt"), AgentID: ag.ID, SubjectType: string(b.SubjectType), SubjectID: subjectID, Role: string(b.Role), CreatedBy: me(ctx).ID, CreatedAt: a.Now().Unix()}
-	if err := a.Store.UpsertGrant(ctx, db.UpsertGrantParams(g)); err != nil {
+	target := users[0]
+	if target.ID == ag.OwnerID {
+		return nil, badRequest("you own this agent")
+	}
+	if err := a.Store.ShareAgent(ctx, db.ShareAgentParams{AgentID: ag.ID, UserID: target.ID, CreatedAt: a.Now().Unix()}); err != nil {
 		return nil, err
 	}
-	// The upsert may have kept an existing row; return what is stored.
-	rows, err := a.Store.ListAgentGrants(ctx, ag.ID)
+	sh, err := a.Store.GetShare(ctx, db.GetShareParams{AgentID: ag.ID, UserID: target.ID})
 	if err != nil {
 		return nil, err
 	}
-	for _, r := range rows {
-		if r.SubjectType == g.SubjectType && r.SubjectID == g.SubjectID {
-			g = r
-		}
-	}
-	a.record(ctx, ag, audit.GrantSet, g.SubjectType+":"+g.SubjectID, map[string]any{"role": g.Role, "subjectType": g.SubjectType, "userId": g.SubjectID})
-	out, err := a.apiGrant(ctx, g)
-	if err != nil {
-		return nil, err
-	}
-	return gen.SetGrant200JSONResponse(out), nil
+	a.record(ctx, ag, audit.ShareAdd, target.ID, map[string]any{"userId": target.ID, "email": target.Email})
+	return gen.ShareAgent200JSONResponse{User: apiUser(target), CreatedAt: ts(sh.CreatedAt)}, nil
 }
 
-// DeleteGrant implements gen.StrictServerInterface.
-func (a *API) DeleteGrant(ctx context.Context, req gen.DeleteGrantRequestObject) (gen.DeleteGrantResponseObject, error) {
-	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentGrants)
+// UnshareAgent implements gen.StrictServerInterface.
+func (a *API) UnshareAgent(ctx context.Context, req gen.UnshareAgentRequestObject) (gen.UnshareAgentResponseObject, error) {
+	u := me(ctx)
+	acc, err := a.authz.Agent(ctx, u.ID, req.AgentId, authz.AgentRead)
 	if err != nil {
 		return nil, err
 	}
-	g, err := a.Store.GetGrant(ctx, db.GetGrantParams{ID: req.GrantId, AgentID: req.AgentId})
-	if errors.Is(err, sql.ErrNoRows) {
+	if !authz.CanUnshare(acc.Role, u.ID, req.UserId) {
+		return nil, authz.ErrForbidden
+	}
+	n, err := a.Store.UnshareAgent(ctx, db.UnshareAgentParams{AgentID: req.AgentId, UserID: req.UserId})
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
 		return nil, errNotFound
 	}
-	if err != nil {
-		return nil, err
-	}
-	if _, err := a.Store.DeleteGrant(ctx, db.DeleteGrantParams{ID: g.ID, AgentID: g.AgentID}); err != nil {
-		return nil, err
-	}
-	a.record(ctx, acc.Row.Agent, audit.GrantDelete, g.SubjectType+":"+g.SubjectID, map[string]any{"role": g.Role, "subjectType": g.SubjectType, "userId": g.SubjectID})
-	return gen.DeleteGrant204Response{}, nil
+	a.record(ctx, acc.Row.Agent, audit.ShareRemove, req.UserId, map[string]any{"userId": req.UserId})
+	return gen.UnshareAgent204Response{}, nil
 }
 
 // ListAgentAudit implements gen.StrictServerInterface.

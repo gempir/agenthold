@@ -9,40 +9,6 @@ import (
 	"context"
 )
 
-const clearLoginUserInWorkspace = `-- name: ClearLoginUserInWorkspace :many
-UPDATE agents SET login_user_id = '' WHERE login_user_id = ?1 AND workspace_id = ?2
-RETURNING id
-`
-
-type ClearLoginUserInWorkspaceParams struct {
-	UserID      string
-	WorkspaceID string
-}
-
-// When someone leaves a workspace, its agents stop using their logins.
-func (q *Queries) ClearLoginUserInWorkspace(ctx context.Context, arg ClearLoginUserInWorkspaceParams) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, clearLoginUserInWorkspace, arg.UserID, arg.WorkspaceID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const createProviderLogin = `-- name: CreateProviderLogin :exec
 INSERT INTO provider_logins (id, user_id, provider, kind, ciphertext, seed, label, expires_at, refreshed_at, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -154,7 +120,7 @@ func (q *Queries) GetProviderLoginByID(ctx context.Context, id string) (Provider
 }
 
 const listAgentsByLoginUser = `-- name: ListAgentsByLoginUser :many
-SELECT id, workspace_id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, created_at, updated_at, network_policy, permission_policy, credentials_in_sandbox, login_user_id FROM agents WHERE login_user_id = ? ORDER BY name
+SELECT id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, permission_policy, credentials_in_sandbox, login_user_id, created_at, updated_at FROM agents WHERE login_user_id = ? ORDER BY name
 `
 
 func (q *Queries) ListAgentsByLoginUser(ctx context.Context, loginUserID string) ([]Agent, error) {
@@ -168,7 +134,6 @@ func (q *Queries) ListAgentsByLoginUser(ctx context.Context, loginUserID string)
 		var i Agent
 		if err := rows.Scan(
 			&i.ID,
-			&i.WorkspaceID,
 			&i.OwnerID,
 			&i.Name,
 			&i.Image,
@@ -177,12 +142,11 @@ func (q *Queries) ListAgentsByLoginUser(ctx context.Context, loginUserID string)
 			&i.Cpus,
 			&i.MemoryMb,
 			&i.IdleMinutes,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.NetworkPolicy,
 			&i.PermissionPolicy,
 			&i.CredentialsInSandbox,
 			&i.LoginUserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

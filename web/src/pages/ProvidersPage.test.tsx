@@ -8,7 +8,6 @@ afterEach(() => vi.unstubAllGlobals());
 
 const me = {
   user: { id: 'u1', email: 'a@x.io', name: 'Alice', avatarUrl: '' },
-  personalWorkspaceId: 'w1',
 };
 const claude = (connected: boolean): ProviderLoginInfo => ({
   provider: 'claude-code',
@@ -30,7 +29,7 @@ const claude = (connected: boolean): ProviderLoginInfo => ({
       multiline: false,
     },
   ],
-  agents: connected ? [{ id: 'a1', name: 'builder', workspaceId: 'w1' }] : [],
+  agents: connected ? [{ id: 'a1', name: 'builder' }] : [],
   ...(connected && {
     login: {
       kind: 'oauth-token',
@@ -46,7 +45,6 @@ it('connects a provider login without echoing it', async () => {
   let connected = false;
   const { calls } = mockApi({
     'GET /me': me,
-    'GET /workspaces': [],
     'GET /me/provider-logins': () => ({ body: [claude(connected)] }),
     'PUT /me/provider-logins/claude-code': () => {
       connected = true;
@@ -73,7 +71,6 @@ it('connects a provider login without echoing it', async () => {
 
 const agent = (login: Agent['login'], role: Agent['role']): Agent => ({
   id: 'a1',
-  workspaceId: 'w1',
   name: 'builder',
   owner: me.user,
   image: 'img',
@@ -98,10 +95,9 @@ it('agent harness settings link to settings when the login is missing, and offer
   const bob = { id: 'u2', email: 'b@x.io', name: 'Bob', avatarUrl: '' };
   const { calls } = mockApi({
     'GET /me': me,
-    'GET /workspaces': [],
     'GET /agents/a1': agent(
       { source: 'account', connected: false, mine: false, user: bob },
-      'admin',
+      'owner',
     ),
     'GET /agents/a1/sessions': [],
     'GET /harnesses': [
@@ -117,7 +113,7 @@ it('agent harness settings link to settings when the login is missing, and offer
     'PUT /agents/a1/login': () => ({
       body: agent(
         { source: 'account', connected: false, mine: true, user: me.user },
-        'admin',
+        'owner',
       ),
     }),
   });

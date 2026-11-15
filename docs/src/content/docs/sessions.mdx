@@ -8,7 +8,7 @@ the [Agent Client Protocol](https://agentclientprotocol.com) (ACP) on stdio. The
 
 ## How a turn works
 
-1. A user prompts a session (operator role). If the agent sleeps, the prompt wakes it.
+1. A user prompts a session (the agent's owner or a user it is shared with). If the agent sleeps, the prompt wakes it.
 2. The server makes sure the agent's harness is running. sandboxd starts it as the `agent` user, in
    `/home/agent`, with the sandbox's environment plus what the adapter adds. Its stdio goes over the tunnel.
    One harness process serves all of an agent's sessions.
@@ -37,7 +37,7 @@ Each agent has a permission policy:
 
 - `auto-approve` (default): the sandbox is the safety boundary. Requests are approved with the harness's
   one-time "allow" option and logged as auto-approved.
-- `ask`: connected operators see the request with the harness's options. The turn waits until someone answers
+- `ask`: everyone connected with access sees the request with the harness's options. The turn waits until someone answers
   or cancels.
 
 ## Signing in a harness
@@ -72,15 +72,15 @@ suggests a temporary `CODEX_HOME`. If the provider rejects the refresh token, th
 **connect again** on the settings page and the agent's overview.
 
 **Whose login.** Each agent uses the account logins of one user, shown on its **Overview**: by default whoever
-created it. Only you can make an agent use your logins (**Use my logins**), and only for agents you administer.
-Everyone who can prompt that agent (operators, schedules, webhooks, other agents) then uses your login through it,
-which is why the choice is explicit and visible. Agent admins and you can stop it at any time (**Stop using**), you
+created it. Only you can make an agent use your logins (**Use my logins**), and only for agents you own.
+Everyone who can prompt that agent (users it is shared with, schedules, webhooks, other agents) then uses your
+login through it, which is why the choice is explicit and visible. You can stop it at any time (**Stop using**),
 also from the settings page, which lists the agents using your logins. Your login is only delivered while you can
-still see the agent, and it is detached from a workspace's agents when you leave the workspace. An API key secret
+still see the agent. An API key secret
 attached to the agent for its harness (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) takes precedence over the account
 login.
 
-Connecting, disconnecting and refresh failures are recorded in the audit log of your personal workspace; using a
+Connecting, disconnecting and refresh failures are recorded in your account's audit entries; using a
 login (once per harness start), attaching and detaching it are recorded on the agent.
 
 Changes take effect without a rebuild: the proxy picks them up within seconds, and the harness restarts with the
@@ -101,7 +101,7 @@ so it survives sleep and rebuilds. Such agents are marked "credentials inside sa
 its own login. A connected account login takes precedence over it (for Codex, a ChatGPT login delivered from the
 account replaces `~/.codex/auth.json`; the previous file is kept as `auth.json.agenthold-backup`). Agents that were
 signed in this way before account logins existed keep their sandbox login: they do not use anyone's account logins
-until an admin chooses **Use my logins**.
+until their owner chooses **Use my logins**.
 
 ## Harness adapters
 

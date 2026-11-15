@@ -1,8 +1,11 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 
@@ -49,6 +52,46 @@ func (a *API) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, a.Auth.SessionCookie(token))
 	http.Redirect(w, r, redirect, http.StatusFound)
+}
+
+// localLogin signs in the local admin (auth.local) with username and password.
+func (a *API) localLogin(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&in); err != nil {
+		writeError(w, r, badRequest("expected {\"username\", \"password\"}"))
+		return
+	}
+	if len(in.Username) > 256 || len(in.Password) > 1024 {
+		writeError(w, r, errStatus(http.StatusUnauthorized, auth.ErrBadCredentials.Error()))
+		return
+	}
+	client, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		client = r.RemoteAddr
+	}
+	token, err := a.Auth.LocalLogin(r.Context(), in.Username, in.Password, client, r.UserAgent())
+	switch {
+	case errors.Is(err, auth.ErrLocalDisabled):
+		writeError(w, r, errStatus(http.StatusNotFound, err.Error()))
+		return
+	case errors.Is(err, auth.ErrBadCredentials):
+		slog.WarnContext(r.Context(), "local sign-in failed", "client", client)
+		writeError(w, r, errStatus(http.StatusUnauthorized, err.Error()))
+		return
+	case errors.Is(err, auth.ErrRateLimited):
+		slog.WarnContext(r.Context(), "local sign-in rate limited", "client", client)
+		w.Header().Set("Retry-After", "300")
+		writeError(w, r, errStatus(http.StatusTooManyRequests, err.Error()))
+		return
+	case err != nil:
+		writeError(w, r, err)
+		return
+	}
+	http.SetCookie(w, a.Auth.SessionCookie(token))
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // loginFailed sends the browser back to the login page with a message.

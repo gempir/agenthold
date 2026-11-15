@@ -2,11 +2,8 @@ import { queryOptions } from '@tanstack/react-query';
 import { api, unwrap } from './client';
 import type { components } from './schema';
 
-export type Workspace = components['schemas']['Workspace'];
-export type Member = components['schemas']['Member'];
-export type Invite = components['schemas']['Invite'];
-export type WorkspaceRole = components['schemas']['WorkspaceRole'];
 export type User = components['schemas']['User'];
+export type AuthProvider = components['schemas']['AuthProvider'];
 
 export const meQuery = queryOptions({
   queryKey: ['me'],
@@ -19,60 +16,6 @@ export const providersQuery = queryOptions({
   queryFn: () => unwrap(api.GET('/auth/providers')),
   retry: false,
 });
-
-export const workspacesQuery = queryOptions({
-  queryKey: ['workspaces'],
-  queryFn: () => unwrap(api.GET('/workspaces')),
-  retry: false,
-});
-
-export const workspaceQuery = (id: string) =>
-  queryOptions({
-    queryKey: ['workspaces', id],
-    queryFn: () =>
-      unwrap(
-        api.GET('/workspaces/{workspaceId}', {
-          params: { path: { workspaceId: id } },
-        }),
-      ),
-    retry: false,
-  });
-
-export const membersQuery = (id: string) =>
-  queryOptions({
-    queryKey: ['workspaces', id, 'members'],
-    queryFn: () =>
-      unwrap(
-        api.GET('/workspaces/{workspaceId}/members', {
-          params: { path: { workspaceId: id } },
-        }),
-      ),
-    retry: false,
-  });
-
-export const invitesQuery = (id: string, enabled: boolean) =>
-  queryOptions({
-    queryKey: ['workspaces', id, 'invites'],
-    queryFn: () =>
-      unwrap(
-        api.GET('/workspaces/{workspaceId}/invites', {
-          params: { path: { workspaceId: id } },
-        }),
-      ),
-    enabled,
-    retry: false,
-  });
-
-export const invitePreviewQuery = (token: string) =>
-  queryOptions({
-    queryKey: ['invite', token],
-    queryFn: () =>
-      unwrap(api.GET('/invites/{token}', { params: { path: { token } } })),
-    retry: false,
-  });
-
-export const canManage = (role: WorkspaceRole) =>
-  role === 'owner' || role === 'admin';
 
 export type Agent = components['schemas']['Agent'];
 export type SandboxState = components['schemas']['SandboxState'];
@@ -109,18 +52,13 @@ export const sandboxLimitsQuery = queryOptions({
   retry: false,
 });
 
-export const agentsQuery = (workspaceId: string) =>
-  queryOptions({
-    queryKey: ['workspaces', workspaceId, 'agents'],
-    queryFn: () =>
-      unwrap(
-        api.GET('/workspaces/{workspaceId}/agents', {
-          params: { path: { workspaceId } },
-        }),
-      ),
-    refetchInterval: (q) => agentsPollInterval(q.state.data),
-    retry: false,
-  });
+/** Agents you own and agents shared with you. */
+export const agentsQuery = queryOptions({
+  queryKey: ['agents'],
+  queryFn: () => unwrap(api.GET('/agents')),
+  refetchInterval: (q) => agentsPollInterval(q.state.data),
+  retry: false,
+});
 
 export const agentQuery = (agentId: string) =>
   queryOptions({
@@ -154,16 +92,20 @@ export const harnessesQuery = queryOptions({
 });
 
 export type AccessList = components['schemas']['AccessList'];
-export type Grant = components['schemas']['Grant'];
+export type Share = components['schemas']['Share'];
 export type AuditEntry = components['schemas']['AuditEntry'];
 export type AgentRole = components['schemas']['AgentRole'];
 
+/** Owners configure, share and delete; shared users only use the agent. */
+export const isOwner = (a: { role: AgentRole } | undefined) =>
+  a?.role === 'owner';
+
 export const accessQuery = (agentId: string) =>
   queryOptions({
-    queryKey: ['agents', agentId, 'grants'],
+    queryKey: ['agents', agentId, 'shares'],
     queryFn: () =>
       unwrap(
-        api.GET('/agents/{agentId}/grants', { params: { path: { agentId } } }),
+        api.GET('/agents/{agentId}/shares', { params: { path: { agentId } } }),
       ),
     retry: false,
   });

@@ -52,8 +52,6 @@ func toHTTP(err error) (int, string) {
 		return http.StatusNotFound, "not found"
 	case errors.Is(err, sandbox.ErrConflict):
 		return http.StatusConflict, err.Error()
-	case errors.Is(err, authz.ErrLastOwner), errors.Is(err, authz.ErrPersonal):
-		return http.StatusConflict, err.Error()
 	}
 	return http.StatusInternalServerError, "internal error"
 }

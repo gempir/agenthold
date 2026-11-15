@@ -19,10 +19,11 @@ func TestTokensCannotMintTokens(t *testing.T) {
 	expect(t, "token creates token", e.tokenClient(tok.Token).do("POST", "/me/tokens", map[string]any{"name": "persist"}, nil), 403)
 }
 
-func TestViewersCannotReadCredentials(t *testing.T) {
+// Downloads keep credentials out of reach of anyone without a terminal. Shared
+// users have a terminal, so they read what the owner reads; strangers nothing.
+func TestCredentialDownloads(t *testing.T) {
 	tm := newTeam(t)
-	tm.grant("bob", "viewer")
-	tm.grant("carol", "operator")
+	tm.share("carol")
 	ag := tm.agent.Id
 	home := tm.e.home(ag)
 	cred := filepath.Join(home, ".fakeagent", "credentials")
@@ -37,16 +38,16 @@ func TestViewersCannotReadCredentials(t *testing.T) {
 		return r.StatusCode, string(b)
 	}
 	for _, p := range []string{".fakeagent/credentials", "~/.fakeagent/credentials", "innocent.txt", "/etc/agenthold/boot.json"} {
-		if code, body := get(tm.bob, p); code == http.StatusOK || strings.Contains(body, "subscription-token") {
-			t.Fatalf("viewer read %s: %d %q", p, code, body)
+		if code, body := get(tm.bob, p); code != http.StatusNotFound || strings.Contains(body, "subscription-token") {
+			t.Fatalf("stranger read %s: %d %q", p, code, body)
 		}
 	}
 	if code, body := get(tm.carol, ".fakeagent/credentials"); code != http.StatusOK || body != "subscription-token" {
-		t.Fatalf("operator: %d %q", code, body)
+		t.Fatalf("shared user: %d %q", code, body)
 	}
 	_ = os.WriteFile(filepath.Join(home, "notes.txt"), []byte("ok"), 0o644)
-	if code, body := get(tm.bob, "notes.txt"); code != http.StatusOK || body != "ok" {
-		t.Fatalf("viewer normal file: %d %q", code, body)
+	if code, body := get(tm.carol, "notes.txt"); code != http.StatusOK || body != "ok" {
+		t.Fatalf("shared user normal file: %d %q", code, body)
 	}
 }
 

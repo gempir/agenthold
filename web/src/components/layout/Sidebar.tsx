@@ -8,8 +8,6 @@ import {
 } from '@tanstack/react-router';
 import {
   Bot,
-  Check,
-  ChevronDown,
   ChevronRight,
   Layers,
   Loader2,
@@ -19,19 +17,16 @@ import {
   Plus,
   Search,
   Settings,
-  Settings2,
   SquarePen,
   Sun,
+  Users,
   X,
 } from 'lucide-react';
-import { meQuery, type Workspace } from '@/api/queries';
+import { meQuery } from '@/api/queries';
 import { AgentStateDot } from '@/components/AgentStateBadge';
-import { Avatar } from '@/components/MembersList';
-import { NewWorkspaceDialog } from '@/components/NewWorkspaceDialog';
+import { Avatar } from '@/components/Avatar';
 import { ErrorText } from '@/components/Spinner';
-import { WorkspaceBadge } from '@/components/WorkspaceBadge';
 import { Button } from '@/components/ui/button';
-import { Menu, MenuItem, MenuSeparator } from '@/components/ui/menu';
 import { useShell } from '@/components/layout/shell';
 import { useChatIndex, type ChatEntry } from '@/hooks/useChatIndex';
 import { getTheme, setTheme, type Theme } from '@/lib/theme';
@@ -55,24 +50,15 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const [workingOpen, setWorkingOpen] = useState(true);
   const now = useNow(30_000);
 
-  const scope = index.workspaces.some((w) => w.id === shell.scope)
-    ? shell.scope
-    : 'all';
-  const multi = index.workspaces.length > 1;
-  const showBadges = multi && scope === 'all';
   const q = query.trim().toLowerCase();
   const matches = (...xs: string[]) =>
     !q || xs.some((x) => x.toLowerCase().includes(q));
 
-  const agents = index.agents.filter(
-    ({ agent, workspace }) =>
-      (scope === 'all' || workspace.id === scope) &&
-      matches(agent.name, workspace.name),
+  const agents = index.agents.filter(({ agent }) =>
+    matches(agent.name, agent.owner.name),
   );
-  const chats = index.chats.filter(
-    ({ session, agent, workspace }) =>
-      (scope === 'all' || workspace.id === scope) &&
-      matches(session.title, agent.name, workspace.name),
+  const chats = index.chats.filter(({ session, agent }) =>
+    matches(session.title, agent.name),
   );
   const working = chats.filter((c) => c.session.running);
   const shownAgents = allAgents || q ? agents : agents.slice(0, AGENTS_PREVIEW);
@@ -128,7 +114,6 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
       </div>
 
       <div className="grid gap-1 px-3 pb-2">
-        <WorkspaceSwitcher workspaces={index.workspaces} scope={scope} />
         <div className="flex items-center gap-1">
           <label className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-muted-foreground focus-within:bg-accent/60 hover:bg-accent/40">
             <Search className="size-4 shrink-0" aria-hidden />
@@ -182,7 +167,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                 {q ? 'No matching agents.' : 'No agents yet.'}
               </li>
             )}
-            {shownAgents.map(({ agent, workspace }) => {
+            {shownAgents.map(({ agent }) => {
               const active = params.agentId === agent.id;
               return (
                 <li key={agent.id} className="group relative">
@@ -200,8 +185,11 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                     <span className="min-w-0 flex-1 truncate">
                       {agent.name}
                     </span>
-                    {showBadges && (
-                      <WorkspaceBadge id={workspace.id} name={workspace.name} />
+                    {agent.role === 'shared' && (
+                      <Users
+                        className="size-3.5 shrink-0 text-muted-foreground"
+                        aria-label={`shared by ${agent.owner.name}`}
+                      />
                     )}
                   </Link>
                   <Link
@@ -246,7 +234,6 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               chat={c}
               now={now}
               active={search.s === c.session.id}
-              showBadge={showBadges}
               me={me.data?.user.id}
             />
           ))}
@@ -352,16 +339,14 @@ function SectionHeader({
 }
 
 function ChatRow({
-  chat: { session, agent, workspace },
+  chat: { session, agent },
   now,
   active,
-  showBadge,
   me,
 }: {
   chat: ChatEntry;
   now: number;
   active: boolean;
-  showBadge: boolean;
   me?: string;
 }) {
   const by =
@@ -383,9 +368,6 @@ function ChatRow({
         )}
       >
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          {showBadge && (
-            <WorkspaceBadge id={workspace.id} name={workspace.name} />
-          )}
           <span className="min-w-0 flex-1 truncate">{agent.name}</span>
           <span className="shrink-0 tabular-nums">
             {relTime(session.updatedAt, now)}
@@ -427,114 +409,6 @@ function SkeletonRows({ n, tall }: { n: number; tall?: boolean }) {
           )}
         />
       ))}
-    </>
-  );
-}
-
-function WorkspaceSwitcher({
-  workspaces,
-  scope,
-}: {
-  workspaces: Workspace[];
-  scope: string;
-}) {
-  const shell = useShell();
-  const me = useQuery(meQuery);
-  const navigate = useNavigate();
-  const [newOpen, setNewOpen] = useState(false);
-  const current = workspaces.find((w) => w.id === scope);
-  const settingsId = current?.id ?? me.data?.personalWorkspaceId;
-  return (
-    <>
-      <Menu
-        className="w-full"
-        trigger={({ open, toggle }) => (
-          <button
-            type="button"
-            aria-haspopup="menu"
-            aria-expanded={open}
-            aria-label="Workspace"
-            onClick={toggle}
-            className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-accent/40"
-          >
-            {current ? (
-              <WorkspaceBadge id={current.id} name={current.name} />
-            ) : (
-              <Layers className="size-4 text-muted-foreground" aria-hidden />
-            )}
-            <span className="min-w-0 flex-1 truncate">
-              {current?.name ?? 'All workspaces'}
-            </span>
-            <ChevronDown
-              className="size-3.5 text-muted-foreground"
-              aria-hidden
-            />
-          </button>
-        )}
-      >
-        {(close) => (
-          <>
-            <MenuItem
-              active={scope === 'all'}
-              onClick={() => {
-                shell.setScope('all');
-                close();
-              }}
-            >
-              <Layers className="size-4 text-muted-foreground" aria-hidden />
-              <span className="flex-1">All workspaces</span>
-              {scope === 'all' && <Check className="size-3.5" aria-hidden />}
-            </MenuItem>
-            {workspaces.map((w) => (
-              <MenuItem
-                key={w.id}
-                active={scope === w.id}
-                onClick={() => {
-                  shell.setScope(w.id);
-                  close();
-                }}
-              >
-                <WorkspaceBadge id={w.id} name={w.name} />
-                <span className="min-w-0 flex-1 truncate">{w.name}</span>
-                <span className="text-xs text-muted-foreground">{w.role}</span>
-                {scope === w.id && <Check className="size-3.5" aria-hidden />}
-              </MenuItem>
-            ))}
-            <MenuSeparator />
-            {settingsId && (
-              <MenuItem
-                onClick={() => {
-                  close();
-                  void navigate({
-                    to: '/w/$workspaceId',
-                    params: { workspaceId: settingsId },
-                  });
-                }}
-              >
-                <Settings2
-                  className="size-4 text-muted-foreground"
-                  aria-hidden
-                />
-                Workspace settings
-              </MenuItem>
-            )}
-            <MenuItem
-              onClick={() => {
-                close();
-                setNewOpen(true);
-              }}
-            >
-              <Plus className="size-4 text-muted-foreground" aria-hidden />
-              New workspace
-            </MenuItem>
-          </>
-        )}
-      </Menu>
-      <NewWorkspaceDialog
-        open={newOpen}
-        onOpenChange={setNewOpen}
-        onCreated={(id) => shell.setScope(id)}
-      />
     </>
   );
 }

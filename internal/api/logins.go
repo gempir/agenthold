@@ -61,12 +61,12 @@ func (a *API) providerLoginInfo(ctx context.Context, userID string, ad harness.A
 			continue
 		}
 		// Only agents the user can still see (others do not get the login).
-		_, role, err := a.authz.AgentRoleOf(ctx, userID, ag)
+		role, err := a.authz.RoleOf(ctx, userID, ag)
 		if err != nil {
 			return info, err
 		}
-		if authz.CanAgent(role, authz.AgentRead) {
-			info.Agents = append(info.Agents, gen.LoginAgent{Id: ag.ID, Name: ag.Name, WorkspaceId: ag.WorkspaceID})
+		if authz.Can(role, authz.AgentRead) {
+			info.Agents = append(info.Agents, gen.LoginAgent{Id: ag.ID, Name: ag.Name})
 		}
 	}
 	return info, nil

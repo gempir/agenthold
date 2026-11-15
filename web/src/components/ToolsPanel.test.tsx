@@ -6,11 +6,11 @@ import { mockApi } from '@/test-utils';
 import { AgentToolsPanel, parsePairs } from './ToolsPanel';
 
 const t = '2026-01-01T00:00:00Z';
-const server = (id: string, name: string, scope: 'agent' | 'workspace') => ({
+const server = (id: string, name: string, scope: 'agent' | 'library') => ({
   id,
   name,
   scope,
-  workspaceId: 'ws1',
+  ownerId: 'u1',
   transport: 'http',
   url: `https://${name}.example.com/mcp`,
   command: '',
@@ -26,16 +26,16 @@ const skill = (id: string, name: string) => ({
   name,
   description: `about ${name}`,
   content: 'x',
-  workspaceId: 'ws1',
+  ownerId: 'u1',
   createdAt: t,
   updatedAt: t,
 });
 
-function renderPanel(admin: boolean) {
+function renderPanel(isOwner: boolean) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={qc}>
-      <AgentToolsPanel agentId="ag1" workspaceId="ws1" admin={admin} />
+      <AgentToolsPanel agentId="ag1" isOwner={isOwner} />
     </QueryClientProvider>,
   );
 }
@@ -51,18 +51,15 @@ it('parses key/value lines', () => {
 it('lists what the agent uses and attaches a skill', async () => {
   const { calls } = mockApi({
     'GET /agents/ag1/mcp-servers': [
-      server('m1', 'docs', 'workspace'),
+      server('m1', 'docs', 'library'),
       server('m2', 'local', 'agent'),
     ],
     'GET /agents/ag1/skills': [skill('s1', 'release-notes')],
-    'GET /workspaces/ws1/mcp-servers': [
-      server('m1', 'docs', 'workspace'),
-      server('m3', 'search', 'workspace'),
+    'GET /mcp-servers': [
+      server('m1', 'docs', 'library'),
+      server('m3', 'search', 'library'),
     ],
-    'GET /workspaces/ws1/skills': [
-      skill('s1', 'release-notes'),
-      skill('s2', 'deploy'),
-    ],
+    'GET /skills': [skill('s1', 'release-notes'), skill('s2', 'deploy')],
     'PUT /agents/ag1/skills/s2': { status: 204 },
   });
   renderPanel(true);
@@ -92,7 +89,7 @@ it('lists what the agent uses and attaches a skill', async () => {
 
 it('is read-only for non-admins', async () => {
   mockApi({
-    'GET /agents/ag1/mcp-servers': [server('m1', 'docs', 'workspace')],
+    'GET /agents/ag1/mcp-servers': [server('m1', 'docs', 'library')],
     'GET /agents/ag1/skills': [],
   });
   renderPanel(false);

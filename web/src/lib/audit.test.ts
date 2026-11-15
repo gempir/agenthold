@@ -5,11 +5,11 @@ it('humanizes known actions and falls back to the raw one', () => {
   expect(humanizeAction('session.prompt')).toBe('Prompted');
   expect(humanizeAction('terminal.open')).toBe('Opened a terminal');
   expect(humanizeAction('file.write')).toBe('Uploaded a file');
-  expect(humanizeAction('grant.set')).toBe('Shared');
+  expect(humanizeAction('share.add')).toBe('Shared');
   expect(humanizeAction('weird.thing')).toBe('weird.thing');
 });
 
-it('describes prompt text truncated and grant details', () => {
+it('describes prompt text truncated and share details', () => {
   const long = 'x'.repeat(200);
   const d = describeDetails({
     action: 'session.prompt',
@@ -19,8 +19,11 @@ it('describes prompt text truncated and grant details', () => {
   expect(d.endsWith('…')).toBe(true);
   expect(
     describeDetails({
-      action: 'grant.set',
-      details: { role: 'operator', subject: 'Bob' },
+      action: 'share.add',
+      details: { userId: 'u2', email: 'bob@example.com' },
     }),
-  ).toBe('role: operator, to: Bob');
+  ).toBe('bob@example.com');
+  expect(
+    describeDetails({ action: 'share.remove', details: { userId: 'u2' } }),
+  ).toBe('u2');
 });

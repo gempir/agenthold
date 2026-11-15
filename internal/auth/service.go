@@ -41,6 +41,7 @@ type Service struct {
 	sessionTTL time.Duration
 	secure     bool
 	now        func() time.Time
+	local      *localAdmin
 }
 
 // NewService builds the auth service from configuration.
@@ -58,6 +59,13 @@ func NewService(st *store.Store, cfg *config.Config) (*Service, error) {
 			return nil, err
 		}
 		s.AddProvider(p)
+	}
+	if cfg.Auth.Local != nil {
+		l, err := newLocalAdmin(cfg.Auth.Local)
+		if err != nil {
+			return nil, fmt.Errorf("auth.local: %w", err)
+		}
+		s.local = l
 	}
 	return s, nil
 }
@@ -173,33 +181,15 @@ func (s *Service) upsertUser(ctx context.Context, providerID string, c *Claims) 
 			}); err != nil {
 				return err
 			}
-			if err := q.CreateIdentity(ctx, db.CreateIdentityParams{
+			return q.CreateIdentity(ctx, db.CreateIdentityParams{
 				Provider: providerID, Subject: c.Subject, UserID: userID, Email: c.Email,
 				Username: c.Username, CreatedAt: now, LastLoginAt: now,
-			}); err != nil {
-				return err
-			}
-			return createPersonalWorkspace(ctx, q, userID, displayName(c), now)
+			})
 		default:
 			return err
 		}
 	})
 	return userID, err
-}
-
-func createPersonalWorkspace(ctx context.Context, q *db.Queries, userID, name string, now int64) error {
-	wsID := id.New("ws")
-	label := "Personal"
-	if name != "" {
-		label = name + "'s workspace"
-	}
-	if err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{ID: wsID, Name: label, Personal: 1, CreatedAt: now, UpdatedAt: now}); err != nil {
-		return err
-	}
-	if err := q.SetPersonalWorkspace(ctx, db.SetPersonalWorkspaceParams{UserID: userID, WorkspaceID: wsID}); err != nil {
-		return err
-	}
-	return q.UpsertMembership(ctx, db.UpsertMembershipParams{WorkspaceID: wsID, UserID: userID, Role: "owner", CreatedAt: now})
 }
 
 func displayName(c *Claims) string {

@@ -27,7 +27,6 @@ import (
 // Agent is what the proxy needs to know about the sandbox behind a connection.
 type Agent struct {
 	ID         string
-	Policy     Policy
 	Injections []secrets.Injection
 	// Responders answer some HTTPS requests themselves (account logins'
 	// token refresh), instead of forwarding them.
@@ -56,7 +55,8 @@ type Agents interface {
 	AgentForSource(ctx context.Context, ip netip.Addr) (*Agent, error)
 }
 
-// Event is one entry of an agent's request log.
+// Event describes one proxied connection or request, for an optional
+// observer (Proxy.Log). Nothing stores events.
 type Event struct {
 	AgentID   string
 	At        time.Time
@@ -80,7 +80,8 @@ type Proxy struct {
 	CA     *CA
 	Agents Agents
 	Names  *NameCache
-	// Log receives every event. It must not block.
+	// Log, if set, receives every event. It must not block.
+
 	Log func(Event)
 	// Lookup resolves names for upstream connections. Default: net.DefaultResolver.
 	Lookup func(ctx context.Context, host string) ([]netip.Addr, error)
@@ -275,11 +276,6 @@ func (p *Proxy) handleTCP(ctx context.Context, c net.Conn, agent *Agent, dst net
 		host = p.Names.Lookup(agent.ID, dst.Addr())
 	}
 	ev := Event{AgentID: agent.ID, Kind: kind, Host: host, IP: dst.Addr().String(), Port: int(dst.Port())}
-	if !agent.Policy.Allows(host, dst.Addr(), int(dst.Port())) {
-		ev.Reason = "not in allowlist"
-		p.log(ev)
-		return
-	}
 	// With a name, connect to what the name resolves to; without one, to the
 	// address the client used.
 	up, addr, err := p.dialUpstream(ctx, hostIfName(host), dst.Addr(), int(dst.Port()))
@@ -345,10 +341,6 @@ func (p *Proxy) injectionsFor(agent *Agent, host string) []secrets.Injection {
 func (p *Proxy) handleTLS(ctx context.Context, c net.Conn, agent *Agent, dst netip.AddrPort, sni string) {
 	sni = strings.ToLower(strings.TrimSuffix(sni, "."))
 	port := int(dst.Port())
-	if !agent.Policy.Allows(sni, netip.Addr{}, port) {
-		p.log(Event{AgentID: agent.ID, Kind: "tls", Host: sni, IP: dst.Addr().String(), Port: port, Reason: "not in allowlist"})
-		return
-	}
 	if (len(p.injectionsFor(agent, sni)) == 0 && len(agent.respondersFor(sni)) == 0) || p.CA == nil {
 		// Nothing to inject: pass the TLS session through untouched.
 		up, addr, err := p.dialUpstream(ctx, sni, netip.Addr{}, port)
@@ -503,12 +495,6 @@ func (p *Proxy) forwarder() http.Handler {
 		if host == "" {
 			ev.Reason = "no host"
 			http.Error(w, "agenthold egress: request has no host", http.StatusBadRequest)
-			return
-		}
-		if !base.agent.Policy.Allows(host, base.ip, base.port) {
-			ev.Reason = "not in allowlist"
-			ev.Status = http.StatusForbidden
-			http.Error(w, fmt.Sprintf("agenthold egress: %s:%d is not allowed by this agent's network policy", host, base.port), http.StatusForbidden)
 			return
 		}
 		ev.Allowed = true

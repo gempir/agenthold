@@ -309,7 +309,8 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-	_, role, err := a.authz.AgentRoleOf(ctx, u.ID, mustAgent(ctx, a, s.AgentID))
+	agent := mustAgent(ctx, a, s.AgentID)
+	role, err := a.authz.RoleOf(ctx, u.ID, agent)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -350,6 +351,11 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 				_ = wsjson.Write(ctx, ws, map[string]any{"type": "status", "running": running})
 			}
 		case <-tick.C:
+			// Access can be withdrawn (unshared) while watching.
+			if role, err := a.authz.RoleOf(ctx, u.ID, agent); err == nil && !authz.Can(role, authz.AgentRead) {
+				_ = ws.Close(websocket.StatusPolicyViolation, "access removed")
+				return
+			}
 			if now := a.Sessions.Running(s.ID); now != running {
 				running = now
 				_ = wsjson.Write(ctx, ws, map[string]any{"type": "status", "running": running})

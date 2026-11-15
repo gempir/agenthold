@@ -25,10 +25,10 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-const renderChat = (operator: boolean, agentState?: 'sleeping') =>
+const renderChat = (canUse: boolean, agentState?: 'sleeping') =>
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <ChatView sessionId="s1" operator={operator} agentState={agentState} />
+      <ChatView sessionId="s1" canUse={canUse} agentState={agentState} />
     </QueryClientProvider>,
   );
 

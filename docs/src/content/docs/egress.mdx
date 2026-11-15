@@ -1,10 +1,12 @@
 ---
 title: "Egress and secrets"
-description: "Sandboxes have no route to the internet of their own. All of their traffic goes through the server, which applies the agent's network policy, injects secrets and logs every connection."
+description: "Sandboxes have no route to the internet of their own. All of their traffic goes through the server's proxy, which keeps private networks out of reach and injects secrets."
 ---
 
-Sandboxes have no route to the internet of their own. All of their traffic goes through the server,
-which applies the agent's network policy, injects secrets and logs every connection.
+Sandboxes have no route to the internet of their own. All of their traffic goes through the server's proxy.
+Every agent has open access to public internet addresses through it; the proxy keeps private networks out of
+reach and injects secrets, so secret values never enter a sandbox. There are no per-agent allowlists and no
+request log.
 
 ## How traffic is intercepted
 
@@ -24,9 +26,9 @@ Inside its own network namespace, the server (which needs `CAP_NET_ADMIN`) insta
 This catches programs that ignore `HTTPS_PROXY`: SSH, raw sockets, package managers. `HTTPS_PROXY` is still
 set in every sandbox as a hint, pointing at the explicit proxy, which goes through the same checks.
 
-The proxy decides by name:
+The proxy works by name:
 
-| Traffic | Name used for the policy |
+| Traffic | Name used |
 | --- | --- |
 | TLS | the SNI of the ClientHello |
 | Plain HTTP | the `Host` header, per request |
@@ -34,21 +36,12 @@ The proxy decides by name:
 
 Upstream connections are made to what the **name** resolves to on the server, not to the address the
 client used, so a forged SNI cannot reach a different host. Private, loopback, link-local (including
-cloud metadata at 169.254.169.254), CGNAT, multicast and reserved addresses are never reachable, whatever
-the policy.
-
-## Network policy
-
-Per agent, set by its admins. Changes take effect within seconds.
-
-- `open` (default): any public address and port.
-- `allowlist`: only the listed entries. Entries look like `github.com`, `*.npmjs.org` (subdomains only),
-  `github.com:22`, `registry.example.com:*` or `203.0.113.0/24:443`. Without a port, 80 and 443 are allowed.
-  DNS queries for names that are not on the list get NXDOMAIN, so DNS cannot be used to smuggle data out.
+cloud metadata at 169.254.169.254), CGNAT, multicast and reserved addresses are never reachable.
 
 ## Secrets
 
-A secret has a value, encrypted at rest with XChaCha20-Poly1305 under the master key (`secrets.master_key_file`,
+Secrets belong to a user (Settings, Secrets) and only their owner attaches them, to agents they own. A secret
+has a value, encrypted at rest with XChaCha20-Poly1305 under the master key (`secrets.master_key_file`,
 default `<data_dir>/master.key`, created on first start, or `AGENTHOLD_MASTER_KEY`; back it up). It also has
 an injection rule:
 
@@ -76,12 +69,6 @@ harness's token refresh requests itself, so the account's rotating refresh token
 Only list hosts you trust in a rule. A service that echoes request headers back (for example an HTTP echo
 API) would show the injected value to the agent.
 
-## Request log
-
-Every connection and HTTP request is logged per agent: time, kind, host, port, method, path, status,
-allowed or denied and why, whether a secret was injected, and bytes transferred. Spliced connections are
-logged when they close. The newest `egress.log_keep` entries (default 5000) are kept.
-
 ## Ports and configuration
 
 ```yaml
@@ -91,7 +78,6 @@ egress:
   explicit_port: 15002  # HTTPS_PROXY target
   dns_port: 15053
   dns_upstream: ""      # default: the server's /etc/resolv.conf
-  log_keep: 5000
 secrets:
   master_key_file: ""   # default <data_dir>/master.key
 ```

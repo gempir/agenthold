@@ -55,9 +55,7 @@ export function AgentPanel({
   const tabs: { id: PanelTab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'files', label: 'Files' },
-    ...(access.operator
-      ? [{ id: 'terminal' as const, label: 'Terminal' }]
-      : []),
+    ...(access.canUse ? [{ id: 'terminal' as const, label: 'Terminal' }] : []),
   ];
   return (
     <>
@@ -123,7 +121,7 @@ export function AgentPanel({
               <Overview agent={agent} access={access} sessionId={sessionId} />
             )}
             {tab === 'files' && <PanelFiles agent={agent} access={access} />}
-            {tab === 'terminal' && access.operator && (
+            {tab === 'terminal' && access.canUse && (
               <>
                 {agent.state === 'sleeping' && (
                   <p className="mb-2 text-sm text-muted-foreground">
@@ -148,7 +146,7 @@ function PanelFiles({ agent, access }: { agent: Agent; access: Access }) {
     <>
       <FilesTab
         agentId={agent.id}
-        operator={access.operator}
+        canUse={access.canUse}
         starting={busy}
         onStart={() => action.mutate('start')}
       />
@@ -181,7 +179,7 @@ function Overview({
   return (
     <div className="grid gap-4">
       <Block title="Status">
-        <AgentControls agent={a} operator={access.operator} compact />
+        <AgentControls agent={a} canUse={access.canUse} compact />
       </Block>
 
       <Block title="Harness">
@@ -205,7 +203,7 @@ function Overview({
         {sessions.isPending && <Loading />}
         <ErrorText error={sessions.error} />
         <ul aria-label="Sessions" className="-mx-2 grid grid-cols-1 gap-px">
-          {access.operator && (
+          {access.canUse && (
             <li>
               <Link
                 to="/a/$agentId"

@@ -33,7 +33,6 @@ func newFixture(t *testing.T) *fixture {
 	t.Cleanup(func() { _ = st.Close() })
 	ctx := t.Context()
 	must(t, st.CreateUser(ctx, db.CreateUserParams{ID: "usr_1", CreatedAt: 1, UpdatedAt: 1}))
-	must(t, st.CreateWorkspace(ctx, db.CreateWorkspaceParams{ID: "ws_1", Name: "w", CreatedAt: 1, UpdatedAt: 1}))
 	f := &fixture{t: t, st: st, driver: fake.New(t.TempDir())}
 	f.m = sandbox.NewManager(st, f.driver, specFor, nil)
 	t.Cleanup(f.m.Close)
@@ -53,7 +52,7 @@ func (f *fixture) createAgent(id, image string) {
 	var start func()
 	must(f.t, f.st.Tx(ctx, func(q *db.Queries) error {
 		if err := q.CreateAgent(ctx, db.CreateAgentParams{
-			ID: id, WorkspaceID: "ws_1", OwnerID: "usr_1", Name: id, Image: image,
+			ID: id, OwnerID: "usr_1", Name: id, Image: image,
 			Harness: "claude-code", Cpus: 1, MemoryMb: 512, IdleMinutes: 15, CreatedAt: 1, UpdatedAt: 1,
 		}); err != nil {
 			return err

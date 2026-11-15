@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gempir/agenthold/internal/password"
 )
 
 func TestLoadExpandsEnvAndDefaults(t *testing.T) {
@@ -48,10 +50,10 @@ auth:
 func TestExpandDefaults(t *testing.T) {
 	t.Setenv("SET_VAR", "from-env")
 	cfg := &Config{}
-	if err := Parse([]byte("listen: ${UNSET_VAR:-:7000}\npublic_url: ${SET_VAR:-nope}\n"), cfg); err != nil {
+	if err := Parse([]byte("listen: ${UNSET_VAR:-:7000}\npublic_url: ${SET_VAR:-nope}\ndev_proxy: $plain$$x$${SET_VAR}\n"), cfg); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Listen != ":7000" || cfg.PublicURL != "from-env" {
+	if cfg.Listen != ":7000" || cfg.PublicURL != "from-env" || cfg.DevProxy != "$plain$$x${SET_VAR}" {
 		t.Fatalf("cfg %+v", cfg)
 	}
 }
@@ -66,6 +68,9 @@ func TestValidate(t *testing.T) {
 		{"duplicate", "auth: {providers: [{id: a, type: github, client_id: c}, {id: a, type: github, client_id: c}]}", "duplicate id"},
 		{"no client id", "auth: {providers: [{id: a, type: github}]}", "client_id is required"},
 		{"bad id", "auth: {providers: [{id: a/b, type: github, client_id: c}]}", "path segment"},
+		{"reserved id", "auth: {providers: [{id: local, type: github, client_id: c}]}", "reserved"},
+		{"local without username", "auth: {local: {password_hash: x}}", "auth.local.username"},
+		{"local with plaintext password", "auth: {local: {username: admin, password_hash: hunter2}}", "not an argon2id hash"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -79,5 +84,49 @@ func TestValidate(t *testing.T) {
 				t.Fatalf("err = %v, want %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestLocalAdmin(t *testing.T) {
+	hash, err := password.New("pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{}
+	if err := Parse([]byte("auth:\n  local:\n    username: admin\n    password_hash: '"+hash+"'\n"), cfg); err != nil {
+		t.Fatal(err)
+	}
+	ApplyDefaults(cfg)
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Auth.Local == nil || cfg.Auth.Local.Username != "admin" || !cfg.Auth.SignInConfigured() {
+		t.Fatalf("local = %+v", cfg.Auth.Local)
+	}
+	if (Auth{}).SignInConfigured() {
+		t.Fatal("empty auth reports sign-in configured")
+	}
+}
+
+// The dev config ships a local admin; it must stay valid.
+func TestDevConfigIsValid(t *testing.T) {
+	data, err := os.ReadFile("../../deploy/dev/agenthold.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{}
+	if err := Parse(data, cfg); err != nil {
+		t.Fatal(err)
+	}
+	ApplyDefaults(cfg)
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Auth.Local == nil || cfg.Auth.Local.Username != "admin" {
+		t.Fatalf("local admin %+v", cfg.Auth.Local)
+	}
+	h, err := password.Parse(cfg.Auth.Local.PasswordHash)
+	if err != nil || !h.Verify("admin") {
+		t.Fatalf("dev admin password is not %q: %v", "admin", err)
 	}
 }

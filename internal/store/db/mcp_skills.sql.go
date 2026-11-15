@@ -38,30 +38,29 @@ func (q *Queries) AttachSkill(ctx context.Context, arg AttachSkillParams) error 
 }
 
 const createMCPServer = `-- name: CreateMCPServer :exec
-INSERT INTO mcp_servers (id, workspace_id, agent_id, name, transport, command, args, env, url, headers, created_by, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO mcp_servers (id, owner_id, agent_id, name, transport, command, args, env, url, headers, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateMCPServerParams struct {
-	ID          string
-	WorkspaceID string
-	AgentID     string
-	Name        string
-	Transport   string
-	Command     string
-	Args        string
-	Env         string
-	Url         string
-	Headers     string
-	CreatedBy   string
-	CreatedAt   int64
-	UpdatedAt   int64
+	ID        string
+	OwnerID   string
+	AgentID   string
+	Name      string
+	Transport string
+	Command   string
+	Args      string
+	Env       string
+	Url       string
+	Headers   string
+	CreatedAt int64
+	UpdatedAt int64
 }
 
 func (q *Queries) CreateMCPServer(ctx context.Context, arg CreateMCPServerParams) error {
 	_, err := q.db.ExecContext(ctx, createMCPServer,
 		arg.ID,
-		arg.WorkspaceID,
+		arg.OwnerID,
 		arg.AgentID,
 		arg.Name,
 		arg.Transport,
@@ -70,7 +69,6 @@ func (q *Queries) CreateMCPServer(ctx context.Context, arg CreateMCPServerParams
 		arg.Env,
 		arg.Url,
 		arg.Headers,
-		arg.CreatedBy,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -78,17 +76,16 @@ func (q *Queries) CreateMCPServer(ctx context.Context, arg CreateMCPServerParams
 }
 
 const createSkill = `-- name: CreateSkill :exec
-INSERT INTO skills (id, workspace_id, name, description, content, created_by, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO skills (id, owner_id, name, description, content, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateSkillParams struct {
 	ID          string
-	WorkspaceID string
+	OwnerID     string
 	Name        string
 	Description string
 	Content     string
-	CreatedBy   string
 	CreatedAt   int64
 	UpdatedAt   int64
 }
@@ -96,11 +93,10 @@ type CreateSkillParams struct {
 func (q *Queries) CreateSkill(ctx context.Context, arg CreateSkillParams) error {
 	_, err := q.db.ExecContext(ctx, createSkill,
 		arg.ID,
-		arg.WorkspaceID,
+		arg.OwnerID,
 		arg.Name,
 		arg.Description,
 		arg.Content,
-		arg.CreatedBy,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -160,7 +156,7 @@ func (q *Queries) DetachSkill(ctx context.Context, arg DetachSkillParams) (int64
 }
 
 const getMCPServer = `-- name: GetMCPServer :one
-SELECT id, workspace_id, agent_id, name, transport, command, args, env, url, headers, created_by, created_at, updated_at FROM mcp_servers WHERE id = ?
+SELECT id, owner_id, agent_id, name, transport, command, args, env, url, headers, created_at, updated_at FROM mcp_servers WHERE id = ?
 `
 
 func (q *Queries) GetMCPServer(ctx context.Context, id string) (McpServer, error) {
@@ -168,7 +164,7 @@ func (q *Queries) GetMCPServer(ctx context.Context, id string) (McpServer, error
 	var i McpServer
 	err := row.Scan(
 		&i.ID,
-		&i.WorkspaceID,
+		&i.OwnerID,
 		&i.AgentID,
 		&i.Name,
 		&i.Transport,
@@ -177,33 +173,6 @@ func (q *Queries) GetMCPServer(ctx context.Context, id string) (McpServer, error
 		&i.Env,
 		&i.Url,
 		&i.Headers,
-		&i.CreatedBy,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getSecretByName = `-- name: GetSecretByName :one
-SELECT id, workspace_id, owner_id, name, ciphertext, rule, placeholder, created_at, updated_at FROM secrets WHERE workspace_id = ? AND name = ?
-`
-
-type GetSecretByNameParams struct {
-	WorkspaceID string
-	Name        string
-}
-
-func (q *Queries) GetSecretByName(ctx context.Context, arg GetSecretByNameParams) (Secret, error) {
-	row := q.db.QueryRowContext(ctx, getSecretByName, arg.WorkspaceID, arg.Name)
-	var i Secret
-	err := row.Scan(
-		&i.ID,
-		&i.WorkspaceID,
-		&i.OwnerID,
-		&i.Name,
-		&i.Ciphertext,
-		&i.Rule,
-		&i.Placeholder,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -211,7 +180,7 @@ func (q *Queries) GetSecretByName(ctx context.Context, arg GetSecretByNameParams
 }
 
 const getSkill = `-- name: GetSkill :one
-SELECT id, workspace_id, name, description, content, created_by, created_at, updated_at FROM skills WHERE id = ?
+SELECT id, owner_id, name, description, content, created_at, updated_at FROM skills WHERE id = ?
 `
 
 func (q *Queries) GetSkill(ctx context.Context, id string) (Skill, error) {
@@ -219,11 +188,10 @@ func (q *Queries) GetSkill(ctx context.Context, id string) (Skill, error) {
 	var i Skill
 	err := row.Scan(
 		&i.ID,
-		&i.WorkspaceID,
+		&i.OwnerID,
 		&i.Name,
 		&i.Description,
 		&i.Content,
-		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -231,12 +199,12 @@ func (q *Queries) GetSkill(ctx context.Context, id string) (Skill, error) {
 }
 
 const listAgentMCPServers = `-- name: ListAgentMCPServers :many
-SELECT id, workspace_id, agent_id, name, transport, command, args, env, url, headers, created_by, created_at, updated_at FROM mcp_servers WHERE mcp_servers.agent_id = ?1
+SELECT id, owner_id, agent_id, name, transport, command, args, env, url, headers, created_at, updated_at FROM mcp_servers WHERE mcp_servers.agent_id = ?1
    OR id IN (SELECT server_id FROM agent_mcp_servers WHERE agent_mcp_servers.agent_id = ?1)
 ORDER BY name
 `
 
-// Everything the agent uses: its own servers and attached workspace servers.
+// Everything the agent uses: its own servers and attached library servers.
 func (q *Queries) ListAgentMCPServers(ctx context.Context, agentID string) ([]McpServer, error) {
 	rows, err := q.db.QueryContext(ctx, listAgentMCPServers, agentID)
 	if err != nil {
@@ -248,7 +216,7 @@ func (q *Queries) ListAgentMCPServers(ctx context.Context, agentID string) ([]Mc
 		var i McpServer
 		if err := rows.Scan(
 			&i.ID,
-			&i.WorkspaceID,
+			&i.OwnerID,
 			&i.AgentID,
 			&i.Name,
 			&i.Transport,
@@ -257,7 +225,6 @@ func (q *Queries) ListAgentMCPServers(ctx context.Context, agentID string) ([]Mc
 			&i.Env,
 			&i.Url,
 			&i.Headers,
-			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -275,7 +242,7 @@ func (q *Queries) ListAgentMCPServers(ctx context.Context, agentID string) ([]Mc
 }
 
 const listAgentOwnMCPServers = `-- name: ListAgentOwnMCPServers :many
-SELECT id, workspace_id, agent_id, name, transport, command, args, env, url, headers, created_by, created_at, updated_at FROM mcp_servers WHERE agent_id = ? ORDER BY name
+SELECT id, owner_id, agent_id, name, transport, command, args, env, url, headers, created_at, updated_at FROM mcp_servers WHERE agent_id = ? ORDER BY name
 `
 
 func (q *Queries) ListAgentOwnMCPServers(ctx context.Context, agentID string) ([]McpServer, error) {
@@ -289,7 +256,7 @@ func (q *Queries) ListAgentOwnMCPServers(ctx context.Context, agentID string) ([
 		var i McpServer
 		if err := rows.Scan(
 			&i.ID,
-			&i.WorkspaceID,
+			&i.OwnerID,
 			&i.AgentID,
 			&i.Name,
 			&i.Transport,
@@ -298,7 +265,6 @@ func (q *Queries) ListAgentOwnMCPServers(ctx context.Context, agentID string) ([
 			&i.Env,
 			&i.Url,
 			&i.Headers,
-			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -316,7 +282,7 @@ func (q *Queries) ListAgentOwnMCPServers(ctx context.Context, agentID string) ([
 }
 
 const listAgentSkills = `-- name: ListAgentSkills :many
-SELECT skills.id, skills.workspace_id, skills.name, skills.description, skills.content, skills.created_by, skills.created_at, skills.updated_at FROM skills JOIN agent_skills ON agent_skills.skill_id = skills.id
+SELECT skills.id, skills.owner_id, skills.name, skills.description, skills.content, skills.created_at, skills.updated_at FROM skills JOIN agent_skills ON agent_skills.skill_id = skills.id
 WHERE agent_skills.agent_id = ? ORDER BY skills.name
 `
 
@@ -331,11 +297,10 @@ func (q *Queries) ListAgentSkills(ctx context.Context, agentID string) ([]Skill,
 		var i Skill
 		if err := rows.Scan(
 			&i.ID,
-			&i.WorkspaceID,
+			&i.OwnerID,
 			&i.Name,
 			&i.Description,
 			&i.Content,
-			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -352,12 +317,13 @@ func (q *Queries) ListAgentSkills(ctx context.Context, agentID string) ([]Skill,
 	return items, nil
 }
 
-const listWorkspaceMCPServers = `-- name: ListWorkspaceMCPServers :many
-SELECT id, workspace_id, agent_id, name, transport, command, args, env, url, headers, created_by, created_at, updated_at FROM mcp_servers WHERE workspace_id = ? AND agent_id = '' ORDER BY name
+const listUserMCPServers = `-- name: ListUserMCPServers :many
+SELECT id, owner_id, agent_id, name, transport, command, args, env, url, headers, created_at, updated_at FROM mcp_servers WHERE owner_id = ? AND agent_id = '' ORDER BY name
 `
 
-func (q *Queries) ListWorkspaceMCPServers(ctx context.Context, workspaceID string) ([]McpServer, error) {
-	rows, err := q.db.QueryContext(ctx, listWorkspaceMCPServers, workspaceID)
+// The user's library (servers not bound to one agent).
+func (q *Queries) ListUserMCPServers(ctx context.Context, ownerID string) ([]McpServer, error) {
+	rows, err := q.db.QueryContext(ctx, listUserMCPServers, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -367,7 +333,7 @@ func (q *Queries) ListWorkspaceMCPServers(ctx context.Context, workspaceID strin
 		var i McpServer
 		if err := rows.Scan(
 			&i.ID,
-			&i.WorkspaceID,
+			&i.OwnerID,
 			&i.AgentID,
 			&i.Name,
 			&i.Transport,
@@ -376,7 +342,6 @@ func (q *Queries) ListWorkspaceMCPServers(ctx context.Context, workspaceID strin
 			&i.Env,
 			&i.Url,
 			&i.Headers,
-			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -393,12 +358,12 @@ func (q *Queries) ListWorkspaceMCPServers(ctx context.Context, workspaceID strin
 	return items, nil
 }
 
-const listWorkspaceSkills = `-- name: ListWorkspaceSkills :many
-SELECT id, workspace_id, name, description, content, created_by, created_at, updated_at FROM skills WHERE workspace_id = ? ORDER BY name
+const listUserSkills = `-- name: ListUserSkills :many
+SELECT id, owner_id, name, description, content, created_at, updated_at FROM skills WHERE owner_id = ? ORDER BY name
 `
 
-func (q *Queries) ListWorkspaceSkills(ctx context.Context, workspaceID string) ([]Skill, error) {
-	rows, err := q.db.QueryContext(ctx, listWorkspaceSkills, workspaceID)
+func (q *Queries) ListUserSkills(ctx context.Context, ownerID string) ([]Skill, error) {
+	rows, err := q.db.QueryContext(ctx, listUserSkills, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -408,11 +373,10 @@ func (q *Queries) ListWorkspaceSkills(ctx context.Context, workspaceID string) (
 		var i Skill
 		if err := rows.Scan(
 			&i.ID,
-			&i.WorkspaceID,
+			&i.OwnerID,
 			&i.Name,
 			&i.Description,
 			&i.Content,
-			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {

@@ -8,11 +8,9 @@ afterEach(() => vi.unstubAllGlobals());
 
 const me = {
   user: { id: 'u1', email: 'a@x.io', name: 'Alice', avatarUrl: '' },
-  personalWorkspaceId: 'w1',
 };
 const agent = (role: Agent['role']): Agent => ({
   id: 'a1',
-  workspaceId: 'w1',
   name: 'builder',
   owner: me.user,
   image: 'ubuntu:24.04',
@@ -44,7 +42,6 @@ const entry = (name: string, isDir: boolean) => ({
 function setup(role: Agent['role']) {
   return mockApi({
     'GET /me': me,
-    'GET /workspaces': [],
     'GET /agents/a1': agent(role),
     'GET /agents/a1/files': () => ({
       body: {
@@ -56,7 +53,7 @@ function setup(role: Agent['role']) {
 }
 
 it('lists entries and navigates into a directory in the agent panel', async () => {
-  const { calls } = setup('operator');
+  const { calls } = setup('shared');
   renderApp('/a/a1?panel=files');
   expect(await screen.findByRole('tab', { name: 'Files' })).toHaveAttribute(
     'aria-selected',
@@ -72,23 +69,15 @@ it('lists entries and navigates into a directory in the agent panel', async () =
   );
 });
 
-it('shows write controls to operators only', async () => {
-  setup('operator');
+it('shows write controls and the terminal to shared users', async () => {
+  setup('shared');
   renderApp('/a/a1/settings?tab=files');
   await screen.findByText('notes.txt');
   expect(screen.getByRole('button', { name: 'Upload' })).toBeVisible();
   expect(
     screen.getByRole('button', { name: 'Delete notes.txt' }),
   ).toBeVisible();
-});
-
-it('hides write controls and terminal from viewers', async () => {
-  setup('viewer');
-  renderApp('/a/a1/settings?tab=files');
-  await screen.findByText('notes.txt');
   const nav = screen.getByRole('navigation', { name: 'Agent settings' });
-  expect(within(nav).getByRole('link', { name: 'Files' })).toBeVisible();
-  expect(within(nav).queryByRole('link', { name: 'Terminal' })).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Upload' })).toBeNull();
-  expect(screen.queryByRole('button', { name: /^Delete/ })).toBeNull();
+  expect(within(nav).getByRole('link', { name: 'Terminal' })).toBeVisible();
+  expect(within(nav).queryByRole('link', { name: 'Activity' })).toBeNull();
 });

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -57,14 +58,20 @@ func (a *API) apiSecret(ctx context.Context, s db.Secret, canManage bool) (gen.S
 		return gen.Secret{}, err
 	}
 	return gen.Secret{
-		Id: s.ID, WorkspaceId: s.WorkspaceID, Name: s.Name, Rule: apiRule(rule), Placeholder: s.Placeholder,
+		Id: s.ID, Name: s.Name, Rule: apiRule(rule), Placeholder: s.Placeholder,
 		Owner: apiUser(owner), CanManage: canManage, CreatedAt: ts(s.CreatedAt), UpdatedAt: ts(s.UpdatedAt),
 	}, nil
 }
 
-// canManageSecret: the owner and workspace admins.
-func canManageSecret(userID string, wsRole authz.WorkspaceRole, s db.Secret) bool {
-	return s.OwnerID == userID || authz.CanWorkspace(wsRole, authz.WorkspaceConfig)
+// canManageSecret: secrets belong to one user; only they manage and attach it.
+func canManageSecret(userID string, s db.Secret) bool {
+	return userID != "" && s.OwnerID == userID
+}
+
+// GetEgressCA implements gen.StrictServerInterface.
+func (a *API) GetEgressCA(context.Context, gen.GetEgressCARequestObject) (gen.GetEgressCAResponseObject, error) {
+	pem := a.CA.CertPEM()
+	return gen.GetEgressCA200ApplicationxPemFileResponse{Body: bytes.NewReader(pem), ContentLength: int64(len(pem))}, nil
 }
 
 // ListSecretPresets implements gen.StrictServerInterface.
@@ -77,21 +84,13 @@ func (a *API) ListSecretPresets(context.Context, gen.ListSecretPresetsRequestObj
 }
 
 // ListSecrets implements gen.StrictServerInterface.
-func (a *API) ListSecrets(ctx context.Context, req gen.ListSecretsRequestObject) (gen.ListSecretsResponseObject, error) {
-	u := me(ctx)
-	role, err := a.authz.Workspace(ctx, u.ID, req.WorkspaceId, authz.WorkspaceRead)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := a.Store.ListWorkspaceSecrets(ctx, req.WorkspaceId)
+func (a *API) ListSecrets(ctx context.Context, _ gen.ListSecretsRequestObject) (gen.ListSecretsResponseObject, error) {
+	rows, err := a.Store.ListUserSecrets(ctx, me(ctx).ID)
 	if err != nil {
 		return nil, err
 	}
 	out := gen.ListSecrets200JSONResponse{}
 	for _, s := range rows {
-		if !canManageSecret(u.ID, role, s) {
-			continue
-		}
 		g, err := a.apiSecret(ctx, s, true)
 		if err != nil {
 			return nil, err
@@ -122,9 +121,6 @@ func validSecretValue(v string) error {
 // CreateSecret implements gen.StrictServerInterface.
 func (a *API) CreateSecret(ctx context.Context, req gen.CreateSecretRequestObject) (gen.CreateSecretResponseObject, error) {
 	u := me(ctx)
-	if _, err := a.authz.Workspace(ctx, u.ID, req.WorkspaceId, authz.WorkspaceRead); err != nil {
-		return nil, err
-	}
 	b := req.Body
 	name, err := validSecretName(b.Name)
 	if err != nil {
@@ -161,11 +157,11 @@ func (a *API) CreateSecret(ctx context.Context, req gen.CreateSecretRequestObjec
 	ruleJSON, _ := json.Marshal(rule)
 	now := a.Now().Unix()
 	s := db.Secret{
-		ID: secretID, WorkspaceID: req.WorkspaceId, OwnerID: u.ID, Name: name, Ciphertext: ct,
+		ID: secretID, OwnerID: u.ID, Name: name, Ciphertext: ct,
 		Rule: string(ruleJSON), Placeholder: "agenthold-placeholder-" + id.Random(16), CreatedAt: now, UpdatedAt: now,
 	}
 	if err := a.Store.CreateSecret(ctx, db.CreateSecretParams{
-		ID: s.ID, WorkspaceID: s.WorkspaceID, OwnerID: s.OwnerID, Name: s.Name, Ciphertext: s.Ciphertext,
+		ID: s.ID, OwnerID: s.OwnerID, Name: s.Name, Ciphertext: s.Ciphertext,
 		Rule: s.Rule, Placeholder: s.Placeholder, CreatedAt: now, UpdatedAt: now,
 	}); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
@@ -190,15 +186,8 @@ func (a *API) loadSecret(ctx context.Context, secretID string) (db.Secret, error
 	if err != nil {
 		return s, err
 	}
-	role, err := a.authz.WorkspaceRoleOf(ctx, u.ID, s.WorkspaceID)
-	if err != nil {
-		return s, err
-	}
-	if !role.Valid() {
-		return s, errNotFound
-	}
-	if !canManageSecret(u.ID, role, s) {
-		return s, authz.ErrForbidden
+	if !canManageSecret(u.ID, s) {
+		return s, errNotFound // other users' secrets are invisible
 	}
 	return s, nil
 }
@@ -261,8 +250,7 @@ func (a *API) DeleteSecret(ctx context.Context, req gen.DeleteSecretRequestObjec
 
 // ListAgentSecrets implements gen.StrictServerInterface.
 func (a *API) ListAgentSecrets(ctx context.Context, req gen.ListAgentSecretsRequestObject) (gen.ListAgentSecretsResponseObject, error) {
-	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentRead)
-	if err != nil {
+	if _, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentRead); err != nil {
 		return nil, err
 	}
 	rows, err := a.Store.ListAgentSecrets(ctx, req.AgentId)
@@ -271,7 +259,7 @@ func (a *API) ListAgentSecrets(ctx context.Context, req gen.ListAgentSecretsRequ
 	}
 	out := gen.ListAgentSecrets200JSONResponse{}
 	for _, r := range rows {
-		g, err := a.apiSecret(ctx, r.Secret, canManageSecret(me(ctx).ID, acc.WorkspaceRole, r.Secret))
+		g, err := a.apiSecret(ctx, r.Secret, canManageSecret(me(ctx).ID, r.Secret))
 		if err != nil {
 			return nil, err
 		}
@@ -287,16 +275,15 @@ func (a *API) AttachSecret(ctx context.Context, req gen.AttachSecretRequestObjec
 	if err != nil {
 		return nil, err
 	}
+	// Only your own secrets, on agents you own.
 	s, err := a.Store.GetSecret(ctx, req.SecretId)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && s.WorkspaceID != acc.Row.Agent.WorkspaceID) {
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && !canManageSecret(u.ID, s)) {
 		return nil, errNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	if !canManageSecret(u.ID, acc.WorkspaceRole, s) {
-		return nil, errStatus(http.StatusForbidden, "only the secret's owner or a workspace admin can attach it")
-	}
+
 	envVar := ""
 	if req.Body != nil && req.Body.EnvVar != nil {
 		envVar = strings.TrimSpace(*req.Body.EnvVar)

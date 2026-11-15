@@ -1,6 +1,6 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { api, unwrap } from '@/api/client';
-import { Avatar } from '@/components/MembersList';
+import { Avatar } from '@/components/Avatar';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
 import { describeDetails, humanizeAction } from '@/lib/audit';

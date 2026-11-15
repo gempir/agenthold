@@ -23,28 +23,27 @@ func newSessionText(t *testing.T, e *env, c *client, agentID, prompt string) str
 func TestMCPServersAndSkills(t *testing.T) {
 	tm := newTeam(t)
 	e, alice, bob := tm.e, tm.alice, tm.bob
-	ws := "/workspaces/" + tm.ws
 	ag := tm.agent.Id
 
 	var sec gen.Secret
-	expect(t, "secret", alice.do("POST", ws+"/secrets", gen.SecretInput{
+	expect(t, "secret", alice.do("POST", "/secrets", gen.SecretInput{
 		Name: "mcp-token", Value: "real-mcp-token",
 		Rule: &gen.SecretRule{Hosts: []string{"mcp.example.com"}, Header: "X-Unused", Template: "{{.Value}}"},
 	}, &sec), 201)
 
-	// Workspace-level remote server with an authenticated header.
+	// A remote server in alice's library, with an authenticated header.
 	var remote gen.MCPServer
-	expect(t, "member creates workspace server", bob.do("POST", ws+"/mcp-servers", gen.MCPServerInput{Name: "x", Transport: "http", Url: ptr("https://a.example.com")}, nil), 403)
-	expect(t, "unknown secret", alice.do("POST", ws+"/mcp-servers", gen.MCPServerInput{
+	expect(t, "bob's own library", bob.do("POST", "/mcp-servers", gen.MCPServerInput{Name: "x", Transport: "http", Url: ptr("https://a.example.com")}, nil), 201)
+	expect(t, "unknown secret", alice.do("POST", "/mcp-servers", gen.MCPServerInput{
 		Name: "docs", Transport: "http", Url: ptr("https://mcp.example.com/mcp"),
 		Headers: &map[string]string{"Authorization": "Bearer {{secret:nope}}"},
 	}, nil), 400)
-	expect(t, "bad url", alice.do("POST", ws+"/mcp-servers", gen.MCPServerInput{Name: "docs", Transport: "http", Url: ptr("ftp://x")}, nil), 400)
-	expect(t, "create remote", alice.do("POST", ws+"/mcp-servers", gen.MCPServerInput{
+	expect(t, "bad url", alice.do("POST", "/mcp-servers", gen.MCPServerInput{Name: "docs", Transport: "http", Url: ptr("ftp://x")}, nil), 400)
+	expect(t, "create remote", alice.do("POST", "/mcp-servers", gen.MCPServerInput{
 		Name: "docs", Transport: "http", Url: ptr("https://mcp.example.com/mcp"),
 		Headers: &map[string]string{"Authorization": "Bearer {{secret:mcp-token}}"},
 	}, &remote), 201)
-	if len(remote.SecretRefs) != 1 || remote.SecretRefs[0] != "mcp-token" || remote.Scope != "workspace" {
+	if len(remote.SecretRefs) != 1 || remote.SecretRefs[0] != "mcp-token" || remote.Scope != gen.MCPServerScopeLibrary {
 		t.Fatalf("remote %+v", remote)
 	}
 
@@ -57,9 +56,19 @@ func TestMCPServersAndSkills(t *testing.T) {
 
 	// Skills library.
 	var skill gen.Skill
-	expect(t, "member creates skill", bob.do("POST", ws+"/skills", gen.SkillInput{Name: "x", Description: "x", Content: "x"}, nil), 403)
-	expect(t, "bad skill name", alice.do("POST", ws+"/skills", gen.SkillInput{Name: "Bad Name", Description: "x", Content: "x"}, nil), 400)
-	expect(t, "create skill", alice.do("POST", ws+"/skills", gen.SkillInput{Name: "release-notes", Description: "Write release notes from git log", Content: "# Release notes\n\nRun git log and summarize."}, &skill), 201)
+	expect(t, "bob's own skill", bob.do("POST", "/skills", gen.SkillInput{Name: "x", Description: "x", Content: "x"}, nil), 201)
+	var lib []gen.MCPServer
+	alice.do("GET", "/mcp-servers", nil, &lib)
+	if len(lib) != 1 || lib[0].Name != "docs" {
+		t.Fatalf("alice's library %+v", lib)
+	}
+	var skills []gen.Skill
+	alice.do("GET", "/skills", nil, &skills)
+	if len(skills) != 0 {
+		t.Fatalf("alice sees bob's skills: %+v", skills)
+	}
+	expect(t, "bad skill name", alice.do("POST", "/skills", gen.SkillInput{Name: "Bad Name", Description: "x", Content: "x"}, nil), 400)
+	expect(t, "create skill", alice.do("POST", "/skills", gen.SkillInput{Name: "release-notes", Description: "Write release notes from git log", Content: "# Release notes\n\nRun git log and summarize."}, &skill), 201)
 
 	// Before attaching: the session sees only the agent's own server, no skills.
 	got := newSessionText(t, e, alice, ag, "tools")
@@ -96,15 +105,19 @@ func TestMCPServersAndSkills(t *testing.T) {
 		t.Fatalf("injections %+v %v", pa, err)
 	}
 
-	// A member cannot route someone else's secret through their own agent's server.
+	// Nobody can route someone else's secret through their own agent's server:
+	// names resolve among the server owner's secrets only.
 	var bobAgent gen.Agent
-	bob.do("POST", ws+"/agents", gen.AgentInput{Name: "bobs", Harness: ptr("fake")}, &bobAgent)
+	bob.do("POST", "/agents", gen.AgentInput{Name: "bobs", Harness: ptr("fake")}, &bobAgent)
 	e.sandboxes.Wait()
 	expect(t, "steal secret", bob.do("POST", "/agents/"+bobAgent.Id+"/mcp-servers", gen.MCPServerInput{
 		Name: "leak", Transport: "http", Url: ptr("https://evil.example.com"),
 		Headers: &map[string]string{"X": "{{secret:mcp-token}}"},
-	}, nil), 403)
-	expect(t, "bob attaches to alice's agent", bob.do("PUT", "/agents/"+ag+"/skills/"+skill.Id, nil, nil), 404)
+	}, nil), 400)
+	expect(t, "stranger attaches to alice's agent", bob.do("PUT", "/agents/"+ag+"/skills/"+skill.Id, nil, nil), 404)
+	tm.share("bob")
+	expect(t, "shared user attaches", bob.do("PUT", "/agents/"+ag+"/skills/"+skill.Id, nil, nil), 403)
+	expect(t, "shared user edits alice's server", bob.do("DELETE", "/mcp-servers/"+remote.Id, nil, nil), 404)
 
 	// Detach: removed from the sandbox in the next session; skills the agent wrote itself stay.
 	own := filepath.Join(e.home(ag), ".fakeagent/skills/my-own/SKILL.md")

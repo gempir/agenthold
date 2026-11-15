@@ -7,8 +7,7 @@ D=$(dirname "$0")
 JAR=$(login alice alice)
 COOKIE=$(awk '/agenthold_session/{print $7}' "$JAR")
 WSURL=${BASE/http/ws}
-WS=$(api "$JAR" "$BASE/api/v1/me" | json 'd["personalWorkspaceId"]')
-mk() { api "$JAR" -X POST "$BASE/api/v1/workspaces/$WS/agents" -d "{\"name\":\"$1\",\"image\":\"$IMG\",\"harness\":\"$2\",\"memoryMb\":${3:-512}}" | json 'd["id"]'; }
+mk() { api "$JAR" -X POST "$BASE/api/v1/agents" -d "{\"name\":\"$1\",\"image\":\"$IMG\",\"harness\":\"$2\",\"memoryMb\":${3:-512}}" | json 'd["id"]'; }
 N=$RANDOM
 PLANNER=$(mk "planner-$N" fake); WORKER=$(mk "worker-$N" fake); BRAIN=""
 [[ -n ${SKIP_REAL_MODEL:-} ]] || BRAIN=$(mk "brain-$N" opencode 2048)

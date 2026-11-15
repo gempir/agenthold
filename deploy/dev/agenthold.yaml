@@ -4,6 +4,11 @@ public_url: http://localhost:8080
 dev_proxy: http://web:5173
 test_harness: true
 auth:
+  # Local admin for development: username admin, password admin
+  # (hash from `agenthold hash-password`). Works without Keycloak.
+  local:
+    username: admin
+    password_hash: $argon2id$v=19$m=65536,t=3,p=4$n+qTSj1iaT9J18JcHD66TA$krvYz+qGs3qgHCmCGqfow/9RituEvdbFMufWxGqBacQ
   providers:
     - id: keycloak
       type: oidc

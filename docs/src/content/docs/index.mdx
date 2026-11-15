@@ -7,7 +7,7 @@ agenthold runs AI coding agents (Claude Code, Codex and others) on a server you 
 
 - **One sandbox per agent.** Agents sleep when idle and wake on demand. Files, history and sessions stay on disk.
 - **Secrets stay outside.** An egress proxy injects credentials into outgoing requests, so agents use API keys and logins they never see. [Egress and secrets](/egress/) explains the model.
-- **Shared and audited.** Workspaces, roles, invitations and an audit log let a team use the same agents. See [Sharing and audit](/sharing/).
+- **Shared and audited.** Owners share agents with other users by email; an audit log records who did what. See [Sharing and audit](/sharing/).
 - **Scriptable.** Everything the UI does is in the [HTTP API](/api/), and [tokens, schedules and webhooks](/automation/) drive it from scripts. Agents can call each other.
 
 Try it at [demo.agenthold.dev](https://demo.agenthold.dev), or run your own.

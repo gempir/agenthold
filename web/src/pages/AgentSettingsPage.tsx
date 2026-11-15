@@ -2,17 +2,16 @@ import { lazy, Suspense } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { MessageSquare } from 'lucide-react';
-import { agentQuery, workspacesQuery, type Agent } from '@/api/queries';
+import { agentQuery, type Agent } from '@/api/queries';
 import { ActivityTab } from '@/components/ActivityTab';
+import { AgentSecretsTab } from '@/components/AgentSecretsTab';
 import { AgentStateDot } from '@/components/AgentStateBadge';
 import { FilesTab } from '@/components/FilesTab';
 import { HarnessPanel } from '@/components/HarnessPanel';
-import { NetworkTab } from '@/components/NetworkTab';
 import { SharingTab } from '@/components/SharingTab';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { AgentToolsPanel } from '@/components/ToolsPanel';
 import { TriggersTab } from '@/components/TriggersTab';
-import { WorkspaceBadge } from '@/components/WorkspaceBadge';
 import { Button } from '@/components/ui/button';
 import {
   AgentControls,
@@ -44,7 +43,6 @@ export function AgentSettingsPage({
   tab?: AgentSection;
 }) {
   const q = useQuery(agentQuery(agentId));
-  const workspaces = useQuery(workspacesQuery);
 
   if (q.isPending)
     return (
@@ -64,22 +62,12 @@ export function AgentSettingsPage({
   const access = accessOf(a);
   const sections = AGENT_SECTIONS.filter((s) => s.show(access));
   const current = sections.find((s) => s.id === tab) ?? sections[0];
-  const ws = workspaces.data?.find((w) => w.id === a.workspaceId);
 
   return (
     <SettingsLayout
       navLabel="Agent settings"
       crumbs={
         <>
-          {ws && (
-            <>
-              <Crumb className="hidden sm:flex">
-                <WorkspaceBadge id={ws.id} name={ws.name} />
-                <span className="truncate">{ws.name}</span>
-              </Crumb>
-              <CrumbSep className="hidden sm:inline" />
-            </>
-          )}
           <Crumb>
             <AgentStateDot state={a.state} />
             <Link
@@ -136,28 +124,28 @@ function Section({
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { action, busy } = useAgentActions(a);
-  const { operator, admin } = accessOf(a);
+  const { canUse, isOwner } = accessOf(a);
   const setAgent = (n: Agent) => qc.setQueryData(['agents', a.id], n);
   switch (section) {
     case 'general':
       return (
         <div className="grid gap-6">
-          <AgentControls agent={a} operator={operator} />
+          <AgentControls agent={a} canUse={canUse} />
           <AgentDetails agent={a} className="rounded-xl border p-4" />
-          {admin && (
+          {isOwner && (
             <AgentSettingsForm key={a.updatedAt} agent={a} onSaved={setAgent} />
           )}
-          {admin && <DeleteAgent agent={a} />}
+          {isOwner && <DeleteAgent agent={a} />}
         </div>
       );
     case 'harness':
-      return <HarnessPanel agent={a} admin={admin} onSaved={setAgent} />;
+      return <HarnessPanel agent={a} isOwner={isOwner} onSaved={setAgent} />;
     case 'files':
       return (
         <>
           <FilesTab
             agentId={a.id}
-            operator={operator}
+            canUse={canUse}
             starting={busy}
             onStart={() => action.mutate('start')}
           />
@@ -165,7 +153,7 @@ function Section({
         </>
       );
     case 'terminal':
-      return operator ? (
+      return canUse ? (
         <>
           {a.state === 'sleeping' && (
             <p className="mb-2 text-sm text-muted-foreground">
@@ -177,24 +165,16 @@ function Section({
           </Suspense>
         </>
       ) : null;
-    case 'network':
-      return (
-        <NetworkTab agentId={a.id} workspaceId={a.workspaceId} admin={admin} />
-      );
+    case 'secrets':
+      return <AgentSecretsTab agentId={a.id} isOwner={isOwner} />;
     case 'tools':
-      return (
-        <AgentToolsPanel
-          agentId={a.id}
-          workspaceId={a.workspaceId}
-          admin={admin}
-        />
-      );
+      return <AgentToolsPanel agentId={a.id} isOwner={isOwner} />;
     case 'triggers':
       return (
         <TriggersTab
           agentId={a.id}
-          admin={admin}
-          operator={operator}
+          isOwner={isOwner}
+          canUse={canUse}
           onOpenSession={(id) =>
             void navigate({
               to: '/a/$agentId',
@@ -205,10 +185,8 @@ function Section({
         />
       );
     case 'sharing':
-      return (
-        <SharingTab agentId={a.id} workspaceId={a.workspaceId} admin={admin} />
-      );
+      return <SharingTab agentId={a.id} isOwner={isOwner} />;
     case 'activity':
-      return admin ? <ActivityTab agentId={a.id} /> : null;
+      return isOwner ? <ActivityTab agentId={a.id} /> : null;
   }
 }

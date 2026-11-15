@@ -1,49 +1,49 @@
 ---
 title: "Sharing and audit"
-description: "Workspace and agent roles, invitations, sharing an agent, and the audit log."
+description: "Agent owners, sharing an agent with other users, and the audit log."
 ---
 
 ## Who can do what
 
-Workspaces have members with a workspace role: `owner`, `admin` or `member`. Each agent has an effective
-role for every member:
+Every agent has one **owner**: the user who created it. The owner can share the agent with other users. There
+are no workspaces, teams or role levels; for any agent, a user is one of:
 
-| Agent role | Can |
+| Relation | Can |
 | --- | --- |
-| `viewer` | read sessions (live), files, the request log, the network policy and who has access |
-| `operator` | everything a viewer can, plus prompt, cancel, answer permission requests, open terminals, change files, start and stop |
-| `admin` | everything an operator can, plus change settings, secrets, the network policy and grants, read the audit log, run harness logins, make the agent use their own provider logins, delete |
+| owner | everything: use the agent, change its settings, harness, tools, secrets, schedules and webhooks, run harness logins, make it use their own provider logins, share and unshare it, read the audit log, reset (rebuild) and delete it |
+| shared user | use the agent: read sessions (live) and files, create sessions, prompt, cancel, answer permission requests, open terminals, change files, start and stop it, see who it is shared with, run schedules, leave |
+| anyone else | nothing; the agent does not exist for them (API requests about it return 404) |
 
-The effective role is the highest of:
+All checks are made on the server, in `internal/authz`. The UI only hides what a user cannot do.
 
-- **admin**, if the user owns the agent or is an owner or admin of its workspace,
-- the role of a **grant** to that user,
-- the role of a **workspace grant**, which applies to every member of the agent's workspace.
+## Sharing an agent
 
-Members without any of these do not see the agent at all (API requests about it return 404). All checks are made
-on the server, in `internal/authz`. The UI only hides what a role cannot do.
+The owner shares an agent on its **Sharing** tab (or `POST /api/v1/agents/{id}/shares` with `{"email": ...}`)
+by entering the other user's email address. A user exists once they have signed in, and they are found by the
+email their identity provider reported **as verified**. If several accounts use the same verified email (for
+example the same person signed in with Keycloak and with GitHub), sharing by that email is refused as ambiguous.
 
-Grants are managed on the agent's **Sharing** tab by its admins. Only workspace members can be granted access.
-When someone leaves a workspace, their grants on its agents are removed, and those agents stop using their provider
-logins.
+The owner removes a share on the same tab; a shared user can remove themselves ("Leave"). Losing access takes
+effect at once, including for live session streams.
 
-## Provider logins in shared workspaces
+Shared users have a terminal, so they can read everything inside the sandbox, including a harness login made
+there. They never see secret values or the owner's provider login credentials: those stay on the server.
 
-An agent uses the Claude Code or Codex login of one user (its creator by default), shown on its Overview. Nobody can
-make an agent use another person's login: an agent admin can only choose their own, and can detach anyone's. The
-login's owner can withdraw it from any agent they can see, and it is only used while they still have access to the
-agent. See [sessions and harnesses](/sessions/#account-logins-the-normal-way).
+## Provider logins of shared agents
+
+An agent uses the Claude Code or Codex login of its owner by default, shown on its Overview. Users the agent is
+shared with use that login through it. Nobody can make an agent use another person's login: only the owner
+chooses, and only their own. See [sessions and harnesses](/sessions/#account-logins-the-normal-way).
 
 ## Watching together
 
-Any number of people can watch a session live. The stream shows everyone who is watching, with their role.
-Viewers see the conversation as it happens but cannot prompt. Every prompt in the log names the user who sent
-it.
+Any number of people with access can watch a session live. The stream shows everyone who is watching, as
+`owner` or `shared`. Every prompt in the log names the user who sent it.
 
 ## Audit log
 
-Agent admins see an agent's **Activity** tab: who did what, and when. It records prompts (with the prompt
-text), cancels, permission answers, sessions created and deleted, terminals opened, harness logins, provider logins
-attached, detached and used, file
-uploads, folders and deletions, starts, stops, rebuilds, setting changes, network policy changes, secrets
-attached and detached, grants and deletions.
+The owner sees an agent's **Activity** tab: who did what, and when. It records prompts (with the prompt text),
+cancels, permission answers, sessions created and deleted, terminals opened, harness logins, provider logins
+attached, detached and used, file uploads, folders and deletions, starts, stops, rebuilds, setting changes,
+secrets attached and detached, MCP servers and skills attached and detached, shares added and removed, and
+deletions.

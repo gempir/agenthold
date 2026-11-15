@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, RefreshCw } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
-import type { Agent } from '@/api/queries';
+import { agentsQuery, type Agent } from '@/api/queries';
 import { AgentStateBadge } from '@/components/AgentStateBadge';
 import { ErrorText } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
@@ -21,11 +21,11 @@ import { cn } from '@/lib/utils';
 /** State, lifecycle buttons and problems of one agent. */
 export function AgentControls({
   agent: a,
-  operator,
+  canUse,
   compact,
 }: {
   agent: Agent;
-  operator: boolean;
+  canUse: boolean;
   compact?: boolean;
 }) {
   const { action, busy } = useAgentActions(a);
@@ -49,7 +49,7 @@ export function AgentControls({
           Rebuild to apply image/resource changes
         </p>
       )}
-      {operator && (
+      {canUse && (
         <div className="flex flex-wrap gap-2">
           {(a.state === 'sleeping' || a.state === 'error') && (
             <Button
@@ -70,19 +70,20 @@ export function AgentControls({
               Stop
             </Button>
           )}
-          {(a.state === 'running' ||
-            a.state === 'sleeping' ||
-            a.state === 'error') && (
-            <Button
-              size={compact ? 'sm' : 'default'}
-              variant={a.needsRebuild ? 'default' : 'outline'}
-              className={a.needsRebuild ? 'ring-2 ring-amber-500' : undefined}
-              disabled={busy}
-              onClick={() => action.mutate('rebuild')}
-            >
-              Rebuild
-            </Button>
-          )}
+          {a.role === 'owner' &&
+            (a.state === 'running' ||
+              a.state === 'sleeping' ||
+              a.state === 'error') && (
+              <Button
+                size={compact ? 'sm' : 'default'}
+                variant={a.needsRebuild ? 'default' : 'outline'}
+                className={a.needsRebuild ? 'ring-2 ring-amber-500' : undefined}
+                disabled={busy}
+                onClick={() => action.mutate('rebuild')}
+              >
+                Rebuild
+              </Button>
+            )}
         </div>
       )}
       <ErrorText error={action.error} />
@@ -152,9 +153,7 @@ export function AgentSettingsForm({
       ),
     onSuccess: async (a) => {
       onSaved(a);
-      await qc.invalidateQueries({
-        queryKey: ['workspaces', a.workspaceId, 'agents'],
-      });
+      await qc.invalidateQueries({ queryKey: agentsQuery.queryKey });
     },
   });
 

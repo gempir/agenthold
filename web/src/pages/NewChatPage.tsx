@@ -4,7 +4,6 @@ import { Bot, ChevronDown, Plus } from 'lucide-react';
 import { meQuery } from '@/api/queries';
 import { AgentStateDot } from '@/components/AgentStateBadge';
 import { ErrorText, Loading } from '@/components/Spinner';
-import { WorkspaceBadge } from '@/components/WorkspaceBadge';
 import { Button } from '@/components/ui/button';
 import { Menu, MenuItem, MenuSeparator } from '@/components/ui/menu';
 import { AgentNotice } from '@/components/agent/AgentNotice';
@@ -32,12 +31,7 @@ export function NewChatPage() {
   const start = useStartChat();
   const [picked, setPicked] = useState<string>();
 
-  const inScope = index.agents.filter(
-    (x) => shell.scope === 'all' || x.workspace.id === shell.scope,
-  );
-  const candidates = (inScope.length ? inScope : index.agents).filter(
-    (x) => accessOf(x.agent).operator,
-  );
+  const candidates = index.agents.filter((x) => accessOf(x.agent).canUse);
   const chosen = candidates.find((x) => x.agent.id === picked) ?? candidates[0];
 
   let body;
@@ -75,7 +69,7 @@ export function NewChatPage() {
       <DraftChat
         heading={greeting(me.data?.user.name)}
         sub="What should we work on?"
-        notice={<AgentNotice agent={chosen.agent} operator />}
+        notice={<AgentNotice agent={chosen.agent} canUse />}
         placeholder={`Message ${chosen.agent.name}`}
         pending={start.isPending}
         error={start.error}
@@ -101,7 +95,7 @@ export function NewChatPage() {
             >
               {(close) => (
                 <>
-                  {candidates.map(({ agent, workspace }) => (
+                  {candidates.map(({ agent }) => (
                     <MenuItem
                       key={agent.id}
                       active={agent.id === chosen.agent.id}
@@ -114,7 +108,11 @@ export function NewChatPage() {
                       <span className="min-w-0 flex-1 truncate">
                         {agent.name}
                       </span>
-                      <WorkspaceBadge id={workspace.id} name={workspace.name} />
+                      {agent.role === 'shared' && (
+                        <span className="text-xs text-muted-foreground">
+                          {agent.owner.name}
+                        </span>
+                      )}
                     </MenuItem>
                   ))}
                   <MenuSeparator />

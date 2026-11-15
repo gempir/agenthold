@@ -25,7 +25,7 @@ import { Composer } from '@/components/chat/Composer';
 import { ToolCard } from '@/components/chat/ToolCard';
 import { useSessionStream } from '@/components/chat/useSessionStream';
 import { meQuery, type SandboxState } from '@/api/queries';
-import { Avatar } from '@/components/MembersList';
+import { Avatar } from '@/components/Avatar';
 import {
   groupItems,
   type ChatItem,
@@ -185,11 +185,11 @@ function Plan({ entries }: { entries: PlanEntry[] }) {
 function Permission({
   item,
   sessionId,
-  operator,
+  canUse,
 }: {
   item: Extract<ChatItem, { kind: 'permission' }>;
   sessionId: string;
-  operator: boolean;
+  canUse: boolean;
 }) {
   const answer = useMutation({
     mutationFn: (optionId: string) =>
@@ -230,7 +230,7 @@ function Permission({
           Permission requested: <strong>{item.title}</strong>
         </span>
       </p>
-      {operator ? (
+      {canUse ? (
         <div className="flex flex-wrap gap-2 pl-6">
           {item.options.map((o) => (
             <Button
@@ -245,7 +245,9 @@ function Permission({
           ))}
         </div>
       ) : (
-        <p className="pl-6 text-muted-foreground">Waiting for an operator.</p>
+        <p className="pl-6 text-muted-foreground">
+          Waiting for someone who can use this agent.
+        </p>
       )}
       <ErrorText error={answer.error} />
     </div>
@@ -255,12 +257,12 @@ function Permission({
 function Item({
   item,
   sessionId,
-  operator,
+  canUse,
   myName,
 }: {
   item: ChatItem;
   sessionId: string;
-  operator: boolean;
+  canUse: boolean;
   myName?: string;
 }) {
   switch (item.kind) {
@@ -292,9 +294,7 @@ function Item({
     case 'tool':
       return <ToolCard tool={item} />;
     case 'permission':
-      return (
-        <Permission item={item} sessionId={sessionId} operator={operator} />
-      );
+      return <Permission item={item} sessionId={sessionId} canUse={canUse} />;
     case 'turn_end':
       return item.stopReason === 'end_turn' || !item.stopReason ? null : (
         <p className="text-xs text-muted-foreground">
@@ -417,14 +417,14 @@ function SessionComposer({
 
 export default function ChatView({
   sessionId,
-  operator,
+  canUse,
   initialRunning = false,
   agentState,
   composerMeta,
   notice,
 }: {
   sessionId: string;
-  operator: boolean;
+  canUse: boolean;
   agentState?: SandboxState;
   initialRunning?: boolean;
   /** Harness/model line shown inside the composer. */
@@ -494,7 +494,7 @@ export default function ChatView({
                 key={`${g.item.kind}-${g.item.seq}-${i}`}
                 item={g.item}
                 sessionId={sessionId}
-                operator={operator}
+                canUse={canUse}
                 myName={me.data?.user.name}
               />
             ),
@@ -532,7 +532,7 @@ export default function ChatView({
           </p>
         )}
         {notice}
-        {operator ? (
+        {canUse ? (
           <SessionComposer
             sessionId={sessionId}
             running={running}

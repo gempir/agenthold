@@ -40,8 +40,3 @@ UPDATE agents SET login_user_id = ? WHERE id = ?;
 
 -- name: ListAgentsByLoginUser :many
 SELECT * FROM agents WHERE login_user_id = ? ORDER BY name;
-
--- name: ClearLoginUserInWorkspace :many
--- When someone leaves a workspace, its agents stop using their logins.
-UPDATE agents SET login_user_id = '' WHERE login_user_id = sqlc.arg(user_id) AND workspace_id = sqlc.arg(workspace_id)
-RETURNING id;

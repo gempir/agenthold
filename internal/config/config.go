@@ -13,10 +13,13 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/gempir/agenthold/internal/password"
 )
 
 // Config is the complete server configuration.
@@ -46,8 +49,6 @@ type Egress struct {
 	// DNSUpstream is the resolver used for sandboxes' queries. Default: the
 	// first nameserver in the server's /etc/resolv.conf.
 	DNSUpstream string `yaml:"dns_upstream"`
-	// LogKeep is how many request log entries are kept per agent.
-	LogKeep int `yaml:"log_keep"`
 }
 
 // Secrets configures secret storage.
@@ -113,9 +114,25 @@ type Docker struct {
 // Auth configures sign-in.
 type Auth struct {
 	Providers []Provider `yaml:"providers"`
+	// Local is the one local admin who signs in with username and password.
+	Local *Local `yaml:"local"`
 	// SessionTTL is how long a browser session lasts without use. Default 30 days.
 	SessionTTL time.Duration `yaml:"session_ttl"`
 }
+
+// Local is the local admin account.
+type Local struct {
+	Username string `yaml:"username"`
+	// PasswordHash is an argon2id hash from `agenthold hash-password`.
+	PasswordHash string `yaml:"password_hash"`
+}
+
+// LocalProviderID is the identity provider id of the local admin. Configured
+// providers cannot use it.
+const LocalProviderID = "local"
+
+// SignInConfigured reports whether anybody can sign in.
+func (a Auth) SignInConfigured() bool { return a.Local != nil || len(a.Providers) > 0 }
 
 // ProviderType is the kind of identity provider.
 type ProviderType string
@@ -170,12 +187,18 @@ func Load() (*Config, error) {
 	return cfg, cfg.Validate()
 }
 
-// Parse decodes YAML into cfg after expanding ${VAR} references.
+// envRef matches ${VAR}, ${VAR:-default} and the escape $${...}.
+var envRef = regexp.MustCompile(`\$?\$\{([^}]*)\}`)
+
+// Parse decodes YAML into cfg after expanding ${VAR} references. Only the
+// braced form is expanded, so values like argon2id hashes keep their "$"
+// characters; write $${VAR} for a literal ${VAR}.
 func Parse(data []byte, cfg *Config) error {
-	expanded := os.Expand(string(data), func(k string) string {
-		if k == "$" {
-			return "$"
+	expanded := envRef.ReplaceAllStringFunc(string(data), func(m string) string {
+		if strings.HasPrefix(m, "$$") {
+			return m[1:]
 		}
+		k := m[2 : len(m)-1]
 		// ${VAR:-default}
 		if name, def, ok := strings.Cut(k, ":-"); ok {
 			if v := os.Getenv(name); v != "" {
@@ -286,9 +309,6 @@ func ApplyDefaults(cfg *Config) {
 	if eg.DNSPort == 0 {
 		eg.DNSPort = 15053
 	}
-	if eg.LogKeep == 0 {
-		eg.LogKeep = 5000
-	}
 	if cfg.Secrets.MasterKeyFile == "" {
 		cfg.Secrets.MasterKeyFile = filepath.Join(cfg.DataDir, "master.key")
 	}
@@ -341,6 +361,9 @@ func (c *Config) Validate() error {
 		if p.ID == "" || strings.ContainsAny(p.ID, "/?#") {
 			errs = append(errs, fmt.Errorf("%s: id must be a non-empty URL path segment", prefix))
 		}
+		if p.ID == LocalProviderID {
+			errs = append(errs, fmt.Errorf("%s: id %q is reserved for auth.local", prefix, p.ID))
+		}
 		if seen[p.ID] {
 			errs = append(errs, fmt.Errorf("%s: duplicate id %q", prefix, p.ID))
 		}
@@ -356,6 +379,14 @@ func (c *Config) Validate() error {
 		case ProviderGitHub:
 		default:
 			errs = append(errs, fmt.Errorf("%s: unknown type %q (want oidc or github)", prefix, p.Type))
+		}
+	}
+	if l := c.Auth.Local; l != nil {
+		if strings.TrimSpace(l.Username) == "" || len(l.Username) > 256 {
+			errs = append(errs, errors.New("auth.local.username: must be 1 to 256 characters"))
+		}
+		if _, err := password.Parse(l.PasswordHash); err != nil {
+			errs = append(errs, fmt.Errorf("auth.local.password_hash: %w", err))
 		}
 	}
 	return errors.Join(errs...)

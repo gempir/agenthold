@@ -56,6 +56,8 @@ func main() {
 			err = runRestore(os.Args[2:])
 		case "healthcheck":
 			err = healthcheck()
+		case "hash-password":
+			err = runHashPassword(os.Args[2:])
 		default:
 			goto server
 		}
@@ -104,8 +106,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if len(cfg.Auth.Providers) == 0 {
-		logger.Warn("no auth providers configured; nobody can sign in")
+	if !cfg.Auth.SignInConfigured() {
+		logger.Warn("nobody can sign in: no sign-in method is configured. Add a local admin " +
+			"(auth.local with username and a password_hash from `agenthold hash-password`) " +
+			"or an identity provider (auth.providers, OIDC or GitHub) to the config file")
 	}
 	tunnelPort, err := portOf(cfg.Sandbox.TunnelListen)
 	if err != nil {
@@ -134,7 +138,7 @@ func run() error {
 	directory.Logins = loginSvc
 	egressOn := !cfg.Egress.Disabled
 	if egressOn {
-		if err := startEgress(ctx, cfg, ca, directory, st, tunnelPort, logger); err != nil {
+		if err := startEgress(ctx, cfg, ca, directory, tunnelPort, logger); err != nil {
 			logger.Error("egress proxy unavailable: sandboxes have no network access", "err", err)
 			egressOn = false
 		}
@@ -245,16 +249,15 @@ func run() error {
 
 // startEgress starts the proxy, DNS and explicit proxy listeners and installs
 // the firewall that redirects sandbox traffic to them.
-func startEgress(ctx context.Context, cfg *config.Config, ca *egress.CA, dir *egress.Directory, st *store.Store, tunnelPort int, logger *slog.Logger) error {
+func startEgress(ctx context.Context, cfg *config.Config, ca *egress.CA, dir *egress.Directory, tunnelPort int, logger *slog.Logger) error {
 	eg := cfg.Egress
-	rec := &egress.Recorder{Store: st, Keep: eg.LogKeep}
 	names := egress.NewNameCache()
-	proxy := &egress.Proxy{CA: ca, Agents: dir, Names: names, Log: rec.Record, OriginalDst: egress.OriginalDst, Logger: logger}
+	proxy := &egress.Proxy{CA: ca, Agents: dir, Names: names, OriginalDst: egress.OriginalDst, Logger: logger}
 	upstream := eg.DNSUpstream
 	if upstream == "" {
 		upstream = egress.UpstreamFromResolvConf()
 	}
-	dns := &egress.DNS{Agents: dir, Names: names, Upstream: upstream, Log: rec.Record}
+	dns := &egress.DNS{Agents: dir, Names: names, Upstream: upstream}
 
 	lc := net.ListenConfig{}
 	tln, err := lc.Listen(ctx, "tcp", ":"+strconv.Itoa(eg.ProxyPort))

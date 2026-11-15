@@ -1,6 +1,7 @@
 // Package platform serves the agenthold MCP tools that agents use from inside
-// their sandboxes: list the workspace's agents, send them messages, and ask
-// them for an answer. Calls arrive over the caller's tunnel, so the server
+// their sandboxes: list the agents they may talk to, send them messages, and
+// ask them for an answer. An agent may talk to the agents its owner owns or
+// that are shared with its owner. Calls arrive over the caller's tunnel, so the server
 // knows which agent is calling; it never trusts the sandbox for that.
 package platform
 
@@ -42,7 +43,7 @@ type Service struct {
 var Tools = []map[string]any{
 	{
 		"name":        "list_agents",
-		"description": "List the other agents in this workspace that you can message, with their state.",
+		"description": "List the other agents you can message (your owner's agents and agents shared with your owner), with their state.",
 		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 	},
 	{
@@ -83,10 +84,9 @@ func (p *Service) Handle(ctx context.Context, s *tunnel.Session, st net.Conn, o 
 
 // Errors returned to the calling agent.
 var (
-	ErrDepth      = fmt.Errorf("too many agents in a row (limit %d): this chain of agent messages stops here", MaxDepth)
-	ErrNoAgent    = errors.New("no agent with that name or id in your workspace")
-	ErrNotAllowed = errors.New("your owner is not an operator of that agent")
-	ErrSelf       = errors.New("an agent cannot message itself")
+	ErrDepth   = fmt.Errorf("too many agents in a row (limit %d): this chain of agent messages stops here", MaxDepth)
+	ErrNoAgent = errors.New("no agent with that name or id that you can message")
+	ErrSelf    = errors.New("an agent cannot message itself")
 )
 
 // Call runs a tool for callerID. sessionID is the caller's session (for linking).
@@ -126,21 +126,35 @@ type agentInfo struct {
 	State   string `json:"state"`
 }
 
-func (p *Service) listAgents(ctx context.Context, caller db.Agent) (string, error) {
-	rows, err := p.Store.ListWorkspaceAgents(ctx, caller.WorkspaceID)
+// reachable lists the agents caller may message: those its owner owns or
+// that are shared with its owner, except caller itself.
+func (p *Service) reachable(ctx context.Context, caller db.Agent) ([]db.ListUserAgentsRow, error) {
+	rows, err := p.Store.ListUserAgents(ctx, caller.OwnerID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	chk := authz.Checker{Q: p.Store.Queries}
-	var out []agentInfo
+	var out []db.ListUserAgentsRow
 	for _, r := range rows {
 		if r.Agent.ID == caller.ID {
 			continue
 		}
-		_, role, err := chk.AgentRoleOf(ctx, caller.OwnerID, r.Agent)
-		if err != nil || !authz.CanAgent(role, authz.AgentDelegateTo) {
-			continue
+		if ok, err := chk.CanDelegate(ctx, caller.OwnerID, r.Agent); err != nil {
+			return nil, err
+		} else if ok {
+			out = append(out, r)
 		}
+	}
+	return out, nil
+}
+
+func (p *Service) listAgents(ctx context.Context, caller db.Agent) (string, error) {
+	rows, err := p.reachable(ctx, caller)
+	if err != nil {
+		return "", err
+	}
+	var out []agentInfo
+	for _, r := range rows {
 		out = append(out, agentInfo{ID: r.Agent.ID, Name: r.Agent.Name, Harness: r.Agent.Harness, State: r.Sandbox.State})
 	}
 	if len(out) == 0 {
@@ -150,18 +164,22 @@ func (p *Service) listAgents(ctx context.Context, caller db.Agent) (string, erro
 	return string(b), nil
 }
 
-// resolve finds the target by id or name in the caller's workspace.
+// resolve finds the target by id or name among the agents caller may
+// message. Agents it may not message are indistinguishable from missing ones.
 func (p *Service) resolve(ctx context.Context, caller db.Agent, ref string) (db.Agent, error) {
 	ref = strings.TrimSpace(ref)
-	if a, err := p.Store.GetAgent(ctx, ref); err == nil && a.WorkspaceID == caller.WorkspaceID {
-		return a, nil
+	if ref == caller.ID || strings.EqualFold(ref, caller.Name) {
+		return caller, nil
 	}
-	rows, err := p.Store.ListWorkspaceAgents(ctx, caller.WorkspaceID)
+	rows, err := p.reachable(ctx, caller)
 	if err != nil {
 		return db.Agent{}, err
 	}
 	var found []db.Agent
 	for _, r := range rows {
+		if r.Agent.ID == ref {
+			return r.Agent, nil
+		}
 		if strings.EqualFold(r.Agent.Name, ref) {
 			found = append(found, r.Agent)
 		}
@@ -183,13 +201,6 @@ func (p *Service) message(ctx context.Context, caller db.Agent, callerSession, r
 	if target.ID == caller.ID {
 		return "", ErrSelf
 	}
-	_, role, err := authz.Checker{Q: p.Store.Queries}.AgentRoleOf(ctx, caller.OwnerID, target)
-	if err != nil {
-		return "", err
-	}
-	if !authz.CanAgent(role, authz.AgentDelegateTo) {
-		return "", ErrNotAllowed
-	}
 	// The depth comes from the server's view of the caller's running turns,
 	// never from the sandbox.
 	depth := p.Sessions.AgentDepth(caller.ID) + 1
@@ -208,7 +219,7 @@ func (p *Service) message(ctx context.Context, caller db.Agent, callerSession, r
 	opts := session.PromptOpts{Depth: depth, Origin: map[string]string{"agentId": caller.ID, "agentName": caller.Name, "sessionId": callerSession}}
 	name := "agent " + caller.Name + " (for " + owner.Name + ")"
 	p.Audit.Record(ctx, audit.Entry{
-		WorkspaceID: target.WorkspaceID, AgentID: target.ID, UserID: caller.OwnerID, Action: audit.Prompt, Target: sessionID,
+		AgentID: target.ID, UserID: caller.OwnerID, Action: audit.Prompt, Target: sessionID,
 		Details: map[string]any{"text": truncate(text, 500), "fromAgent": caller.Name, "fromAgentId": caller.ID, "depth": depth, "wait": wait},
 	})
 	if !wait {

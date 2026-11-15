@@ -10,7 +10,7 @@ import (
 func (tm *team) newAgent(c *client, name string) gen.Agent {
 	tm.e.t.Helper()
 	var ag gen.Agent
-	expect(tm.e.t, "agent "+name, c.do("POST", "/workspaces/"+tm.ws+"/agents", gen.AgentInput{Name: name, Harness: ptr("fake")}, &ag), 201)
+	expect(tm.e.t, "agent "+name, c.do("POST", "/agents", gen.AgentInput{Name: name, Harness: ptr("fake")}, &ag), 201)
 	tm.e.sandboxes.Wait()
 	return ag
 }
@@ -72,35 +72,47 @@ func TestAgentDelegatesToAgent(t *testing.T) {
 	}
 }
 
-func TestAgentToAgentPermissions(t *testing.T) {
+// TestAgentToAgentVisibility: an agent may address the agents its owner owns
+// or that are shared with its owner, nothing else.
+func TestAgentToAgentVisibility(t *testing.T) {
 	tm := newTeam(t)
 	e := tm.e
 	bobs := tm.newAgent(tm.bob, "bobs")
-	// Bob (plain member) is no operator of alice's agent: his agent may not message it.
-	got := newSessionText(t, e, tm.bob, bobs.Id, "ask shared hello")
-	if !strings.Contains(got, "your owner is not an operator of that agent") {
-		t.Fatalf("unauthorized ask: %s", got)
+	// Not shared with bob: alice's agent is invisible to bob's agent.
+	if got := newSessionText(t, e, tm.bob, bobs.Id, "ask shared hello"); !strings.Contains(got, "no agent with that name") {
+		t.Fatalf("unshared ask: %s", got)
+	}
+	if got := newSessionText(t, e, tm.bob, bobs.Id, "ask "+tm.agent.Id+" hello"); !strings.Contains(got, "no agent with that name") {
+		t.Fatalf("unshared ask by id: %s", got)
 	}
 	if got := newSessionText(t, e, tm.bob, bobs.Id, "agents"); !strings.Contains(got, "no other agents") {
 		t.Fatalf("list for bob: %s", got)
 	}
-	// With operator access it works.
-	tm.grant("bob", "operator")
-	if got := newSessionText(t, e, tm.bob, bobs.Id, "ask shared hello"); !strings.Contains(got, "echo: hello") {
-		t.Fatalf("after grant: %s", got)
+	// Shared with bob: his agents can list and address it.
+	tm.share("bob")
+	if got := newSessionText(t, e, tm.bob, bobs.Id, "agents"); !strings.Contains(got, `"name": "shared"`) {
+		t.Fatalf("list after share: %s", got)
 	}
-	// Agents in other workspaces cannot be reached, not even by id.
-	other := e.login("eve", "Eve", "e@example.com")
-	var me gen.Me
-	other.do("GET", "/me", nil, &me)
-	var eves gen.Agent
-	other.do("POST", "/workspaces/"+me.PersonalWorkspaceId+"/agents", gen.AgentInput{Name: "eves", Harness: ptr("fake")}, &eves)
-	e.sandboxes.Wait()
-	if got := newSessionText(t, e, other, eves.Id, "ask "+tm.agent.Id+" hi"); !strings.Contains(got, "no agent with that name") {
-		t.Fatalf("cross-workspace: %s", got)
+	if got := newSessionText(t, e, tm.bob, bobs.Id, "ask shared hello"); !strings.Contains(got, "echo: hello") {
+		t.Fatalf("after share: %s", got)
+	}
+	// It does not work the other way round: alice's agent cannot reach bob's.
+	if got := newSessionText(t, e, tm.alice, tm.agent.Id, "ask bobs hi"); !strings.Contains(got, "no agent with that name") {
+		t.Fatalf("reverse direction: %s", got)
+	}
+	// Strangers' agents cannot be reached, not even by id.
+	eve := e.login("eve", "Eve", "e@example.com")
+	eves := tm.newAgent(eve, "eves")
+	if got := newSessionText(t, e, eve, eves.Id, "ask "+tm.agent.Id+" hi"); !strings.Contains(got, "no agent with that name") {
+		t.Fatalf("stranger: %s", got)
 	}
 	if got := newSessionText(t, e, tm.bob, bobs.Id, "ask bobs hi"); !strings.Contains(got, "cannot message itself") {
 		t.Fatalf("self: %s", got)
+	}
+	// Unsharing takes the access away again.
+	tm.unshare("bob")
+	if got := newSessionText(t, e, tm.bob, bobs.Id, "ask shared hello"); !strings.Contains(got, "no agent with that name") {
+		t.Fatalf("after unshare: %s", got)
 	}
 }
 

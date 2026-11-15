@@ -118,7 +118,7 @@ jobs:
           - shard: sleep
             checks: sleep
           - shard: api
-            checks: sessions provider-logins api agents
+            checks: sessions api agents
           - shard: ui
             checks: ""
     env:

@@ -263,16 +263,19 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
-		defer release()
 		ctx := m.ctx
-		defer func() {
-			_ = m.store.SetSessionStatus(ctx, db.SetSessionStatusParams{Status: "idle", UpdatedAt: time.Now().Unix(), ID: sessionID})
-		}()
-		if err := m.run(ctx, t, sess, text, status); err != nil {
+		end, err := m.run(ctx, t, sess, text, status)
+		if err != nil {
 			m.lg.Warn("turn failed", "session", sessionID, "err", err)
 			_ = m.log.append(ctx, sessionID, EventError, "", map[string]string{"message": err.Error()})
-			_ = m.log.append(ctx, sessionID, EventTurnEnd, "", map[string]string{"stopReason": "error"})
+			end = map[string]any{"stopReason": "error"}
 		}
+		// The turn is over for new prompts before anyone can see turn_end:
+		// a client that reacts to turn_end by prompting again must not get a
+		// "turn already running" conflict.
+		_ = m.store.SetSessionStatus(ctx, db.SetSessionStatusParams{Status: "idle", UpdatedAt: time.Now().Unix(), ID: sessionID})
+		release()
+		_ = m.log.append(ctx, sessionID, EventTurnEnd, "", end)
 	}()
 	return nil
 }
@@ -288,7 +291,9 @@ func titleFrom(text string) string {
 	return t
 }
 
-func (m *Manager) run(ctx context.Context, t *turn, sess db.AgentSession, text string, status func(string)) error {
+// run executes one turn and returns the data of its turn_end event, which the
+// caller appends once the turn has been released.
+func (m *Manager) run(ctx context.Context, t *turn, sess db.AgentSession, text string, status func(string)) (map[string]any, error) {
 	notice := func(msg string) {
 		_ = m.log.append(ctx, sess.ID, EventNotice, "", map[string]string{"message": msg})
 		if status != nil {
@@ -297,14 +302,14 @@ func (m *Manager) run(ctx context.Context, t *turn, sess db.AgentSession, text s
 	}
 	conn, err := m.connection(ctx, sess.AgentID, notice)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	m.mu.Lock()
 	t.conn = conn
 	m.mu.Unlock()
 	acpID, err := m.activate(ctx, conn, sess, notice)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	t.acpID = acpID
 	conn.bind(acpID, sess.ID)
@@ -313,16 +318,15 @@ func (m *Manager) run(ctx context.Context, t *turn, sess db.AgentSession, text s
 	if err != nil {
 		select {
 		case <-conn.done:
-			return errors.New("the agent's harness stopped during the turn")
+			return nil, errors.New("the agent's harness stopped during the turn")
 		default:
 		}
 		if authRequired(err) {
-			return errLoginNeeded
+			return nil, errLoginNeeded
 		}
-		return fmt.Errorf("prompt: %w", err)
+		return nil, fmt.Errorf("prompt: %w", err)
 	}
-	err = m.log.append(ctx, sess.ID, EventTurnEnd, "", map[string]any{"stopReason": res.StopReason, "usage": res.Usage})
-	return err
+	return map[string]any{"stopReason": res.StopReason, "usage": res.Usage}, nil
 }
 
 // activate makes sure the harness knows the session: new, loaded or resumed.

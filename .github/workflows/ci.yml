@@ -2,11 +2,10 @@ name: ci
 
 on:
   push:
+    # Every push to main runs the suite, and the deploy follows it.
     branches: [main]
-    # The documentation site has its own workflow (docs.yml); a docs change
-    # should neither run the whole suite nor redeploy the app.
-    paths-ignore: ["docs/**", "**.md"]
   pull_request:
+    # A docs-only pull request is built by docs.yml; skip the whole suite for it.
     paths-ignore: ["docs/**", "**.md"]
 
 permissions:

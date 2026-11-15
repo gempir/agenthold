@@ -3,7 +3,7 @@
 //   sqlc v1.31.1
 // source: sharing.sql
 
-package db
+package sqlite
 
 import (
 	"context"
@@ -137,6 +137,41 @@ func (q *Queries) ListAgentShares(ctx context.Context, agentID string) ([]ListAg
 			&i.User.CreatedAt,
 			&i.User.UpdatedAt,
 			&i.SharedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserAudit = `-- name: ListUserAudit :many
+SELECT id, at, agent_id, user_id, "action", target, details FROM audit_log WHERE user_id = ? AND agent_id = '' ORDER BY id DESC
+`
+
+func (q *Queries) ListUserAudit(ctx context.Context, userID string) ([]AuditLog, error) {
+	rows, err := q.db.QueryContext(ctx, listUserAudit, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditLog{}
+	for rows.Next() {
+		var i AuditLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.At,
+			&i.AgentID,
+			&i.UserID,
+			&i.Action,
+			&i.Target,
+			&i.Details,
 		); err != nil {
 			return nil, err
 		}

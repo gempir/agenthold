@@ -65,14 +65,9 @@ func New(ctx context.Context, cfg Config) (*Driver, error) {
 	if cfg.RegisterNetwork == nil {
 		return nil, errors.New("guest firewall register/unregister callbacks are required")
 	}
-	if os.Geteuid() != 0 {
-		return nil, ErrUnsupported
+	if err := CheckHost(ctx); err != nil {
+		return nil, err
 	}
-	f, err := os.OpenFile("/dev/kvm", os.O_RDWR, 0)
-	if err != nil {
-		return nil, fmt.Errorf("%w: open /dev/kvm: %w", ErrUnsupported, err)
-	}
-	_ = f.Close()
 	for name, p := range map[string]string{"base image": cfg.BaseImagePath, "kernel": cfg.KernelPath, "firecracker": cfg.FirecrackerPath, "jailer": cfg.JailerPath} {
 		st, e := os.Stat(p)
 		if e != nil {

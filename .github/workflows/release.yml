@@ -1,16 +1,15 @@
-name: release preparation
+name: release
 
-# Manual artifact preparation only. Publishing remains disabled until runtime
-# embedding, base-image pins and release checks are finalized.
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  prepare:
-    name: Prepare (${{ matrix.arch }})
+  build:
     strategy:
       fail-fast: false
       matrix:
@@ -36,21 +35,37 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - name: Refresh package index
         run: sudo apt-get update
-      - name: Prepare guest artifacts and runtime
-        run: make guest-kernel guest-base runtime
-      - name: Build native binaries
-        run: make build
-      - name: Stage artifacts and checksums
+      - run: make web
+      - name: Build bundled native release
+        env:
+          VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('sha-{0}', github.sha) }}
+        run: scripts/release/build.sh
+      - name: Name architecture-specific checksum manifest
         env:
           ARCH: ${{ matrix.arch }}
-        run: |
-          mkdir -p release
-          cp bin/agenthold "release/agenthold-linux-$ARCH"
-          cp "build/guest/$ARCH/base-$ARCH.ext4.zst" "build/guest/$ARCH/base-$ARCH.manifest.json" release/
-          cp "build/guest/$ARCH/base-$ARCH.ext4.sha256" "build/guest/$ARCH/kernel.manifest.json" release/
-          (cd release && sha256sum "agenthold-linux-$ARCH" "base-$ARCH.ext4.zst" > SHA256SUMS)
+        run: mv "build/release/$ARCH/SHA256SUMS" "build/release/$ARCH/SHA256SUMS-$ARCH"
       - uses: actions/upload-artifact@v7
         with:
-          name: release-preparation-${{ matrix.arch }}
-          path: release/
+          name: bundled-release-${{ matrix.arch }}
+          path: build/release/${{ matrix.arch }}/
           if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: bundled-release-*
+          merge-multiple: true
+          path: release
+      - name: Publish immutable release artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" --verify-tag --generate-notes release/*

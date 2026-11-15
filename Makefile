@@ -91,6 +91,7 @@ SQLC_VERSION := v1.31.1
 generate: gen-sql gen-go-api gen-api
 gen-sql:
 	CGO_ENABLED=1 $(GO) run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION) generate
+	$(GO) run ./internal/store/cmd/adaptergen
 gen-go-api:
 	$(GO) generate ./internal/api/gen/
 gen-api: web-deps

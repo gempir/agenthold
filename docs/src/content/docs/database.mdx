@@ -1,0 +1,80 @@
+---
+title: "Database"
+description: "Configure SQLite or PostgreSQL, back up server data, and run both database test suites."
+---
+
+agenthold stores users, agent settings, sharing, conversations and encrypted secrets in SQLite or
+PostgreSQL. Agent filesystem contents live in the node's separate disk files. The server applies the
+selected engine's migrations when it starts; provision the database and give its role permission to
+create and update the application tables.
+
+## SQLite
+
+With no database configuration, agenthold uses `sqlite:<data_dir>/agenthold.db`. Choose a different
+file with an explicit URL:
+
+```yaml
+data_dir: /var/lib/agenthold
+database:
+  url: sqlite:/var/lib/agenthold/agenthold.db
+```
+
+Relative SQLite paths resolve from the server's working directory. Use an absolute path in a service.
+SQLite enables WAL mode, foreign keys and a busy timeout. Keep the file on persistent local storage.
+
+## PostgreSQL
+
+Point `database.url` at an existing database. PostgreSQL 16 runs in CI; the same application queries and
+API tests run against both engines.
+
+```yaml
+database:
+  url: postgres://agenthold@db.example.com:5432/agenthold?sslmode=verify-full&sslrootcert=/etc/agenthold/postgres-ca.pem
+```
+
+`postgresql://` is accepted too. Supply credentials through the server's environment or a PostgreSQL
+password file. `AGENTHOLD_DATABASE_URL` overrides the YAML value, and `${VARIABLE}` references in YAML
+are expanded from the environment. Percent-encode reserved characters when including a password in a URL.
+
+For a remote database, `sslmode=verify-full` checks its certificate and hostname; `sslrootcert` names the
+CA certificate available to the server process. Follow the database provider's TLS settings. See
+[PostgreSQL's TLS documentation](https://www.postgresql.org/docs/16/libpq-ssl.html).
+
+PostgreSQL remains operator-managed: agenthold does not create a PostgreSQL server, manage its users or
+copy existing SQLite data into it. Changing the URL selects that database's existing data or initializes
+an empty schema.
+
+## Backups
+
+`agenthold backup` and `agenthold restore` support SQLite file databases only. The backup command writes
+a consistent snapshot of the configured SQLite file and includes the master key and egress CA. Restore
+requires the server to be stopped and writes the database to the currently configured SQLite path.
+
+For PostgreSQL, use the provider's backup and recovery tools or PostgreSQL's `pg_dump` and `pg_restore`.
+For example, a custom-format dump can be restored into a separate empty database:
+
+```sh
+pg_dump --format=custom --file=agenthold.dump "$AGENTHOLD_DATABASE_URL"
+pg_restore --dbname="$RESTORE_DATABASE_URL" agenthold.dump
+```
+
+Test recovery before relying on a backup; see
+[PostgreSQL's backup guide](https://www.postgresql.org/docs/16/backup-dump.html). Stop agenthold before
+switching it to restored data. With either engine, preserve the configuration, master key, egress CA and
+agent disks separately. Stop the server before copying disks under `<data_dir>/agents/`. Without the
+master key, stored encrypted secrets cannot be recovered. The SQLite archive does not include agent disks.
+
+## Run the tests
+
+The default Go suite uses SQLite. To run the full race suite, including fake-driver API flows, against a
+disposable PostgreSQL database:
+
+```sh
+make test-go
+AGENTHOLD_TEST_POSTGRES='postgres://agenthold@localhost/agenthold_test?sslmode=disable' make test-go
+```
+
+The PostgreSQL test role needs permission to create schemas. Test stores get independent schemas that
+are dropped when closed; SQLite-specific snapshot tests still use SQLite. Use `sslmode=disable` only for
+an isolated local test database. CI runs a PostgreSQL 16 service and requires the PostgreSQL fixture test
+to pass before the full suite, so a skipped fixture cannot produce a successful PostgreSQL job.

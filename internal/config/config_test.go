@@ -130,3 +130,37 @@ func TestDevConfigIsValid(t *testing.T) {
 		t.Fatalf("dev admin password is not %q: %v", "admin", err)
 	}
 }
+
+func TestDatabaseConfiguration(t *testing.T) {
+	cfg := &Config{DataDir: "/srv/agenthold"}
+	ApplyDefaults(cfg)
+	if cfg.Database.URL != "sqlite:/srv/agenthold/agenthold.db" {
+		t.Fatal(cfg.Database.URL)
+	}
+	for _, location := range []string{"sqlite::memory:", "sqlite:relative.db", "sqlite:///tmp/agenthold.db", "postgres://alice@localhost/agenthold?sslmode=require", "postgresql:///agenthold?host=/run/postgresql"} {
+		cfg.Database.URL = location
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("%s: %v", location, err)
+		}
+	}
+	for _, location := range []string{"mysql://localhost/agenthold", "sqlite:", "sqlite://hostname/file.db", "sqlite:file.db?foreign_keys=off", "postgres:invalid", ""} {
+		cfg.Database.URL = location
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("accepted %q", location)
+		}
+	}
+	dir := t.TempDir()
+	file := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(file, []byte("data_dir: /srv/agenthold\ndatabase:\n  url: sqlite:configured.db\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTHOLD_CONFIG", file)
+	t.Setenv("AGENTHOLD_DATABASE_URL", "postgres://localhost/overridden?sslmode=disable")
+	loaded, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Database.URL != "postgres://localhost/overridden?sslmode=disable" {
+		t.Fatal(loaded.Database.URL)
+	}
+}

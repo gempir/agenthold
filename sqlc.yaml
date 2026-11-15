@@ -1,11 +1,24 @@
 version: "2"
 sql:
   - engine: sqlite
-    schema: internal/store/migrations
-    queries: internal/store/queries
+    schema: internal/store/migrations/sqlite
+    queries: internal/store/queries/sqlite
     gen:
       go:
-        package: db
-        out: internal/store/db
+        package: sqlite
+        out: internal/store/sqlite
         emit_json_tags: false
         emit_empty_slices: true
+        emit_interface: true
+  - engine: postgresql
+    schema: internal/store/migrations/postgres
+    queries: internal/store/queries/postgres
+    gen:
+      go:
+        package: postgres
+        out: internal/store/postgres
+        sql_package: database/sql
+        sql_driver: github.com/jackc/pgx/v5
+        emit_json_tags: false
+        emit_empty_slices: true
+        emit_interface: true

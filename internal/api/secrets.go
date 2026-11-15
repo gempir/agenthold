@@ -16,6 +16,7 @@ import (
 	"github.com/gempir/agenthold/internal/egress"
 	"github.com/gempir/agenthold/internal/id"
 	"github.com/gempir/agenthold/internal/secrets"
+	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
 )
 
@@ -167,7 +168,7 @@ func (a *API) CreateSecret(ctx context.Context, req gen.CreateSecretRequestObjec
 		ID: s.ID, OwnerID: s.OwnerID, Name: s.Name, Ciphertext: s.Ciphertext,
 		Rule: s.Rule, Placeholder: s.Placeholder, CreatedAt: now, UpdatedAt: now,
 	}); err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
+		if store.IsUniqueViolation(err) {
 			return nil, errStatus(http.StatusConflict, "a secret with this name already exists")
 		}
 		return nil, err
@@ -225,7 +226,7 @@ func (a *API) UpdateSecret(ctx context.Context, req gen.UpdateSecretRequestObjec
 	}
 	s.UpdatedAt = a.Now().Unix()
 	if err := a.Store.UpdateSecret(ctx, db.UpdateSecretParams{Name: s.Name, Ciphertext: s.Ciphertext, Rule: s.Rule, UpdatedAt: s.UpdatedAt, ID: s.ID}); err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
+		if store.IsUniqueViolation(err) {
 			return nil, errStatus(http.StatusConflict, "a secret with this name already exists")
 		}
 		return nil, err

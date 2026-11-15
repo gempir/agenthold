@@ -33,6 +33,21 @@ can sign in. The reverse proxy must forward WebSockets and preserve the public h
 `public_url` to the URL users actually open. Keep the proxy and any administration ports inaccessible to
 guests. See [security](/security/) and [egress](/egress/).
 
+## Database
+
+SQLite is the default and needs no separate service. The database file is
+`<data_dir>/agenthold.db`. To choose another SQLite path or an existing PostgreSQL database, set
+`database.url`:
+
+```yaml
+database:
+  url: sqlite:/var/lib/agenthold/agenthold.db
+```
+
+`AGENTHOLD_DATABASE_URL` overrides this setting. PostgreSQL URLs begin with `postgres://` or
+`postgresql://`; use verified TLS for a remote database. The server applies its schema migrations on
+startup. See [database configuration and backups](/database/) for PostgreSQL setup and testing.
+
 ## Runtime artifacts
 
 A release binary contains the architecture-matched Firecracker runtime, kernel and guest daemon. The shared
@@ -54,8 +69,11 @@ invalid configuration and failed runtime downloads.
 
 ## Back up
 
-`agenthold backup` snapshots the SQLite database and preserves the master key and egress CA in an archive;
-it does **not** include agent disks. Stop the server before separately copying the agent disk files under
+`agenthold backup` and `agenthold restore` support SQLite only. For PostgreSQL use your database
+operator's backup and recovery process; see [database backups](/database/#backups).
+
+For SQLite, `agenthold backup` snapshots the configured database and preserves the master key and egress
+CA in an archive; it does **not** include agent disks. Stop the server before separately copying the agent disk files under
 `<data_dir>/agents/`, and keep the configuration and backup archive safe. Without the master key encrypted
 secrets cannot be recovered. Test restores on a separate host. `agenthold restore <archive>` restores the
 server data with the server stopped; restore agent disks separately.

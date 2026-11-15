@@ -33,6 +33,7 @@ import (
 	"github.com/gempir/agenthold/internal/logins"
 	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/platform"
+	"github.com/gempir/agenthold/internal/runtimeassets"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
 	"github.com/gempir/agenthold/internal/sandbox/firecracker"
@@ -40,6 +41,7 @@ import (
 	"github.com/gempir/agenthold/internal/server"
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store"
+	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/tools"
 	"github.com/gempir/agenthold/internal/trigger"
 	"github.com/gempir/agenthold/internal/tunnel"
@@ -97,11 +99,36 @@ func run() error {
 	defer stop()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	if cfg.Sandbox.Driver == "firecracker" {
+		if err := firecracker.CheckHost(ctx); err != nil {
+			return err
+		}
+	}
 
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return err
 	}
-	st, err := store.Open(ctx, filepath.Join(cfg.DataDir, "agenthold.db"))
+	if cfg.Sandbox.Driver == "firecracker" {
+		paths, err := runtimeassets.Prepare(ctx, cfg.DataDir)
+		if err != nil {
+			return fmt.Errorf("runtime artifacts: %w", err)
+		}
+		if paths.Bundled {
+			cfg.Sandbox.Firecracker.Binary = paths.Firecracker
+			cfg.Sandbox.Firecracker.Jailer = paths.Jailer
+			cfg.Sandbox.Firecracker.Kernel = paths.Kernel
+			cfg.Sandbox.Firecracker.BaseImage = paths.BaseImage
+			cfg.Sandbox.SandboxdPath = paths.Sandboxd
+			logger.Info("release runtime ready", "version", paths.Version, "base", paths.BaseImage)
+		} else {
+			base, err := runtimeassets.PinBase(ctx, cfg.DataDir, cfg.Sandbox.Firecracker.BaseImage)
+			if err != nil {
+				return fmt.Errorf("pin development base image: %w", err)
+			}
+			cfg.Sandbox.Firecracker.BaseImage = base
+		}
+	}
+	st, err := store.Open(ctx, cfg.Database.URL)
 	if err != nil {
 		return err
 	}
@@ -159,6 +186,7 @@ func run() error {
 		return localNode.AuthenticateTunnel(ctx, agentID, token)
 	}, logger)
 	localNode = node.NewLocal(driver, hub)
+	localNode.SetDataDir(cfg.DataDir)
 	localNode.SetCA(ca)
 	if cfg.Sandbox.Driver == "firecracker" {
 		if err := fw.Install(); err != nil {
@@ -181,7 +209,17 @@ func run() error {
 		return err
 	}
 	go func() { _ = pusher.ServeIntercepts(ctx) }()
-	sandboxes := sandbox.NewManagerWithNode(st, localNode, egress.SpecFunc(st, cfg.Egress.ExplicitPort), sandbox.Options{
+	specForAgent := egress.SpecFunc(st, cfg.Egress.ExplicitPort)
+	if cfg.Sandbox.Driver == "firecracker" {
+		baseSpec := specForAgent
+		baseRevision := cfg.Sandbox.Firecracker.BaseImage
+		specForAgent = func(a db.Agent) sandbox.Spec {
+			s := baseSpec(a)
+			s.Image = baseRevision
+			return s
+		}
+	}
+	sandboxes := sandbox.NewManagerWithNode(st, localNode, specForAgent, sandbox.Options{
 		TunnelPort: tunnelPort,
 	}, logger)
 	sandboxes.OnChange(func(string, sandbox.Phase) { directory.Invalidate() })

@@ -24,9 +24,10 @@ import (
 
 // Config is the complete server configuration.
 type Config struct {
-	Listen    string `yaml:"listen"`
-	PublicURL string `yaml:"public_url"`
-	DataDir   string `yaml:"data_dir"`
+	Listen    string   `yaml:"listen"`
+	PublicURL string   `yaml:"public_url"`
+	DataDir   string   `yaml:"data_dir"`
+	Database  Database `yaml:"database"`
 	// DevProxy is the Vite dev server URL used in development.
 	DevProxy string `yaml:"dev_proxy"`
 	// TestHarness offers the scripted test harness (development and tests;
@@ -36,6 +37,12 @@ type Config struct {
 	Sandbox     Sandbox `yaml:"sandbox"`
 	Egress      Egress  `yaml:"egress"`
 	Secrets     Secrets `yaml:"secrets"`
+}
+
+// Database selects SQLite (the default) or an operator-managed PostgreSQL database.
+type Database struct {
+	// URL is sqlite:<path>, postgres://..., or postgresql://... .
+	URL string `yaml:"url"`
 }
 
 // Egress configures the proxy that is the sandboxes' only way out.
@@ -207,6 +214,7 @@ func applyEnv(cfg *Config) {
 	set(&cfg.Listen, "AGENTHOLD_LISTEN")
 	set(&cfg.PublicURL, "AGENTHOLD_PUBLIC_URL")
 	set(&cfg.DataDir, "AGENTHOLD_DATA_DIR")
+	set(&cfg.Database.URL, "AGENTHOLD_DATABASE_URL")
 	set(&cfg.DevProxy, "AGENTHOLD_DEV_PROXY")
 	if cfg.DevProxy == "off" { // serve the embedded build even if the file sets a dev proxy
 		cfg.DevProxy = ""
@@ -225,6 +233,10 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.DataDir == "" {
 		cfg.DataDir = "data"
 	}
+	if cfg.Database.URL == "" {
+		cfg.Database.URL = "sqlite:" + filepath.Join(cfg.DataDir, "agenthold.db")
+	}
+
 	sb := &cfg.Sandbox
 	if sb.Driver == "" {
 		sb.Driver = "firecracker"
@@ -323,6 +335,23 @@ func ApplyDefaults(cfg *Config) {
 // Validate reports configuration errors.
 func (c *Config) Validate() error {
 	var errs []error
+	databaseURL, parseErr := url.Parse(c.Database.URL)
+	if parseErr != nil {
+		errs = append(errs, errors.New("database.url: invalid URL"))
+	} else {
+		switch databaseURL.Scheme {
+		case "sqlite":
+			if databaseURL.Host != "" || databaseURL.User != nil || databaseURL.Fragment != "" || databaseURL.RawQuery != "" || databaseURL.Opaque == "" && databaseURL.Path == "" {
+				errs = append(errs, errors.New("database.url: want sqlite:<path> without query parameters"))
+			}
+		case "postgres", "postgresql":
+			if databaseURL.Opaque != "" || databaseURL.Fragment != "" {
+				errs = append(errs, errors.New("database.url: invalid PostgreSQL URL"))
+			}
+		default:
+			errs = append(errs, errors.New("database.url: scheme must be sqlite, postgres, or postgresql"))
+		}
+	}
 	if _, err := url.Parse(c.PublicURL); err != nil {
 		errs = append(errs, fmt.Errorf("public_url: %w", err))
 	}

@@ -3,14 +3,14 @@
 //   sqlc v1.31.1
 // source: secrets.sql
 
-package db
+package postgres
 
 import (
 	"context"
 )
 
 const attachSecret = `-- name: AttachSecret :exec
-INSERT INTO agent_secrets (agent_id, secret_id, env_var, created_at) VALUES (?, ?, ?, ?)
+INSERT INTO agent_secrets (agent_id, secret_id, env_var, created_at) VALUES ($1, $2, $3, $4)
 ON CONFLICT (agent_id, secret_id) DO UPDATE SET env_var = excluded.env_var
 `
 
@@ -33,7 +33,7 @@ func (q *Queries) AttachSecret(ctx context.Context, arg AttachSecretParams) erro
 
 const createSecret = `-- name: CreateSecret :exec
 INSERT INTO secrets (id, owner_id, name, ciphertext, rule, placeholder, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
 type CreateSecretParams struct {
@@ -62,7 +62,7 @@ func (q *Queries) CreateSecret(ctx context.Context, arg CreateSecretParams) erro
 }
 
 const deleteSecret = `-- name: DeleteSecret :exec
-DELETE FROM secrets WHERE id = ?
+DELETE FROM secrets WHERE id = $1
 `
 
 func (q *Queries) DeleteSecret(ctx context.Context, id string) error {
@@ -71,7 +71,7 @@ func (q *Queries) DeleteSecret(ctx context.Context, id string) error {
 }
 
 const detachSecret = `-- name: DetachSecret :execrows
-DELETE FROM agent_secrets WHERE agent_id = ? AND secret_id = ?
+DELETE FROM agent_secrets WHERE agent_id = $1 AND secret_id = $2
 `
 
 type DetachSecretParams struct {
@@ -88,7 +88,7 @@ func (q *Queries) DetachSecret(ctx context.Context, arg DetachSecretParams) (int
 }
 
 const getSecret = `-- name: GetSecret :one
-SELECT id, owner_id, name, ciphertext, rule, placeholder, created_at, updated_at FROM secrets WHERE id = ?
+SELECT id, owner_id, name, ciphertext, rule, placeholder, created_at, updated_at FROM secrets WHERE id = $1
 `
 
 func (q *Queries) GetSecret(ctx context.Context, id string) (Secret, error) {
@@ -108,7 +108,7 @@ func (q *Queries) GetSecret(ctx context.Context, id string) (Secret, error) {
 }
 
 const getSecretByName = `-- name: GetSecretByName :one
-SELECT id, owner_id, name, ciphertext, rule, placeholder, created_at, updated_at FROM secrets WHERE owner_id = ? AND name = ?
+SELECT id, owner_id, name, ciphertext, rule, placeholder, created_at, updated_at FROM secrets WHERE owner_id = $1 AND name = $2
 `
 
 type GetSecretByNameParams struct {
@@ -135,7 +135,7 @@ func (q *Queries) GetSecretByName(ctx context.Context, arg GetSecretByNameParams
 const listAgentSecrets = `-- name: ListAgentSecrets :many
 SELECT secrets.id, secrets.owner_id, secrets.name, secrets.ciphertext, secrets.rule, secrets.placeholder, secrets.created_at, secrets.updated_at, agent_secrets.env_var
 FROM agent_secrets JOIN secrets ON secrets.id = agent_secrets.secret_id
-WHERE agent_secrets.agent_id = ?
+WHERE agent_secrets.agent_id = $1
 ORDER BY secrets.name
 `
 
@@ -178,7 +178,7 @@ func (q *Queries) ListAgentSecrets(ctx context.Context, agentID string) ([]ListA
 }
 
 const listUserSecrets = `-- name: ListUserSecrets :many
-SELECT id, owner_id, name, ciphertext, rule, placeholder, created_at, updated_at FROM secrets WHERE owner_id = ? ORDER BY name
+SELECT id, owner_id, name, ciphertext, rule, placeholder, created_at, updated_at FROM secrets WHERE owner_id = $1 ORDER BY name
 `
 
 func (q *Queries) ListUserSecrets(ctx context.Context, ownerID string) ([]Secret, error) {
@@ -214,7 +214,7 @@ func (q *Queries) ListUserSecrets(ctx context.Context, ownerID string) ([]Secret
 }
 
 const updateSecret = `-- name: UpdateSecret :exec
-UPDATE secrets SET name = ?, ciphertext = ?, rule = ?, updated_at = ? WHERE id = ?
+UPDATE secrets SET name = $1, ciphertext = $2, rule = $3, updated_at = $4 WHERE id = $5
 `
 
 type UpdateSecretParams struct {

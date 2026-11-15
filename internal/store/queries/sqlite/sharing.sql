@@ -22,3 +22,6 @@ INSERT INTO audit_log (at, agent_id, user_id, action, target, details) VALUES (?
 
 -- name: ListAgentAudit :many
 SELECT * FROM audit_log WHERE agent_id = ? AND id < ? ORDER BY id DESC LIMIT ?;
+
+-- name: ListUserAudit :many
+SELECT * FROM audit_log WHERE user_id = ? AND agent_id = '' ORDER BY id DESC;

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -375,6 +376,20 @@ func (d *Driver) recoverProcess(id sandbox.ID, m *manifest) error {
 	}
 	if state == "Z" || state == "X" {
 		return nil
+	}
+	// The process can exit and its numeric PID can be reused after reading
+	// cgroup.procs. Confirm current membership after capturing its start time
+	// before adopting it; otherwise a later Stop could target another service.
+	membership, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	want := "0::/agenthold/" + d.jailID(id)
+	if !slices.Contains(strings.Split(strings.TrimSpace(string(membership)), "\n"), want) {
+		return fmt.Errorf("sandbox %s recovery PID no longer belongs to its cgroup", id)
 	}
 	m.Process = process{PID: pid, StartTime: start}
 	return d.save(id, m)

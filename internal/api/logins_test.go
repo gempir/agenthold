@@ -168,23 +168,11 @@ func TestProviderLoginConnectDeliverDisconnect(t *testing.T) {
 
 // mustAudit returns userID's account-level audit entries (not tied to an agent).
 func mustAudit(t *testing.T, e *env, userID string) []db.AuditLog {
-	rows, err := e.store.DB.QueryContext(t.Context(), `SELECT action, details FROM audit_log WHERE user_id = ? AND agent_id = '' ORDER BY id DESC`, userID)
+	rows, err := e.store.ListUserAudit(t.Context(), userID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
-	var out []db.AuditLog
-	for rows.Next() {
-		var a db.AuditLog
-		if err := rows.Scan(&a.Action, &a.Details); err != nil {
-			t.Fatal(err)
-		}
-		out = append(out, a)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return out
+	return rows
 }
 
 func auditHas(rows []db.AuditLog, action string) bool {

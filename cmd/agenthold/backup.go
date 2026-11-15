@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -30,6 +31,9 @@ func runBackup(args []string) error {
 	if err != nil {
 		return err
 	}
+	if _, err := sqliteBackupPath(cfg); err != nil {
+		return err
+	}
 	if *out == "" {
 		*out = filepath.Join(cfg.DataDir, "backups", "agenthold-"+time.Now().UTC().Format("20060102-150405")+".tar.gz")
 	}
@@ -37,7 +41,7 @@ func runBackup(args []string) error {
 		return err
 	}
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(cfg.DataDir, "agenthold.db"))
+	st, err := store.Open(ctx, cfg.Database.URL)
 	if err != nil {
 		return err
 	}
@@ -112,6 +116,10 @@ func runRestore(args []string) error {
 	if err != nil {
 		return err
 	}
+	databasePath, err := sqliteBackupPath(cfg)
+	if err != nil {
+		return err
+	}
 	f, err := os.Open(fs.Arg(0))
 	if err != nil {
 		return err
@@ -138,6 +146,9 @@ func runRestore(args []string) error {
 			return fmt.Errorf("unexpected file in backup: %s", h.Name)
 		}
 		dst := filepath.Join(cfg.DataDir, h.Name)
+		if h.Name == "agenthold.db" {
+			dst = databasePath
+		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 			return err
 		}
@@ -165,4 +176,22 @@ func runRestore(args []string) error {
 		fmt.Println("restored", h.Name)
 	}
 	return nil
+}
+
+func sqliteBackupPath(cfg *config.Config) (string, error) {
+	u, err := url.Parse(cfg.Database.URL)
+	if err != nil || u.Scheme != "sqlite" {
+		return "", errors.New("backup and restore support SQLite only; use PostgreSQL backup tools for a PostgreSQL database")
+	}
+	path := u.Path
+	if u.Opaque != "" {
+		path, err = url.PathUnescape(u.Opaque)
+		if err != nil {
+			return "", errors.New("invalid SQLite database path")
+		}
+	}
+	if path == "" || path == ":memory:" {
+		return "", errors.New("backup and restore require a SQLite file database")
+	}
+	return filepath.Abs(path)
 }

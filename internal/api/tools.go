@@ -15,6 +15,7 @@ import (
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/id"
+	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/tools"
 )
@@ -103,7 +104,7 @@ func (a *API) insertMCP(ctx context.Context, s db.McpServer) (gen.MCPServer, err
 	now := a.Now().Unix()
 	s.ID, s.CreatedAt, s.UpdatedAt = id.New("mcp"), now, now
 	if err := a.Store.CreateMCPServer(ctx, db.CreateMCPServerParams(s)); err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
+		if store.IsUniqueViolation(err) {
 			return gen.MCPServer{}, errStatus(http.StatusConflict, "a server with this name already exists")
 		}
 		return gen.MCPServer{}, err
@@ -205,7 +206,7 @@ func (a *API) UpdateMCPServer(ctx context.Context, req gen.UpdateMCPServerReques
 	if err := a.Store.UpdateMCPServer(ctx, db.UpdateMCPServerParams{
 		Name: s.Name, Transport: s.Transport, Command: s.Command, Args: s.Args, Env: s.Env, Url: s.Url, Headers: s.Headers, UpdatedAt: s.UpdatedAt, ID: s.ID,
 	}); err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
+		if store.IsUniqueViolation(err) {
 			return nil, errStatus(http.StatusConflict, "a server with this name already exists")
 		}
 		return nil, err
@@ -318,7 +319,7 @@ func (a *API) CreateSkill(ctx context.Context, req gen.CreateSkillRequestObject)
 	now := a.Now().Unix()
 	s.ID, s.OwnerID, s.CreatedAt, s.UpdatedAt = id.New("skl"), me(ctx).ID, now, now
 	if err := a.Store.CreateSkill(ctx, db.CreateSkillParams(s)); err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
+		if store.IsUniqueViolation(err) {
 			return nil, errStatus(http.StatusConflict, "a skill with this name already exists")
 		}
 		return nil, err
@@ -347,7 +348,7 @@ func (a *API) UpdateSkill(ctx context.Context, req gen.UpdateSkillRequestObject)
 	}
 	s.ID, s.OwnerID, s.CreatedAt, s.UpdatedAt = cur.ID, cur.OwnerID, cur.CreatedAt, a.Now().Unix()
 	if err := a.Store.UpdateSkill(ctx, db.UpdateSkillParams{Name: s.Name, Description: s.Description, Content: s.Content, UpdatedAt: s.UpdatedAt, ID: s.ID}); err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
+		if store.IsUniqueViolation(err) {
 			return nil, errStatus(http.StatusConflict, "a skill with this name already exists")
 		}
 		return nil, err

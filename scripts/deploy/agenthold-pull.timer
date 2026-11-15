@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodically check for a tested agenthold demo release
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+Unit=agenthold-pull.service
+
+[Install]
+WantedBy=timers.target

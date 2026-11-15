@@ -18,6 +18,9 @@ var (
 	_ sandbox.Attacher = (*Driver)(nil)
 )
 
+// CheckHost reports that Firecracker is unavailable on this host.
+func CheckHost(context.Context) error { return ErrUnsupported }
+
 // New reports that Firecracker is unavailable on this host.
 func New(context.Context, Config) (*Driver, error) { return nil, ErrUnsupported }
 

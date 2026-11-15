@@ -3,7 +3,7 @@
 //   sqlc v1.31.1
 // source: sessions.sql
 
-package db
+package sqlite
 
 import (
 	"context"

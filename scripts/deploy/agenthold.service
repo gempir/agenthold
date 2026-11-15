@@ -1,0 +1,20 @@
+[Unit]
+Description=agenthold controller and sandbox node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/opt/agenthold/current/agenthold
+Environment=AGENTHOLD_CONFIG=/etc/agenthold/agenthold.yaml
+WorkingDirectory=/
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=20s
+KillMode=process
+Delegate=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

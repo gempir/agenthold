@@ -22,7 +22,7 @@ const nimbusConfig = defineNimbusConfig({
   sidebar: {
     items: [
       "index",
-      { label: "Run it", items: ["install", "deploy"] },
+      { label: "Run it", items: ["install", "database", "deploy"] },
       {
         label: "Using agenthold",
         items: ["sessions", "sandboxes", "agents", "tools", "sharing", "automation"],

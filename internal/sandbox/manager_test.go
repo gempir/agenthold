@@ -26,7 +26,7 @@ func specFor(a db.Agent) sandbox.Spec {
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	st, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "db.sqlite"))
+	st, err := store.Open(t.Context(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

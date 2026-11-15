@@ -3,16 +3,45 @@ title: "Deployment"
 description: "Deploy the native binary behind your own HTTPS proxy or tunnel."
 ---
 
-Automatic demo deployment is disabled during the Firecracker transition. The replacement deployment for
-`scarif.local` has not been configured; pushing to `main` does not deploy a server.
+Automatic demo publication and the Scarif pull timer are **disabled** until the bundled server and initial
+deployment are validated. Pushing to `main` does not deploy a server while they are disabled.
 
-On a Linux KVM host, follow [Install](/install/), put the foreground service behind an HTTPS reverse proxy or
-tunnel, and keep its configuration and data directory persistent. Upgrade by backing up the database, keys
-and agent disks, stopping the service, replacing the binary and starting it again. The base disk is shared;
-resetting an agent's system replaces its writable system overlay while preserving its home disk.
+## Pull deployment for the demo
 
-Native release assets, automated installation and rollback procedures will be documented with the release
-workflow. Verify backups before upgrading.
+The prepared design uses outbound HTTPS from the Linux Lima VM on `scarif.local`; GitHub does not connect to
+the Mac and no deployment credentials leave the host. The publication workflow builds an arm64 binary and
+matching base after a successful main CI run. It publishes immutable `sha-<commit>` release assets and
+updates a small `demo-main/channel.json` pointer only while that commit is still the main head. Manual
+workflow runs are subject to the same checks. The automatic `workflow_run` trigger remains commented out.
+
+The disabled `agenthold-pull.timer` runs `agenthold-pull.service`, which reads the channel, checks the GitHub
+main head and verifies the binary and runtime manifest SHA-256 values. It downloads the compressed base while
+the current service runs, checks both the compressed and uncompressed hashes, and unpacks it once to the
+content-addressed base cache. It rechecks main before switching `/opt/agenthold/current`, then restarts the
+service and checks both health and the expected version. A failed or interrupted switch restores and restarts
+the previous release. Previous base disks remain available for rollback.
+
+The updater refuses to bootstrap an empty installation: an operator must first install and validate a bundled
+release under `/opt/agenthold/releases/<full-commit>/agenthold`, set `/opt/agenthold/current` to that
+release, and start the prepared `agenthold.service`. Only after that initial validation and explicit approval
+should the timer be enabled:
+
+```sh
+sudo systemctl enable --now agenthold-pull.timer
+sudo systemctl status agenthold-pull.timer
+sudo journalctl -u agenthold-pull.service -f
+```
+
+The timer, agenthold service and Cloudflare Tunnel service are currently stopped and disabled. The existing
+GitHub sign-in and tunnel configuration are staged in root-only files under `/etc/agenthold`; the tunnel token
+is not stored in the workflow. Before a later cutover, verify that the tunnel's remotely managed origin points
+to the new VM's local service. Do not run both connectors unless the origin routes correctly on both hosts.
+
+Back up the database, master key, CA and agent disks before upgrading. Binary rollback does not reverse database
+migrations. The shared base and the per-agent disks can consume substantial host storage; a sparse Lima disk
+may report more free space than the Mac actually has. Before downloading a new base the puller checks both
+the guest filesystem and the Mac filesystem reported through the shared checkout mount. Continue to monitor
+host storage as agent disks grow.
 
 ## HTTPS examples
 

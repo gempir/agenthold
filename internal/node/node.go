@@ -9,7 +9,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"runtime"
 	"sync"
 
 	"github.com/gempir/agenthold/internal/egress"
@@ -63,13 +62,15 @@ func (s *ownedStream) Close() error {
 
 // Local owns the in-process driver, tunnel endpoint and proxy state.
 type Local struct {
-	driver   sandbox.Driver
-	hub      *tunnel.Hub
-	incoming chan incomingStream
-	proxy    *proxyDirectory
-	tokensMu sync.RWMutex
-	tokens   map[string]string
-	ca       *egress.CA
+	driver     sandbox.Driver
+	hub        *tunnel.Hub
+	incoming   chan incomingStream
+	proxy      *proxyDirectory
+	tokensMu   sync.RWMutex
+	tokens     map[string]string
+	ca         *egress.CA
+	capacityMu sync.RWMutex
+	dataDir    string
 }
 
 // NewLocal constructs a node around a driver and its tunnel endpoint.
@@ -261,11 +262,20 @@ func (n *Local) CACertificate(ctx context.Context) ([]byte, error) {
 	return append([]byte(nil), n.ca.CertPEM()...), nil
 }
 
-// Capacity reports host capacity; zero memory or disk means unavailable.
+// Capacity reports logical CPUs and currently available host memory and disk.
+// DiskBytes is space available to an unprivileged user on the data filesystem.
 type Capacity struct {
 	CPUs        int
 	MemoryBytes uint64
 	DiskBytes   uint64
+}
+
+// SetDataDir selects the filesystem whose available disk space is reported.
+// Configure it before reporting capacity; it must already exist.
+func (n *Local) SetDataDir(path string) {
+	n.capacityMu.Lock()
+	defer n.capacityMu.Unlock()
+	n.dataDir = path
 }
 
 // Capacity implements Node.
@@ -273,5 +283,11 @@ func (n *Local) Capacity(ctx context.Context) (Capacity, error) {
 	if err := ctx.Err(); err != nil {
 		return Capacity{}, err
 	}
-	return Capacity{CPUs: runtime.NumCPU()}, nil
+	n.capacityMu.RLock()
+	dir := n.dataDir
+	n.capacityMu.RUnlock()
+	if dir == "" {
+		return Capacity{}, errors.New("node data directory is not configured")
+	}
+	return hostCapacity(ctx, dir)
 }

@@ -3,7 +3,7 @@
 //   sqlc v1.31.1
 // source: triggers.sql
 
-package db
+package postgres
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 )
 
 const createAPIToken = `-- name: CreateAPIToken :exec
-INSERT INTO api_tokens (id, user_id, name, token_hash, prefix, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO api_tokens (id, user_id, name, token_hash, prefix, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type CreateAPITokenParams struct {
@@ -39,7 +39,7 @@ func (q *Queries) CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) 
 
 const createSchedule = `-- name: CreateSchedule :exec
 INSERT INTO schedules (id, agent_id, session_id, name, cron, timezone, prompt, enabled, created_by, created_at, updated_at, next_run_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 `
 
 type CreateScheduleParams struct {
@@ -77,7 +77,7 @@ func (q *Queries) CreateSchedule(ctx context.Context, arg CreateScheduleParams) 
 
 const createWebhook = `-- name: CreateWebhook :exec
 INSERT INTO webhooks (id, agent_id, session_id, name, token_hash, prompt_template, signing_secret, signature_header, enabled, created_by, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 `
 
 type CreateWebhookParams struct {
@@ -114,7 +114,7 @@ func (q *Queries) CreateWebhook(ctx context.Context, arg CreateWebhookParams) er
 }
 
 const deleteAPIToken = `-- name: DeleteAPIToken :execrows
-DELETE FROM api_tokens WHERE id = ? AND user_id = ?
+DELETE FROM api_tokens WHERE id = $1 AND user_id = $2
 `
 
 type DeleteAPITokenParams struct {
@@ -131,7 +131,7 @@ func (q *Queries) DeleteAPIToken(ctx context.Context, arg DeleteAPITokenParams) 
 }
 
 const deleteSchedule = `-- name: DeleteSchedule :exec
-DELETE FROM schedules WHERE id = ?
+DELETE FROM schedules WHERE id = $1
 `
 
 func (q *Queries) DeleteSchedule(ctx context.Context, id string) error {
@@ -140,7 +140,7 @@ func (q *Queries) DeleteSchedule(ctx context.Context, id string) error {
 }
 
 const deleteWebhook = `-- name: DeleteWebhook :exec
-DELETE FROM webhooks WHERE id = ?
+DELETE FROM webhooks WHERE id = $1
 `
 
 func (q *Queries) DeleteWebhook(ctx context.Context, id string) error {
@@ -149,7 +149,7 @@ func (q *Queries) DeleteWebhook(ctx context.Context, id string) error {
 }
 
 const dueSchedules = `-- name: DueSchedules :many
-SELECT id, agent_id, session_id, name, cron, timezone, prompt, enabled, created_by, created_at, updated_at, next_run_at, last_run_at, last_error FROM schedules WHERE enabled = 1 AND next_run_at <= ? ORDER BY next_run_at
+SELECT id, agent_id, session_id, name, cron, timezone, prompt, enabled, created_by, created_at, updated_at, next_run_at, last_run_at, last_error FROM schedules WHERE enabled = 1 AND next_run_at <= $1 ORDER BY next_run_at
 `
 
 func (q *Queries) DueSchedules(ctx context.Context, nextRunAt int64) ([]Schedule, error) {
@@ -191,7 +191,7 @@ func (q *Queries) DueSchedules(ctx context.Context, nextRunAt int64) ([]Schedule
 }
 
 const getSchedule = `-- name: GetSchedule :one
-SELECT id, agent_id, session_id, name, cron, timezone, prompt, enabled, created_by, created_at, updated_at, next_run_at, last_run_at, last_error FROM schedules WHERE id = ?
+SELECT id, agent_id, session_id, name, cron, timezone, prompt, enabled, created_by, created_at, updated_at, next_run_at, last_run_at, last_error FROM schedules WHERE id = $1
 `
 
 func (q *Queries) GetSchedule(ctx context.Context, id string) (Schedule, error) {
@@ -219,7 +219,7 @@ func (q *Queries) GetSchedule(ctx context.Context, id string) (Schedule, error) 
 const getTokenUser = `-- name: GetTokenUser :one
 SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, api_tokens.id AS token_id, api_tokens.last_used_at
 FROM api_tokens JOIN users ON users.id = api_tokens.user_id
-WHERE api_tokens.token_hash = ? AND (api_tokens.expires_at IS NULL OR api_tokens.expires_at > ?)
+WHERE api_tokens.token_hash = $1 AND (api_tokens.expires_at IS NULL OR api_tokens.expires_at > $2)
 `
 
 type GetTokenUserParams struct {
@@ -251,7 +251,7 @@ func (q *Queries) GetTokenUser(ctx context.Context, arg GetTokenUserParams) (Get
 }
 
 const getWebhook = `-- name: GetWebhook :one
-SELECT id, agent_id, session_id, name, token_hash, prompt_template, signing_secret, signature_header, enabled, created_by, created_at, updated_at, last_delivery_at, last_error FROM webhooks WHERE id = ?
+SELECT id, agent_id, session_id, name, token_hash, prompt_template, signing_secret, signature_header, enabled, created_by, created_at, updated_at, last_delivery_at, last_error FROM webhooks WHERE id = $1
 `
 
 func (q *Queries) GetWebhook(ctx context.Context, id string) (Webhook, error) {
@@ -277,7 +277,7 @@ func (q *Queries) GetWebhook(ctx context.Context, id string) (Webhook, error) {
 }
 
 const getWebhookByToken = `-- name: GetWebhookByToken :one
-SELECT id, agent_id, session_id, name, token_hash, prompt_template, signing_secret, signature_header, enabled, created_by, created_at, updated_at, last_delivery_at, last_error FROM webhooks WHERE token_hash = ?
+SELECT id, agent_id, session_id, name, token_hash, prompt_template, signing_secret, signature_header, enabled, created_by, created_at, updated_at, last_delivery_at, last_error FROM webhooks WHERE token_hash = $1
 `
 
 func (q *Queries) GetWebhookByToken(ctx context.Context, tokenHash string) (Webhook, error) {
@@ -303,7 +303,7 @@ func (q *Queries) GetWebhookByToken(ctx context.Context, tokenHash string) (Webh
 }
 
 const listAPITokens = `-- name: ListAPITokens :many
-SELECT id, user_id, name, token_hash, prefix, created_at, last_used_at, expires_at FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC
+SELECT id, user_id, name, token_hash, prefix, created_at, last_used_at, expires_at FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC
 `
 
 func (q *Queries) ListAPITokens(ctx context.Context, userID string) ([]ApiToken, error) {
@@ -339,7 +339,7 @@ func (q *Queries) ListAPITokens(ctx context.Context, userID string) ([]ApiToken,
 }
 
 const listAgentSchedules = `-- name: ListAgentSchedules :many
-SELECT id, agent_id, session_id, name, cron, timezone, prompt, enabled, created_by, created_at, updated_at, next_run_at, last_run_at, last_error FROM schedules WHERE agent_id = ? ORDER BY name
+SELECT id, agent_id, session_id, name, cron, timezone, prompt, enabled, created_by, created_at, updated_at, next_run_at, last_run_at, last_error FROM schedules WHERE agent_id = $1 ORDER BY name
 `
 
 func (q *Queries) ListAgentSchedules(ctx context.Context, agentID string) ([]Schedule, error) {
@@ -381,7 +381,7 @@ func (q *Queries) ListAgentSchedules(ctx context.Context, agentID string) ([]Sch
 }
 
 const listAgentWebhooks = `-- name: ListAgentWebhooks :many
-SELECT id, agent_id, session_id, name, token_hash, prompt_template, signing_secret, signature_header, enabled, created_by, created_at, updated_at, last_delivery_at, last_error FROM webhooks WHERE agent_id = ? ORDER BY name
+SELECT id, agent_id, session_id, name, token_hash, prompt_template, signing_secret, signature_header, enabled, created_by, created_at, updated_at, last_delivery_at, last_error FROM webhooks WHERE agent_id = $1 ORDER BY name
 `
 
 func (q *Queries) ListAgentWebhooks(ctx context.Context, agentID string) ([]Webhook, error) {
@@ -423,7 +423,7 @@ func (q *Queries) ListAgentWebhooks(ctx context.Context, agentID string) ([]Webh
 }
 
 const recordScheduleRun = `-- name: RecordScheduleRun :exec
-UPDATE schedules SET last_run_at = ?, next_run_at = ?, last_error = ? WHERE id = ?
+UPDATE schedules SET last_run_at = $1, next_run_at = $2, last_error = $3 WHERE id = $4
 `
 
 type RecordScheduleRunParams struct {
@@ -444,7 +444,7 @@ func (q *Queries) RecordScheduleRun(ctx context.Context, arg RecordScheduleRunPa
 }
 
 const recordWebhookDelivery = `-- name: RecordWebhookDelivery :exec
-UPDATE webhooks SET last_delivery_at = ?, last_error = ? WHERE id = ?
+UPDATE webhooks SET last_delivery_at = $1, last_error = $2 WHERE id = $3
 `
 
 type RecordWebhookDeliveryParams struct {
@@ -459,7 +459,7 @@ func (q *Queries) RecordWebhookDelivery(ctx context.Context, arg RecordWebhookDe
 }
 
 const touchAPIToken = `-- name: TouchAPIToken :exec
-UPDATE api_tokens SET last_used_at = ? WHERE id = ?
+UPDATE api_tokens SET last_used_at = $1 WHERE id = $2
 `
 
 type TouchAPITokenParams struct {
@@ -473,7 +473,7 @@ func (q *Queries) TouchAPIToken(ctx context.Context, arg TouchAPITokenParams) er
 }
 
 const updateSchedule = `-- name: UpdateSchedule :exec
-UPDATE schedules SET name = ?, cron = ?, timezone = ?, prompt = ?, enabled = ?, next_run_at = ?, updated_at = ? WHERE id = ?
+UPDATE schedules SET name = $1, cron = $2, timezone = $3, prompt = $4, enabled = $5, next_run_at = $6, updated_at = $7 WHERE id = $8
 `
 
 type UpdateScheduleParams struct {
@@ -502,7 +502,7 @@ func (q *Queries) UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) 
 }
 
 const updateWebhook = `-- name: UpdateWebhook :exec
-UPDATE webhooks SET name = ?, prompt_template = ?, signing_secret = ?, signature_header = ?, enabled = ?, updated_at = ? WHERE id = ?
+UPDATE webhooks SET name = $1, prompt_template = $2, signing_secret = $3, signature_header = $4, enabled = $5, updated_at = $6 WHERE id = $7
 `
 
 type UpdateWebhookParams struct {

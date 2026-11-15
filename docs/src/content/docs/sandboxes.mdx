@@ -22,8 +22,8 @@ A reset discards system changes in the writable overlay and recreates it from th
 and conversations survive. Resource or environment changes mark the agent as `needsRebuild` in the API;
 select **Reset system** to apply them.
 
-State is stored in SQLite. Each operation first moves the state with a guarded update, so concurrent
-requests cannot both act, and then runs in the background. On startup the controller reconciles stored
+State is stored in the [configured database](/database/). Each operation first moves the state with a
+guarded update, so concurrent requests cannot both act, and then runs in the background. On startup the controller reconciles stored
 state with the node's view of its sandboxes.
 
 ## Sleep and wake

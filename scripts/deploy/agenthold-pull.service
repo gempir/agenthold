@@ -1,0 +1,12 @@
+[Unit]
+Description=Fetch and verify the tested agenthold demo release
+After=network-online.target agenthold.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/lib/agenthold/pull.sh
+TimeoutStartSec=90min
+TimeoutStopSec=4min
+UMask=0077

@@ -19,7 +19,8 @@ main head and verifies the binary and runtime manifest SHA-256 values. It downlo
 the current service runs, checks both the compressed and uncompressed hashes, and unpacks it once to the
 content-addressed base cache. It rechecks main before switching `/opt/agenthold/current`, then restarts the
 service and checks both health and the expected version. A failed or interrupted switch restores and restarts
-the previous release. Previous base disks remain available for rollback.
+the previous release, and nothing is pruned in that case. Previous base disks remain available for rollback until
+the next successful deployment prunes them (see [Disk usage](#disk-usage)).
 
 The updater refuses to bootstrap an empty installation. The first release is installed by hand, validated,
 and only then handed over to the timer.
@@ -109,9 +110,16 @@ full configured size to the guest while the Mac only pays for the blocks that we
 show tens of GiB free that the Mac does not have. Measured on the Scarif demo VM:
 
 - One base image is about 2.4 GiB. The embedded guest daemon differs per release, so every deployed commit
-  brings a new base, and the puller keeps the old ones for rollback and for agents that have not been reset
-  yet. Plan for about 2.4 GiB per deployed commit under `<data_dir>/base/` and prune bases that no agent uses
-  by hand; nothing removes them automatically.
+  brings a new base. After each successful switch (health and version verified) the puller prunes the base
+  cache and keeps only the base of the new release, the base of the previous release (the rollback target) and
+  every base that an agent's `state.json` still references: an agent's overlay only works with the base it was
+  created on, and it moves to the current base when the agent's system is reset. If any agent state cannot be
+  read, no base is pruned. Steady state is therefore about 2 to 3 bases (roughly 5 to 7 GiB) plus per-agent disks.
+- Release directories under `/opt/agenthold/releases` are pruned to the newest three, never the current or
+  previous release. Pruning only touches `<sha256>.ext4` files in `<data_dir>/base/` and 40-hex release
+  directories, ignores symlinks, tolerates missing files, and logs each removal and the bytes freed in the
+  journal. It never runs after a failed or rolled-back deployment. Set `PRUNE=0` in the puller's environment
+  (for example `systemctl edit agenthold-pull.service`) to disable it.
 - A fresh agent has an 8 GiB overlay and a 10 GiB home disk as sparse files; right after boot they occupy
   only a few MiB. The limits are what an agent can grow to, 18 GiB at most with the defaults.
 - Before downloading a new base the puller checks free space on the guest filesystem and, through the shared
@@ -121,6 +129,7 @@ show tens of GiB free that the Mac does not have. Measured on the Scarif demo VM
 
 Free space freed inside the guest is returned to the Mac (the Lima disk shrinks after deletion), but keep
 substantial headroom on the Mac volume: it is shared with everything else on the host.
+
 ## HTTPS examples
 
 Choose one of these approaches. Each assumes agenthold listens on `127.0.0.1:8080` and

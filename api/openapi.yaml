@@ -94,7 +94,7 @@ paths:
         - { name: state, in: query, schema: { type: string } }
         - { name: error, in: query, schema: { type: string } }
       responses:
-        "302": { description: Session cookie set, redirect into the app. }
+        "302": { description: "Session cookie set, redirect into the app." }
         "400": { $ref: "#/components/responses/Error" }
 
   /auth/logout:
@@ -1281,7 +1281,7 @@ paths:
 
   /me/provider-logins/{provider}:
     parameters:
-      - { name: provider, in: path, required: true, schema: { type: string }, description: Harness id (claude-code, codex). }
+      - { name: provider, in: path, required: true, schema: { type: string }, description: "Harness id (claude-code, codex)." }
     put:
       operationId: connectProviderLogin
       tags: [provider-logins]
@@ -1931,7 +1931,7 @@ components:
       required: [kind, credential]
       properties:
         kind: { type: string }
-        credential: { type: string, minLength: 1, maxLength: 65536, description: The token, key or file contents. Never returned. }
+        credential: { type: string, minLength: 1, maxLength: 65536, description: "The token, key or file contents. Never returned." }
 
     AuthMethodInfo:
       type: object

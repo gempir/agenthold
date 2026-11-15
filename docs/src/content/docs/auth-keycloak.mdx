@@ -1,0 +1,73 @@
+---
+title: "Keycloak"
+description: "Sign in with Keycloak or any OpenID Connect provider, including the development setup."
+---
+
+## Development
+
+`make dev` starts Keycloak 26 next to the server and imports `deploy/dev/keycloak/realm-agenthold.json`.
+
+| | |
+| --- | --- |
+| Admin console | http://localhost:8081 (admin / admin) |
+| Realm | `agenthold` |
+| Client | `agenthold`, secret `agenthold-dev-secret` |
+| Users | `alice` / `alice`, `bob` / `bob` (emails verified) |
+
+The server uses `deploy/dev/agenthold.yaml`, which has this provider:
+
+```yaml
+- id: keycloak
+  type: oidc
+  name: Keycloak (dev)
+  issuer: http://localhost:8081/realms/agenthold
+  discovery_url: http://keycloak:8081/realms/agenthold
+  client_id: agenthold
+  client_secret: agenthold-dev-secret
+```
+
+Open http://localhost:8080 and choose Keycloak. To test invites, sign in as alice in one browser profile and
+bob in another (or log out of Keycloak between them).
+
+### Why `discovery_url`
+
+Your browser reaches Keycloak as `localhost:8081`, but inside the compose network the server must use
+`keycloak:8081`. With `KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true`, discovery fetched via `keycloak:8081` returns
+`issuer` and `authorization_endpoint` on `localhost:8081` (what the browser and ID tokens use) and
+`token_endpoint` / `jwks_uri` on `keycloak:8081` (what the server calls). `issuer` in the config stays the
+public name so token validation matches.
+
+Set `discovery_url` only when the server cannot reach the issuer URL under its public name. In a normal
+deployment leave it out.
+
+The realm is imported only when it does not exist yet. After editing the JSON, remove the Keycloak container
+state (`docker compose -f deploy/docker-compose.dev.yml down`; the dev Keycloak uses an internal H2 database
+in the container) and start again.
+
+## Production
+
+1. In the Keycloak admin console, select your realm and go to Clients, Create client.
+2. Client type `OpenID Connect`, Client ID e.g. `agenthold`.
+3. Capability config: Client authentication **On**, Standard flow only (turn off direct access grants, implicit).
+4. Valid redirect URIs: `<public_url>/api/v1/auth/callback/<provider id>`, for example
+   `https://agenthold.example.com/api/v1/auth/callback/keycloak`. Web origins: `<public_url>`.
+5. Advanced settings: Proof Key for Code Exchange Code Challenge Method `S256`.
+6. Credentials tab: copy the client secret.
+7. Make sure the `profile` and `email` client scopes are assigned as default scopes, and users have a verified email.
+8. Configure agenthold:
+
+```yaml
+public_url: https://agenthold.example.com
+auth:
+  providers:
+    - id: keycloak
+      type: oidc
+      name: Company SSO
+      issuer: https://sso.example.com/realms/main
+      client_id: agenthold
+      client_secret: ${KEYCLOAK_CLIENT_SECRET}
+```
+
+`issuer` is the realm URL (`https://<host>/realms/<realm>`; older Keycloak versions with a legacy path
+use `/auth/realms/<realm>`). Check it against `<issuer>/.well-known/openid-configuration`. Add `discovery_url`
+only if the server reaches Keycloak through a different (internal) URL than the issuer.

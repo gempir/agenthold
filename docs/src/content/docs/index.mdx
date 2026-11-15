@@ -1,0 +1,28 @@
+---
+title: agenthold
+description: Self-hosted, multi-user platform for running many persistent AI agents, each in its own sandbox.
+---
+
+agenthold runs AI coding agents (Claude Code, Codex and others) on a server you control. Every agent gets its own Docker sandbox with a home directory that survives sleep and restarts, and people talk to it from a chat in the browser.
+
+- **One sandbox per agent.** Agents sleep when idle and wake on demand. Files, history and sessions stay on disk.
+- **Secrets stay outside.** An egress proxy injects credentials into outgoing requests, so agents use API keys and logins they never see. [Egress and secrets](/egress/) explains the model.
+- **Shared and audited.** Workspaces, roles, invitations and an audit log let a team use the same agents. See [Sharing and audit](/sharing/).
+- **Scriptable.** Everything the UI does is in the [HTTP API](/api/), and [tokens, schedules and webhooks](/automation/) drive it from scripts. Agents can call each other.
+
+Try it at [demo.agenthold.dev](https://demo.agenthold.dev), or run your own.
+
+<CardGrid>
+  <Card title="Install" icon="ph:rocket-launch" href="/install/">
+    A Linux server with Docker, a domain and a way to sign in.
+  </Card>
+  <Card title="Sessions and harnesses" icon="ph:chats" href="/sessions/">
+    How chats work, and how Claude Code and Codex logins are set up.
+  </Card>
+  <Card title="Security" icon="ph:shield-check" href="/security/">
+    The threat model and what each layer protects.
+  </Card>
+  <Card title="API reference" icon="ph:code" href="/api/">
+    Every endpoint, generated from the OpenAPI spec.
+  </Card>
+</CardGrid>

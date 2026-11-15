@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploys pinned agenthold images on the production host. Run by the CI deploy
-# workflow over SSH as the forced command of a dedicated key (docs/deploy.md);
+# workflow over SSH as the forced command of a dedicated key (https://agenthold.dev/deploy/);
 # SSH_ORIGINAL_COMMAND carries the arguments:
 #
 #   deploy <server-image-ref> <base-image-ref> <git-sha>   pull, switch, verify, roll back on failure

@@ -1,5 +1,5 @@
 # agenthold production stack: the server and Caddy (automatic HTTPS).
-# See docs/install.md. Run from this directory: docker compose up -d
+# See https://agenthold.dev/install/. Run from this directory: docker compose up -d
 name: agenthold
 
 services:
@@ -20,7 +20,7 @@ services:
       AGENTHOLD_CONFIG: /etc/agenthold/agenthold.yaml
       AGENTHOLD_PUBLIC_URL: https://${AGENTHOLD_DOMAIN}
       # Image for new agents (agenthold.yaml). Set here, not only in .env, so
-      # deploy.sh can pin it to a digest (docs/deploy.md).
+      # deploy.sh can pin it to a digest (https://agenthold.dev/deploy/).
       AGENTHOLD_BASE_IMAGE: ${AGENTHOLD_BASE_IMAGE:-ghcr.io/gempir/agenthold-base:latest}
     volumes:
       - ./agenthold.yaml:/etc/agenthold/agenthold.yaml:ro

@@ -1,350 +1,225 @@
-# agenthold: project plan
+# agenthold: project plan (v2, native + Firecracker)
 
-This document is the source of truth for what we are building and in which order. It is written for
-coding agents that execute one milestone at a time.
+Source of truth for what we are building and in which order. Written for coding agents that execute
+one milestone at a time. The v1 plan (Docker, compose, SQLite only) is in git history; v1 is fully
+built and is the starting point of this rework.
 
-- Name: **agenthold**. Go module `github.com/gempir/agenthold`. Binaries: `agenthold` (the server) and
-  `sandboxd` (the in-sandbox daemon).
-- License: MIT (see `LICENSE`).
+- Go module `github.com/gempir/agenthold`. Binaries: `agenthold` (server, also node) and `sandboxd`
+  (in-guest daemon, embedded in `agenthold`).
+- License: MIT.
 
 ## 1. What we are building
 
-A self-hostable, multi-user platform for running many persistent AI agents. Each user has workspaces.
-A workspace contains agents. Each agent has its own isolated sandbox (its own "computer") with a
-persistent disk, tools and conversation history, and can be shared with other workspace members.
+A self-hostable, multi-user platform for running many persistent AI agents. Each agent has its own
+Firecracker microVM (its own "computer") with a persistent disk, tools and conversation history.
 
-We do **not** build an agent harness. Existing harnesses (Claude Code, Codex, OpenCode, ...) run inside
-the sandboxes and are driven through the Agent Client Protocol (ACP). We build everything around them:
-sandbox orchestration, identity and sharing, secrets, networking, session persistence, triggers and UI.
+We do not build an agent harness. Claude Code, Codex and OpenCode run inside the VMs and are driven
+through ACP. We build everything around them.
 
-Comparable projects for orientation: OpenHands, TencentCloud/Octop.
+Deployment is **one static binary and one YAML file**. No Docker, no compose, no container runtime.
+The database is SQLite by default or a Postgres the operator brings. Identity is an OIDC provider the
+operator brings (or GitHub OAuth, or one local admin from the YAML). TLS is the operator's reverse
+proxy or tunnel.
 
-### Non-goals for v1
+### Non-goals
 
-- Writing our own agent loop, tool implementations or model client.
-- Multi-node scheduling or Kubernetes. One Linux host only.
-- Firecracker. It is a planned second sandbox driver, not part of v1.
-- Password accounts. Sign-in is OIDC (plus GitHub, see section 2).
-- Billing, quotas per plan, a marketplace.
+- Our own agent loop, tools or model client.
+- Container-based sandboxes of any kind. There is no fallback driver: a host without `/dev/kvm`
+  cannot run agents (it can still be a controller once edge nodes exist).
+- MySQL. Kubernetes. Agent migration between nodes.
+- Built-in TLS/ACME. Password accounts beyond the single YAML admin.
+- Per-agent OCI images. Network allowlists and request logs. Workspaces and role matrices.
 
 ## 2. Decisions
 
-These were decided with the project owner. Do not revisit them while executing a milestone. If one
-turns out to be unworkable, stop and report instead of silently choosing something else.
+Decided with the project owner on 2026-11-15. Do not revisit while executing a milestone; if one turns
+out unworkable, stop and report.
 
 | Area | Decision |
 |---|---|
-| Harnesses | Any harness, through a thin adapter. First adapters: Claude Code, then one of Codex / OpenCode. |
-| Harness protocol | ACP (JSON-RPC over the harness's stdio). No terminal-scraping. |
-| Agent purpose | Coding and general-purpose assistant work equally. Sandboxes include dev tooling and a browser. |
-| Deployment | Single Linux box, `docker compose up`. |
-| Agent lifetime | Persistent. The sandbox sleeps when idle and wakes on demand. |
-| Isolation | Docker containers in v1, behind a narrow sandbox driver interface. Optional hardened runtime (Sysbox or gVisor) through configuration. Firecracker driver later. |
-| Backend | Go. One module, two binaries: the server and the in-sandbox daemon. |
-| Database | SQLite only (cgo-free driver). No Postgres abstraction. |
-| Frontend | React + Vite + TypeScript + Tailwind, built to static files and embedded in the server binary. |
-| Auth | Generic OIDC, plus a built-in GitHub OAuth provider (GitHub user login is plain OAuth2, not OIDC). No passwords. Documented examples for GitHub and Keycloak. |
-| Sharing | Workspace membership plus per-agent roles: viewer, operator, admin. |
-| Secrets | Never enter the sandbox. A host-side egress proxy injects them into outgoing requests. |
-| Harness logins | Account level: a user connects Claude Code and Codex once (subscription token, ChatGPT login or API key); agents that use that user's logins get placeholders and the proxy injects the values. The server alone refreshes expiring logins. A login made inside one sandbox (ACP authentication in the terminal) remains as an override; those tokens live on the agent's disk, an accepted exception to the secrets rule. |
-| Network | Transparent interception in v1: all sandbox traffic goes through the proxy, including tools that ignore proxy settings. |
-| License | MIT. |
-| Sandbox images | Ordinary OCI images. With the Docker driver they are used as they are. |
-| Tools | Per-agent and workspace-level MCP servers, plus a workspace skills library. |
-| Triggers in v1 | Web UI, REST/WebSocket API with tokens, cron schedules, inbound webhooks, agent-to-agent messaging. |
-| Development | macOS with OrbStack as the Docker host. A fake sandbox driver for tests without Docker. |
+| Isolation | Firecracker microVMs only. Docker driver, Sysbox/gVisor options and docs are deleted. The `fake` driver stays for tests and UI work. |
+| Why | No Docker dependency, real isolation, a full machine per agent (own kernel, Docker-in-agent, enforced disk size), and later true suspend/resume. |
+| Host requirement | Linux with `/dev/kvm`, x86_64 or aarch64, running as root (tap devices, nftables, jailer). |
+| Binary | `agenthold` embeds `firecracker`, `jailer`, the guest kernel and `sandboxd` for its architecture and extracts them to `<data_dir>/runtime/<version>/` on start. |
+| Base rootfs | One blessed base disk image per release, built from `images/base`. Too large to embed (several GB): fetched on first start from a pinned URL and verified by sha256, or pre-placed in `data_dir` for offline installs. |
+| Agent disks | Shared read-only base + per-agent writable overlay disk (system changes survive sleep) + per-agent persistent `/home/agent` disk. Upgrading the base swaps it and resets the overlay; home always survives. No per-agent image; "Rebuild" becomes "Reset system". |
+| Sleep | Cold shutdown and boot (same semantics as before: disk and conversation survive, processes do not). Memory snapshots are a later milestone. |
+| Secrets | Unchanged: never enter the VM. A host-side transparent TLS-intercepting proxy injects them. Account-level harness logins stay. |
+| Network | Every agent has open internet through the proxy. Network policy (allowlists) and the per-agent request log are removed. |
+| Topology | One binary, two roles. `agenthold` alone is controller + node. Later `agenthold node --join <token>` adds a remote node that dials the controller. New agents are placed on the node with most free capacity and stay there. Node down = its agents offline. |
+| Edge trust | Nodes are trusted infrastructure. The proxy runs on the node; the controller pushes the decrypted secrets of that node's agents over the node connection, held in memory only. |
+| Database | SQLite (default, zero setup) or Postgres. sqlc stays, with one query set per engine. No MySQL. |
+| Auth | OIDC and GitHub OAuth as before, plus `auth.local` = exactly one admin (username + password hash) in the YAML. No provider and no `auth.local` means nobody can log in; the server says so at startup. No generated credentials, no signup. |
+| Ownership and sharing | Workspaces, memberships, invites and viewer/operator/admin roles are removed. A user owns agents. The owner can share an agent with other existing users (by email); a shared user can use it (chat, terminal, files), only the owner can configure, share or delete it. MCP servers, skills and secrets belong to a user. |
+| Agent-to-agent | Kept. An agent may address agents its owner owns or has been shared. |
+| TLS | Plain HTTP only. Docs show Caddy, nginx and cloudflared in front. |
+| Development | macOS + Lima VM (`vmType: vz`, nested virtualization; OrbStack has no `/dev/kvm`). The server runs natively inside the Lima VM. |
+| Demo | Mac mini `scarif.local` (M4, 24 GB): Lima VM, all-in-one, published through cloudflared. The OCI host (no KVM) is retired. No data migration. |
+| Process | Straight on `main`. The old deploy workflow is disabled until the new one exists. Early development: no compatibility with v1 data, config or API is required. |
 
-Known consequences of choosing Docker, accepted for v1:
+Known consequences, accepted:
 
-- Sandboxes share the host kernel. The hardened runtime option and the egress proxy are the mitigations.
-- "Sleep" stops the container. The disk and the conversation survive, running processes do not.
-- Docker inside an agent only works with the Sysbox runtime.
+- Most cheap cloud VPSes have no KVM and cannot host agents.
+- The dev and demo setups run Firecracker under nested virtualization (slower than bare metal).
+- Only arm64 can be tested locally; x86_64 is verified in CI (GitHub's x86 Linux runners have KVM).
 
 ## 3. Architecture
 
 ```
- Browser (React SPA)          API clients / webhooks
-        |  REST + WebSocket          |
-        v                            v
-+--------------------------------------------------------------+
-| server (one Go binary, runs as a container)                  |
-|                                                              |
-|  HTTP API + embedded SPA      OIDC + sessions + API tokens   |
-|  Authorization (roles)        Scheduler (cron, idle sleeper) |
-|  Session hub (ACP client,     Secrets store (encrypted)      |
-|    event log, fan-out)        Egress proxy (TLS intercept,   |
-|  Sandbox manager -> driver      allowlist, secret injection) |
-|  Tunnel endpoint for sandboxd Platform MCP backend           |
-|  SQLite                                                      |
-+-----------+-------------------------------+------------------+
-            | Docker API (socket)           | one small internal
-            v                               | network per agent
-   +------------------+   +------------------+
-   | agent sandbox A  |   | agent sandbox B  |   ...
-   |  sandboxd  ------+---+--> dials the server (tunnel)
-   |   |- harness (ACP over stdio)           |
-   |   |- PTYs, file access                  |
-   |   '- local platform MCP endpoint        |
-   |  /home/agent  (persistent volume)       |
-   +------------------+   +------------------+
+ Browser (React SPA)        API clients / webhooks
+        | REST + WebSocket        |
+        v                         v
++-----------------------------------------------------------+
+| agenthold (one process, root, systemd)                    |
+|                                                           |
+|  controller                    node                       |
+|  -----------                   ----                       |
+|  HTTP API + embedded SPA       Firecracker driver         |
+|  auth, sharing, tokens         (jailer, disks, tap)       |
+|  session hub (ACP client)      egress proxy (TLS, inject) |
+|  scheduler, triggers           DNS forwarder, nftables    |
+|  secrets store                 tunnel endpoint (sandboxd) |
+|  store: SQLite | Postgres                                 |
+|        ^------ node interface (in-process now,            |
+|                remote connection later) ------^           |
++----------------------------+------------------------------+
+                             | tap device per VM
+              +--------------+---------------+
+              | microVM A        microVM B   |
+              |  sandboxd (PID 1) ...        |
+              |   |- harness (ACP on stdio)  |
+              |   |- PTYs, files, MCP        |
+              |  vda base (ro)  vdb overlay  |
+              |  vdc /home/agent             |
+              +------------------------------+
 ```
 
-### 3.1 Components
+### 3.1 Node boundary
 
-**server** (binary `agenthold`). The only long-running host process. It always runs as a container, in development too,
-because it has to be attached to every agent's network. It talks to the Docker socket.
+Everything bound to the machine that runs VMs lives behind one Go interface in `internal/node`:
+sandbox lifecycle, opening a tunnel session to an agent's sandboxd, pushing the agent's secret rules
+to the proxy, capacity reporting. The controller never touches the driver, the proxy or the tunnel hub
+directly. Until the edge milestone the only implementation is in-process. Design every method so it
+can cross a network: no shared pointers, context-cancellable, streams as `io.ReadWriteCloser`.
 
-**sandboxd.** A static Go binary bind-mounted read-only into every sandbox and used as its entrypoint.
-This is what lets any OCI image work as a sandbox. On start it dials the server over a WebSocket,
-authenticates with a per-boot token, and then serves multiplexed channels:
+### 3.2 Firecracker driver
 
-- start, stop and pipe the harness process (raw ACP frames in both directions),
-- PTY terminals,
-- file listing, read, write, upload and download,
-- writing harness configuration at boot (MCP servers, skills, instructions),
-- a local MCP endpoint that forwards platform tool calls to the server,
-- activity reporting for the idle sleeper.
+- One `firecracker` process per running agent, started through `jailer` (chroot, cgroup, uid drop).
+- Configured over its API socket. Small hand-written client; no SDK dependency unless justified.
+- Disks are sparse ext4 files under `<data_dir>/agents/<id>/`: `overlay.ext4`, `home.ext4`. Base is
+  `<data_dir>/base/<sha>.ext4`, attached read-only to every VM.
+- Network: one tap per VM with a /30 from `sandbox.network_pool`. Guest address via kernel `ip=`
+  argument. Host nftables (table `agenthold`) redirects all guest TCP to the proxy and DNS to the
+  forwarder, and drops everything else from guests to the host except the tunnel port. Guests cannot
+  reach each other.
+- Boot configuration (agent id, tunnel token, CA cert, harness files) reaches sandboxd through MMDS or
+  a small config disk; no bind mounts exist any more.
+- `sandboxd` is the guest's init: mounts the overlay over the base, mounts home, brings up the
+  network, dials the node's tunnel endpoint at the gateway address, reaps children, powers off on
+  request. Everything else it does today is unchanged.
 
-sandboxd dials out, the server never dials in. A future Firecracker driver can reuse the same tunnel.
-
-**Sandbox driver.** The interface the rest of the server uses. Keep it small:
-
-```go
-type Driver interface {
-    Create(ctx, SandboxSpec) (SandboxID, error)   // image, resources, volume, network, env
-    Start(ctx, SandboxID) error
-    Stop(ctx, SandboxID) error                    // sleep: keep disk
-    Destroy(ctx, SandboxID, DestroyOpts) error    // optionally keep the home volume
-    Status(ctx, SandboxID) (Status, error)
-    Rebuild(ctx, SandboxID, SandboxSpec) error    // new image, same home volume
-}
-```
-
-Implementations: `docker` and `fake` (in-process, runs sandboxd as a goroutine or child process, for
-unit tests and for UI work without Docker). Nothing outside the driver package may import the Docker SDK.
-
-**Session hub.** The server is the ACP client. One hub goroutine per live agent session owns the ACP
-connection (through the tunnel), appends every update to the event log, and fans events out to all
-subscribed viewers. We do not advertise the ACP client file system or terminal capabilities; the
-harness uses its own tools inside the sandbox.
-
-**Egress proxy.** Each agent sits on its own Docker network created with `internal: true`, so it has no
-route to the internet. The server joins that network, and its proxy is the only way out. The proxy
-identifies the agent by source network, applies the agent's network policy, terminates TLS with a
-per-installation CA and injects secrets into matching requests.
-
-Interception is transparent. Setting `HTTPS_PROXY` alone is not enough, because many programs ignore it
-(SSH, some Node and Go clients, package managers in certain modes, raw TCP). The server's address is
-the sandbox's default gateway, and outgoing TCP is redirected to the proxy on the server side
-(iptables/nftables `REDIRECT` plus `SO_ORIGINAL_DST`). HTTPS is identified by SNI; other TCP is allowed
-or denied by destination and port according to the policy, without injection. DNS is answered by the
-server. This means `git` over SSH works when the policy allows it, and anything blocked fails with a
-clear entry in the agent's request log instead of hanging. `HTTPS_PROXY` is still set as a hint.
-
-### 3.2 Domain model
+### 3.3 Domain model
 
 ```
-User (from OIDC)
- '- Membership (role: owner | admin | member) -> Workspace
-Workspace
- |- Agent
- |   |- owner (User), image, harness, model, resources, network policy
- |   |- Grant (subject: user | whole workspace, role: viewer | operator | admin)
- |   |- Sandbox (driver id, state: creating | running | sleeping | error)
- |   |- Session -> Event (append-only log)
+User (OIDC | GitHub | local admin)
+ |- Agent (harness, model, resources, node)
+ |   |- Share -> User
+ |   |- Sandbox (state: creating | running | sleeping | error)
+ |   |- Session -> Event (append-only)
  |   |- Schedule, Webhook
  |   '- attached MCP servers, skills, secrets
- |- MCP server definitions, Skills, Secrets (workspace level)
- '- API tokens belong to a User and inherit that user's permissions
+ |- MCP servers, Skills, Secrets, provider logins
+ '- API tokens
+Node (id, name, capacity, last seen)        # one row, "local", until the edge milestone
 ```
 
-Every user gets a personal workspace on first login. Agent role meanings:
-
-- **viewer**: read sessions and files.
-- **operator**: viewer, plus prompt, cancel, answer permission requests, open a terminal.
-- **admin**: operator, plus change configuration, secrets, grants, and delete.
-
-Workspace owners and admins are implicit admins of every agent in the workspace. Authorization is
-enforced in one package that every handler calls; never in the UI only.
-
-### 3.3 Key flows
-
-**Prompt.** UI sends a prompt -> authorization check (operator) -> if the sandbox is sleeping, start it
-and wait for sandboxd -> hub sends `session/prompt` -> updates are stored and streamed -> turn ends.
-
-**Sleep and wake.** An agent is idle when it has no running turn, no open terminal, and no activity
-reported by sandboxd for N minutes (configurable per agent, default 15). The sleeper then calls
-`Driver.Stop`. Any prompt, webhook, schedule, agent message or terminal request wakes it. After waking,
-the hub resumes the conversation with ACP `session/load` if the harness advertises that capability,
-and otherwise starts a new session and tells the user that context was reset.
-
-**Permission requests.** Each agent has a policy: `auto-approve` (default, the sandbox is the safety
-boundary) or `ask`. With `ask`, ACP `session/request_permission` is shown to connected operators and
-the turn waits.
-
-**Secrets.** A secret has a value and an injection rule: host pattern, header name, value template
-(for example `api.anthropic.com`, `x-api-key`, `{{value}}`). It is stored encrypted with a master key
-supplied to the server. Inside the sandbox the harness gets a placeholder value. The proxy replaces it.
-The CA certificate is installed into the sandbox and exported through the usual variables
-(`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, ...), together with `HTTPS_PROXY`.
-
-**Account logins.** Provider logins live on the user's account and reach the harnesses of the agents that
-use that user's logins as placeholders; see `docs/sessions.md`. The flow below is the per-sandbox override.
-
-**Subscription logins.** When the harness advertises auth methods in the ACP `initialize` response,
-the UI offers them to agent admins and calls ACP `authenticate`. Any login URL or device code the
-harness produces is shown to the user. The resulting tokens stay where the harness stores them, on the
-agent's persistent home volume, so they survive sleep and image rebuilds. The proxy does not inject or
-refresh them. The UI marks such agents as "credentials inside sandbox" so admins know the agent can
-read its own login.
-
-**Agent-to-agent.** The platform MCP endpoint in each sandbox offers tools such as `list_agents`,
-`send_message(agent, text)` and `ask(agent, text)` (waits for the turn to finish and returns the final
-answer). The server enforces that both agents are in the same workspace and that the calling agent's
-owner holds at least operator on the target. Calls carry a depth counter with a hard limit to stop loops.
-
-**Schedules and webhooks.** A schedule is a cron expression plus a prompt. A webhook is a secret URL
-plus a prompt template that receives the request body. Both wake the agent and start a turn in a
-designated session. Webhook payloads are untrusted input and are clearly delimited in the prompt.
-
-### 3.4 Harness adapters
-
-An adapter is a small Go type plus data, one package per harness:
-
-- how to check for and install the harness in a sandbox,
-- the command that starts it in ACP mode,
-- where its MCP configuration, skills and instruction file live and how to write them,
-- which environment variables carry model credentials and base URLs (placeholders only),
-- which secret injection presets it needs.
-
-Before implementing an adapter, check the current ACP specification (agentclientprotocol.com), the
-state of the Go SDK (`github.com/coder/acp-go-sdk`) and the harness's current ACP entry point. These
-move quickly and package names in older notes may be outdated.
+Authorization stays in `internal/authz`, reduced to: owner, shared user, nobody.
 
 ## 4. Technology
 
+Unchanged from v1 unless listed: Go, chi, OpenAPI-first (`api/openapi.yaml`, oapi-codegen,
+openapi-typescript), WebSocket streams, yamux tunnel, React/Vite/Tailwind SPA embedded in the binary,
+XChaCha20-Poly1305 secrets, slog.
+
 | Concern | Choice |
 |---|---|
-| Go HTTP | standard library `net/http` with `chi` router |
-| API contract | OpenAPI document in the repo is the source of truth; `oapi-codegen` for Go, `openapi-typescript` for the client |
-| Live updates | WebSocket: per-session event stream with a resume cursor, terminals, tunnel |
-| SQLite | `modernc.org/sqlite`, WAL mode, `sqlc` for queries, `goose` for migrations |
-| OIDC | `github.com/coreos/go-oidc` with authorization code + PKCE, server-side sessions in SQLite |
-| Docker | official Go SDK, only inside the driver package |
-| Encryption | XChaCha20-Poly1305 with a master key from a file or environment variable |
-| Logging | `log/slog`, structured |
-| Frontend | React, Vite, TypeScript, Tailwind, shadcn/ui, TanStack Query and Router, xterm.js |
-| Tests | Go `testing`, Vitest, Playwright for a small end-to-end suite |
-| Build | `make` targets, multi-stage Dockerfile, GitHub Actions |
-
-### Repository layout
-
-```
-cmd/agenthold/         main for the server
-cmd/sandboxd/          main for the in-sandbox daemon
-internal/api/          HTTP handlers, generated OpenAPI types
-internal/auth/         OIDC, sessions, API tokens
-internal/authz/        role checks, the only place that decides access
-internal/store/        migrations, sqlc queries
-internal/sandbox/      Driver interface, manager, lifecycle
-internal/sandbox/docker/
-internal/sandbox/fake/
-internal/tunnel/       server <-> sandboxd protocol
-internal/session/      ACP client, hub, event log
-internal/harness/      adapter interface and one package per harness
-internal/egress/       proxy, CA, policy, injection
-internal/secrets/
-internal/trigger/      schedules, webhooks
-internal/mcp/          platform MCP tools
-web/                   React app
-images/base/           Dockerfile of the default agent image
-deploy/                docker-compose.yml, Keycloak and GitHub auth examples, Caddy example
-api/openapi.yaml
-docs/
-```
+| VMM | Firecracker + jailer, pinned release, upstream static binaries |
+| Guest kernel | Pinned upstream Firecracker-compatible kernel build per arch (needs virtio-blk, virtio-net, ext4, overlayfs, and what Docker-in-guest needs) |
+| Base rootfs | Built in CI from `images/base` (build-time tooling is free to use containers), published as a release asset with checksum |
+| Host networking | `vishvananda/netlink` for taps, `google/nftables` for rules (both already dependencies) |
+| Store | `sqlc` with two engines (sqlite via `modernc.org/sqlite`, postgres via `pgx`), `goose` migrations per engine, one Go interface above both |
+| Local auth | argon2id hash in YAML, `agenthold hash-password` prints one |
+| Service | `agenthold install` writes a systemd unit; `agenthold` runs in the foreground otherwise |
+| Dev | `deploy/dev/lima.yaml`; `make dev` starts the VM and runs the server in it with live reload |
 
 ### Conventions for executing agents
 
-- One milestone per branch and pull request. Do not start a milestone before the previous one is merged.
-- Every milestone ends with its acceptance checks passing and automated tests covering them.
-- Everything must be testable on macOS with OrbStack. Tests that need Docker carry a build tag and are
-  skipped when no Docker socket is available. All other tests use the fake driver.
+- Work lands on `main` in small commits; each milestone ends with its acceptance checks passing and
+  tests covering them. Do not push unless told to.
+- Tests that need KVM carry the build tag `kvm` and run inside the Lima VM (`make test-kvm`) and in
+  CI on x86. Everything else uses the fake driver and must pass on macOS.
 - Change `api/openapi.yaml` first, regenerate, then implement.
-- No new dependency without a one-line justification in the pull request.
+- Delete what a decision removes: code, config fields, UI, docs, tests. No compatibility shims.
+- No new dependency without a one-line justification in the commit message.
 - Report anything that contradicts section 2 instead of working around it.
 
 ## 5. Milestones
 
-**M0. Scaffold.** Go module, both binaries building, web app skeleton embedded and served, Makefile,
-lint, CI, dev compose file with live reload. *Accept:* `make dev` serves a page from the server
-container in OrbStack; `make test` and `make lint` pass in CI.
+### Step 1: native binary on Firecracker (all-in-one)
 
-**M1. Identity and workspaces.** Migrations, generic OIDC login, GitHub OAuth login, sessions,
-personal workspace on first login, workspace CRUD, memberships and invites, the `authz` package. The dev
-compose file runs Keycloak with a pre-imported realm and two test users so login works locally.
-Example configs and docs for Keycloak and for GitHub. *Accept:* two users can log in through Keycloak,
-one invites the other into a workspace, GitHub login works against a real OAuth app, and role checks are
-covered by table-driven tests.
+**N0. Dev environment and spike.** Lima template with nested virtualization, `make dev-vm`. Prove
+inside it: Firecracker boots a pinned kernel with a throwaway rootfs, a tap device works, the guest
+reaches a listener on the host. Write down exact versions and commands in `docs/` dev notes.
+*Accept:* one script, run on a fresh Mac with Lima, ends with output produced inside a microVM.
 
-**M2. Sandboxes.** Driver interface, fake driver, Docker driver (per-agent internal network from a
-configurable address pool, home volume, resource limits, optional runtime name), sandbox manager with a
-persisted state machine, agent CRUD in API and UI. *Accept:* creating an agent starts a container,
-stop and start keep files in `/home/agent`, and state survives a server restart.
+**N1. Simplify the product.** Remove workspaces, memberships, invites and roles in favour of owner +
+shares. Move MCP servers, skills and secrets to the user. Remove network policy and the request log
+(API, store, UI, docs). Add `auth.local` and `agenthold hash-password`. Fresh squashed SQLite
+migration. *Accept:* all tests green with the fake driver; a local admin logs in, creates an agent,
+shares it with a second (OIDC test) user who can chat but not configure.
 
-**M3. sandboxd and tunnel.** Daemon, bind-mount injection, authenticated tunnel, terminal and file
-channels, web terminal and file browser in the UI. *Accept:* a shell in the browser works for an agent
-built from the base image and from a stock `debian` image.
+**N2. Guest artifacts.** Reproducible build of the base rootfs from `images/base` to ext4, kernel
+fetch and pinning, sandboxd as PID 1 (overlay, home, network, tunnel dial, reaping, poweroff), boot
+configuration channel. *Accept:* a hand-started Firecracker VM boots the base image and its sandboxd
+connects to a test tunnel listener on the host.
 
-**M4. Egress and secrets.** Transparent proxy (gateway, redirect, DNS), CA generation and
-installation, network policy (`open` or `allowlist` by host and port), encrypted secrets with injection
-rules and presets for common providers, per-agent request log. *Accept:* a sandbox reaches the internet
-only through the proxy, a program that ignores `HTTPS_PROXY` is still intercepted, `git` over SSH works
-when allowed and is logged as denied when not, a placeholder key is replaced on the wire, and the real
-value is not readable from inside the sandbox by any means tested.
+**N3. Firecracker driver and node boundary.** `internal/node` interface with the in-process
+implementation; `internal/sandbox/firecracker` implementing `sandbox.Driver` (jailer, disks, tap,
+resources); egress proxy and nftables moved to host scope with per-tap attribution; "Reset system".
+Delete the Docker driver. *Accept (in Lima, tag `kvm`):* the old e2e flows pass: create agent, chat
+with the test harness, terminal, files, sleep and wake with files kept, secret placeholder replaced on
+the wire and not readable in the guest, a guest cannot reach another guest or host services.
 
-**M5. Sessions over ACP.** Adapter interface, Claude Code adapter, session hub, event log, chat UI
-with streaming, tool call rendering, diffs, cancel, permission prompts, multiple sessions per agent,
-ACP authentication flow for subscription logins. Default base image containing the harness, git,
-common runtimes and a headless browser. *Accept:* a user chats with an agent that edits files in its
-sandbox, reloads the page mid-turn and sees the stream continue from the stored cursor; an agent logged
-in with a subscription stays logged in across sleep.
+**N4. Packaging and demo.** Embed and extract runtime artifacts, base image download with checksum,
+`agenthold install`, startup preflight (KVM, root, nftables) with clear errors, release workflow
+building linux/amd64 and linux/arm64 binaries plus rootfs assets, CI with KVM tests on x86. Remove
+Dockerfiles, compose files, old deploy scripts. Rewrite install, sandboxes, security docs. Bring the
+demo up on `scarif.local` with a new deploy workflow. *Accept:* on a fresh KVM host, download one
+binary, write one YAML, run it, and reach a working agent.
 
-**M6. Sleep and wake.** Idle detection, sleeper, wake on demand, session resume, clear UI states.
-*Accept:* an idle agent stops, a new prompt wakes it and the conversation continues with its history.
+### Step 2: Postgres
 
-**M7. Sharing.** Grants in API and UI, multi-viewer sessions with presence, audit log of who prompted
-what. *Accept:* a viewer watches a live session and cannot prompt; an operator can; all checks are
-enforced server-side and tested.
+**P1.** Store interface above sqlc; Postgres query set and migrations; `database.url` in config
+(`sqlite:` default, `postgres://`); the whole Go test suite runs against both engines in CI; backup
+command covers SQLite only and docs point Postgres users to their own tooling. *Accept:* e2e passes
+against Postgres.
 
-**M8. Second harness.** Codex or OpenCode adapter, chosen for the better ACP support at that time.
-*Accept:* the same UI flows work unchanged. Anything harness-specific that leaked outside
-`internal/harness` is moved back in.
+### Step 3: edge nodes
 
-**M9. MCP and skills.** Workspace and agent MCP server definitions, remote MCP authentication through
-the proxy, skills library with attach and detach, written into the sandbox by the adapters.
-*Accept:* attaching an MCP server and a skill makes both usable in the next session for both harnesses.
+**E1.** Remote implementation of the node interface: `agenthold node --join <token>` dials the
+controller (mutual TLS pinned at join, one multiplexed connection), carries sandbox lifecycle, tunnel
+sessions and secret pushes. Node table, capacity-based placement, node status in the admin UI, agents
+of an offline node shown as unreachable. *Accept:* controller on a host without KVM, node in the Lima
+VM; an agent created in the UI runs on the node and behaves exactly like a local one.
 
-**M10. API tokens, schedules, webhooks.** Personal access tokens, published API reference, cron
-schedules, webhook endpoints with optional signature verification. *Accept:* a script using a token
-creates an agent and prompts it; a schedule and a webhook each wake a sleeping agent.
+### Later
 
-**M11. Agent-to-agent.** Platform MCP endpoint and tools, permission and depth rules, linked sessions
-in the UI. *Accept:* one agent delegates a task to another and receives the result; a loop is stopped
-by the depth limit.
-
-**M12. Release.** Production compose file, install and upgrade guide, backup and restore of SQLite and
-volumes, hardened runtime guide (Sysbox, gVisor), security review, end-to-end suite.
-*Accept:* a fresh Linux VPS goes from nothing to a working agent by following the guide only.
-
-### After v1
-
-- Firecracker driver: OCI to ext4 conversion, guest kernel, tap networking, memory snapshots for true
-  suspend and resume. Developed in a Lima VM with nested virtualization or on a KVM host, since OrbStack
-  has no `/dev/kvm`.
-- Preview URLs for ports inside a sandbox, live view of the agent's browser.
-- Disk snapshots and cloning an agent, agent templates.
-- Multi-node, usage metering and budgets, chat integrations (Slack and similar).
+- Memory snapshots for true suspend and resume (balloon, snapshot on idle, cold boot as fallback).
+- Preview URLs for guest ports, live browser view.
+- Agent cloning and templates (cheap now: copy two sparse files).
 
 ## 6. Open questions
 
-None at the moment. Add new ones here instead of deciding them silently.
+- Base rootfs hosting: GitHub release assets have a 2 GB per-file limit; the image may need splitting
+  or compression (zstd) to fit. Decide in N2.
+- GitHub-hosted arm64 runners may lack KVM; if so arm64 KVM tests run only locally.

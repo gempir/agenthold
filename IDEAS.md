@@ -1,4 +1,0 @@
-- replace docker with firecracker entirely, on dev env we'll use orbstack linux vm
-- native deployment, single binary, edge deployment for remote instances that can host more agents in firecracker vms that connect to controller 
-    - dead simple deployment => single binary, single yaml config file, database and OIDC is not up to us to setup (except sqllite)
-- database choices: sqlite, postgres, mysql

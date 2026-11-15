@@ -20,16 +20,22 @@ The slug `api` belongs to the generated API reference, so the page about tokens,
 
 ## Publishing
 
-`.github/workflows/docs.yml` builds the site for every change under `docs/` (and `api/openapi.yaml`), and
-deploys it with `wrangler deploy` when `main` changes. It serves the site from a Cloudflare Worker with static
-assets, on the custom domain `agenthold.dev` (see `wrangler.jsonc`). One-time setup:
+Cloudflare Workers Builds deploys the site from `main`: a Worker with static assets (`wrangler.jsonc`, name
+`agenthold-docs`). `.github/workflows/docs.yml` only builds, checks and lints it, for pull requests and `main`.
 
-1. Create a Cloudflare API token with the "Edit Cloudflare Workers" template, plus Zone > DNS > Edit for the
-   `agenthold.dev` zone (the custom domain creates its DNS record).
-2. Add it to the repository as the secret `CLOUDFLARE_API_TOKEN`, and the account id as `CLOUDFLARE_ACCOUNT_ID`.
-   Until both exist the deploy step is skipped and the workflow stays green.
-3. The hostname `agenthold.dev` must not already have a DNS record or tunnel route. The live app used to
-   be served there and now lives at `demo.agenthold.dev`; move it first (see below).
+The Worker project is connected to this repository with these settings:
+
+| Setting | Value |
+| --- | --- |
+| Project name | `agenthold-docs` (must match `name` in `wrangler.jsonc`) |
+| Root directory | `docs` |
+| Build command | `pnpm run build` |
+| Deploy command | `npx wrangler deploy` |
+| Variable `NODE_VERSION` | `26` (Nimbus needs Node 22.23.4 or later) |
+
+The custom domain is attached in the dashboard (Worker > Settings > Domains & Routes > Add > Custom domain >
+`agenthold.dev`), once the hostname is free: the live app used to be served there and now lives at
+`demo.agenthold.dev`, so move it first.
 
 ### Moving the app to demo.agenthold.dev
 
@@ -43,5 +49,5 @@ In this order, so the app is never without a working sign-in:
    `docker compose --env-file .env --env-file .deploy.env up -d agenthold`.
 4. In GitHub, set the repository variable `DEPLOY_URL` to `https://demo.agenthold.dev` so the deploy
    workflow checks the new address.
-5. Delete the old `agenthold.dev` public hostname and its DNS record, then run the docs workflow (or merge a
-   docs change): the Worker's custom domain claims `agenthold.dev`.
+5. Delete the old `agenthold.dev` public hostname and its DNS record, then add `agenthold.dev` as the Worker's
+   custom domain.

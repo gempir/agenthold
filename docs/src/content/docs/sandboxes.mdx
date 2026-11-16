@@ -26,6 +26,42 @@ State is stored in the [configured database](/database/). Each operation first m
 guarded update, so concurrent requests cannot both act, and then runs in the background. On startup the controller reconciles stored
 state with the node's view of its sandboxes.
 
+## Clone and templates
+
+**Clone** makes a new agent with a copy of an agent's system overlay and home disk, so installed tools,
+checked-out repositories and caches come along. Only the owner can clone: the home disk can hold harness
+credentials. The clone is created in the background (`creating`, then `sleeping`) and wakes on first use.
+
+| Copied | Not copied |
+| --- | --- |
+| Harness, model, resources, idle time, permission policy | Shares |
+| Attached library MCP servers, skills and secrets (the attachments; the secrets stay yours) | Sessions and their history |
+| The agent's own MCP servers | Schedules and webhooks |
+| System and home disks | API ids and the sandbox's network address |
+
+- The source must be at rest while its disks are copied. A running agent is stopped, copied and started again; the
+  clone is refused while a prompt is running. A source that is being cloned is `stopping` until the copy is done, and
+  cannot be started, stopped or cloned a second time meanwhile.
+- A clone lives on the same node as its source, because disks never leave a node. If that node is offline, cloning
+  fails like any other operation on it.
+- Disks are copied as a reflink (instant, shared blocks) where the filesystem supports it, such as btrfs or XFS,
+  and otherwise as a sparse copy that moves only the allocated data. A copy that fails or is cancelled leaves
+  nothing behind.
+- The clone boots as its own machine: sandboxd notices that its system disk belongs to another agent and clears the
+  machine id, Docker's engine id, SSH host keys and random seeds. Systems that have not booted with a sandboxd that
+  records this yet cannot tell, so boot the source once before cloning it. Files in the home directory are copied as
+  they are, including conversation files kept by the harness, which the clone does not reference.
+- If the server restarts during a copy, it resumes the clone and starts the source again if it was running.
+- If the agent holds a harness login inside its sandbox (`credentialsInSandbox`), the copy has it too, and the flag
+  is kept.
+
+A **template** is a machine with `isTemplate` set: set it with **Save as template** in the agent's settings or with
+`PATCH /agents/{id}`. The machine is stopped first and never started again: it cannot be started, chatted with,
+scheduled or messaged by other agents, and it is listed apart from your agents. **New agent** offers your templates
+under "Start from"; that is a clone, and `POST /agents/{id}/clone` with `asTemplate` makes the copy a template
+straight away. **Convert to agent** turns a template back into a normal machine. Templates belong to their owner;
+sharing does not give anyone the right to clone them.
+
 ## Sleep and wake
 
 Agents sleep when nobody uses them. An agent is idle when, for its idle timeout (`idleMinutes`, default 15):

@@ -91,6 +91,16 @@ type AuditLog struct {
 	Details string
 }
 
+type Exposure struct {
+	ID        string
+	AgentID   string
+	Port      int64
+	Name      string
+	Access    string
+	CreatedBy string
+	CreatedAt int64
+}
+
 type Identity struct {
 	Provider    string
 	Subject     string
@@ -144,6 +154,21 @@ type NodeJoinToken struct {
 	CreatedAt int64
 	ExpiresAt int64
 	UsedAt    int64
+}
+
+type PreviewCode struct {
+	CodeHash  string
+	UserID    string
+	Host      string
+	ExpiresAt int64
+}
+
+type PreviewSession struct {
+	TokenHash string
+	UserID    string
+	Host      string
+	CreatedAt int64
+	ExpiresAt int64
 }
 
 type ProviderLogin struct {

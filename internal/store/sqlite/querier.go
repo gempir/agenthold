@@ -19,11 +19,14 @@ type Querier interface {
 	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) error
 	CreateAgent(ctx context.Context, arg CreateAgentParams) error
 	CreateAgentSession(ctx context.Context, arg CreateAgentSessionParams) error
+	CreateExposure(ctx context.Context, arg CreateExposureParams) error
 	CreateIdentity(ctx context.Context, arg CreateIdentityParams) error
 	CreateLoginState(ctx context.Context, arg CreateLoginStateParams) error
 	CreateMCPServer(ctx context.Context, arg CreateMCPServerParams) error
 	CreateNode(ctx context.Context, arg CreateNodeParams) error
 	CreateNodeJoinToken(ctx context.Context, arg CreateNodeJoinTokenParams) error
+	CreatePreviewCode(ctx context.Context, arg CreatePreviewCodeParams) error
+	CreatePreviewSession(ctx context.Context, arg CreatePreviewSessionParams) error
 	CreateProviderLogin(ctx context.Context, arg CreateProviderLoginParams) error
 	CreateSandbox(ctx context.Context, arg CreateSandboxParams) error
 	CreateSchedule(ctx context.Context, arg CreateScheduleParams) error
@@ -36,9 +39,13 @@ type Querier interface {
 	DeleteAgent(ctx context.Context, id string) error
 	DeleteAgentSession(ctx context.Context, id string) error
 	DeleteExpiredLoginStates(ctx context.Context, expiresAt int64) error
+	DeleteExpiredPreviewCodes(ctx context.Context, expiresAt int64) error
+	DeleteExpiredPreviewSessions(ctx context.Context, expiresAt int64) error
 	DeleteExpiredSessions(ctx context.Context, expiresAt int64) error
+	DeleteExposure(ctx context.Context, id string) (int64, error)
 	DeleteMCPServer(ctx context.Context, id string) error
 	DeleteNode(ctx context.Context, id string) error
+	DeletePreviewSession(ctx context.Context, tokenHash string) error
 	DeleteProviderLogin(ctx context.Context, arg DeleteProviderLoginParams) (int64, error)
 	DeleteSchedule(ctx context.Context, id string) error
 	DeleteSecret(ctx context.Context, id string) error
@@ -54,10 +61,14 @@ type Querier interface {
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	GetAgentSession(ctx context.Context, id string) (AgentSession, error)
 	GetAgentWithSandbox(ctx context.Context, id string) (GetAgentWithSandboxRow, error)
+	GetExposure(ctx context.Context, arg GetExposureParams) (Exposure, error)
+	GetExposureByName(ctx context.Context, name string) (Exposure, error)
+	GetExposureByPort(ctx context.Context, arg GetExposureByPortParams) (Exposure, error)
 	GetIdentity(ctx context.Context, arg GetIdentityParams) (Identity, error)
 	GetMCPServer(ctx context.Context, id string) (McpServer, error)
 	GetNode(ctx context.Context, id string) (Node, error)
 	GetNodeByFingerprint(ctx context.Context, certFingerprint string) (Node, error)
+	GetPreviewSessionUser(ctx context.Context, arg GetPreviewSessionUserParams) (GetPreviewSessionUserRow, error)
 	GetProviderLogin(ctx context.Context, arg GetProviderLoginParams) (ProviderLogin, error)
 	GetProviderLoginByID(ctx context.Context, id string) (ProviderLogin, error)
 	GetSandbox(ctx context.Context, agentID string) (Sandbox, error)
@@ -89,6 +100,7 @@ type Querier interface {
 	ListAgentSkills(ctx context.Context, agentID string) ([]Skill, error)
 	ListAgentWebhooks(ctx context.Context, agentID string) ([]Webhook, error)
 	ListAgentsByLoginUser(ctx context.Context, loginUserID string) ([]Agent, error)
+	ListExposures(ctx context.Context, agentID string) ([]Exposure, error)
 	ListNodeSandboxes(ctx context.Context, nodeID string) ([]Sandbox, error)
 	ListNodes(ctx context.Context) ([]Node, error)
 	ListProviderLogins(ctx context.Context) ([]ProviderLogin, error)
@@ -133,6 +145,7 @@ type Querier interface {
 	// Only if nobody replaced the credential meanwhile.
 	StoreRefreshedLogin(ctx context.Context, arg StoreRefreshedLoginParams) (int64, error)
 	TakeLoginState(ctx context.Context, arg TakeLoginStateParams) (LoginState, error)
+	TakePreviewCode(ctx context.Context, arg TakePreviewCodeParams) (PreviewCode, error)
 	TouchAPIToken(ctx context.Context, arg TouchAPITokenParams) error
 	TouchIdentity(ctx context.Context, arg TouchIdentityParams) error
 	TouchProviderLogin(ctx context.Context, arg TouchProviderLoginParams) error
@@ -140,6 +153,7 @@ type Querier interface {
 	TransitionSandbox(ctx context.Context, arg TransitionSandboxParams) (int64, error)
 	UnshareAgent(ctx context.Context, arg UnshareAgentParams) (int64, error)
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
+	UpdateExposure(ctx context.Context, arg UpdateExposureParams) error
 	UpdateMCPServer(ctx context.Context, arg UpdateMCPServerParams) error
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) error
 	UpdateSecret(ctx context.Context, arg UpdateSecretParams) error

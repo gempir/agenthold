@@ -8,7 +8,7 @@ import (
 )
 
 func TestClaudeLogins(t *testing.T) {
-	a := adapter{}
+	a := logins{}
 	for _, bad := range []struct{ kind, in string }{
 		{KindOAuthToken, "sk-ant-api03-x"}, {KindOAuthToken, "sk-ant-oat01-a b"}, {KindAPIKey, "sk-ant-oat01-abc"}, {KindAPIKey, "sk-other"}, {"x", "sk-ant-1"},
 	} {

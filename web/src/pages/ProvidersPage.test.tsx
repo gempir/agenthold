@@ -106,7 +106,6 @@ it('agent harness settings link to settings when the login is missing, and offer
         name: 'Claude Code',
         default: true,
         secretPresets: [],
-        installHint: '',
         accountLogins: true,
       },
     ],

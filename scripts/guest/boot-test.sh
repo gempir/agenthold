@@ -300,7 +300,7 @@ table ip agenthold_boottest {
 NFT
   boot docker 2048 -dns "$HOST_IP:53" -cmd-timeout 15m \
     -run 'sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker.io >/tmp/apt.log 2>&1; echo apt=$?; tail -3 /tmp/apt.log; docker --version' \
-    -run 'sudo sh -c "setsid dockerd --debug >/var/log/dockerd.log 2>&1 </dev/null &"; for i in $(seq 1 120); do sudo docker version --format "{{.Server.Version}}" >/dev/null 2>&1 && break; sleep 0.5; done; sudo docker version --format "{{.Server.Version}}" || { sudo tail -80 /var/log/dockerd.log; exit 1; }; sudo docker info --format "server={{.ServerVersion}} storage={{.Driver}} cgroup={{.CgroupDriver}}/v{{.CgroupVersion}}"' \
+    -run 'sudo sh -c "echo \$\$ >/sys/fs/cgroup/cgroup.procs; setsid dockerd --debug >/var/log/dockerd.log 2>&1 </dev/null &"; for i in $(seq 1 120); do sudo docker version --format "{{.Server.Version}}" >/dev/null 2>&1 && break; sleep 0.5; done; sudo docker version --format "{{.Server.Version}}" || { sudo tail -80 /var/log/dockerd.log; exit 1; }; sudo docker info --format "server={{.ServerVersion}} storage={{.Driver}} cgroup={{.CgroupDriver}}/v{{.CgroupVersion}}"' \
     -run 'sudo docker run --rm hello-world 2>&1 | grep -m1 "Hello from Docker"' \
     -run 'sudo docker run --rm busybox sh -c "nslookup deb.debian.org >/dev/null && wget -qO /tmp/Release http://deb.debian.org/debian/dists/trixie/Release && head -3 /tmp/Release"' \
     -run 'sudo grep -iE "level=(warn|error)" /var/log/dockerd.log | cut -c1-300 | head -20; true' \

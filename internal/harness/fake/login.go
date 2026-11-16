@@ -29,7 +29,7 @@ const (
 )
 
 // LoginKinds implements harness.AccountLoginer.
-func (adapter) LoginKinds() []harness.LoginKind {
+func (logins) LoginKinds() []harness.LoginKind {
 	return []harness.LoginKind{
 		{ID: "token", Name: "Fake token", Description: "Any value starting with fake-.", InputLabel: "Token"},
 		{ID: "refreshing", Name: "Fake rotating login", Description: `JSON {"access":…,"refresh":…}.`, InputLabel: "Login", Multiline: true},
@@ -43,7 +43,7 @@ type rotating struct {
 }
 
 // ParseLogin implements harness.AccountLoginer.
-func (adapter) ParseLogin(_ context.Context, _ *http.Client, kind, input string) (harness.Credential, error) {
+func (logins) ParseLogin(_ context.Context, _ *http.Client, kind, input string) (harness.Credential, error) {
 	v := strings.TrimSpace(input)
 	switch kind {
 	case "token":
@@ -62,7 +62,7 @@ func (adapter) ParseLogin(_ context.Context, _ *http.Client, kind, input string)
 }
 
 // Deliver implements harness.AccountLoginer.
-func (adapter) Deliver(c harness.Credential, seed string) (harness.Delivery, error) {
+func (logins) Deliver(c harness.Credential, seed string) (harness.Delivery, error) {
 	switch c.Kind {
 	case "token":
 		ph := harness.Placeholder("fake-", seed)
@@ -87,16 +87,16 @@ func (adapter) Deliver(c harness.Credential, seed string) (harness.Delivery, err
 }
 
 // ManagedFiles implements harness.AccountLoginer.
-func (adapter) ManagedFiles() []string { return []string{".fakeagent/account.json"} }
+func (logins) ManagedFiles() []string { return []string{".fakeagent/account.json"} }
 
 // RefreshDue implements harness.Refresher.
-func (adapter) RefreshDue(c harness.Credential, now time.Time) bool {
+func (logins) RefreshDue(c harness.Credential, now time.Time) bool {
 	return c.Kind == "refreshing" && c.ExpiresAt.Unix() > 0 && now.Add(time.Hour).After(c.ExpiresAt)
 }
 
 // Refresh implements harness.Refresher: POST refresh=<token> to TokenURL,
 // which answers with a new rotating login as JSON.
-func (adapter) Refresh(ctx context.Context, client *http.Client, c harness.Credential) (harness.Credential, error) {
+func (logins) Refresh(ctx context.Context, client *http.Client, c harness.Credential) (harness.Credential, error) {
 	var r rotating
 	if err := json.Unmarshal(c.Secret, &r); err != nil {
 		return c, err
@@ -120,6 +120,9 @@ func (adapter) Refresh(ctx context.Context, client *http.Client, c harness.Crede
 }
 
 // InterceptResponse implements harness.Refresher.
-func (adapter) InterceptResponse(_ harness.Credential, seed string) ([]byte, error) {
+func (logins) InterceptResponse(_ harness.Credential, seed string) ([]byte, error) {
 	return json.Marshal(map[string]string{"access": harness.Placeholder("", seed+"-a"), "refresh": harness.Placeholder("", seed+"-r")})
 }
+
+// logins implements harness.AccountLoginer and, where credentials expire, harness.Refresher.
+type logins struct{}

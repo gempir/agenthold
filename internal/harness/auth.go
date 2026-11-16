@@ -1,17 +1,13 @@
 package harness
 
 import (
+	"slices"
+
 	acp "github.com/coder/acp-go-sdk"
 )
 
 // Default is the harness of new agents.
 const Default = "claude-code"
-
-// TerminalLoginer is implemented by adapters that know how to run a login
-// method in a terminal when the harness does not say so itself.
-type TerminalLoginer interface {
-	TerminalLogin(methodID string) (argv []string, ok bool)
-}
 
 // AuthMethod is a login method in the form the UI shows.
 type AuthMethod struct {
@@ -22,7 +18,7 @@ type AuthMethod struct {
 }
 
 // DescribeAuth turns an advertised ACP auth method into what the UI shows.
-func DescribeAuth(ad Adapter, m acp.AuthMethod) (AuthMethod, bool) {
+func DescribeAuth(ad *Adapter, m acp.AuthMethod) (AuthMethod, bool) {
 	str := func(p *string) string {
 		if p == nil {
 			return ""
@@ -36,10 +32,8 @@ func DescribeAuth(ad Adapter, m acp.AuthMethod) (AuthMethod, bool) {
 		return AuthMethod{ID: m.EnvVar.Id, Name: m.EnvVar.Name, Description: "Provide it as an environment variable: attach a secret", Type: "env_var"}, true
 	case m.Agent != nil:
 		out := AuthMethod{ID: m.Agent.Id, Name: m.Agent.Name, Description: str(m.Agent.Description), Type: "agent"}
-		if tl, ok := ad.(TerminalLoginer); ok {
-			if _, ok := tl.TerminalLogin(m.Agent.Id); ok {
-				out.Type = "terminal"
-			}
+		if _, ok := ad.TerminalLogins[m.Agent.Id]; ok {
+			out.Type = "terminal"
 		}
 		return out, true
 	}
@@ -49,15 +43,10 @@ func DescribeAuth(ad Adapter, m acp.AuthMethod) (AuthMethod, bool) {
 // LoginCommand returns the command and environment that run a terminal login
 // method: the adapter's own override, then the command the harness reports
 // in "terminal-auth" metadata, then the harness command with the method's args.
-func LoginCommand(ad Adapter, c Config, methods []acp.AuthMethod, methodID string) ([]string, map[string]string, bool) {
-	env := map[string]string{}
-	for k, v := range ad.Env(c) {
-		env[k] = v
-	}
-	if tl, ok := ad.(TerminalLoginer); ok {
-		if argv, ok := tl.TerminalLogin(methodID); ok {
-			return argv, env, true
-		}
+func LoginCommand(ad *Adapter, c Config, methods []acp.AuthMethod, methodID string) ([]string, map[string]string, bool) {
+	env := ad.Environment(c)
+	if argv, ok := ad.TerminalLogins[methodID]; ok {
+		return slices.Clone(argv), env, true
 	}
 	for _, m := range methods {
 		t := m.Terminal
@@ -82,20 +71,7 @@ func LoginCommand(ad Adapter, c Config, methods []acp.AuthMethod, methodID strin
 				return argv, env, true
 			}
 		}
-		return append(ad.Command(c), t.Args...), env, true
+		return append(slices.Clone(ad.Command), t.Args...), env, true
 	}
 	return nil, nil, false
-}
-
-// AutoAuthenticator lists login methods the client may call on its own when
-// the harness asks for authentication (methods backed by environment
-// variables, such as API keys provided as secrets).
-type AutoAuthenticator interface {
-	AutoAuthenticate() []string
-}
-
-// SkillsDirer is implemented by harnesses that read Agent Skills
-// (<dir>/<name>/SKILL.md). The directory is relative to the agent's home.
-type SkillsDirer interface {
-	SkillsDir() string
 }

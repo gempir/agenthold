@@ -28,8 +28,7 @@ import (
 func (a *API) ListHarnesses(context.Context, gen.ListHarnessesRequestObject) (gen.ListHarnessesResponseObject, error) {
 	out := gen.ListHarnesses200JSONResponse{}
 	for _, h := range harness.List(a.ShowTestHarness) {
-		_, accountLogins := h.(harness.AccountLoginer)
-		out = append(out, gen.HarnessType{Id: h.ID(), Name: h.Name(), Default: h.ID() == harness.Default, SecretPresets: append([]string{}, h.SecretPresets()...), InstallHint: h.InstallHint(), AccountLogins: accountLogins})
+		out = append(out, gen.HarnessType{Id: h.ID, Name: h.Name, Default: h.ID == harness.Default, SecretPresets: append([]string{}, h.SecretPresets...), AccountLogins: h.Login != nil})
 	}
 	return out, nil
 }

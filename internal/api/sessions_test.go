@@ -251,7 +251,7 @@ func TestHarnessLoginThroughTerminal(t *testing.T) {
 	ag := e.fakeAgent(alice, "")
 	var h gen.HarnessState
 	expect(t, "harness", alice.do("GET", "/agents/"+ag.Id+"/harness?connect=true", nil, &h), 200)
-	if !h.Connected || h.AgentName != "fakeagent" || !h.LoadSession || len(h.AuthMethods) != 1 || h.AuthMethods[0].Id != "fake-login" || h.AuthMethods[0].Type != "terminal" {
+	if !h.Connected || h.AgentName != "fakeagent" || !h.LoadSession || len(h.AuthMethods) != 2 || h.AuthMethods[0].Id != "fake-login" || h.AuthMethods[0].Type != "terminal" || h.AuthMethods[1].Type != "agent" {
 		t.Fatalf("harness %+v", h)
 	}
 

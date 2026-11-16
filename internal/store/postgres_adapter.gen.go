@@ -539,6 +539,18 @@ func (p postgresQueries) ListSessionEvents(ctx context.Context, arg db.ListSessi
 	return result, nil
 }
 
+func (p postgresQueries) ListUnfinishedSessions(ctx context.Context) ([]string, error) {
+	value, err := p.q.ListUnfinishedSessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]string, 0, len(value))
+	for _, row := range value {
+		result = append(result, row)
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListUserAgents(ctx context.Context, userID string) ([]db.ListUserAgentsRow, error) {
 	value, err := p.q.ListUserAgents(ctx, userID)
 	if err != nil {

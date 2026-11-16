@@ -48,7 +48,7 @@ const (
 )
 
 // LoginKinds implements harness.AccountLoginer.
-func (adapter) LoginKinds() []harness.LoginKind {
+func (logins) LoginKinds() []harness.LoginKind {
 	return []harness.LoginKind{
 		{
 			ID: KindChatGPT, Name: "ChatGPT login",
@@ -78,7 +78,7 @@ type tokens struct {
 }
 
 // ParseLogin implements harness.AccountLoginer.
-func (a adapter) ParseLogin(ctx context.Context, client *http.Client, kind, input string) (harness.Credential, error) {
+func (a logins) ParseLogin(ctx context.Context, client *http.Client, kind, input string) (harness.Credential, error) {
 	v := strings.TrimSpace(input)
 	switch kind {
 	case KindAPIKey, KindAccessToken:
@@ -224,7 +224,7 @@ func accountID(t tokens) string {
 }
 
 // Deliver implements harness.AccountLoginer.
-func (adapter) Deliver(c harness.Credential, seed string) (harness.Delivery, error) {
+func (logins) Deliver(c harness.Credential, seed string) (harness.Delivery, error) {
 	switch c.Kind {
 	case KindAPIKey:
 		ph := harness.Placeholder("sk-", seed)
@@ -270,15 +270,15 @@ func (adapter) Deliver(c harness.Credential, seed string) (harness.Delivery, err
 }
 
 // ManagedFiles implements harness.AccountLoginer.
-func (adapter) ManagedFiles() []string { return []string{authFile} }
+func (logins) ManagedFiles() []string { return []string{authFile} }
 
 // RefreshDue implements harness.Refresher: an hour before the access token expires.
-func (adapter) RefreshDue(c harness.Credential, now time.Time) bool {
+func (logins) RefreshDue(c harness.Credential, now time.Time) bool {
 	return c.Kind == KindChatGPT && !c.ExpiresAt.IsZero() && now.Add(time.Hour).After(c.ExpiresAt)
 }
 
 // Refresh implements harness.Refresher.
-func (adapter) Refresh(ctx context.Context, client *http.Client, c harness.Credential) (harness.Credential, error) {
+func (logins) Refresh(ctx context.Context, client *http.Client, c harness.Credential) (harness.Credential, error) {
 	if c.Kind != KindChatGPT {
 		return c, nil
 	}
@@ -326,7 +326,7 @@ func (adapter) Refresh(ctx context.Context, client *http.Client, c harness.Crede
 // InterceptResponse implements harness.Refresher: what Codex receives when it
 // refreshes on its own. The placeholders stay the same; the proxy injects the
 // access token the server just refreshed.
-func (adapter) InterceptResponse(c harness.Credential, seed string) ([]byte, error) {
+func (logins) InterceptResponse(c harness.Credential, seed string) ([]byte, error) {
 	var t tokens
 	if err := json.Unmarshal(c.Secret, &t); err != nil {
 		return nil, err
@@ -335,3 +335,6 @@ func (adapter) InterceptResponse(c harness.Credential, seed string) ([]byte, err
 		"id_token": placeholderIDToken(t.IDToken), "access_token": placeholderAccessToken(seed), "refresh_token": placeholderRefreshToken(seed),
 	})
 }
+
+// logins implements harness.AccountLoginer and, where credentials expire, harness.Refresher.
+type logins struct{}

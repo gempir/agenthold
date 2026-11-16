@@ -99,7 +99,7 @@ func (a *API) validateSettings(s *agentSettings) error {
 	if s.harness == "" {
 		s.harness = harness.Default
 	}
-	if ad, ok := harness.Get(s.harness); !ok || (isHidden(ad) && !a.ShowTestHarness) {
+	if ad, ok := harness.Get(s.harness); !ok || (ad.Hidden && !a.ShowTestHarness) {
 		return badRequest("unknown harness")
 	}
 	s.model = strings.TrimSpace(s.model)
@@ -400,11 +400,6 @@ func (a *API) RebuildAgent(ctx context.Context, req gen.RebuildAgentRequestObjec
 		return nil, err
 	}
 	return gen.RebuildAgent202JSONResponse(g), nil
-}
-
-func isHidden(ad harness.Adapter) bool {
-	h, ok := ad.(interface{ Hidden() bool })
-	return ok && h.Hidden()
 }
 
 // errMemoryTooSmall is the error for an agent whose stored memory predates the

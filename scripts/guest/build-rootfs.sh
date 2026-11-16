@@ -114,12 +114,6 @@ if [[ -z "$SANDBOXD" ]]; then
   SANDBOXD="$WORK/sandboxd"
 fi
 
-# Keep the human-readable version pins in sync with the locked npm graph.
-jq -e --arg claude "$CLAUDE_AGENT_ACP_VERSION" --arg codex "$CODEX_ACP_VERSION" --arg opencode "$OPENCODE_VERSION" \
-  '.dependencies["@agentclientprotocol/claude-agent-acp"] == $claude and
-   .dependencies["@agentclientprotocol/codex-acp"] == $codex and .dependencies["opencode-ai"] == $opencode' \
-  "$IMG_DIR/package.json" >/dev/null
-
 # --- tree (cached: only rebuilt when images/base changes) ---------------------------------------------
 # Bump TREE_FORMAT when the mmdebstrap invocation below changes.
 TREE_FORMAT=2

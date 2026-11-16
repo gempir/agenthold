@@ -3,23 +3,21 @@ package fake
 
 import "github.com/gempir/agenthold/internal/harness"
 
-// Command is where the fake agent binary lives; tests point it at a local build.
-var Command = "/opt/agenthold/fakeagent"
+var adapter = &harness.Adapter{
+	ID:              "fake",
+	Name:            "Scripted test agent",
+	Command:         []string{"/opt/agenthold/fakeagent"},
+	CredentialPaths: []string{".fakeagent/credentials"},
+	SkillsDir:       ".fakeagent/skills",
+	// Like Codex's "api-key": the client may call it on its own.
+	AutoAuthenticate: []string{"fake-key"},
+	// It is not in the image: keep it out of production listings.
+	Hidden: true,
+	Login:  logins{},
+}
 
-type adapter struct{}
+func init() { harness.Register(adapter) }
 
-func init() { harness.Register(adapter{}) }
-
-func (adapter) ID() string                           { return "fake" }
-func (adapter) Name() string                         { return "Scripted test agent" }
-func (adapter) Command(harness.Config) []string      { return []string{Command} }
-func (adapter) Env(harness.Config) map[string]string { return nil }
-func (adapter) SecretPresets() []string              { return nil }
-func (adapter) CredentialPaths() []string            { return []string{".fakeagent/credentials"} }
-func (adapter) InstallHint() string                  { return "Shipped with agenthold for development." }
-
-// SkillsDir implements harness.SkillsDirer.
-func (adapter) SkillsDir() string { return ".fakeagent/skills" }
-
-// Hidden keeps the scripted agent out of production (it is not in the image).
-func (adapter) Hidden() bool { return true }
+// SetCommand points the adapter at a local build of the fake agent. Call it
+// before any harness starts (TestMain, server startup).
+func SetCommand(path string) { adapter.Command = []string{path} }

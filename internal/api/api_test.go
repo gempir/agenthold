@@ -94,7 +94,7 @@ func TestMain(m *testing.M) {
 	if out, err := exec.Command("go", "build", "-o", bin, "github.com/gempir/agenthold/internal/harness/fakeagent").CombinedOutput(); err != nil {
 		panic(string(out))
 	}
-	fakeharness.Command = bin
+	fakeharness.SetCommand(bin)
 	sandboxdBin = filepath.Join(dir, "sandboxd")
 	if out, err := exec.Command("go", "build", "-o", sandboxdBin, "github.com/gempir/agenthold/cmd/sandboxd").CombinedOutput(); err != nil {
 		panic(string(out))

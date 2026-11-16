@@ -1349,7 +1349,6 @@ export interface components {
             default: boolean;
             name: string;
             secretPresets: string[];
-            installHint: string;
         };
         /** @description Which login the agent's harness uses. */
         AgentLogin: {

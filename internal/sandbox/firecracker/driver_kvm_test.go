@@ -171,6 +171,12 @@ func TestJailedLifecycle(t *testing.T) {
 		return strings.TrimSpace(string(out))
 	}
 	sess := start(d)
+	// Helpers that left the harness's process group (setsid, double fork)
+	// still go with the harness: it runs in a cgroup that is killed.
+	escaped := run(sess, "setsid sleep 300 >/dev/null 2>&1 & echo $!")
+	if got := run(sess, "for i in $(seq 1 50); do test -e /proc/"+escaped+" || { echo gone; exit 0; }; sleep 0.1; done; cat /proc/"+escaped+"/cgroup; echo alive"); got != "gone" {
+		t.Fatalf("a setsid helper outlived its harness: %s", got)
+	}
 	if got := run(sess, "id -un; cat /etc/agenthold/kvm-file; echo; echo $KVM_GATEWAY; cat /proc/cmdline"); !strings.Contains(got, "agent\nboot-config-file\n10.214.0.1") || strings.Contains(got, token) {
 		t.Fatalf("guest init contract: %s", got)
 	}
@@ -292,7 +298,19 @@ func TestJailedLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run(peer, "setsid python3 -m http.server 18080 --bind 0.0.0.0 >/tmp/listener.log 2>&1 </dev/null & for i in $(seq 1 30); do curl --noproxy '*' --max-time 1 -fsS http://127.0.0.1:18080/ >/dev/null 2>&1 && exit 0; sleep 0.1; done; cat /tmp/listener.log; exit 1")
+	// The listener lives in a harness of its own: everything a harness
+	// starts goes with it. Its stdout stays open (sandboxd stops a harness
+	// that closes it) and is drained.
+	peerServer, err := peer.StartHarness(ctx, []string{"bash", "-lc", "exec </dev/null; exec python3 -u -m http.server 18080 --bind 0.0.0.0 2>/tmp/listener.log"}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer peerServer.Close()
+	go func() { _, _ = io.Copy(io.Discard, peerServer.Stdout) }()
+	run(peer, "for i in $(seq 1 50); do curl --noproxy '*' --max-time 1 -fsS http://127.0.0.1:18080/ >/dev/null 2>&1 && exit 0; sleep 0.1; done; cat /tmp/listener.log; exit 1")
+	if got := run(peer, "curl --noproxy '*' --max-time 2 -fsS -o /dev/null http://10.214.0.6:18080/ && echo reachable"); got != "reachable" {
+		t.Fatal("the peer's listener is not reachable on its own address:", got)
+	}
 	if got := run(sess, "if curl --noproxy '*' --max-time 2 -fsS http://10.214.0.6:18080/ >/dev/null 2>&1; then echo reachable; else echo blocked; fi"); got != "blocked" {
 		t.Fatal("guest reached peer:", got)
 	}

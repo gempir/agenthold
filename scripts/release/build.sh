@@ -9,7 +9,7 @@ VERSION="${VERSION:?set VERSION to a stable release tag (for example v0.1.0)}"
 }
 if [[ "$(uname -s)" == Darwin ]]; then
   make -C "$REPO_ROOT" dev-vm >/dev/null
-  exec limactl shell --workdir "$REPO_ROOT" agenthold -- env "VERSION=$VERSION" "BASE_URL=${BASE_URL:-}" bash "$REPO_ROOT/scripts/release/build.sh" "$@"
+  exec limactl shell --workdir "$REPO_ROOT" agenthold -- env "VERSION=$VERSION" ${BASE_URL+"BASE_URL=$BASE_URL"} bash "$REPO_ROOT/scripts/release/build.sh" "$@"
 fi
 [[ "$(uname -s)" == Linux ]] || { echo 'release builds require Linux' >&2; exit 1; }
 case "$(uname -m)" in
@@ -96,7 +96,7 @@ echo "$(jq -er .zstd.sha256 "$BASE_MANIFEST")  $BASE.zst" | sha256sum --check --
 
 cp "$RUNTIME/firecracker" "$RUNTIME/jailer" "$STAGE/"
 cp "$KERNEL" "$STAGE/kernel"
-BASE_URL="${BASE_URL:-https://github.com/gempir/agenthold/releases/download/$VERSION/base-$ARCH.ext4.zst}"
+BASE_URL="${BASE_URL-https://github.com/gempir/agenthold/releases/download/$VERSION/base-$ARCH.ext4.zst}" # empty: the base comes from the controller's /dl/
 jq -n --arg version "$VERSION" --arg arch "$ARCH" --arg url "$BASE_URL" --slurpfile base "$BASE_MANIFEST" \
   --arg fc "$(sha256sum "$STAGE/firecracker" | cut -d' ' -f1)" --argjson fcsize "$(stat -c %s "$STAGE/firecracker")" \
   --arg jailer "$(sha256sum "$STAGE/jailer" | cut -d' ' -f1)" --argjson jailersize "$(stat -c %s "$STAGE/jailer")" \

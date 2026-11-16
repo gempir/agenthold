@@ -132,6 +132,12 @@ type Firecracker struct {
 	Jailer    string `yaml:"jailer"`
 	Kernel    string `yaml:"kernel"`
 	BaseImage string `yaml:"base_image"`
+	// BaseURL is where a release build fetches its base image from when it is not on disk yet:
+	// the /dl/ root of another agenthold (https://demo.agenthold.dev/dl/, ending in "/") or the
+	// URL of the compressed image itself. The image is checked against checksums embedded in the
+	// binary, so the source needs no trust. Default: the controller an edge node joined, else
+	// the URL in the release. AGENTHOLD_FIRECRACKER_BASE_URL overrides it.
+	BaseURL   string `yaml:"base_url"`
 	OverlayGB int64  `yaml:"overlay_gb"`
 	HomeGB    int64  `yaml:"home_gb"`
 }
@@ -255,6 +261,7 @@ func applyEnv(cfg *Config) {
 	set(&cfg.DataDir, "AGENTHOLD_DATA_DIR")
 	set(&cfg.Database.URL, "AGENTHOLD_DATABASE_URL")
 	set(&cfg.DevProxy, "AGENTHOLD_DEV_PROXY")
+	set(&cfg.Sandbox.Firecracker.BaseURL, "AGENTHOLD_FIRECRACKER_BASE_URL")
 	if cfg.DevProxy == "off" { // serve the embedded build even if the file sets a dev proxy
 		cfg.DevProxy = ""
 	}
@@ -444,6 +451,11 @@ func (c *Config) Validate() error {
 	}
 	if c.Sandbox.Firecracker.OverlayGB < 1 || c.Sandbox.Firecracker.HomeGB < 1 {
 		errs = append(errs, errors.New("sandbox.firecracker: overlay_gb and home_gb must be positive"))
+	}
+	if u := c.Sandbox.Firecracker.BaseURL; u != "" {
+		if p, err := url.Parse(u); err != nil || p.Host == "" || p.User != nil || p.Fragment != "" || (p.Scheme != "https" && p.Scheme != "http") {
+			errs = append(errs, fmt.Errorf("sandbox.firecracker.base_url: want an absolute HTTP(S) URL without credentials, got %q", u))
+		}
 	}
 	seen := map[string]bool{}
 	for i, p := range c.Auth.Providers {

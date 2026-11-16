@@ -10,15 +10,15 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
-	"time"
-
-	"github.com/klauspost/compress/zstd"
 )
 
 // Paths is a release's extracted runtime. Unbundled development builds return Bundled=false and
@@ -54,12 +54,42 @@ type manifest struct {
 
 var prepareGate = make(chan struct{}, 1)
 
+// Options say where a missing base image may be fetched from. The source is never trusted: the
+// sha256 of the compressed and of the uncompressed image come from the manifest embedded in the
+// binary, whatever URL the bytes arrive from.
+type Options struct {
+	// BaseURL is sandbox.firecracker.base_url. A URL ending in "/" is the /dl/ root of a
+	// controller (the file is <root><version>/base-<arch>.ext4.zst); any other URL names the
+	// compressed image itself. It wins over everything else.
+	BaseURL string
+	// Controller is the controller an edge node joined. It is used when BaseURL is empty and
+	// the node runs the controller's version.
+	Controller Controller
+	// Log reports download progress. Default slog.Default().
+	Log *slog.Logger
+}
+
+// Controller is what an edge node learned about its controller when it joined.
+type Controller struct {
+	// DownloadURL is the controller's /dl/ root, for example https://agents.example.com/dl/.
+	DownloadURL string
+	// Version is the agenthold version the controller runs.
+	Version string
+	// Live says both values were just reported by the controller; otherwise they were read from
+	// the node's state file and may be stale.
+	Live bool
+	// Refresh, if set, asks the controller again. It is called only when a download is needed, so
+	// a node that already has its base never needs the controller at start.
+	Refresh func(context.Context) (Controller, error)
+}
+
 // Prepare extracts the bundled runtime into dataDir/runtime/<release>/ and verifies the base at
-// dataDir/base/<sha256>.ext4. A missing base is downloaded from the release's pinned URL, checked
-// as compressed bytes, decompressed, and checked again before an atomic rename. A verified
-// pre-placed base needs no network access. The data directories must be owned by the current user
-// (root in production), with no group/other write permission. Existing corrupt bases are refused.
-func Prepare(ctx context.Context, dataDir string) (Paths, error) {
+// dataDir/base/<sha256>.ext4. A missing base is fetched (see Options and download.go), checked as
+// compressed bytes, kept as dataDir/base/<sha256>.ext4.zst so this installation can serve it to
+// others, decompressed, and checked again before an atomic rename. A verified pre-placed base
+// needs no network access. The data directories must be owned by the current user (root in
+// production), with no group/other write permission. Existing corrupt bases are refused.
+func Prepare(ctx context.Context, dataDir string, opts Options) (Paths, error) {
 	assets := bundledFiles()
 	if assets == nil {
 		return Paths{}, nil
@@ -70,10 +100,10 @@ func Prepare(ctx context.Context, dataDir string) (Paths, error) {
 	case <-ctx.Done():
 		return Paths{}, ctx.Err()
 	}
-	return prepare(ctx, dataDir, assets, http.DefaultClient)
+	return prepare(ctx, dataDir, assets, http.DefaultClient, opts)
 }
 
-func prepare(ctx context.Context, dataDir string, assets fs.FS, client *http.Client) (Paths, error) {
+func prepare(ctx context.Context, dataDir string, assets fs.FS, client *http.Client, opts Options) (Paths, error) {
 	var paths Paths
 	if err := ctx.Err(); err != nil {
 		return paths, err
@@ -131,13 +161,15 @@ func prepare(ctx context.Context, dataDir string, assets fs.FS, client *http.Cli
 			return paths, err
 		}
 	}
+	sweepBase(baseDir, m.Base.SHA256)
 	base := filepath.Join(baseDir, m.Base.SHA256+".ext4")
 	ok, err := verifyFile(ctx, base, m.Base.artifact)
 	if err != nil {
 		return paths, fmt.Errorf("base image %s: %w (remove the corrupt file or pre-place the verified release image)", base, err)
 	}
 	if !ok {
-		if err := downloadBase(ctx, client, base, m.Base); err != nil {
+		d := newDownloader(client, opts.Log)
+		if err := d.fetchBase(ctx, base, func() ([]string, error) { return opts.candidates(ctx, m) }, m.Base); err != nil {
 			return paths, fmt.Errorf("prepare base image: %w", err)
 		}
 	} else if err := os.Chmod(base, 0o644); err != nil {
@@ -179,9 +211,19 @@ func readManifest(assets fs.FS) (manifest, error) {
 	if err := validateArtifact(m.Base.Compressed, 2_000_000_000); err != nil {
 		return m, fmt.Errorf("runtime manifest compressed base: %w", err)
 	}
-	u, err := url.Parse(m.Base.URL)
-	if err != nil || u.Host == "" || u.User != nil || (u.Scheme != "https" && u.Scheme != "http") {
-		return m, errors.New("runtime manifest base URL must be an absolute HTTP(S) URL without credentials")
+	if m.Base.URL != "" {
+		u, err := url.Parse(m.Base.URL)
+		switch {
+		case err != nil || u.User != nil || u.RawQuery != "" && u.Host == "" || u.Fragment != "":
+			return m, errors.New("runtime manifest base URL is invalid")
+		case u.Scheme == "" && u.Host == "":
+			// Relative to the /dl/ root of the source this installation fetches from.
+			if path.IsAbs(u.Path) || slices.Contains(strings.Split(u.Path, "/"), "..") {
+				return m, errors.New("runtime manifest base URL must be absolute or a plain relative path")
+			}
+		case u.Host == "" || (u.Scheme != "https" && u.Scheme != "http"):
+			return m, errors.New("runtime manifest base URL must be empty, relative, or an absolute HTTP(S) URL without credentials")
+		}
 	}
 	return m, nil
 }
@@ -287,47 +329,6 @@ func atomicWrite(ctx context.Context, path string, r io.Reader, want artifact, m
 		_ = dir.Close()
 	}
 	return nil
-}
-
-func downloadBase(ctx context.Context, client *http.Client, path string, b baseArtifact) error {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
-	defer cancel()
-	// Keep compressed bytes temporary: verifying before decoding also bounds the input available
-	// to the decompressor, while the decoder window and output size are bounded independently.
-	f, err := os.CreateTemp(filepath.Dir(path), ".download-*.zst")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	_ = f.Close()
-	defer os.Remove(tmp)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.URL, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("base download HTTP %d from %s", resp.StatusCode, b.URL)
-	}
-	if err := atomicWrite(ctx, tmp, resp.Body, b.Compressed, 0o600); err != nil {
-		return fmt.Errorf("compressed image: %w", err)
-	}
-	compressed, err := os.Open(tmp)
-	if err != nil {
-		return err
-	}
-	defer compressed.Close()
-	decoder, err := zstd.NewReader(contextReader{ctx, compressed}, zstd.WithDecoderConcurrency(1),
-		zstd.WithDecoderMaxMemory(256<<20), zstd.WithDecoderMaxWindow(128<<20))
-	if err != nil {
-		return err
-	}
-	defer decoder.Close()
-	return atomicWrite(ctx, path, decoder, b.artifact, 0o644)
 }
 
 type contextReader struct {

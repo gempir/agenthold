@@ -41,6 +41,11 @@ type Server struct {
 	Registry Registry
 	Handle   func(ctx context.Context, p Peer, conn net.Conn)
 	Log      *slog.Logger
+	// Version and DownloadURL tell nodes which release this controller runs and where it serves
+	// that release from (its /dl/ root), so a node can fetch its base image from its controller.
+	// Leave DownloadURL empty when this controller does not serve downloads.
+	Version     string
+	DownloadURL string
 }
 
 // Serve accepts connections until ctx ends or the listener fails.
@@ -100,6 +105,8 @@ func (s *Server) accept(ctx context.Context, conn *tls.Conn) (Peer, error) {
 		w := welcome{Version: protocolVersion, OK: err == nil, NodeID: p.ID, Name: p.Name}
 		if err != nil {
 			w.Error = ErrDenied.Error()
+		} else if h.NodeVersion != "" {
+			w.ControllerVersion, w.DownloadURL = s.Version, s.DownloadURL
 		}
 		if werr := writeFrame(conn, w); werr != nil && err == nil {
 			err = werr

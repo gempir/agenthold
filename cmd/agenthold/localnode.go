@@ -38,13 +38,16 @@ type localHost struct {
 }
 
 // startLocalHost prepares this host to run sandboxes with driverName
-// ("firecracker" or "fake"). Listeners stop when ctx ends.
-func startLocalHost(ctx context.Context, cfg *config.Config, driverName string, logger *slog.Logger) (*localHost, error) {
+// ("firecracker" or "fake"). controller is the controller an edge node joined (zero for the
+// all-in-one server): a missing base image is fetched from it. Listeners stop when ctx ends.
+func startLocalHost(ctx context.Context, cfg *config.Config, driverName string, controller runtimeassets.Controller, logger *slog.Logger) (*localHost, error) {
 	if driverName == "firecracker" {
 		if err := firecracker.CheckHost(ctx); err != nil {
 			return nil, err
 		}
-		paths, err := runtimeassets.Prepare(ctx, cfg.DataDir)
+		paths, err := runtimeassets.Prepare(ctx, cfg.DataDir, runtimeassets.Options{
+			BaseURL: cfg.Sandbox.Firecracker.BaseURL, Controller: controller, Log: logger,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("runtime artifacts: %w", err)
 		}

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gempir/agenthold/internal/egress"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
 	"github.com/gempir/agenthold/internal/secrets"
@@ -299,5 +300,43 @@ func TestLocalNodeRowFollowsConfiguration(t *testing.T) {
 	}
 	if connects.Load() != 0 {
 		t.Fatal("the local node is not an edge connection")
+	}
+}
+
+// A node that connects and hangs up before it answers the setup call (`agenthold node` does this
+// to ask its controller where it serves downloads from) must not disturb the node it belongs to.
+func TestConnectAndImmediateCloseChangesNothing(t *testing.T) {
+	f := newClusterFixture(t, nil)
+	f.addEdge("e1", 8<<30)
+	ca, err := egress.LoadOrCreateCA(t.TempDir()) // from now on connections must complete the CA setup call
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.c.cfg.CA = ca
+	a, b := net.Pipe()
+	_ = b.Close()
+	done := make(chan struct{})
+	go func() { defer close(done); f.c.Serve(t.Context(), "e1", a) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve did not return for a connection that went away")
+	}
+	if f.c.remote("e1") == nil || f.c.remote("e1").Done() == nil {
+		t.Fatal("the connected node was replaced")
+	}
+	select {
+	case <-f.c.remote("e1").Done():
+		t.Fatal("the connected node was dropped")
+	default:
+	}
+	n, err := f.st.GetNode(t.Context(), "e1")
+	if err != nil || n.State != "online" {
+		t.Fatalf("node state after the hang-up: %+v %v", n, err)
+	}
+	select {
+	case id := <-f.connect:
+		t.Fatalf("hang-up triggered the on-connect hooks for %s", id)
+	default:
 	}
 }

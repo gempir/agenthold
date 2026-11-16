@@ -8,9 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net"
 	"os"
+	"syscall"
 	"time"
+
+	"github.com/gempir/agenthold/internal/version"
 )
 
 // State is what a node persists after joining (mode 0600). Losing it means
@@ -21,6 +26,11 @@ type State struct {
 	NodeID                string `json:"nodeId,omitempty"`
 	Name                  string `json:"name,omitempty"`
 	Identity              string `json:"identity"` // PEM certificate and key
+	// ControllerVersion and DownloadURL are what the controller last said about itself: the agenthold
+	// version it runs and the /dl/ root it serves downloads from. They survive restarts so a node can
+	// fetch its base image without reaching the controller first.
+	ControllerVersion string `json:"controllerVersion,omitempty"`
+	DownloadURL       string `json:"downloadUrl,omitempty"`
 }
 
 // LoadState reads a node's state file.
@@ -37,6 +47,20 @@ func LoadState(path string) (*State, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return &s, nil
+}
+
+// Save writes the state to path (mode 0600).
+func (s *State) Save(path string) error { return s.save(path) }
+
+// learn records what the controller said about itself in its welcome.
+func (s *State) learn(w welcome) {
+	if w.legacy {
+		s.ControllerVersion, s.DownloadURL = "", ""
+		return
+	}
+	if w.ControllerVersion != "" || w.DownloadURL != "" {
+		s.ControllerVersion, s.DownloadURL = w.ControllerVersion, w.DownloadURL
+	}
 }
 
 func (s *State) save(path string) error {
@@ -64,12 +88,13 @@ func Join(ctx context.Context, statePath string, token Token, name string) (net.
 	if err := s.save(statePath); err != nil {
 		return nil, nil, fmt.Errorf("save node state: %w", err)
 	}
-	conn, w, err := handshake(ctx, s, id, hello{Version: protocolVersion, Kind: "join", Secret: token.Secret, Name: name})
+	conn, w, err := handshakeCompat(ctx, s, id, hello{Version: protocolVersion, Kind: "join", Secret: token.Secret, Name: name, NodeVersion: version.Version})
 	if err != nil {
 		_ = os.Remove(statePath)
 		return nil, nil, err
 	}
 	s.NodeID, s.Name = w.NodeID, w.Name
+	s.learn(w)
 	if err := s.save(statePath); err != nil {
 		_ = conn.Close()
 		return nil, nil, fmt.Errorf("save node state: %w", err)
@@ -77,13 +102,17 @@ func Join(ctx context.Context, statePath string, token Token, name string) (net.
 	return conn, s, nil
 }
 
-// Connect authenticates a joined node to its controller.
+// Connect authenticates a joined node to its controller. It refreshes s.ControllerVersion and
+// s.DownloadURL from the controller's reply; saving s is up to the caller.
 func Connect(ctx context.Context, s *State) (net.Conn, error) {
 	id, err := ParseIdentity([]byte(s.Identity))
 	if err != nil {
 		return nil, err
 	}
-	conn, _, err := handshake(ctx, s, id, hello{Version: protocolVersion, Kind: "connect"})
+	conn, w, err := handshakeCompat(ctx, s, id, hello{Version: protocolVersion, Kind: "connect", NodeVersion: version.Version})
+	if err == nil {
+		s.learn(w)
+	}
 	return conn, err
 }
 
@@ -92,6 +121,33 @@ var errPinMismatch = errors.New("controller certificate does not match the pinne
 
 // IsDenied reports errors after which retrying the same credentials is useless.
 func IsDenied(err error) bool { return errors.Is(err, ErrDenied) || errors.Is(err, errPinMismatch) }
+
+// errNoReply means the controller closed the connection without answering the hello. A controller
+// that predates NodeVersion does so: it rejects hellos with fields it does not know.
+var errNoReply = errors.New("the controller closed the connection without answering")
+
+// handshakeCompat is handshake, but a controller that closes the connection on a hello with this
+// node's version is tried once more without it, as a node of the old protocol would: it then
+// connects normally and just learns nothing about downloads. Safe to repeat for a join, too: the
+// old controller rejected the hello before it looked at the token.
+func handshakeCompat(ctx context.Context, s *State, id *Identity, h hello) (net.Conn, welcome, error) {
+	conn, w, err := handshake(ctx, s, id, h)
+	if !errors.Is(err, errNoReply) || h.NodeVersion == "" {
+		return conn, w, err
+	}
+	h.NodeVersion = ""
+	conn, w, err = handshake(ctx, s, id, h)
+	switch {
+	case err == nil:
+		w.legacy = true
+		slog.Warn("the controller is older than this node (agenthold "+version.Version+") and does not say where it serves downloads from; "+
+			"upgrade the controller first, nodes must not be newer than their controller", "controller", s.Endpoint)
+	case errors.Is(err, errNoReply):
+		err = fmt.Errorf("the controller closed the connection during the handshake, with and without this node's version (agenthold %s): "+
+			"it is probably an older release than this node; upgrade the controller first: %w", version.Version, err)
+	}
+	return conn, w, err
+}
 
 func handshake(ctx context.Context, s *State, id *Identity, h hello) (net.Conn, welcome, error) {
 	var w welcome
@@ -126,6 +182,9 @@ func handshake(ctx context.Context, s *State, id *Identity, h hello) (net.Conn, 
 	}
 	if err := readFrame(conn, &w); err != nil {
 		_ = conn.Close()
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) {
+			return nil, w, fmt.Errorf("%w: %w", errNoReply, err)
+		}
 		return nil, w, err
 	}
 	if !w.OK || w.Version != protocolVersion {

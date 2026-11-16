@@ -574,6 +574,16 @@ func (c *Cluster) Rebuild(ctx context.Context, sid sandbox.ID, s sandbox.Spec) e
 	return n.Rebuild(ctx, sid, s)
 }
 
+// Clone implements Node on the node that hosts the source: disks never leave
+// their node, so a clone is placed with its source.
+func (c *Cluster) Clone(ctx context.Context, src sandbox.ID, s sandbox.Spec) (sandbox.ID, error) {
+	n, err := c.forSandbox(ctx, src)
+	if err != nil {
+		return "", err
+	}
+	return n.Clone(ctx, src, s)
+}
+
 // Attach implements Node.
 func (c *Cluster) Attach(ctx context.Context, sid sandbox.ID) error {
 	n, err := c.forSandbox(ctx, sid)

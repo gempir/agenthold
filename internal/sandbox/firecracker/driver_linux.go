@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -28,6 +29,13 @@ type Driver struct {
 	cfg Config
 	// disk is an internal provisioning seam for unprivileged unit tests.
 	disk func(string, int64, uint32, uint32) error
+	// chown hands cloned disks to the clone's VMM user (nil: os.Chown).
+	chown func(path string, uid, gid int) error
+
+	// cloning counts running Clone calls per source. Their disks are read
+	// without the driver lock held, so nothing else may start or remove them.
+	cloningMu sync.Mutex
+	cloning   map[sandbox.ID]int
 }
 
 var (
@@ -404,6 +412,9 @@ func (d *Driver) Start(ctx context.Context, id sandbox.ID, boot sandbox.Boot) (e
 		return err
 	}
 	defer unlock()
+	if err = d.notCloning(id); err != nil {
+		return err
+	}
 	m, err := d.load(id)
 	if err != nil {
 		return err
@@ -523,6 +534,9 @@ func (d *Driver) Destroy(ctx context.Context, id sandbox.ID, opts sandbox.Destro
 		return err
 	}
 	defer unlock()
+	if err = d.notCloning(id); err != nil {
+		return err
+	}
 	m, err := d.load(id)
 	if errors.Is(err, sandbox.ErrNotFound) {
 		return nil
@@ -558,6 +572,9 @@ func (d *Driver) Rebuild(ctx context.Context, id sandbox.ID, s sandbox.Spec) err
 		return err
 	}
 	defer unlock()
+	if err = d.notCloning(id); err != nil {
+		return err
+	}
 	m, err := d.load(id)
 	if err != nil {
 		return err

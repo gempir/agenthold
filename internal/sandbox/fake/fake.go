@@ -20,6 +20,8 @@ type Sandbox struct {
 	HomeDir string
 	Starts  int
 	Boot    sandbox.Boot
+	// ClonedFrom is the sandbox this one was cloned from, if any.
+	ClonedFrom sandbox.ID
 }
 
 // Driver implements sandbox.Driver in memory.
@@ -34,6 +36,9 @@ type Driver struct {
 	OnStart func(id sandbox.ID, sb Sandbox, boot sandbox.Boot)
 	// OnStop is called before a sandbox stops.
 	OnStop func(id sandbox.ID)
+	// OnClone is called while a clone copies, before it is registered. It may
+	// block (to hold a clone in flight) and fail the clone.
+	OnClone func(ctx context.Context, src sandbox.ID) error
 }
 
 var _ sandbox.Driver = (*Driver)(nil)
@@ -204,4 +209,45 @@ func (d *Driver) Rebuild(ctx context.Context, id sandbox.ID, spec sandbox.Spec) 
 	}
 	d.sandboxes[id] = &Sandbox{Spec: spec, State: sandbox.StateStopped, HomeDir: home, Starts: starts}
 	return nil
+}
+
+// Clone implements sandbox.Driver: the clone's home is a copy of the source's.
+func (d *Driver) Clone(ctx context.Context, src sandbox.ID, spec sandbox.Spec) (sandbox.ID, error) {
+	d.mu.Lock()
+	hook := d.OnClone
+	d.mu.Unlock()
+	if hook != nil {
+		if err := hook(ctx, src); err != nil {
+			return "", err
+		}
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if err := d.fail("clone"); err != nil {
+		return "", err
+	}
+	from, ok := d.sandboxes[src]
+	if !ok {
+		return "", sandbox.ErrNotFound
+	}
+	if from.State == sandbox.StateRunning {
+		return "", fmt.Errorf("%w: %s", sandbox.ErrRunning, src)
+	}
+	id := sandbox.ID("fake-" + spec.AgentID)
+	if _, ok := d.sandboxes[id]; ok {
+		return id, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	home := filepath.Join(d.dir, spec.AgentID, "home")
+	if err := os.RemoveAll(home); err != nil {
+		return "", err
+	}
+	if err := os.CopyFS(home, os.DirFS(from.HomeDir)); err != nil {
+		_ = os.RemoveAll(filepath.Dir(home))
+		return "", err
+	}
+	d.sandboxes[id] = &Sandbox{Spec: spec, State: sandbox.StateCreated, HomeDir: home, ClonedFrom: src}
+	return id, nil
 }

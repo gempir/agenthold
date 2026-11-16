@@ -21,6 +21,13 @@ import (
 // ErrConflict is returned when an operation is not allowed in the current phase.
 var ErrConflict = errors.New("operation not allowed in the current state")
 
+// ErrTemplate is returned when a template would be started, chatted with or
+// scheduled. Templates are stopped machines that only exist to be cloned.
+var ErrTemplate = errors.New("this machine is a template: it cannot be started, chatted with or scheduled. Clone it to get a machine, or convert it back to an agent")
+
+// ErrCloneFailed is returned when a machine whose clone never finished is started.
+var ErrCloneFailed = errors.New("this machine's clone did not finish: delete it and clone again")
+
 // SpecFunc builds the sandbox spec for an agent.
 type SpecFunc func(a db.Agent) Spec
 
@@ -54,6 +61,7 @@ type Backend interface {
 	Destroy(context.Context, ID, DestroyOpts) error
 	Status(context.Context, ID) (Status, error)
 	Rebuild(context.Context, ID, Spec) error
+	Clone(context.Context, ID, Spec) (ID, error)
 	Attach(context.Context, ID) error
 	WaitConnected(context.Context, string) error
 	Disconnect(context.Context, string) error
@@ -342,6 +350,139 @@ func (m *Manager) create(agentID string) func(ctx context.Context) error {
 	}
 }
 
+// ProvisionClone creates the sandbox row of a clone of srcID (inside the
+// caller's transaction q, which also inserts the clone's agent row with
+// cloned_from = srcID) and returns a function that starts the clone; call it
+// after the transaction commits.
+//
+// The source is moved to stopping, which keeps every other operation off it
+// while its disks are copied, and remembers whether to boot it again. A clone
+// lives on the node of its source: disks never leave their node.
+func (m *Manager) ProvisionClone(ctx context.Context, q *db.Queries, srcID, dstID string) (start func(), err error) {
+	if err := m.Reachable(ctx, srcID); err != nil {
+		return nil, err
+	}
+	src, err := q.GetSandbox(ctx, srcID)
+	if err != nil {
+		return nil, notFound(err)
+	}
+	if src.DriverID == "" {
+		return nil, ErrConflict
+	}
+	// Each guarded update is atomic, so the phase we left is the one we saw.
+	moved, wasRunning := false, false
+	for _, from := range []Phase{PhaseRunning, PhaseSleeping} {
+		n, err := q.TransitionSandbox(ctx, db.TransitionSandboxParams{
+			ToState: string(PhaseStopping), Now: m.now().Unix(), AgentID: srcID, FromStates: phases([]Phase{from}),
+		})
+		if err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			moved, wasRunning = true, from == PhaseRunning
+			break
+		}
+	}
+	if !moved {
+		return nil, ErrConflict
+	}
+	resume := int64(0)
+	if wasRunning {
+		resume = 1
+	}
+	if err := q.SetSandboxResume(ctx, db.SetSandboxResumeParams{Resume: resume, AgentID: srcID}); err != nil {
+		return nil, err
+	}
+	if err := q.CreateSandbox(ctx, db.CreateSandboxParams{
+		AgentID: dstID, NodeID: src.NodeID, Driver: src.Driver, State: string(PhaseCreating), StateChangedAt: m.now().Unix(),
+	}); err != nil {
+		return nil, err
+	}
+	return func() {
+		m.notify(srcID, PhaseStopping)
+		m.background(dstID, "clone", m.clone(dstID))
+	}, nil
+}
+
+// clone copies the disks of the clone's source into the new sandbox. It is
+// resumable: after a restart of the server Reconcile runs it again, from the
+// source being stopped and the destination having no disks.
+func (m *Manager) clone(dstID string) func(ctx context.Context) error {
+	return func(ctx context.Context) (err error) {
+		dst, err := m.store.GetAgent(ctx, dstID)
+		if err != nil {
+			return err
+		}
+		srcID := dst.ClonedFrom
+		unlock := m.lock(srcID)
+		defer unlock()
+		src, err := m.store.GetSandbox(ctx, srcID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("the source machine was deleted")
+		} else if err != nil {
+			return err
+		}
+		stopped := false
+		defer func() {
+			if errors.Is(err, ErrUnreachable) {
+				return // the node returns, and Reconcile runs the clone again
+			}
+			m.releaseSource(srcID, ID(src.DriverID), stopped)
+		}()
+		if src.DriverID == "" {
+			return errors.New("the source machine has no sandbox to clone")
+		}
+		// Normally stopped already; not when the server restarted mid-clone.
+		if err = m.driver.Stop(ctx, ID(src.DriverID)); err != nil {
+			return fmt.Errorf("stop the source: %w", err)
+		}
+		stopped = true
+		m.disconnect(srcID)
+		spec := m.spec(dst)
+		id, err := m.driver.Clone(ctx, ID(src.DriverID), spec)
+		if err != nil {
+			return err
+		}
+		if err = m.store.SetSandboxBuilt(ctx, db.SetSandboxBuiltParams{DriverID: string(id), AppliedSpec: SpecJSON(spec), AgentID: dstID}); err != nil {
+			return err
+		}
+		// Not m.set: a destroy that arrived meanwhile wins.
+		if err = m.transition(ctx, dstID, []Phase{PhaseCreating}, PhaseSleeping); errors.Is(err, ErrConflict) {
+			err = nil
+		}
+		return err
+	}
+}
+
+// releaseSource ends the hold a clone has on its source: it is booted again if
+// it was running before, otherwise it goes back to sleep. A source that could
+// not be stopped is an error, not asleep.
+func (m *Manager) releaseSource(srcID string, driverID ID, stopped bool) {
+	ctx, cancel := context.WithTimeout(m.ctx, 5*time.Minute)
+	defer cancel()
+	sb, err := m.store.GetSandbox(ctx, srcID)
+	if err != nil || Phase(sb.State) != PhaseStopping {
+		return // deleted, or resolved by someone else
+	}
+	if err := m.store.SetSandboxResume(ctx, db.SetSandboxResumeParams{AgentID: srcID}); err != nil {
+		m.log.Error("clear resume", "agent", srcID, "err", err)
+	}
+	switch {
+	case !stopped:
+		m.set(srcID, PhaseError, "could not stop the machine to clone it")
+	case sb.Resume == 0:
+		_ = m.transition(ctx, srcID, []Phase{PhaseStopping}, PhaseSleeping)
+	default:
+		if err := m.transition(ctx, srcID, []Phase{PhaseStopping}, PhaseStarting); err != nil {
+			return
+		}
+		if err := m.boot(ctx, srcID, driverID); err != nil && !errors.Is(err, ErrUnreachable) {
+			m.log.Warn("start after clone failed", "agent", srcID, "err", err)
+			m.set(srcID, PhaseError, fmt.Sprintf("start failed after cloning: %v", err))
+		}
+	}
+}
+
 func (m *Manager) driverID(ctx context.Context, agentID string) (ID, error) {
 	sb, err := m.store.GetSandbox(ctx, agentID)
 	if err != nil {
@@ -370,6 +511,16 @@ func (m *Manager) Start(ctx context.Context, agentID string) error {
 	}
 	if err := m.Reachable(ctx, agentID); err != nil {
 		return err
+	}
+	a, err := m.store.GetAgent(ctx, agentID)
+	if err != nil {
+		return notFound(err)
+	}
+	if a.IsTemplate == 1 {
+		return ErrTemplate
+	}
+	if sb.State == string(PhaseError) && sb.DriverID == "" && a.ClonedFrom != "" {
+		return ErrCloneFailed
 	}
 	if sb.State == string(PhaseError) && sb.DriverID == "" {
 		// Creation failed before the driver produced a sandbox: retry it.
@@ -517,11 +668,37 @@ func (m *Manager) ReconcileNode(ctx context.Context, nodeID string) error {
 	return m.reconcile(ctx, sbs)
 }
 
+// pendingClones finds the clones a restart interrupted before their disks
+// existed, and the sources they hold (by id).
+func (m *Manager) pendingClones(ctx context.Context, sbs []db.Sandbox) (clones, held map[string]bool, err error) {
+	clones, held = map[string]bool{}, map[string]bool{}
+	for _, sb := range sbs {
+		if Phase(sb.State) != PhaseCreating || sb.DriverID != "" {
+			continue
+		}
+		a, err := m.store.GetAgent(ctx, sb.AgentID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if a.ClonedFrom != "" {
+			clones[sb.AgentID], held[a.ClonedFrom] = true, true
+		}
+	}
+	return clones, held, nil
+}
+
 func (m *Manager) reconcile(ctx context.Context, sbs []db.Sandbox) error {
+	clones, held, err := m.pendingClones(ctx, sbs)
+	if err != nil {
+		return err
+	}
 	for _, sb := range sbs {
 		if err := m.Reachable(ctx, sb.AgentID); err != nil {
 			// Reconciled by ReconcileNode once the node connects.
 			continue
+		}
+		if held[sb.AgentID] {
+			continue // the clone job started below releases its source
 		}
 		phase := Phase(sb.State)
 		if phase == PhaseRunning || phase == PhaseStarting {
@@ -534,7 +711,10 @@ func (m *Manager) reconcile(ctx context.Context, sbs []db.Sandbox) error {
 			m.background(sb.AgentID, "destroy", m.destroy(sb.AgentID))
 			continue
 		case sb.DriverID == "":
-			if phase == PhaseCreating {
+			switch {
+			case clones[sb.AgentID]:
+				m.background(sb.AgentID, "clone", m.clone(sb.AgentID))
+			case phase == PhaseCreating:
 				m.background(sb.AgentID, "create", m.create(sb.AgentID))
 			}
 			continue
@@ -566,6 +746,15 @@ func (m *Manager) reconcile(ctx context.Context, sbs []db.Sandbox) error {
 		}
 		m.log.Info("reconcile", "agent", sb.AgentID, "persisted", phase, "actual", actual)
 		m.set(sb.AgentID, actual, msg)
+		if sb.Resume == 1 && actual == PhaseSleeping {
+			// It was stopped for a clone that has finished (or is gone): boot it again.
+			if err := m.store.SetSandboxResume(ctx, db.SetSandboxResumeParams{AgentID: sb.AgentID}); err != nil {
+				return err
+			}
+			if err := m.Start(ctx, sb.AgentID); err != nil {
+				m.log.Warn("reconcile: start after clone", "agent", sb.AgentID, "err", err)
+			}
+		}
 	}
 	return nil
 }

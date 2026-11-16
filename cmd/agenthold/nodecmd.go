@@ -78,8 +78,7 @@ func runNode(args []string) error {
 		}
 	}
 	var conn net.Conn
-	switch {
-	case state == nil:
+	if state == nil {
 		conn, state, err = enrollment.Join(ctx, cfg.Node.StateFile, token, cfg.Node.Name)
 		if err != nil {
 			if enrollment.IsDenied(err) {
@@ -91,7 +90,7 @@ func runNode(args []string) error {
 		// Fetching the base image can take long: do not hold an idle connection meanwhile.
 		_ = conn.Close()
 		conn = nil
-	default:
+	} else {
 		refreshController(ctx, cfg.Node.StateFile, state, logger)
 	}
 	host, err := startLocalHost(ctx, cfg, driverName,

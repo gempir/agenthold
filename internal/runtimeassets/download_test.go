@@ -494,24 +494,38 @@ func TestBaseSourceResolution(t *testing.T) {
 		wantErr string
 	}{
 		{name: "embedded only", embed: "https://github.example/base.zst", want: []string{"https://github.example/base.zst"}},
-		{name: "config wins over controller and embedded", embed: "https://github.example/base.zst",
+		{
+			name: "config wins over controller and embedded", embed: "https://github.example/base.zst",
 			opts: Options{BaseURL: "https://demo.example/dl/", Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v1.2.3"}},
-			want: []string{"https://demo.example/dl/" + file}},
+			want: []string{"https://demo.example/dl/" + file},
+		},
 		{name: "config direct file url", opts: Options{BaseURL: "https://mirror.example/x/base.zst"}, want: []string{"https://mirror.example/x/base.zst"}},
-		{name: "controller wins over embedded", embed: "https://github.example/base.zst",
+		{
+			name: "controller wins over embedded", embed: "https://github.example/base.zst",
 			opts: Options{Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v1.2.3"}},
-			want: []string{"https://ctl.example/dl/" + file, "https://github.example/base.zst"}},
-		{name: "controller only", opts: Options{Controller: Controller{DownloadURL: "https://ctl.example/prefix/dl/", Version: "v1.2.3"}},
-			want: []string{"https://ctl.example/prefix/dl/" + file}},
-		{name: "relative embedded url joins the root", embed: "v1.2.3/custom.zst",
-			opts: Options{BaseURL: "https://demo.example/dl/"}, want: []string{"https://demo.example/dl/v1.2.3/custom.zst"}},
-		{name: "version skew without fallback", opts: Options{Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v2.0.0"}},
-			wantErr: "runs agenthold v1.2.3 but its controller runs v2.0.0"},
-		{name: "version skew falls back to embedded", embed: "https://github.example/base.zst",
+			want: []string{"https://ctl.example/dl/" + file, "https://github.example/base.zst"},
+		},
+		{
+			name: "controller only", opts: Options{Controller: Controller{DownloadURL: "https://ctl.example/prefix/dl/", Version: "v1.2.3"}},
+			want: []string{"https://ctl.example/prefix/dl/" + file},
+		},
+		{
+			name: "relative embedded url joins the root", embed: "v1.2.3/custom.zst",
+			opts: Options{BaseURL: "https://demo.example/dl/"}, want: []string{"https://demo.example/dl/v1.2.3/custom.zst"},
+		},
+		{
+			name: "version skew without fallback", opts: Options{Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v2.0.0"}},
+			wantErr: "runs agenthold v1.2.3 but its controller runs v2.0.0",
+		},
+		{
+			name: "version skew falls back to embedded", embed: "https://github.example/base.zst",
 			opts: Options{Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v2.0.0"}, Log: slog.New(slog.DiscardHandler)},
-			want: []string{"https://github.example/base.zst"}},
-		{name: "config ignores skew", opts: Options{BaseURL: "https://demo.example/dl/", Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v2"}},
-			want: []string{"https://demo.example/dl/" + file}},
+			want: []string{"https://github.example/base.zst"},
+		},
+		{
+			name: "config ignores skew", opts: Options{BaseURL: "https://demo.example/dl/", Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v2"}},
+			want: []string{"https://demo.example/dl/" + file},
+		},
 		{name: "nothing", wantErr: "base_url"},
 		{name: "relative embedded without root", embed: "v1.2.3/custom.zst", wantErr: "base_url"},
 		{name: "bad config", opts: Options{BaseURL: "ftp://x/"}, wantErr: "sandbox.firecracker.base_url"},

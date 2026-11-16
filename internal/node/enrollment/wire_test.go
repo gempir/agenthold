@@ -13,6 +13,7 @@ type acceptAll struct{}
 func (acceptAll) Join(context.Context, string, string, string) (Peer, error) {
 	return Peer{ID: "n1", Name: "n"}, nil
 }
+
 func (acceptAll) Authenticate(context.Context, string) (Peer, error) {
 	return Peer{ID: "n1", Name: "n"}, nil
 }
@@ -30,8 +31,10 @@ func TestWelcomeCarriesDownloadInfoOnlyForNodesThatAskedForIt(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	srv := &Server{Identity: id, Registry: acceptAll{}, Version: "v1", DownloadURL: "https://c.example/dl/",
-		Handle: func(_ context.Context, _ Peer, conn net.Conn) { _ = conn.Close() }}
+	srv := &Server{
+		Identity: id, Registry: acceptAll{}, Version: "v1", DownloadURL: "https://c.example/dl/",
+		Handle: func(_ context.Context, _ Peer, conn net.Conn) { _ = conn.Close() },
+	}
 	go func() { _ = srv.Serve(ctx, ln) }()
 
 	node, err := NewIdentity("node")

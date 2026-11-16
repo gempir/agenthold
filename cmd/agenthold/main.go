@@ -24,6 +24,7 @@ import (
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/config"
+	"github.com/gempir/agenthold/internal/dl"
 	"github.com/gempir/agenthold/internal/egress"
 	_ "github.com/gempir/agenthold/internal/harness/claude"
 	_ "github.com/gempir/agenthold/internal/harness/codex"
@@ -170,6 +171,12 @@ func run() error {
 		}
 		clusterCfg.Endpoint, clusterCfg.Fingerprint = cfg.Nodes.Advertise, nodeIdentity.Fingerprint
 	}
+	release, err := runtimeassets.Embedded()
+	if err != nil {
+		return fmt.Errorf("embedded release: %w", err)
+	}
+	downloads := dl.New(dl.Config{DataDir: cfg.DataDir, Release: release, Log: logger})
+	downloads.Start(ctx)
 	cluster, err := node.NewCluster(ctx, clusterCfg)
 	if err != nil {
 		return err
@@ -217,8 +224,11 @@ func run() error {
 			return fmt.Errorf("node listener: %w", err)
 		}
 		nodeSrv := &enrollment.Server{
-			Identity: nodeIdentity, Registry: cluster, Log: logger,
+			Identity: nodeIdentity, Registry: cluster, Log: logger, Version: version.Version,
 			Handle: func(ctx context.Context, p enrollment.Peer, conn net.Conn) { cluster.Serve(ctx, p.ID, conn) },
+		}
+		if release != nil {
+			nodeSrv.DownloadURL = cfg.PublicURL + "/dl/"
 		}
 		go func() {
 			if err := nodeSrv.Serve(ctx, ln); err != nil && ctx.Err() == nil {
@@ -275,7 +285,7 @@ func run() error {
 	})
 	sessions.SetWaker(apiSrv.Wake)
 
-	srvCfg := server.Config{Web: web.Dist(), Logger: logger, API: apiSrv.Mount}
+	srvCfg := server.Config{Web: web.Dist(), Logger: logger, API: apiSrv.Mount, DL: downloads}
 	if cfg.DevProxy != "" {
 		u, err := url.Parse(cfg.DevProxy)
 		if err != nil {

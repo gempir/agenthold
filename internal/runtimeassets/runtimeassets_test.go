@@ -69,7 +69,7 @@ func setManifest(t *testing.T, files fstest.MapFS, m manifest) {
 func assertNoTemps(t *testing.T, dir string) {
 	t.Helper()
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err == nil && (strings.HasPrefix(d.Name(), ".agenthold-") || strings.HasPrefix(d.Name(), ".download-")) {
+		if err == nil && (strings.HasPrefix(d.Name(), ".agenthold-") || strings.HasSuffix(d.Name(), ".part")) {
 			t.Errorf("temporary file remains: %s", path)
 		}
 		return err
@@ -90,7 +90,7 @@ func TestPrepareDownloadCacheRepairAndOffline(t *testing.T) {
 	m.Base.URL = srv.URL + "/pinned.ext4.zst"
 	setManifest(t, files, m)
 	dir := privateDir(t)
-	paths, err := prepare(t.Context(), dir, files, srv.Client())
+	paths, err := prepare(t.Context(), dir, files, srv.Client(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestPrepareDownloadCacheRepairAndOffline(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv.Close() // A verified pre-placed base is sufficient for a fully offline startup.
-	if _, err := prepare(t.Context(), dir, files, srv.Client()); err != nil {
+	if _, err := prepare(t.Context(), dir, files, srv.Client(), Options{}); err != nil {
 		t.Fatal(err)
 	}
 	got, err = os.ReadFile(paths.Firecracker)
@@ -137,7 +137,7 @@ func TestPreparePreplacedBase(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "base", m.Base.SHA256+".ext4"), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepare(t.Context(), dir, files, &http.Client{Timeout: time.Millisecond}); err != nil {
+	if _, err := prepare(t.Context(), dir, files, &http.Client{Timeout: time.Millisecond}, Options{}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -173,7 +173,7 @@ func TestPrepareCorruption(t *testing.T) {
 			defer srv.Close()
 			m.Base.URL = srv.URL
 			setManifest(t, files, m)
-			if _, err := prepare(t.Context(), dir, files, srv.Client()); err == nil {
+			if _, err := prepare(t.Context(), dir, files, srv.Client(), Options{}); err == nil {
 				t.Fatal("corrupt artifact accepted")
 			}
 			if kind == "preplaced" && requests.Load() != 0 {
@@ -205,9 +205,21 @@ func TestPrepareCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { _, err := prepare(ctx, dir, files, srv.Client()); done <- err }()
+	go func() { _, err := prepare(ctx, dir, files, srv.Client(), Options{}); done <- err }()
 	select {
 	case <-started:
+		canonical, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		part := partPath(filepath.Join(canonical, "base"), m.Base.SHA256)
+		deadline := time.Now().Add(5 * time.Second)
+		for fi, err := os.Stat(part); err != nil || fi.Size() == 0; fi, err = os.Stat(part) {
+			if time.Now().After(deadline) {
+				t.Fatal("download wrote nothing")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
 		cancel()
 	case <-time.After(5 * time.Second):
 		t.Fatal("download did not start")
@@ -220,7 +232,17 @@ func TestPrepareCancellation(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("cancellation did not stop download")
 	}
-	assertNoTemps(t, dir)
+	// The partial download is the resume point, so it stays; nothing else does.
+	if _, err := os.Stat(filepath.Join(dir, "base", m.Base.SHA256+".ext4")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("base published after cancellation: %v", err)
+	}
+	canonical, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(partPath(filepath.Join(canonical, "base"), m.Base.SHA256)); err != nil {
+		t.Fatalf("partial download not kept for resuming: %v", err)
+	}
 }
 
 func TestManifestAndUnsafePaths(t *testing.T) {
@@ -249,7 +271,7 @@ func TestManifestAndUnsafePaths(t *testing.T) {
 				}
 			}
 			setManifest(t, files, m)
-			if _, err := prepare(t.Context(), dir, files, &http.Client{Timeout: time.Millisecond}); err == nil {
+			if _, err := prepare(t.Context(), dir, files, &http.Client{Timeout: time.Millisecond}, Options{}); err == nil {
 				t.Fatal("unsafe manifest or directory accepted")
 			}
 		})
@@ -261,7 +283,7 @@ func TestUnbundledHasNoSideEffects(t *testing.T) {
 		t.Skip("release build")
 	}
 	dir := filepath.Join(privateDir(t), "missing")
-	paths, err := Prepare(t.Context(), dir)
+	paths, err := Prepare(t.Context(), dir, Options{})
 	if err != nil || paths.Bundled || paths != (Paths{}) {
 		t.Fatalf("unbundled: %+v %v", paths, err)
 	}

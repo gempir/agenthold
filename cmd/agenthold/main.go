@@ -33,6 +33,7 @@ import (
 	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/node/enrollment"
 	"github.com/gempir/agenthold/internal/platform"
+	"github.com/gempir/agenthold/internal/runtimeassets"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/firecracker"
 	"github.com/gempir/agenthold/internal/secrets"
@@ -149,7 +150,7 @@ func run() error {
 	// The built-in node exists only when this host runs VMs (or uses the fake driver).
 	clusterCfg := node.ClusterConfig{Store: st, CA: ca, Log: logger}
 	if driverName != "none" {
-		host, err := startLocalHost(ctx, cfg, driverName, logger)
+		host, err := startLocalHost(ctx, cfg, driverName, runtimeassets.Controller{}, logger)
 		if err != nil {
 			return err
 		}

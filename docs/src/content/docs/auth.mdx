@@ -79,6 +79,8 @@ auth:
       discovery_url: ""            # oidc, optional
       github_url: ""               # github, optional
       github_api_url: ""           # github, optional
+preview:
+  host_suffix: ""                  # e.g. .apps.example.com; empty = preview URLs off, see Preview URLs
 ```
 
 | Field | Types | Notes |
@@ -93,7 +95,8 @@ auth:
 | `github_url` | github | Default `https://github.com`. |
 | `github_api_url` | github | Default `https://api.github.com`. |
 
-Environment overrides: `AGENTHOLD_LISTEN`, `AGENTHOLD_PUBLIC_URL`, `AGENTHOLD_DATA_DIR`, `AGENTHOLD_DEV_PROXY`.
+Environment overrides: `AGENTHOLD_LISTEN`, `AGENTHOLD_PUBLIC_URL`, `AGENTHOLD_DATA_DIR`, `AGENTHOLD_DEV_PROXY`,
+`AGENTHOLD_PREVIEW_HOST_SUFFIX`. `preview.host_suffix` is described in [Preview URLs](/previews/).
 
 Unknown YAML keys are rejected at startup. Set `public_url` to the exact URL users open in the browser,
 otherwise the redirect URI will not match what you registered with the provider.

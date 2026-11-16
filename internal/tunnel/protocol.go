@@ -19,6 +19,10 @@ const (
 	OpPlatform = "platform" // opened by sandboxd: a platform MCP tool call
 	OpHello    = "hello"    // the server asks sandboxd who it is right after connecting
 	OpShutdown = "shutdown" // power the sandbox off (microVM init mode); answered with OK first
+	// OpDial connects to a TCP port on the guest's loopback. sandboxd answers
+	// with a DialReply; after a successful one the stream carries raw bytes
+	// in both directions (no frames) until either side closes it.
+	OpDial = "dial"
 )
 
 // Open is the first frame on every stream.
@@ -39,6 +43,9 @@ type Open struct {
 	// Deny lists absolute paths (files or directories) that fs operations must
 	// refuse, checked after resolving symlinks.
 	Deny []string `json:"deny,omitempty"`
+
+	// dial
+	Port int `json:"port,omitempty"`
 
 	// platform (opened by sandboxd): a platform tool call from an MCP client.
 	Tool    string          `json:"tool,omitempty"`
@@ -105,4 +112,11 @@ type Hello struct {
 	Version string `json:"version"`
 	User    string `json:"user"`
 	Home    string `json:"home"`
+}
+
+// DialReply answers OpDial. Refused is set when nothing listens on the port.
+type DialReply struct {
+	OK      bool   `json:"ok"`
+	Refused bool   `json:"refused,omitempty"`
+	Error   string `json:"error,omitempty"`
 }

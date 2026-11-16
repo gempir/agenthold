@@ -58,14 +58,20 @@ type Config struct {
 	// OnShutdown handles a shutdown request from the server (after it was
 	// acknowledged). Nil means shutdown requests are refused.
 	OnShutdown func()
+	// Services are started at boot. When nil they are read from
+	// ServicesFile, which is also where runtime changes are saved ("" for
+	// neither).
+	Services     []tunnel.ServiceSpec
+	ServicesFile string
 }
 
 // Daemon is a running sandboxd.
 type Daemon struct {
-	cfg    Config
-	log    *slog.Logger
-	acct   account
-	opener opener
+	cfg      Config
+	log      *slog.Logger
+	acct     account
+	opener   opener
+	services *supervisor
 }
 
 type account struct {
@@ -88,6 +94,7 @@ func New(cfg Config) (*Daemon, error) {
 		return nil, err
 	}
 	d := &Daemon{cfg: cfg, log: cfg.Logger, acct: acct}
+	d.services = newSupervisor(d, cfg.ServicesFile)
 	d.prepareHome()
 	d.installCA()
 	return d, nil
@@ -131,7 +138,18 @@ func (d *Daemon) prepareHome() {
 }
 
 // Run dials the server and serves until ctx ends, reconnecting with backoff.
+// Services start first and keep running while the tunnel is down; they stop
+// when ctx ends.
 func (d *Daemon) Run(ctx context.Context) error {
+	specs := d.cfg.Services
+	if specs == nil {
+		var err error
+		if specs, err = loadServices(d.cfg.ServicesFile); err != nil {
+			d.log.Warn("services file", "err", err)
+		}
+	}
+	d.services.start(ctx, specs)
+	defer d.services.stopAll()
 	go d.servePlatform(ctx)
 	backoff := 250 * time.Millisecond
 	for {
@@ -194,6 +212,16 @@ func (d *Daemon) handle(ctx context.Context, st net.Conn, o tunnel.Open) {
 		err = d.fsMkdir(st, o)
 	case tunnel.OpFSRemove:
 		err = d.fsRemove(st, o)
+	case tunnel.OpFSTar:
+		err = d.fsTar(st, o)
+	case tunnel.OpFSUntar:
+		err = d.fsUntar(st, o)
+	case tunnel.OpFSSymlink:
+		err = d.fsSymlink(st, o)
+	case tunnel.OpService:
+		err = d.service(ctx, st, o)
+	case tunnel.OpExec:
+		err = d.exec(ctx, st, o)
 	default:
 		err = fmt.Errorf("unknown operation %q", o.Op)
 	}

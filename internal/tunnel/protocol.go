@@ -23,6 +23,21 @@ const (
 	// with a DialReply; after a successful one the stream carries raw bytes
 	// in both directions (no frames) until either side closes it.
 	OpDial = "dial"
+	// OpService manages the services sandboxd supervises (see ServiceRequest).
+	// Every action but logs answers with a ServicesReply; logs answers with
+	// OK, then data frames of log output, then (without Follow) an EOF frame.
+	OpService = "service"
+	// OpFSTar streams a directory out of the sandbox as a tar archive (data
+	// frames, then EOF), read as the agent account. OpFSUntar extracts the tar
+	// archive in the data frames that follow into a directory, as the agent
+	// account, and answers OK after the EOF frame.
+	OpFSTar   = "fs.tar"
+	OpFSUntar = "fs.untar"
+	// OpFSSymlink points the symlink Path at Target, replacing what is there
+	// atomically.
+	OpFSSymlink = "fs.symlink"
+	// OpExec runs Cmd as the agent account and answers with an ExecReply.
+	OpExec = "exec"
 )
 
 // Open is the first frame on every stream.
@@ -46,6 +61,20 @@ type Open struct {
 
 	// dial
 	Port int `json:"port,omitempty"`
+
+	// service
+	Service *ServiceRequest `json:"service,omitempty"`
+
+	// fs.tar: paths (relative to Path) left out of the archive; MaxBytes
+	// bounds the archive (fs.tar and fs.untar).
+	Exclude  []string `json:"exclude,omitempty"`
+	MaxBytes int64    `json:"maxBytes,omitempty"`
+	// fs.symlink
+	Target string `json:"target,omitempty"`
+	// exec: the working directory (default the home) and the time limit in
+	// seconds (default 60); MaxBytes bounds the output kept.
+	Dir     string `json:"dir,omitempty"`
+	Timeout int    `json:"timeout,omitempty"`
 
 	// platform (opened by sandboxd): a platform tool call from an MCP client.
 	Tool    string          `json:"tool,omitempty"`
@@ -123,4 +152,69 @@ type DialReply struct {
 	OK      bool   `json:"ok"`
 	Refused bool   `json:"refused,omitempty"`
 	Error   string `json:"error,omitempty"`
+}
+
+// Service actions.
+const (
+	ServiceApply   = "apply"   // replace the whole desired set with Specs
+	ServiceStart   = "start"   // start Name (enable it)
+	ServiceStop    = "stop"    // stop Name (disable it)
+	ServiceRestart = "restart" // restart Name now, resetting its backoff
+	ServiceStatus  = "status"  // report every service
+	ServiceLogs    = "logs"    // the last Lines lines of Name's log, then Follow
+)
+
+// ServiceRequest is the body of an OpService stream.
+type ServiceRequest struct {
+	Action string        `json:"action"`
+	Name   string        `json:"name,omitempty"`
+	Specs  []ServiceSpec `json:"specs,omitempty"`
+	Lines  int           `json:"lines,omitempty"`
+	Follow bool          `json:"follow,omitempty"`
+}
+
+// ServiceSpec is a supervised command. Command is run by the login shell
+// ("sh -lc") as the agent account in Workdir (relative to the home; default
+// the home) with Env added to the environment.
+type ServiceSpec struct {
+	Name    string            `json:"name"`
+	Command string            `json:"command"`
+	Workdir string            `json:"workdir,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	Enabled bool              `json:"enabled"`
+}
+
+// Service states.
+const (
+	ServiceRunning = "running"
+	ServiceBackoff = "backoff" // exited; restarting after a delay
+	ServiceStopped = "stopped"
+	ServiceFailed  = "failed" // could not be started (retried after a delay)
+)
+
+// ServiceState reports one supervised service.
+type ServiceState struct {
+	Name     string `json:"name"`
+	State    string `json:"state"`
+	Pid      int    `json:"pid,omitempty"`
+	Restarts int    `json:"restarts"`
+	// ExitCode and Signal describe the last exit (Signal is a name like
+	// "killed" when a signal ended it).
+	ExitCode  *int   `json:"exitCode,omitempty"`
+	Signal    string `json:"signal,omitempty"`
+	Error     string `json:"error,omitempty"`
+	StartedAt int64  `json:"startedAt,omitempty"` // unix seconds of the current or last start
+}
+
+// ServicesReply answers every OpService action but logs.
+type ServicesReply struct {
+	Services []ServiceState `json:"services"`
+}
+
+// ExecReply answers OpExec.
+type ExecReply struct {
+	Output    string `json:"output"`
+	Truncated bool   `json:"truncated,omitempty"`
+	ExitCode  int    `json:"exitCode"`
+	TimedOut  bool   `json:"timedOut,omitempty"`
 }

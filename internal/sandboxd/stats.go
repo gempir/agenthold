@@ -9,9 +9,10 @@ import (
 	"github.com/gempir/agenthold/internal/tunnel"
 )
 
-// stats sums the CPU time of every process in the sandbox except sandboxd.
-// The server compares successive readings to tell idle sandboxes from busy
-// ones (a long build keeps an agent awake).
+// stats sums the CPU time of every process in the sandbox except sandboxd
+// and supervised services. The server compares successive readings to tell
+// idle sandboxes from busy ones (a long build keeps an agent awake; a
+// service alone does not).
 func stats() tunnel.Stats {
 	var st tunnel.Stats
 	self := os.Getpid()
@@ -21,7 +22,7 @@ func stats() tunnel.Stats {
 	}
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
-		if err != nil || pid == self {
+		if err != nil || pid == self || inServiceCgroup(e.Name()) {
 			continue
 		}
 		b, err := os.ReadFile("/proc/" + e.Name() + "/stat")
@@ -44,4 +45,10 @@ func stats() tunnel.Stats {
 		st.Processes++
 	}
 	return st
+}
+
+// inServiceCgroup reports whether the process runs in a service's cgroup.
+func inServiceCgroup(pid string) bool {
+	b, err := os.ReadFile("/proc/" + pid + "/cgroup")
+	return err == nil && bytes.Contains(b, []byte("/"+serviceCgroupPrefix))
 }

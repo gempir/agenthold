@@ -241,6 +241,8 @@ func TestJailedLifecycle(t *testing.T) {
 	if err != nil || code != 0 || !strings.Contains(output.String(), "terminal-works") {
 		t.Fatalf("terminal %q %d %v", output.String(), code, err)
 	}
+	// Preview URLs: the tunnel's dial op reaches a server on the guest's loopback.
+	guestDial(ctx, t, sess)
 	// Simulate the controller dying immediately after jailer starts, before
 	// it can persist a PID. The cgroup must recover the still-live process.
 	m.Process = process{}
@@ -411,4 +413,40 @@ func startKVMProxy(t *testing.T, dir, agentID string) ([]byte, <-chan string) {
 	go func() { _ = proxy.ServeTransparent(listener) }()
 	t.Cleanup(func() { _ = listener.Close() })
 	return ca.CertPEM(), auth
+}
+
+// guestDial starts an HTTP server in the guest and fetches from it through
+// tunnel dial streams, as the preview proxy does.
+func guestDial(ctx context.Context, t *testing.T, sess *tunnel.Session) {
+	t.Helper()
+	if _, err := sess.Dial(ctx, 8765); err == nil {
+		t.Fatal("dial to a closed guest port succeeded")
+	} else if de := (*tunnel.DialError)(nil); !errors.As(err, &de) || !de.Refused {
+		t.Fatalf("closed guest port: %v", err)
+	}
+	srv, err := sess.StartHarness(ctx, []string{"bash", "-lc", "cd /tmp && echo preview-works > index.html && exec python3 -m http.server 8765 --bind 127.0.0.1"}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	client := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return sess.Dial(ctx, 8765)
+	}}}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://guest/index.html", nil)
+		res, err := client.Do(req)
+		if err == nil {
+			body, _ := io.ReadAll(res.Body)
+			_ = res.Body.Close()
+			if strings.TrimSpace(string(body)) != "preview-works" {
+				t.Fatalf("guest server answered %d %q", res.StatusCode, body)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("guest server unreachable through dial: %v", err)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }

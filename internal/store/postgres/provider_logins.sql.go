@@ -120,7 +120,7 @@ func (q *Queries) GetProviderLoginByID(ctx context.Context, id string) (Provider
 }
 
 const listAgentsByLoginUser = `-- name: ListAgentsByLoginUser :many
-SELECT id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, permission_policy, credentials_in_sandbox, login_user_id, created_at, updated_at FROM agents WHERE login_user_id = $1 ORDER BY name
+SELECT id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, permission_policy, credentials_in_sandbox, login_user_id, created_at, updated_at, kind, created_by_agent_id FROM agents WHERE login_user_id = $1 ORDER BY name
 `
 
 func (q *Queries) ListAgentsByLoginUser(ctx context.Context, loginUserID string) ([]Agent, error) {
@@ -147,6 +147,8 @@ func (q *Queries) ListAgentsByLoginUser(ctx context.Context, loginUserID string)
 			&i.LoginUserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Kind,
+			&i.CreatedByAgentID,
 		); err != nil {
 			return nil, err
 		}

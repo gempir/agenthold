@@ -16,6 +16,7 @@ type Querier interface {
 	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) error
 	CreateAgent(ctx context.Context, arg CreateAgentParams) error
 	CreateAgentSession(ctx context.Context, arg CreateAgentSessionParams) error
+	CreateApp(ctx context.Context, arg CreateAppParams) error
 	CreateExposure(ctx context.Context, arg CreateExposureParams) error
 	CreateIdentity(ctx context.Context, arg CreateIdentityParams) error
 	CreateLoginState(ctx context.Context, arg CreateLoginStateParams) error
@@ -48,6 +49,7 @@ type Querier interface {
 	DeleteProviderLogin(ctx context.Context, arg DeleteProviderLoginParams) (int64, error)
 	DeleteSchedule(ctx context.Context, id string) error
 	DeleteSecret(ctx context.Context, id string) error
+	DeleteService(ctx context.Context, arg DeleteServiceParams) (int64, error)
 	DeleteSession(ctx context.Context, tokenHash string) error
 	DeleteSkill(ctx context.Context, id string) error
 	DeleteStaleNodeJoinTokens(ctx context.Context, before int64) error
@@ -77,6 +79,7 @@ type Querier interface {
 	GetSchedule(ctx context.Context, id string) (Schedule, error)
 	GetSecret(ctx context.Context, id string) (Secret, error)
 	GetSecretByName(ctx context.Context, arg GetSecretByNameParams) (Secret, error)
+	GetService(ctx context.Context, arg GetServiceParams) (Service, error)
 	GetSessionUser(ctx context.Context, arg GetSessionUserParams) (GetSessionUserRow, error)
 	GetShare(ctx context.Context, arg GetShareParams) (AgentShare, error)
 	GetSkill(ctx context.Context, id string) (Skill, error)
@@ -90,6 +93,7 @@ type Querier interface {
 	IsSharedWith(ctx context.Context, arg IsSharedWithParams) (int64, error)
 	LinkedSessions(ctx context.Context, arg LinkedSessionsParams) ([]AgentSession, error)
 	ListAPITokens(ctx context.Context, userID string) ([]ApiToken, error)
+	ListAgentApps(ctx context.Context, createdByAgentID string) ([]Agent, error)
 	ListAgentAudit(ctx context.Context, arg ListAgentAuditParams) ([]AuditLog, error)
 	ListAgentMCPServers(ctx context.Context, agentID string) ([]McpServer, error)
 	ListAgentOwnMCPServers(ctx context.Context, agentID string) ([]McpServer, error)
@@ -106,6 +110,7 @@ type Querier interface {
 	ListProviderLogins(ctx context.Context) ([]ProviderLogin, error)
 	ListSandboxSubnets(ctx context.Context) ([]ListSandboxSubnetsRow, error)
 	ListSandboxes(ctx context.Context) ([]Sandbox, error)
+	ListServices(ctx context.Context, agentID string) ([]Service, error)
 	ListSessionEvents(ctx context.Context, arg ListSessionEventsParams) ([]AgentSessionEvent, error)
 	ListUnfinishedSessions(ctx context.Context) ([]string, error)
 	ListUserAgents(ctx context.Context, userID string) ([]ListUserAgentsRow, error)
@@ -134,6 +139,7 @@ type Querier interface {
 	SetSandboxBuilt(ctx context.Context, arg SetSandboxBuiltParams) error
 	SetSandboxState(ctx context.Context, arg SetSandboxStateParams) error
 	SetSandboxSubnet(ctx context.Context, arg SetSandboxSubnetParams) error
+	SetServiceEnabled(ctx context.Context, arg SetServiceEnabledParams) (int64, error)
 	SetSessionACPID(ctx context.Context, arg SetSessionACPIDParams) error
 	SetSessionOrigin(ctx context.Context, arg SetSessionOriginParams) error
 	SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error
@@ -156,4 +162,5 @@ type Querier interface {
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
 	UpdateWebhook(ctx context.Context, arg UpdateWebhookParams) error
 	UpsertLocalNode(ctx context.Context, arg UpsertLocalNodeParams) error
+	UpsertService(ctx context.Context, arg UpsertServiceParams) error
 }

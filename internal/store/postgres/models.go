@@ -23,6 +23,8 @@ type Agent struct {
 	LoginUserID          string
 	CreatedAt            int64
 	UpdatedAt            int64
+	Kind                 string
+	CreatedByAgentID     string
 }
 
 type AgentMcpServer struct {
@@ -243,6 +245,17 @@ type Secret struct {
 	Placeholder string
 	CreatedAt   int64
 	UpdatedAt   int64
+}
+
+type Service struct {
+	AgentID   string
+	Name      string
+	Command   string
+	Workdir   string
+	Env       string
+	Enabled   int64
+	CreatedAt int64
+	UpdatedAt int64
 }
 
 type Session struct {

@@ -595,7 +595,7 @@ func (a *API) nodeCanHost(ctx context.Context, agentID string) error {
 		return err
 	}
 	if err != nil {
-		return fmt.Errorf("%w: its node could not report its capacity: %v", sandbox.ErrNoCapacity, err)
+		return fmt.Errorf("%w: its node could not report its capacity: %w", sandbox.ErrNoCapacity, err)
 	}
 	return nil
 }

@@ -171,6 +171,11 @@ func TestJailedClone(t *testing.T) {
 	// Only the source's identity stamp (written by a sandboxd that has the
 	// feature) decides whether the identity checks below can be made.
 	stamped := run(src, "cat /etc/agenthold/instance 2>/dev/null || true") == string(srcID)
+	if stamped {
+		// A system that was never stamped (every machine built before the
+		// stamp existed): the clone's own boot instruction must reset it.
+		run(src, "sudo rm /etc/agenthold/instance; sync")
+	}
 
 	// A running source is refused, and a refusal leaves nothing behind.
 	if _, err = d.Clone(ctx, srcID, spec(prefix+"_dst")); !errors.Is(err, sandbox.ErrRunning) {
@@ -244,6 +249,7 @@ func TestJailedClone(t *testing.T) {
 		if got := run(dst, "cat /etc/agenthold/instance; wc -c < /etc/machine-id; ls /var/lib/docker/engine-id 2>&1 | grep -c 'No such file'"); got != string(dstID)+"\n0\n1" {
 			t.Fatalf("clone identity: %q", got)
 		}
+		// The source was unstamped and had no instruction: it only stamps itself.
 		if got := run(src, "cat /etc/agenthold/instance; cat /etc/machine-id; cat /var/lib/docker/engine-id"); got != string(srcID)+"\n0123456789abcdef0123456789abcdef\nsource-engine" {
 			t.Fatalf("source identity: %q", got)
 		}

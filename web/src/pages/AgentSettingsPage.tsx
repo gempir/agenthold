@@ -19,6 +19,7 @@ import {
   AgentSettingsForm,
   DeleteAgent,
 } from '@/components/agent/AgentControls';
+import { CloneAgent, TemplateToggle } from '@/components/agent/CloneAgent';
 import { AgentLoadError } from '@/components/agent/AgentLoadError';
 import { AGENT_SECTIONS, type AgentSection } from '@/components/agent/sections';
 import {
@@ -135,6 +136,8 @@ function Section({
           {isOwner && (
             <AgentSettingsForm key={a.updatedAt} agent={a} onSaved={setAgent} />
           )}
+          {isOwner && <CloneAgent agent={a} />}
+          {isOwner && <TemplateToggle agent={a} onSaved={setAgent} />}
           {isOwner && <DeleteAgent agent={a} />}
         </div>
       );

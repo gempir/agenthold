@@ -25,6 +25,7 @@ const agent = (role: Agent['role']): Agent => ({
   stateError: '',
   stateChangedAt: '2030-01-01T00:00:00Z',
   needsRebuild: false,
+  isTemplate: false,
   role,
   createdAt: '2030-01-01T00:00:00Z',
   updatedAt: '2030-01-01T00:00:00Z',

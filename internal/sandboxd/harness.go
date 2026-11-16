@@ -16,6 +16,12 @@ import (
 	"github.com/gempir/agenthold/internal/tunnel"
 )
 
+// testHooks let tests order the bridge's steps (nil in production).
+var testHooks struct {
+	beforeWait func(pid int) // before the harness is waited for
+	afterStop  func()        // after sandboxd's first kill
+}
+
 // Limits of the harness bridge.
 var (
 	// harnessStderrLine is the longest stderr line forwarded; the rest of a
@@ -85,16 +91,24 @@ func (d *Daemon) harness(ctx context.Context, st net.Conn, o tunnel.Open) error 
 	}
 
 	exited := make(chan struct{})
-	var stopped atomic.Bool // sandboxd killed the harness itself
-	killOnce := sync.OnceFunc(killAll)
-	stop := func() {
+	// stopped: sandboxd's kill is what ended the harness. It is decided once,
+	// at the first kill: only a harness still running then counts. One that
+	// already died (an outside SIGKILL, or a crash) but was not reaped yet
+	// keeps its own exit status as the reason.
+	var stopped atomic.Bool
+	stop := sync.OnceFunc(func() {
 		select {
 		case <-exited:
 		default:
-			stopped.Store(true)
+			if !processExited(pid) {
+				stopped.Store(true)
+			}
 		}
-		killOnce()
-	}
+		killAll()
+		if testHooks.afterStop != nil {
+			testHooks.afterStop()
+		}
+	})
 	go func() {
 		// Server -> harness stdin. When the server goes away, stop the harness.
 		_, _ = tunnel.CopyData(stdin, st, nil)
@@ -144,6 +158,9 @@ func (d *Daemon) harness(ctx context.Context, st net.Conn, o tunnel.Open) error 
 		}
 	}()
 
+	if testHooks.beforeWait != nil {
+		testHooks.beforeWait(pid)
+	}
 	err = cmd.Wait()
 	close(exited)
 	// Helpers that outlived the harness hold its pipes open: give them a

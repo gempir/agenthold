@@ -1,0 +1,10 @@
+[Unit]
+Description=Check main for a commit to build every three minutes
+
+[Timer]
+OnBootSec=4min
+OnUnitInactiveSec=3min
+Unit=agenthold-build.service
+
+[Install]
+WantedBy=timers.target

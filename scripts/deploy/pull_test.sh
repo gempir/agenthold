@@ -1,32 +1,45 @@
 #!/usr/bin/env bash
-# End-to-end pull tests use local fixture files and fake systemctl/curl, never a real service.
+# End-to-end pull tests use a fixture release store and fake systemctl/curl, never a real service.
 set -euo pipefail
 [[ "$(uname -s)" == Linux ]] || { echo 'run on Linux'; exit 1; }
-for tool in jq zstd sha256sum; do command -v "$tool" >/dev/null || { echo "$tool required" >&2; exit 1; }; done
+for tool in jq zstd sha256sum flock; do command -v "$tool" >/dev/null || { echo "$tool required" >&2; exit 1; }; done
 script="$(cd "$(dirname "$0")" && pwd)/pull.sh"
 work="$(mktemp -d)"
 trap 'rm -rf -- "$work"' EXIT
 export MOCK_DIR="$work" AGENTHOLD_DEPLOY_ROOT="$work/opt" AGENTHOLD_DEPLOY_DATA_DIR="$work/data" AGENTHOLD_DEPLOY_HOST_MOUNT="$work" AGENTHOLD_DEPLOY_TIMEOUT=1
-mkdir -p "$work/bin" "$work/fixture" "$work/opt/releases" "$work/data"
+export AGENTHOLD_DEPLOY_SOURCE="$work/src" AGENTHOLD_DEPLOY_CONFIG="$work/none.conf" TMPDIR="$work/tmp"
+mkdir -p "$work/bin" "$work/fixture" "$work/opt/releases" "$work/data" "$work/tmp"
 export PATH="$work/bin:$PATH"
 old=1111111111111111111111111111111111111111
 new=2222222222222222222222222222222222222222
 export MOCK_NEW="$new"
-release="https://github.com/gempir/agenthold/releases/download/sha-$new"
-mkdir "$work/opt/releases/$old"
+v="sha-$new"
+fail() { echo "FAIL: $*" >&2; [[ -f "$work/run.log" ]] && cat "$work/run.log" >&2; exit 1; }
+
+# --- fixture store: what build-local.sh publishes ---
+mkdir -p "$work/fixture/$v" "$work/opt/releases/$old"
 printf '#!/usr/bin/env bash\necho "agenthold old (old)"\n' > "$work/opt/releases/$old/agenthold"
 chmod +x "$work/opt/releases/$old/agenthold"
-printf '#!/usr/bin/env bash\necho "agenthold sha-%s (deadbeef)"\n' "$new" > "$work/fixture/agenthold"
+f="$work/fixture/$v"
+printf '#!/usr/bin/env bash\necho "agenthold sha-%s (deadbeef)"\n' "$new" > "$f/agenthold-linux-arm64"
+chmod +x "$f/agenthold-linux-arm64"
 printf 'small test disk image\n' > "$work/fixture/base"
-zstd -q -f "$work/fixture/base" -o "$work/fixture/base.zst"
+zstd -q -f "$work/fixture/base" -o "$f/base-arm64.ext4.zst"
 base_sha=$(sha256sum "$work/fixture/base" | cut -d' ' -f1)
-base_zsha=$(sha256sum "$work/fixture/base.zst" | cut -d' ' -f1)
-base_size=$(stat -c %s "$work/fixture/base")
-base_zsize=$(stat -c %s "$work/fixture/base.zst")
-jq -n --arg version "sha-$new" --arg url "$release/base-arm64.ext4.zst" --arg raw "$base_sha" --arg compressed "$base_zsha" --argjson rawsize "$base_size" --argjson compressedsize "$base_zsize" '{format:1,arch:"arm64",version:$version,base:{url:$url,sha256:$raw,size:$rawsize,compressed:{sha256:$compressed,size:$compressedsize}}}' > "$work/fixture/runtime.json"
-binary_sha=$(sha256sum "$work/fixture/agenthold" | cut -d' ' -f1)
-manifest_sha=$(sha256sum "$work/fixture/runtime.json" | cut -d' ' -f1)
-jq -n --arg commit "$new" --arg url "$release" --arg binary "$binary_sha" --arg manifest "$manifest_sha" '{format:1,arch:"arm64",commit:$commit,binary:{url:($url+"/agenthold-linux-arm64"),sha256:$binary},runtime_manifest:{url:($url+"/runtime-linux-arm64.manifest.json"),sha256:$manifest}}' > "$work/fixture/channel.json"
+jq -n '{file:"base-arm64.ext4"}' > "$f/base-arm64.manifest.json"
+jq -n --arg version "$v" --arg raw "$base_sha" --arg compressed "$(sha256sum "$f/base-arm64.ext4.zst" | cut -d' ' -f1)" \
+  --argjson rawsize "$(stat -c %s "$work/fixture/base")" --argjson compressedsize "$(stat -c %s "$f/base-arm64.ext4.zst")" \
+  '{format:1,arch:"arm64",version:$version,base:{url:"",sha256:$raw,size:$rawsize,compressed:{sha256:$compressed,size:$compressedsize}}}' > "$f/runtime-linux-arm64.manifest.json"
+channel() { # channel <store dir>: (re)write SHA256SUMS and channel.json like build-local.sh
+  local s="$1"
+  (cd "$s/$v" && sha256sum agenthold-linux-arm64 base-arm64.ext4.zst base-arm64.manifest.json runtime-linux-arm64.manifest.json > SHA256SUMS)
+  jq -n --arg commit "$new" --arg v "$v" --arg b "$(sha256sum "$s/$v/agenthold-linux-arm64" | cut -d' ' -f1)" \
+    --arg m "$(sha256sum "$s/$v/runtime-linux-arm64.manifest.json" | cut -d' ' -f1)" --arg s "$(sha256sum "$s/$v/SHA256SUMS" | cut -d' ' -f1)" \
+    '{format:2,arch:"arm64",commit:$commit,version:$v,binary:{path:($v+"/agenthold-linux-arm64"),sha256:$b},
+      runtime_manifest:{path:($v+"/runtime-linux-arm64.manifest.json"),sha256:$m},sums:{path:($v+"/SHA256SUMS"),sha256:$s}}' > "$s/channel.json"
+}
+channel "$work/fixture"
+
 cat > "$work/bin/uname" <<'MOCK'
 #!/usr/bin/env bash
 if [[ "$1" == -m ]]; then echo aarch64; else exec /usr/bin/uname "$@"; fi
@@ -42,6 +55,7 @@ if [[ "$1" == restart ]]; then
 fi
 exit 1
 MOCK
+# Health endpoints and an https /dl/ root (https://dl.example/dl/) backed by the fixture store.
 cat > "$work/bin/curl" <<'MOCK'
 #!/usr/bin/env bash
 url=""; out=""
@@ -51,14 +65,11 @@ case "$url" in
  */api/v1/version)
   active="$(basename "$(readlink -f "$AGENTHOLD_DEPLOY_ROOT/current")")"
   if [[ "$active" != "$MOCK_NEW" ]]; then printf '{"version":"old"}\n'; elif [[ "${MOCK_MODE:-}" == healthfail ]]; then printf '{"version":"wrong"}\n'; else printf '{"version":"sha-%s"}\n' "$MOCK_NEW"; fi; exit 0;;
- https://api.github.com/repos/gempir/agenthold/git/ref/heads/main)
-  if [[ "${MOCK_MODE:-}" == headmoves ]]; then
-   if [[ -e "$MOCK_DIR/head-seen" ]]; then printf '{"object":{"type":"commit","sha":"1111111111111111111111111111111111111111"}}\n'; else touch "$MOCK_DIR/head-seen"; printf '{"object":{"type":"commit","sha":"%s"}}\n' "$MOCK_NEW"; fi
-  elif [[ "${MOCK_MODE:-}" == stale ]]; then printf '{"object":{"type":"commit","sha":"1111111111111111111111111111111111111111"}}\n'; else printf '{"object":{"type":"commit","sha":"%s"}}\n' "$MOCK_NEW"; fi; exit 0;;
- */demo-main/channel.json) cp "$MOCK_DIR/fixture/channel.json" "$out";;
- */runtime-linux-arm64.manifest.json) cp "$MOCK_DIR/fixture/runtime.json" "$out";;
- */agenthold-linux-arm64) cp "$MOCK_DIR/fixture/agenthold" "$out"; if [[ "${MOCK_MODE:-}" == corruptbinary ]]; then echo corrupt >> "$out"; fi;;
- */base-arm64.ext4.zst) cp "$MOCK_DIR/fixture/base.zst" "$out"; if [[ "${MOCK_MODE:-}" == corruptbase ]]; then echo corrupt >> "$out"; fi;;
+ https://dl.example/dl/*)
+  rel="${url#https://dl.example/dl/}"
+  [[ -f "$MOCK_DIR/src/$rel" ]] || exit 22
+  echo "$rel" >> "$MOCK_DIR/fetched"
+  cp "$MOCK_DIR/src/$rel" "$out";;
  *) exit 1;;
 esac
 MOCK
@@ -67,91 +78,184 @@ cat > "$work/bin/df" <<'MOCK'
 if [[ "${MOCK_MODE:-}" == nospace ]]; then printf 'Filesystem 1B-blocks Used Available Use%% Mounted on\nmock 1 1 0 100%% /\n'; else exec /usr/bin/df "$@"; fi
 MOCK
 chmod +x "$work/bin/uname" "$work/bin/systemctl" "$work/bin/curl" "$work/bin/df"
+
 reset() {
- rm -rf "$work/opt/releases/$new" "$work/data/base" "$work/restarts" "$work/head-seen" "$work/restart-started"
- ln -sfn "$work/opt/releases/$old" "$work/opt/current"
+  rm -rf "$work/opt/releases/$new" "$work/data/base" "$work/data/dl" "$work/restarts" "$work/restart-started" "$work/src" "$work/fetched"
+  cp -a "$work/fixture" "$work/src"
+  ln -sfn "$work/opt/releases/$old" "$work/opt/current"
 }
-run() { env MOCK_MODE="$1" bash "$script" >"$work/run.log" 2>&1; }
+run() { env MOCK_MODE="$1" bash "$script" "${@:2}" >"$work/run.log" 2>&1; }
+deployed() {
+  [[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/$new" ]] || fail 'not switched'
+  [[ "$(sha256sum "$work/data/base/$base_sha.ext4" | cut -d' ' -f1)" == "$base_sha" ]] || fail 'base not unpacked'
+  cmp -s "$work/data/base/$base_sha.ext4.zst" "$work/fixture/$v/base-arm64.ext4.zst" || fail 'compressed base not kept for /dl/'
+  cmp -s "$work/data/dl/channel.json" "$work/fixture/channel.json" || fail 'channel not published under /dl/'
+  cmp -s "$work/data/dl/$v/SHA256SUMS" "$work/fixture/$v/SHA256SUMS" || fail 'SHA256SUMS not published under /dl/'
+  cmp -s "$work/data/dl/$v/base-arm64.manifest.json" "$work/fixture/$v/base-arm64.manifest.json" || fail 'base manifest not published'
+  [[ "$(stat -c %a "$work/data/base/$base_sha.ext4.zst")" == 644 ]] || fail 'compressed base mode'
+}
+unchanged() {
+  [[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/$old" ]] || fail "$1: switched"
+  [[ ! -e "$work/data/dl/channel.json" ]] || fail "$1: published"
+}
+
+# A local store deploys, keeps the compressed base (hard-linked) and publishes the release under /dl/.
 reset
-run success || { cat "$work/run.log"; exit 1; }
-[[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/$new" ]]
-[[ "$(sha256sum "$work/data/base/$base_sha.ext4" | cut -d' ' -f1)" == "$base_sha" ]]
-[[ "$(wc -l < "$work/restarts")" == 1 ]]
-run success
-[[ "$(wc -l < "$work/restarts")" == 1 ]]
-for mode in stale headmoves corruptbinary corruptbase nospace; do
- reset
- if run "$mode"; then echo "$mode unexpectedly succeeded" >&2; exit 1; fi
- [[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/$old" && ! -e "$work/restarts" ]]
+run success || fail 'local deploy'
+deployed
+[[ "$(wc -l < "$work/restarts")" == 1 ]] || fail 'restart count'
+[[ "$(stat -c %i "$work/data/base/$base_sha.ext4.zst")" == "$(stat -c %i "$work/src/$v/base-arm64.ext4.zst")" ]] || fail 'local base not hard-linked'
+run success || fail 'second run'
+grep -q "already running $new" "$work/run.log" || fail 'already running'
+[[ "$(wc -l < "$work/restarts")" == 1 ]] || fail 'second run restarted'
+# Running, but the /dl/ publication is gone: it is repaired without a restart.
+rm -rf "$work/data/dl" "$work/data/base/$base_sha.ext4.zst"
+run success || fail 'republish'
+deployed
+[[ "$(wc -l < "$work/restarts")" == 1 ]] || fail 'republish restarted'
+
+# The configuration file selects the source when the environment does not.
+reset
+printf '# comment\nsource = %s\n' "$work/src" > "$work/pull.conf"
+env -u AGENTHOLD_DEPLOY_SOURCE AGENTHOLD_DEPLOY_CONFIG="$work/pull.conf" MOCK_MODE=success bash "$script" >"$work/run.log" 2>&1 || fail 'config file source'
+deployed
+
+# An https /dl/ root works the same way (and the bytes are downloaded, not linked).
+reset
+AGENTHOLD_DEPLOY_SOURCE=https://dl.example/dl/ run success || fail 'https deploy'
+deployed
+grep -qx "$v/base-arm64.ext4.zst" "$work/fetched" || fail 'https base not fetched'
+for bad in http://dl.example/dl/ https://dl.example/dl relative/path; do
+  reset
+  if AGENTHOLD_DEPLOY_SOURCE="$bad" run success; then fail "source $bad accepted"; fi
+  unchanged "source $bad"
+done
+
+# Anything that does not verify leaves the running release alone.
+mutate() { # mutate <mode>: break the store copy in one way
+  local s="$work/src"
+  case "$1" in
+    corruptbinary) echo corrupt >> "$s/$v/agenthold-linux-arm64";;
+    corruptbase) echo corrupt >> "$s/$v/base-arm64.ext4.zst";;
+    resignedbase) echo corrupt >> "$s/$v/base-arm64.ext4.zst"; channel "$s";;
+    wrongversion) printf '#!/usr/bin/env bash\necho "agenthold sha-%s (x)"\n' "$old" > "$s/$v/agenthold-linux-arm64"; channel "$s";;
+    badsums) echo "$(printf '%064d' 0)  extra" >> "$s/$v/SHA256SUMS";;
+    oldformat) jq '.format = 1' "$s/channel.json" > "$s/c" && mv "$s/c" "$s/channel.json";;
+    wrongpath) jq --arg p "sha-$old/agenthold-linux-arm64" '.binary.path = $p' "$s/channel.json" > "$s/c" && mv "$s/c" "$s/channel.json";;
+    traversal) jq '.version = "../../etc"' "$s/channel.json" > "$s/c" && mv "$s/c" "$s/channel.json";;
+    symlink) mv "$s/$v/agenthold-linux-arm64" "$work/elsewhere"; ln -s "$work/elsewhere" "$s/$v/agenthold-linux-arm64";;
+    nochannel) rm "$s/channel.json";;
+    nospace) ;;
+  esac
+}
+for mode in corruptbinary corruptbase resignedbase wrongversion badsums oldformat wrongpath traversal symlink nochannel nospace; do
+  reset
+  mutate "$mode"
+  if run "$mode"; then fail "$mode unexpectedly succeeded"; fi
+  unchanged "$mode"
+  [[ ! -e "$work/restarts" ]] || fail "$mode restarted"
+  [[ ! -e "$work/data/base/$base_sha.ext4" ]] || [[ "$mode" == nospace ]] || [[ "$(sha256sum "$work/data/base/$base_sha.ext4" | cut -d' ' -f1)" == "$base_sha" ]] || fail "$mode left a bad base"
+  rm -f "$work/elsewhere"
 done
 for mode in restartfail healthfail; do
- reset
- if run "$mode"; then echo "$mode unexpectedly succeeded" >&2; exit 1; fi
- [[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/$old" ]]
- [[ "$(wc -l < "$work/restarts")" == 2 ]]
+  reset
+  if run "$mode"; then fail "$mode unexpectedly succeeded"; fi
+  [[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/$old" ]] || fail "$mode: no rollback"
+  [[ "$(wc -l < "$work/restarts")" == 2 ]] || fail "$mode: restart count"
+  [[ ! -e "$work/data/dl/channel.json" ]] || fail "$mode published"
 done
+
+# --check verifies everything (including unpacking the base) and touches nothing.
+reset
+run success --check || fail 'check'
+grep -q "check passed: $v" "$work/run.log" || fail 'check output'
+unchanged check
+[[ ! -e "$work/data/base" && ! -e "$work/restarts" && -z "$(ls -A "$work/tmp")" ]] || fail 'check left files behind'
+reset
+mutate corruptbase
+if run success --check; then fail 'check accepted a corrupt base'; fi
+[[ -z "$(ls -A "$work/tmp")" ]] || fail 'failed check left files behind'
 
 # --- pruning ---
 hex() { printf '%064d' "$1" | tr '0' "$2"; }
+rel() { printf '%040d' 0 | tr '0' "$1"; }
 oldbase=$(hex 1 a); anc1=$(hex 1 b); anc2=$(hex 1 c); pinned=$(hex 1 d)
 seed_prune() {
- reset
- rm -rf "$work/data" "$work/outside" "$work/opt/releases/"{3,4,5,6}* ; mkdir -p "$work/data/base" "$work/data/agents/ag1" "$work/outside"
- jq -n --arg b "$oldbase" '{base:{sha256:$b}}' > "$work/opt/releases/$old/runtime.manifest.json"
- for b in "$oldbase" "$anc1" "$anc2" "$pinned"; do printf 'img-%s' "$b" > "$work/data/base/$b.ext4"; done
- printf 'keep' > "$work/data/base/notes.txt"
- jq -n --arg p "$work/data/base/$pinned.ext4" '{baseImagePath:$p}' > "$work/data/agents/ag1/state.json"
- for i in 3 4 5 6; do d="$work/opt/releases/$(printf '%040d' 0 | tr '0' "$i")"; mkdir "$d"; touch -d "2020-01-0$i" "$d"; done
- touch -d '2021-01-01' "$work/opt/releases/$old"
+  reset
+  rm -rf "$work/data" "$work/outside" "$work/opt/releases/"{3,4,5,6}*; mkdir -p "$work/data/base" "$work/data/agents/ag1" "$work/outside" "$work/data/dl"
+  jq -n --arg b "$oldbase" '{base:{sha256:$b}}' > "$work/opt/releases/$old/runtime.manifest.json"
+  for b in "$oldbase" "$anc1" "$anc2" "$pinned"; do printf 'img-%s' "$b" > "$work/data/base/$b.ext4"; printf 'zst-%s' "$b" > "$work/data/base/$b.ext4.zst"; done
+  printf 'keep' > "$work/data/base/notes.txt"
+  jq -n --arg p "$work/data/base/$pinned.ext4" '{baseImagePath:$p}' > "$work/data/agents/ag1/state.json"
+  for i in 3 4 5 6; do d="$work/opt/releases/$(rel "$i")"; mkdir "$d"; touch -d "2020-01-0$i" "$d"; done
+  touch -d '2021-01-01' "$work/opt/releases/$old"
+  for i in 3 4 5 6; do d="$work/src/sha-$(rel "$i")"; mkdir "$d"; touch -d "2020-01-0$i" "$d"; done
+  mkdir "$work/src/sha-$old"; touch -d '2019-01-01' "$work/src/sha-$old"
+  mkdir "$work/data/dl/sha-$(rel 5)" "$work/data/dl/operator-notes"
 }
-rel() { printf '%040d' 0 | tr '0' "$1"; }
 seed_prune
-run success || { cat "$work/run.log"; exit 1; }
-grep -q 'prune: freed' "$work/run.log"
-# current + previous bases and the agent-pinned base stay; unreferenced ones go.
-[[ -f "$work/data/base/$base_sha.ext4" && -f "$work/data/base/$oldbase.ext4" && -f "$work/data/base/$pinned.ext4" ]]
-[[ ! -e "$work/data/base/$anc1.ext4" && ! -e "$work/data/base/$anc2.ext4" && -f "$work/data/base/notes.txt" ]]
-grep -q "prune: removed $work/data/base/$anc1.ext4" "$work/run.log"
+run success || fail 'prune deploy'
+grep -q 'prune: freed' "$work/run.log" || fail 'prune summary'
+# current + previous bases and the agent-pinned base stay (with their compressed files); others go.
+for b in "$base_sha" "$oldbase" "$pinned"; do [[ -f "$work/data/base/$b.ext4" ]] || fail "base $b pruned"; done
+for b in "$oldbase" "$pinned"; do [[ -f "$work/data/base/$b.ext4.zst" ]] || fail "compressed base $b pruned"; done
+for b in "$anc1" "$anc2"; do [[ ! -e "$work/data/base/$b.ext4" && ! -e "$work/data/base/$b.ext4.zst" ]] || fail "base $b kept"; done
+[[ -f "$work/data/base/notes.txt" ]] || fail 'foreign file pruned'
+grep -q "prune: removed $work/data/base/$anc1.ext4.zst" "$work/run.log" || fail 'compressed prune not logged'
 # Newest three releases stay (new, previous, newest old); the rest go.
-[[ -d "$work/opt/releases/$new" && -d "$work/opt/releases/$old" && -d "$work/opt/releases/$(rel 6)" ]]
-[[ ! -e "$work/opt/releases/$(rel 3)" && ! -e "$work/opt/releases/$(rel 4)" && ! -e "$work/opt/releases/$(rel 5)" ]]
+[[ -d "$work/opt/releases/$new" && -d "$work/opt/releases/$old" && -d "$work/opt/releases/$(rel 6)" ]] || fail 'kept releases'
+[[ ! -e "$work/opt/releases/$(rel 3)" && ! -e "$work/opt/releases/$(rel 4)" && ! -e "$work/opt/releases/$(rel 5)" ]] || fail 'old releases'
+# The store keeps the newest three versions plus the deployed and previous ones.
+[[ -d "$work/src/$v" && -d "$work/src/sha-$old" && -d "$work/src/sha-$(rel 6)" && -d "$work/src/sha-$(rel 5)" ]] || fail 'kept store versions'
+[[ ! -e "$work/src/sha-$(rel 3)" && ! -e "$work/src/sha-$(rel 4)" ]] || fail 'old store versions'
+# /dl/ serves the deployed version only; operator files that are not versions stay.
+[[ -d "$work/data/dl/$v" && ! -e "$work/data/dl/sha-$(rel 5)" && -d "$work/data/dl/operator-notes" ]] || fail 'dl prune'
+# An https source is never pruned.
+seed_prune
+AGENTHOLD_DEPLOY_SOURCE=https://dl.example/dl/ run success || fail 'https prune deploy'
+[[ -d "$work/src/sha-$(rel 3)" ]] || fail 'https source pruned'
 # An unreadable agent state means nothing can be proven unused: no base is pruned.
 seed_prune; printf 'not json' > "$work/data/agents/ag1/state.json"
-run success || { cat "$work/run.log"; exit 1; }
-[[ -f "$work/data/base/$anc1.ext4" && -f "$work/data/base/$anc2.ext4" ]]
+run success || fail 'unreadable state deploy'
+[[ -f "$work/data/base/$anc1.ext4" && -f "$work/data/base/$anc2.ext4.zst" ]] || fail 'unreadable state pruned'
 # Rollback and failed switches never prune.
 for mode in healthfail restartfail; do
- seed_prune
- if run "$mode"; then echo "$mode unexpectedly succeeded" >&2; exit 1; fi
- [[ -f "$work/data/base/$anc1.ext4" && -f "$work/data/base/$anc2.ext4" && -d "$work/opt/releases/$(rel 3)" ]]
- ! grep -q 'prune:' "$work/run.log"
+  seed_prune
+  if run "$mode"; then fail "$mode unexpectedly succeeded"; fi
+  [[ -f "$work/data/base/$anc1.ext4" && -f "$work/data/base/$anc2.ext4" && -d "$work/opt/releases/$(rel 3)" && -d "$work/src/sha-$(rel 3)" ]] || fail "$mode pruned"
+  ! grep -q 'prune:' "$work/run.log" || fail "$mode logged a prune"
 done
 # PRUNE=0 opts out.
 seed_prune
-env PRUNE=0 MOCK_MODE=success bash "$script" >"$work/run.log" 2>&1 || { cat "$work/run.log"; exit 1; }
-[[ -f "$work/data/base/$anc1.ext4" && -d "$work/opt/releases/$(rel 3)" ]]
-grep -q 'disabled by PRUNE=0' "$work/run.log"
+env PRUNE=0 MOCK_MODE=success bash "$script" >"$work/run.log" 2>&1 || fail 'PRUNE=0 deploy'
+[[ -f "$work/data/base/$anc1.ext4" && -d "$work/opt/releases/$(rel 3)" ]] || fail 'PRUNE=0 pruned'
+grep -q 'disabled by PRUNE=0' "$work/run.log" || fail 'PRUNE=0 message'
 # Never leaves the cache: symlinked entries and a symlinked cache directory are refused.
 seed_prune
 printf 'precious' > "$work/outside/target"
 ln -s "$work/outside/target" "$work/data/base/$(hex 1 e).ext4"
+ln -s "$work/outside/target" "$work/data/base/$(hex 1 e).ext4.zst"
 ln -s "$work/outside" "$work/opt/releases/$(rel 7)"
 touch -h -d 2019-01-01 "$work/opt/releases/$(rel 7)"
-run success || { cat "$work/run.log"; exit 1; }
-[[ "$(cat "$work/outside/target")" == precious && -L "$work/data/base/$(hex 1 e).ext4" && -L "$work/opt/releases/$(rel 7)" ]]
+ln -s "$work/outside" "$work/src/sha-$(rel 7)"
+touch -h -d 2018-01-01 "$work/src/sha-$(rel 7)"
+run success || fail 'symlink prune deploy'
+[[ "$(cat "$work/outside/target")" == precious && -L "$work/data/base/$(hex 1 e).ext4" && -L "$work/opt/releases/$(rel 7)" && -L "$work/src/sha-$(rel 7)" ]] || fail 'followed a symlink'
 rm -f "$work/opt/releases/$(rel 7)"
 seed_prune
 mv "$work/data/base" "$work/outside/base"; ln -s "$work/outside/base" "$work/data/base"
-run success || { cat "$work/run.log"; exit 1; }
-[[ -f "$work/outside/base/$anc1.ext4" ]] && grep -q 'not a plain directory' "$work/run.log"
+run success || fail 'symlinked cache deploy'
+[[ -f "$work/outside/base/$anc1.ext4" ]] && grep -q 'not a plain directory' "$work/run.log" || fail 'symlinked cache pruned'
 rm -f "$work/data/base"; mkdir "$work/data/base"
+
+# An interrupted switch rolls back.
 reset
 env MOCK_MODE=signal bash "$script" >"$work/run.log" 2>&1 &
 pid=$!
 for _ in $(seq 1 100); do [[ -f "$work/restart-started" ]] && break; sleep 0.1; done
-[[ -f "$work/restart-started" ]] || { kill "$pid" 2>/dev/null || true; echo 'restart did not start' >&2; exit 1; }
+[[ -f "$work/restart-started" ]] || { kill "$pid" 2>/dev/null || true; fail 'restart did not start'; }
 kill -TERM "$pid"
-if wait "$pid"; then echo 'interrupted deployment unexpectedly succeeded' >&2; exit 1; fi
-[[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/$old" ]]
-[[ "$(wc -l < "$work/restarts")" == 2 ]]
-echo 'deployment pull tests passed' 
+if wait "$pid"; then fail 'interrupted deployment unexpectedly succeeded'; fi
+[[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/$old" ]] || fail 'interrupt rollback'
+[[ "$(wc -l < "$work/restarts")" == 2 ]] || fail 'interrupt restart count'
+echo 'deployment pull tests passed'

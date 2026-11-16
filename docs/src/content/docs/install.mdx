@@ -13,6 +13,40 @@ and a checksum file. `scripts/release/build.sh` produces them for the host archi
 [development guide](/development/) and [guest artifacts](/guest-artifacts/)). There is no migration from the
 former container-based installation.
 
+## Download
+
+The project's releases are built and KVM-tested on the demo host and downloaded from it; there are no
+GitHub release assets. The demo serves the arm64 release it runs, with every file of it checksummed. Read
+the manifest first, then fetch the files it names and verify them:
+
+```sh
+root=https://demo.agenthold.dev/dl/
+curl -fsS "${root}manifest.json"   # {"format":1,"version":"sha-<commit>","arch":{"arm64":{...}}}
+v=$(curl -fsS "${root}manifest.json" | jq -er .version)
+mkdir "$v" && cd "$v"
+curl -fsSO "${root}$v/SHA256SUMS"
+for f in agenthold-linux-arm64 runtime-linux-arm64.manifest.json base-arm64.manifest.json base-arm64.ext4.zst; do
+  curl -fSL -C - -o "$f" "${root}$v/$f"   # the base is about 800 MiB; -C - resumes
+done
+sha256sum --check SHA256SUMS
+chmod +x agenthold-linux-arm64 && ./agenthold-linux-arm64 --version   # agenthold sha-<commit> (...)
+```
+
+`SHA256SUMS` is only as trustworthy as the HTTPS connection it came over. Its own hash is in
+`${root}channel.json` (`.sums.sha256`); compare it with a copy obtained another way if that matters to you.
+The base image is optional: with `sandbox.firecracker.base_url: https://demo.agenthold.dev/dl/` the server
+fetches it on first start and verifies it against checksums embedded in the binary (see below).
+
+**amd64: build from source.** The demo is an arm64 host and ships arm64 only. An amd64 bundled binary embeds
+an amd64 kernel and is paired with an amd64 base image, which it cannot build natively nor KVM-test, so it
+does not publish one. On an x86_64 Linux host with `/dev/kvm`, build the release there:
+
+```sh
+make web
+VERSION=sha-$(git rev-parse HEAD) BASE_URL= scripts/release/build.sh   # build/release/amd64/
+make test-kvm                                                          # optional, needs root
+```
+
 ## Configure
 
 Choose a persistent data directory and a public HTTPS URL. Generate the one local administrator's

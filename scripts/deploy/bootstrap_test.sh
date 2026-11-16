@@ -30,13 +30,16 @@ bash "$script" "$work/release" >/dev/null || fail 'bootstrap'
 [[ "$(readlink "$work/opt/current")" == "$work/opt/releases/$commit" ]] || fail 'current link'
 [[ -x "$work/opt/releases/$commit/agenthold" && -f "$work/opt/releases/$commit/runtime.manifest.json" ]] || fail 'release files'
 cmp "$work/base" "$work/data/base/$base_sha.ext4" || fail 'base cache'
+cmp "$work/release/base-arm64.ext4.zst" "$work/data/base/$base_sha.ext4.zst" || fail 'compressed base kept for /dl/'
+[[ "$(stat -c %a "$work/data/base/$base_sha.ext4.zst")" == 644 ]] || fail 'compressed base mode'
 [[ "$(stat -c %a "$work/data/base")" == 700 && "$(stat -c %a "$work/data/base/$base_sha.ext4")" == 644 ]] || fail 'permissions'
-[[ -x "$work/lib/pull.sh" ]] || fail 'pull.sh'
-for unit in agenthold.service agenthold-pull.service agenthold-pull.timer agenthold-cloudflared.service; do [[ -f "$work/units/$unit" ]] || fail "$unit"; done
+[[ -x "$work/lib/pull.sh" && -x "$work/lib/build-local.sh" ]] || fail 'scripts'
+for unit in agenthold.service agenthold-pull.service agenthold-pull.timer agenthold-cloudflared.service agenthold-build.service agenthold-build.timer agenthold-build.slice; do [[ -f "$work/units/$unit" ]] || fail "$unit"; done
 if bash "$script" "$work/release" >/dev/null 2>&1; then fail 'second bootstrap must refuse'; fi
 
 rm -rf "$work/opt" "$work/data"
 echo corrupt >> "$work/release/base-arm64.ext4.zst"
 if bash "$script" "$work/release" >/dev/null 2>&1; then fail 'corrupt release must be refused'; fi
 [[ ! -e "$work/opt/current" ]] || fail 'corrupt release left a deployment'
+[[ -z "$(ls -A "$work/data/base" 2>/dev/null)" ]] || fail 'corrupt release left base files'
 echo 'bootstrap tests passed'

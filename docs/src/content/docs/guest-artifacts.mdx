@@ -124,14 +124,13 @@ uses the node's proxy. Reports and serial logs remain in `/var/lib/agenthold-boo
 
 The measured arm64 base is 2,590,867,456 bytes (2,470.84 MiB). Compressed with
 `zstd -6 --long=27`, it is 810,451,809 bytes (772.91 MiB), 31.3% of the raw size.
-Publish one `.ext4.zst` release asset plus checksums and the manifest: this fits the project's
-2 GB per-file budget without splitting. Release builds should enforce the same size budget for
-each architecture. The raw base sha256 is
+The demo host publishes one `.ext4.zst` per release plus checksums and the manifest under its `/dl/`
+(see [Deployment](/deploy/)); release builds enforce a 2 GB budget for the compressed file. The raw base sha256 is
 `68cc3a5b3a1ec1c2fd783025b48805043d1b0d40162e8b2e4ffbb549fcd918a6`;
 the compressed sha256 is `4465ad0548b77e1ddd5e27a92c9b4690b5b13f8e66454760b4ed5bf130489129`.
 The first three main boots connected in 3.6–4.9 seconds and shut down in 301–348 ms.
 
-The amd64 build path and pins are present; amd64 KVM validation has not been run locally.
+The amd64 build path and pins are present; amd64 is not built or KVM-tested by the project (the demo host is arm64), so amd64 users build from source.
 
 The final five-boot run ended `BOOT TEST OK`: Docker's shutdown took 1,607 ms, all three disk
 checks passed and the immutable base checksum stayed unchanged. Docker's logs reported swap-limit

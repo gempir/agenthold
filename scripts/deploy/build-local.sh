@@ -55,7 +55,7 @@ install -d -m 0700 "$CACHE/root"
 exec 9>"/run/agenthold-build.lock"
 flock -n 9 || { echo 'another build is running'; exit 0; }
 
-as_user() { setpriv --reuid="$BUILD_USER" --regid="$BUILD_USER" --init-groups env -i PATH=/usr/local/bin:/usr/bin:/bin HOME="$STATE" "$@"; }
+as_user() { setpriv --reuid="$BUILD_USER" --regid="$BUILD_USER" --init-groups env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME="$STATE" "$@"; }
 mirror="$STATE/agenthold.git"
 if [[ ! -d "$mirror" ]]; then
   as_user git clone --quiet --bare --single-branch --branch "$BRANCH" "$REPO_URL" "$mirror"
@@ -131,7 +131,7 @@ phase() {
     --wait --pipe --collect --unit="$unit" --slice="$SLICE" --service-type=exec
     -p Nice=10 -p IOSchedulingClass=idle -p CPUWeight=20 -p IOWeight=20 -p MemoryAccounting=yes
     -p WorkingDirectory="$wt" -p TimeoutStopSec=60s
-    -E PATH=/usr/local/bin:/usr/bin:/bin -E GOMAXPROCS="$GOMAXPROCS_BUILD" -E GOTOOLCHAIN=local
+    -E PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin -E GOMAXPROCS="$GOMAXPROCS_BUILD" -E GOTOOLCHAIN=local
     -E CI=1 -E VERSION="$version" -E BASE_URL= -E GOFLAGS=-buildvcs=false
   )
   if [[ "$who" == user ]]; then
@@ -155,9 +155,14 @@ phase() {
   # systemd-run's own "Memory peak" line is not reliable here; sample the phase cgroup's
   # memory.peak (monotonic for the cgroup's lifetime) until the unit is gone.
   local peakfile="$out.peak"
-  (cg=""; while sleep 1; do
+  # memory.peak includes page cache (writing the image fills it); the anonymous memory peak is what
+  # actually competes with the live service, so both are recorded.
+  (cg=""; anon_max=0; while sleep 1; do
     [[ -n "$cg" ]] || cg="$(systemctl show -P ControlGroup "$unit" 2>/dev/null)"
-    [[ -n "$cg" && -r "/sys/fs/cgroup$cg/memory.peak" ]] && cat "/sys/fs/cgroup$cg/memory.peak" > "$peakfile.tmp" 2>/dev/null && mv -f "$peakfile.tmp" "$peakfile"
+    [[ -n "$cg" && -r "/sys/fs/cgroup$cg/memory.peak" ]] || continue
+    anon="$(awk '$1 == "anon" {print $2}' "/sys/fs/cgroup$cg/memory.stat" 2>/dev/null)"
+    [[ "$anon" =~ ^[0-9]+$ ]] && ((anon > anon_max)) && anon_max=$anon
+    echo "$(cat "/sys/fs/cgroup$cg/memory.peak" 2>/dev/null) $anon_max" > "$peakfile.tmp" && mv -f "$peakfile.tmp" "$peakfile"
   done) &
   local sampler=$!
   set +e
@@ -169,11 +174,16 @@ phase() {
   current_unit=""
   runtime=$((SECONDS - t0))
   peak=""
-  if [[ -s "$peakfile" ]]; then peak="$(( $(cat "$peakfile") / 1048576 ))M"; fi
+  anon=""
+  if [[ -s "$peakfile" ]]; then
+    read -r peak anon < "$peakfile"
+    peak="$((peak / 1048576))M"
+    anon="$((anon / 1048576))M"
+  fi
   rm -f -- "$out" "$peakfile" "$peakfile.tmp"
-  jq -nc --arg name "$name" --arg who "$who" --argjson seconds "$runtime" --arg peak "${peak:-unknown}" --argjson rc "$rc" \
-    '{name: $name, as: $who, seconds: $seconds, memory_peak: $peak, status: $rc}' >> "$phases"
-  echo "==> phase $name: status $rc, ${runtime}s, memory peak ${peak:-unknown}"
+  jq -nc --arg name "$name" --arg who "$who" --argjson seconds "$runtime" --arg peak "${peak:-unknown}" --arg anon "${anon:-unknown}" --argjson rc "$rc" \
+    '{name: $name, as: $who, seconds: $seconds, memory_peak: $peak, anon_peak: $anon, status: $rc}' >> "$phases"
+  echo "==> phase $name: status $rc, ${runtime}s, memory peak ${peak:-unknown} (anonymous ${anon:-unknown})"
   return "$rc"
 }
 

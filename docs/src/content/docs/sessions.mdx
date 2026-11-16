@@ -105,20 +105,42 @@ until their owner chooses **Use my logins**.
 
 ## Harness adapters
 
-An adapter (`internal/harness/<name>`) says how to start the harness in ACP mode, which environment it needs
-(never secret values), which secret presets fit it, and where it keeps logins. Optionally, it can name the terminal command for a login method the harness advertises without one
-(`TerminalLoginer`), and list login methods the server may call on its own when the harness asks for
-authentication, such as an API key provided as a secret (`AutoAuthenticator`). Adapters whose login can live on the
-account implement `AccountLoginer` (what can be connected, how it is validated, and how it reaches the harness as
-placeholders, files and proxy injections) and, for expiring logins, `Refresher`. Nothing outside
-`internal/harness` knows about a particular harness.
+An adapter (`internal/harness/<name>`) is one `harness.Adapter` value: how to start the harness in ACP mode, the npm
+package of `images/base/package.json` that installs it, which environment it needs (never secret values), which
+secret presets fit it, where it keeps logins and skills, terminal commands for login methods the harness advertises
+without one, and login methods the server may call on its own when the harness asks for authentication (such as an
+API key provided as a secret). Harnesses whose login can live on the account set `Login`, an `AccountLoginer` (what
+can be connected, how it is validated, and how it reaches the harness as placeholders, files and proxy injections),
+which also implements `Refresher` for expiring logins. Nothing outside `internal/harness` knows about a particular
+harness. Versions are pinned in `images/base/package.json` only; a test checks it against the adapters.
 
 | Harness | ACP entry point | In the base image |
 | --- | --- | --- |
-| `claude-code` | `claude-agent-acp` ([@agentclientprotocol/claude-agent-acp](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp) 0.107.0, which bundles the Claude Agent SDK and Claude Code) | yes |
-| `opencode` | `opencode acp` (native ACP, [opencode-ai](https://www.npmjs.com/package/opencode-ai) 1.19.5) | yes |
-| `codex` | `codex-acp` ([@agentclientprotocol/codex-acp](https://www.npmjs.com/package/@agentclientprotocol/codex-acp) 2.6.0) | yes |
+| `claude-code` | `claude-agent-acp` ([@agentclientprotocol/claude-agent-acp](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp), which bundles the Claude Agent SDK and Claude Code) | yes |
+| `opencode` | `opencode acp` (native ACP, [opencode-ai](https://www.npmjs.com/package/opencode-ai)) | yes |
+| `codex` | `codex-acp` ([@agentclientprotocol/codex-acp](https://www.npmjs.com/package/@agentclientprotocol/codex-acp)) | yes |
 | `fake` | `/opt/agenthold/fakeagent`, a scripted agent for tests and UI work (development only) | shipped with sandboxd |
+
+### When a harness fails
+
+Every turn ends with a `turn_end` event, and the session is idle again before it is sent. When the harness fails, an
+`error` event before it says what happened and the turn ends with `stopReason: "error"`; the next message starts a
+fresh harness process and restores the conversation with `session/load` where the harness supports it.
+
+| What happens | What the session shows |
+| --- | --- |
+| The harness binary is missing or exits (any code, including at startup) | that it could not run or exited with code N, with the end of its stderr |
+| It is killed (signal 9, usually the guest's OOM killer) | that it was killed and may have run out of memory |
+| It does not answer `initialize` (2 min), `authenticate` or `session/new`/`load`/`resume` (2 min each) | which request timed out; the process is stopped |
+| It asks for a login | auto-authentication is tried first (API key methods), then a hint to connect a login |
+| It writes output that is not ACP, a line over 10 MB, or closes its stdout | that it stopped speaking ACP; the process is stopped |
+| The tunnel drops, the sandbox stops, or the server shuts down during a turn | which one; the harness is stopped with the stream |
+| The server crashed during a turn | on the next start: that the server restarted during the turn |
+
+A cancel before the prompt reached the harness ends the turn right away; afterwards the harness gets
+`session/cancel`, and if it has not ended the turn 15 seconds later it is stopped. Both end with
+`stopReason: "cancelled"`. A turn has no time limit of its own. sandboxd kills the harness's whole process group
+whenever its stream ends, so no helper outlives it.
 
 Signing in:
 

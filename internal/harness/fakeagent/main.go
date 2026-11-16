@@ -7,23 +7,51 @@
 //	whoami                   the account login it was given (env and file)
 //	anything else            echo it back
 //
-// Sessions are stored under $HOME/.fakeagent so session/load replays them
-// after a restart. "fakeagent login" is the terminal login method; an
-// account login arrives as FAKEAGENT_TOKEN or $HOME/.fakeagent/account.json.
+// Failures, for tests of everything around a harness:
+//
+//	exit <code>              send a chunk, then exit with code
+//	kill                     send a chunk, then SIGKILL itself (like the OOM killer)
+//	hang                     never answer, ignore cancel
+//	error                    answer the prompt with a JSON-RPC error
+//	garbage                  print a line that is not JSON-RPC, then answer
+//	bigline                  print a line longer than the client accepts
+//	stderr <bytes>           write one stderr line of that size and 1000 short ones, then answer
+//	closestdout              close stdout and keep running
+//	spawn                    start a helper that keeps stdout open, then exit 0
+//	                         (its pid goes to $HOME/.fakeagent/helper.pid)
+//
+// $HOME/.fakeagent/script scripts the protocol steps, one directive per line:
+//
+//	<step> <action> [arg]    fail at step, once (the line is removed when it fires)
+//	                         step: start, initialize, authenticate, session/new, session/load
+//	                         action: exit <code>, kill, hang, error, auth (session/new: needs authenticate)
+//	no-load                  do not advertise session/load
+//	require-login            session/new needs a login (credentials file or FAKEAGENT_TOKEN)
+//
+// Each process appends its pid to $HOME/.fakeagent/pids. Sessions are
+// stored under $HOME/.fakeagent so session/load replays them
+// after a restart. "fakeagent login" is the terminal login method, and
+// "fake-key" an agent method that authenticate accepts; an account login
+// arrives as FAKEAGENT_TOKEN or $HOME/.fakeagent/account.json.
 package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -36,7 +64,9 @@ type turn struct {
 
 type agent struct {
 	conn    *acp.AgentSideConnection
+	out     *lockedWriter // stdout, shared with the connection
 	dir     string
+	authed  bool // authenticate succeeded in this process
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc
 	mcp     map[string][]string // session -> MCP servers it was given
@@ -88,10 +118,93 @@ func main() {
 		login(dir)
 		return
 	}
-	a := &agent{dir: dir, cancels: map[string]context.CancelFunc{}, mcp: map[string][]string{}, servers: map[string][]acp.McpServer{}}
-	a.conn = acp.NewAgentSideConnection(a, os.Stdout, os.Stdin)
+	// Every harness process leaves its pid, so tests can check that none outlives its use.
+	if f, err := os.OpenFile(filepath.Join(dir, "pids"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+		fmt.Fprintln(f, os.Getpid())
+		_ = f.Close()
+	}
+	a := &agent{dir: dir, out: &lockedWriter{w: os.Stdout}, cancels: map[string]context.CancelFunc{}, mcp: map[string][]string{}, servers: map[string][]acp.McpServer{}}
+	if action, arg, ok := a.scripted("start"); ok {
+		_ = a.fail("start", action, arg)
+	}
+	a.conn = acp.NewAgentSideConnection(a, a.out, os.Stdin)
 	fmt.Fprintln(os.Stderr, "fakeagent ready")
 	<-a.conn.Done()
+}
+
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(b []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(b)
+}
+
+func (a *agent) scriptPath() string { return filepath.Join(a.dir, "script") }
+
+// scripted returns the first directive for step and removes it from the script.
+func (a *agent) scripted(step string) (action, arg string, ok bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	b, err := os.ReadFile(a.scriptPath())
+	if err != nil {
+		return "", "", false
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	for i, l := range lines {
+		f := strings.Fields(l)
+		if len(f) < 2 || f[0] != step {
+			continue
+		}
+		rest := slices.Delete(lines, i, i+1)
+		_ = os.WriteFile(a.scriptPath(), []byte(strings.Join(rest, "\n")+"\n"), 0o644)
+		if len(f) > 2 {
+			arg = f[2]
+		}
+		return f[1], arg, true
+	}
+	return "", "", false
+}
+
+// flag reports whether the script has a line that is exactly name.
+func (a *agent) flag(name string) bool {
+	b, _ := os.ReadFile(a.scriptPath())
+	for _, l := range strings.Split(string(b), "\n") {
+		if strings.TrimSpace(l) == name {
+			return true
+		}
+	}
+	return false
+}
+
+// fail carries out a scripted failure. It returns the error to answer with
+// (for "error" and "auth"); the other actions do not return.
+func (a *agent) fail(step, action, arg string) error {
+	fmt.Fprintf(os.Stderr, "fakeagent: scripted %s at %s\n", action, step)
+	switch action {
+	case "exit":
+		code, _ := strconv.Atoi(arg)
+		os.Exit(code)
+	case "kill":
+		_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
+		select {}
+	case "hang":
+		select {}
+	case "auth":
+		return acp.NewAuthRequired("authenticate first")
+	}
+	return acp.NewInternalError(map[string]any{"error": "scripted failure at " + step})
+}
+
+// failAt runs the script for step, if any.
+func (a *agent) failAt(step string) error {
+	if action, arg, ok := a.scripted(step); ok {
+		return a.fail(step, action, arg)
+	}
+	return nil
 }
 
 func login(dir string) {
@@ -103,7 +216,7 @@ func login(dir string) {
 }
 
 func (a *agent) loggedIn() bool {
-	if os.Getenv("FAKEAGENT_REQUIRE_LOGIN") == "" {
+	if !a.flag("require-login") {
 		return true
 	}
 	if os.Getenv("FAKEAGENT_TOKEN") != "" {
@@ -118,20 +231,35 @@ func (a *agent) loggedIn() bool {
 }
 
 func (a *agent) Initialize(context.Context, acp.InitializeRequest) (acp.InitializeResponse, error) {
+	if err := a.failAt("initialize"); err != nil {
+		return acp.InitializeResponse{}, err
+	}
 	exe, _ := os.Executable()
 	return acp.InitializeResponse{
 		ProtocolVersion:   acp.ProtocolVersionNumber,
 		AgentInfo:         &acp.Implementation{Name: "fakeagent", Version: "1.0"},
-		AgentCapabilities: acp.AgentCapabilities{LoadSession: os.Getenv("FAKEAGENT_NO_LOAD") == "", McpCapabilities: acp.McpCapabilities{Http: true}},
-		AuthMethods: []acp.AuthMethod{{Terminal: &acp.AuthMethodTerminalInline{
-			Id: "fake-login", Name: "Fake subscription", Type: "terminal", Args: []string{"login"},
-			Description: acp.Ptr("Sign in with a device code"),
-			Meta:        map[string]any{"terminal-auth": map[string]any{"command": exe, "args": []string{"login"}, "label": "Fake login"}},
-		}}},
+		AgentCapabilities: acp.AgentCapabilities{LoadSession: !a.flag("no-load"), McpCapabilities: acp.McpCapabilities{Http: true}},
+		AuthMethods: []acp.AuthMethod{
+			{Terminal: &acp.AuthMethodTerminalInline{
+				Id: "fake-login", Name: "Fake subscription", Type: "terminal", Args: []string{"login"},
+				Description: acp.Ptr("Sign in with a device code"),
+				Meta:        map[string]any{"terminal-auth": map[string]any{"command": exe, "args": []string{"login"}, "label": "Fake login"}},
+			}},
+			{Agent: &acp.AuthMethodAgent{Id: "fake-key", Name: "Fake API key", Description: acp.Ptr("Uses the key in the environment")}},
+		},
 	}, nil
 }
 
-func (a *agent) Authenticate(context.Context, acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
+func (a *agent) Authenticate(_ context.Context, p acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
+	if err := a.failAt("authenticate"); err != nil {
+		return acp.AuthenticateResponse{}, err
+	}
+	if p.MethodId != "fake-key" {
+		return acp.AuthenticateResponse{}, acp.NewInvalidParams("unknown method")
+	}
+	a.mu.Lock()
+	a.authed = true
+	a.mu.Unlock()
 	return acp.AuthenticateResponse{}, nil
 }
 
@@ -158,6 +286,12 @@ func (a *agent) record(id string, t turn) {
 }
 
 func (a *agent) NewSession(_ context.Context, p acp.NewSessionRequest) (acp.NewSessionResponse, error) {
+	a.mu.Lock()
+	authed := a.authed
+	a.mu.Unlock()
+	if action, arg, ok := a.scripted("session/new"); ok && (action != "auth" || !authed) {
+		return acp.NewSessionResponse{}, a.fail("session/new", action, arg)
+	}
 	if !a.loggedIn() {
 		return acp.NewSessionResponse{}, acp.NewAuthRequired("log in first")
 	}
@@ -173,6 +307,9 @@ func (a *agent) NewSession(_ context.Context, p acp.NewSessionRequest) (acp.NewS
 }
 
 func (a *agent) LoadSession(ctx context.Context, p acp.LoadSessionRequest) (acp.LoadSessionResponse, error) {
+	if err := a.failAt("session/load"); err != nil {
+		return acp.LoadSessionResponse{}, err
+	}
 	if _, err := os.Stat(a.path(string(p.SessionId))); err != nil {
 		return acp.LoadSessionResponse{}, acp.NewInvalidParams("unknown session")
 	}
@@ -221,6 +358,11 @@ func (a *agent) Prompt(_ context.Context, p acp.PromptRequest) (acp.PromptRespon
 	a.record(string(sid), turn{"user", in})
 	fields := strings.Fields(in)
 	answer := ""
+	if len(fields) > 0 {
+		if done, err := a.misbehave(ctx, sid, fields); done {
+			return acp.PromptResponse{}, err
+		}
+	}
 	switch {
 	case len(fields) >= 3 && fields[0] == "write":
 		path := fields[1]
@@ -339,4 +481,44 @@ func (a *agent) SetSessionConfigOption(context.Context, acp.SetSessionConfigOpti
 
 func (a *agent) SetSessionMode(context.Context, acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
 	return acp.SetSessionModeResponse{}, nil
+}
+
+// misbehave runs the failure prompts. done is false for other prompts and
+// for failures after which the prompt is answered normally.
+func (a *agent) misbehave(ctx context.Context, sid acp.SessionId, f []string) (bool, error) {
+	arg := ""
+	if len(f) > 1 {
+		arg = f[1]
+	}
+	switch f[0] {
+	case "exit", "kill":
+		_ = a.say(ctx, sid, "about to "+f[0]+" ")
+		return true, a.fail("prompt", f[0], arg)
+	case "hang":
+		select {}
+	case "error":
+		return true, a.fail("prompt", "error", "")
+	case "garbage":
+		_, _ = a.out.Write([]byte("this is not JSON-RPC\n{\"neither\": \"is this\"}\n"))
+	case "bigline":
+		_, _ = a.out.Write(append(bytes.Repeat([]byte("x"), 11<<20), '\n'))
+	case "stderr":
+		n, _ := strconv.Atoi(arg)
+		_, _ = os.Stderr.Write(append(bytes.Repeat([]byte("e"), n), '\n'))
+		for i := range 1000 {
+			fmt.Fprintf(os.Stderr, "stderr line %d\n", i)
+		}
+	case "closestdout":
+		_ = os.Stdout.Close()
+		select {}
+	case "spawn":
+		helper := exec.CommandContext(context.Background(), "sleep", "300")
+		helper.Stdout, helper.Stderr = os.Stdout, os.Stderr
+		if err := helper.Start(); err != nil {
+			return true, err
+		}
+		_ = os.WriteFile(filepath.Join(a.dir, "helper.pid"), []byte(strconv.Itoa(helper.Process.Pid)), 0o644)
+		os.Exit(0)
+	}
+	return false, nil
 }

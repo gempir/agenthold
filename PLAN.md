@@ -213,14 +213,84 @@ sessions and secret pushes. Node table, capacity-based placement, node status in
 of an offline node shown as unreachable. *Accept:* controller on a host without KVM, node in the Lima
 VM; an agent created in the UI runs on the node and behaves exactly like a local one.
 
+### Step 4: machines, apps and exposure
+
+Decided with the project owner on 2026-11-16. Work lands through pull requests that are merged when
+CI is green; the demo deploys itself from `main`.
+
+**Model.** The `agents` table is the table of *machines*. A machine is one Firecracker microVM with
+an owner, shares, resources, disks and a sandbox row. `kind` says what runs in it:
+
+- `agent`: a harness (Claude Code, Codex or OpenCode, nothing else) driven over ACP. Unchanged.
+- `app`: no harness. sandboxd supervises one service command (restart with backoff, captured logs).
+  An app is created by a user or by an agent (`created_by_agent_id`); it belongs to that agent's
+  owner. Apps do not idle-sleep unless configured to.
+
+No rename of tables, packages or routes: "agent" stays the word for kind `agent`, the REST surface
+gains `/apps`. Anything that is machine-level (lifecycle, terminal, files, shares, secrets,
+exposure, clone, snapshot) is written once and works for both kinds.
+
+**Exposure (preview URLs).** Any machine can expose guest TCP ports over HTTP. An exposure is
+`(machine, port, name, access)` and is served at `<name><preview.host_suffix>`, for example suffix
+`.apps.example.com` or `-demo.agenthold.dev` (a suffix, not a subdomain, so one-level wildcard
+certificates work). The operator points a wildcard DNS record and their TLS proxy at agenthold; we
+still terminate no TLS. The controller routes by `Host`, dials the guest port through the tunnel
+(new `dial` stream op in sandboxd; works across edge nodes) and proxies HTTP and WebSocket.
+Without `preview.host_suffix` the feature is off.
+
+Access per exposure:
+
+- `private` (default): owner and shared users. The controller is the auth gate: no cookie means a
+  redirect to the main host, which hands a one-time code back to the exposure host, which sets a
+  host-only cookie. The app receives `X-Agenthold-User`, `X-Agenthold-Email` and a short-lived
+  signed `X-Agenthold-Identity` JWT (keys at `/.well-known/agenthold/jwks.json` on the main host).
+- `authenticated`: any signed-in user of this agenthold, same headers.
+- `public`: no gate, identity headers stripped.
+
+This is what "the app needs OIDC" and "the app needs an HTTPS domain" mean for now: the platform
+gives an app a certificate-backed hostname and an authenticated user without app code. Acting as a
+full OIDC provider for apps is a later option on top of the same keys.
+
+**Agent tools.** The platform MCP server gains machine tools, scoped like agent-to-agent calls
+(machines of the caller's owner): `expose_port`, `list_exposures`, `unexpose`, `deploy_app` (create
+or update an app from a directory of the calling agent: tar through the tunnels, set command, port,
+env, access; returns the URL), `list_apps`, `app_logs`, `app_exec`, `stop_app`, `delete_app`.
+
+**Harness layer.** Exactly three adapters plus the test fake. The adapter interface, the sandboxd
+harness process and the session manager's ACP connection are the foundation: every failure
+(missing binary, crash, hang during initialize, auth required, protocol garbage, server restart
+mid-turn, node disconnect) must end in a defined session state with a readable error and a clean
+retry, covered by tests with the fake harness.
+
+Milestones (migration numbers are reserved so parallel work does not collide):
+
+- **H1. Harness hardening.** Audit and fix as above. No migration.
+- **X1. Exposure.** `00002_exposures`. Tunnel `dial` op, host router, auth gate, API, UI, the three
+  exposure tools. *Accept:* an agent runs `python3 -m http.server`, calls `expose_port`, and the URL
+  works for the owner in a browser, is refused for a stranger, and carries WebSockets.
+- **C1. Clone and templates.** `00003_clone_templates`. Driver `Clone` (reflink or sparse copy of
+  overlay and home while the source is stopped or paused), node RPC, API, UI. A template is a
+  stopped machine flagged `is_template`; "new from template" is a clone.
+- **A1. Apps.** `00004_apps`. `kind`, service supervision in sandboxd, `/apps` API, app tools, UI.
+  Builds on X1. *Accept:* an agent writes a small web app, calls `deploy_app`, and the returned URL
+  serves it behind the auth gate; the app survives a server restart and a redeploy.
+- **S1. Memory snapshots.** `00005_snapshots` if needed. Sleep = pause, snapshot to disk, exit;
+  wake = restore, fix the guest clock, sandboxd re-dials the tunnel. Balloon to shrink the
+  snapshot. Any restore failure (version change, missing file, error) falls back to cold boot.
+  Exposures wake a sleeping machine on the first request. Builds on C1 (same driver code).
+- **D1. Self-hosted artifacts.** No GitHub release assets. A controller serves the base image and
+  release bundle it runs to its edge nodes and to other installs
+  (`/dl/...`, checksummed, zstd, range requests); the demo box builds and tests releases itself
+  (it has KVM on arm64) and is the project's download origin. GitHub Actions keeps only what needs
+  no KVM and no hosting (unit tests, lint, build).
+
 ### Later
 
-- Memory snapshots for true suspend and resume (balloon, snapshot on idle, cold boot as fallback).
-- Preview URLs for guest ports, live browser view.
-- Agent cloning and templates (cheap now: copy two sparse files).
+- Live browser view of an agent's Chromium.
+- Agenthold as an OIDC provider for apps.
+- Custom domains per exposure.
 
 ## 6. Open questions
 
-- Base rootfs hosting: GitHub release assets have a 2 GB per-file limit; the image may need splitting
-  or compression (zstd) to fit. Decide in N2.
-- GitHub-hosted arm64 runners may lack KVM; if so arm64 KVM tests run only locally.
+- None open. Former ones: rootfs hosting is D1 (self-hosted); KVM tests run on our own hardware,
+  not on GitHub runners.

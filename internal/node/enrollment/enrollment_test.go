@@ -45,7 +45,7 @@ func startController(t *testing.T) *controller {
 		t.Fatal(err)
 	}
 	c := &controller{cluster: cluster, identity: identity, addr: ln.Addr().String(), peers: make(chan enrollment.Peer, 8)}
-	srv := &enrollment.Server{Identity: identity, Registry: cluster, Handle: func(_ context.Context, p enrollment.Peer, conn net.Conn) {
+	srv := &enrollment.Server{Identity: identity, Registry: cluster, Version: "v9.9.9", DownloadURL: "https://controller.example/dl/", Handle: func(_ context.Context, p enrollment.Peer, conn net.Conn) {
 		c.peers <- p
 		_ = conn.Close()
 	}}
@@ -83,11 +83,21 @@ func TestJoinThenReconnectWithPinnedIdentity(t *testing.T) {
 	if fi, err := os.Stat(statePath); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("state file must be private: %v %v", fi.Mode(), err)
 	}
+	if state.ControllerVersion != "v9.9.9" || state.DownloadURL != "https://controller.example/dl/" {
+		t.Fatalf("joining must teach the node where its controller serves downloads: %+v", state)
+	}
 	loaded, err := enrollment.LoadState(statePath)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if loaded.ControllerVersion != "v9.9.9" || loaded.DownloadURL != "https://controller.example/dl/" {
+		t.Fatalf("download location not persisted: %+v", loaded)
+	}
+	loaded.DownloadURL, loaded.ControllerVersion = "https://old.example/dl/", "v0"
 	conn, err = enrollment.Connect(t.Context(), loaded)
+	if err == nil && loaded.DownloadURL != "https://controller.example/dl/" {
+		t.Fatalf("connecting must refresh the download location: %+v", loaded)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

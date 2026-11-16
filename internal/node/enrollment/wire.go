@@ -19,6 +19,9 @@ type hello struct {
 	Kind    string `json:"kind"` // "join" or "connect"
 	Secret  string `json:"secret,omitempty"`
 	Name    string `json:"name,omitempty"`
+	// NodeVersion is the agenthold version of the node. Only nodes that send it are told where
+	// the controller serves downloads from: older nodes reject replies with fields they do not know.
+	NodeVersion string `json:"nodeVersion,omitempty"`
 }
 
 type welcome struct {
@@ -27,6 +30,13 @@ type welcome struct {
 	Error   string `json:"error,omitempty"`
 	NodeID  string `json:"nodeId,omitempty"`
 	Name    string `json:"name,omitempty"`
+	// ControllerVersion and DownloadURL are the controller's agenthold version and the /dl/ root it
+	// serves its release (including the base image) from, for nodes that sent NodeVersion.
+	ControllerVersion string `json:"controllerVersion,omitempty"`
+	DownloadURL       string `json:"downloadUrl,omitempty"`
+
+	// legacy is set locally when the controller only answered a hello without NodeVersion.
+	legacy bool
 }
 
 // readFrame reads exactly one length-prefixed JSON object. A buffered decoder

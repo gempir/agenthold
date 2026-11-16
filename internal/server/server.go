@@ -24,7 +24,9 @@ type Config struct {
 	// the API are proxied to it so the UI reloads live during development.
 	DevProxy *url.URL
 	// API mounts the /api routes.
-	API    func(chi.Router)
+	API func(chi.Router)
+	// DL serves the release under /dl/ (public, read-only, no cookies involved).
+	DL     http.Handler
 	Logger *slog.Logger
 }
 
@@ -40,6 +42,10 @@ func New(cfg Config) http.Handler {
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+
+	if cfg.DL != nil {
+		r.Handle("/dl/*", cfg.DL)
+	}
 
 	r.Group(func(r chi.Router) {
 		// Browsers authenticate with a cookie, so reject cross-origin
@@ -114,7 +120,7 @@ func securityHeaders(dev bool) func(http.Handler) http.Handler {
 			h.Set("X-Content-Type-Options", "nosniff")
 			h.Set("X-Frame-Options", "DENY")
 			h.Set("Referrer-Policy", "same-origin")
-			if !dev && !strings.HasPrefix(r.URL.Path, "/api/") {
+			if !dev && !strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/dl/") {
 				h.Set("Content-Security-Policy", appCSP)
 			}
 			next.ServeHTTP(w, r)

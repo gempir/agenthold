@@ -53,11 +53,34 @@ startup. See [database configuration and backups](/database/) for PostgreSQL set
 ## Runtime artifacts
 
 A release binary contains the architecture-matched Firecracker runtime, kernel and guest daemon. The shared
-base disk is a separate release asset: on first start the server fetches the pinned asset from the URL in
-the runtime manifest and verifies its SHA-256. The verified, uncompressed base lives at
-`<data_dir>/base/<sha256>.ext4` (the SHA-256 of the *uncompressed* image, `base.sha256` in the manifest),
-mode `0644`, in a `0700` directory owned by root. The server uses a file that is already there without
-network access, so an offline installation places it before the first start:
+base disk is separate (about 780 MiB compressed, 2.4 GiB on disk). On first start the server fetches it and
+verifies it against the SHA-256 sums embedded in the binary, so **the source of the bytes needs no trust**.
+The verified, uncompressed base lives at `<data_dir>/base/<sha256>.ext4` (the SHA-256 of the *uncompressed*
+image, `base.sha256` in the manifest), mode `0644`, in a `0700` directory owned by root. The server uses a
+file that is already there without network access.
+
+Where a missing base comes from, first match wins:
+
+1. `sandbox.firecracker.base_url` (`AGENTHOLD_FIRECRACKER_BASE_URL`). A URL ending in `/` is the `/dl/` root
+   of another agenthold, for example `https://demo.agenthold.dev/dl/`: the server then fetches
+   `<root><version>/base-<arch>.ext4.zst`. Any other URL names the compressed image itself.
+2. For an [edge node](/edge-nodes/): the controller it joined.
+3. The URL embedded in the release, if the release has one.
+
+```yaml
+sandbox:
+  firecracker:
+    base_url: https://demo.agenthold.dev/dl/
+```
+
+The download resumes where it stopped: bytes accumulate in `<data_dir>/base/.<sha256>.ext4.zst.part`
+(requested with `Range`/`If-Range`), transient errors are retried with backoff, and it only gives up after 30
+minutes without a single new byte, so a slow uplink does not fail a healthy transfer. Progress is logged every
+few seconds. Two processes sharing a data directory take turns (a lock file). After the checksum of the
+compressed file is verified it is **kept** as `<data_dir>/base/<sha256>.ext4.zst`, next to the decompressed
+image (another 780 MiB), so this installation can pass it on, see below.
+
+An offline installation places the image before the first start. Either the decompressed one:
 
 ```sh
 sha=$(jq -er .base.sha256 runtime-linux-arm64.manifest.json)
@@ -67,9 +90,50 @@ echo "$sha  /var/lib/agenthold/base/$sha.ext4" | sudo sha256sum --check
 sudo chown root:root "/var/lib/agenthold/base/$sha.ext4" && sudo chmod 0644 "/var/lib/agenthold/base/$sha.ext4"
 ```
 
+or just the compressed file as `<data_dir>/base/<sha256>.ext4.zst` (verified against `base.compressed.sha256`
+and decompressed on start; without it the server cannot hand the image to others).
+
 The `chown` matters: `zstd` copies the owner of the compressed file onto its output. The base needs about
-2.5 GiB (arm64) of free space; every release carries its own base. A mismatching or corrupt file stops the
-server at startup instead of being replaced.
+2.5 GiB (arm64) of free space plus the kept compressed file; every release carries its own base. A
+mismatching or corrupt decompressed file stops the server at startup instead of being replaced.
+
+### Serving the release to others
+
+A server running a release binary serves what it runs, without authentication and read-only, under
+`<public_url>/dl/`. Edge nodes use it for their base image, and another installation can point `base_url` at
+it:
+
+| Path | Content |
+| --- | --- |
+| `/dl/manifest.json` | index: version and, per architecture, the files below (`Cache-Control: no-cache`) |
+| `/dl/<version>/agenthold-linux-<arch>` | the running binary |
+| `/dl/<version>/runtime-linux-<arch>.manifest.json` | the embedded runtime manifest |
+| `/dl/<version>/base-<arch>.ext4.zst` | the compressed base image |
+
+Files are immutable per version, carry their SHA-256 as `ETag` and support `Range`, `If-Range` and `HEAD`. The
+base image is only offered when `<data_dir>/base/<sha256>.ext4.zst` exists and matches the checksum in the
+manifest (the startup log says whether it does, and `/dl/manifest.json` then leaves `base` out). A server that
+never downloaded the image itself, for example a controller with `sandbox.driver: none`, needs that file
+copied there. A client address can run two large downloads at a time; more get `429`. Behind a reverse proxy
+the address comes from `X-Forwarded-For`: the proxy must **append** the real client address to that header
+(the right-most public entry is used), otherwise every client shares one limit. Responses name no paths or
+system errors; the reason a file is not served (for example a base image that is missing or does not match)
+is in the server log.
+
+Edge nodes are told to download from `<public_url>/dl/`. With `public_url` unset (it defaults to
+`http://localhost:8080`) or pointing at loopback, no node could reach that, so the server does not
+advertise it and logs a warning at startup; set `public_url` to an address the nodes can open.
+
+To publish other versions or architectures (a build host serving its releases), put files into
+`<data_dir>/dl/`, with the same layout. They are served under `/dl/` and win over the generated files of the
+same name, including a `manifest.json` of your own. Files in a version directory
+(`<version>/...`, for example `v0.4.0/` or `sha-<commit>/`) are served with immutable caching headers, so treat a
+published version directory as immutable and publish changes under a new version; everything else
+(including your `manifest.json`) is revalidated by clients on every use. A file in that directory that
+cannot be opened (permissions, too many open files) is an error (`500`, logged), never replaced by the
+generated file of the same name. Hidden files, directories and anything that leaves
+that directory (including through symlinks) are never served. A development build (without the release
+bundle) serves nothing of its own.
 
 Point `AGENTHOLD_CONFIG` at the YAML file and run `agenthold` as root in the foreground. To install a
 systemd service instead, use:

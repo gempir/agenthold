@@ -8,6 +8,7 @@ import { AgentSecretsTab } from '@/components/AgentSecretsTab';
 import { AgentStateDot } from '@/components/AgentStateBadge';
 import { FilesTab } from '@/components/FilesTab';
 import { HarnessPanel } from '@/components/HarnessPanel';
+import { PreviewTab } from '@/components/PreviewTab';
 import { SharingTab } from '@/components/SharingTab';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { AgentToolsPanel } from '@/components/ToolsPanel';
@@ -165,6 +166,8 @@ function Section({
           </Suspense>
         </>
       ) : null;
+    case 'preview':
+      return <PreviewTab agentId={a.id} isOwner={isOwner} />;
     case 'secrets':
       return <AgentSecretsTab agentId={a.id} isOwner={isOwner} />;
     case 'tools':

@@ -1,5 +1,5 @@
 [Unit]
-Description=Fetch and verify the tested agenthold demo release
+Description=Deploy the tested agenthold release from the configured source
 After=network-online.target agenthold.service
 Wants=network-online.target
 

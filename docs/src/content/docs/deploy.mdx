@@ -1,47 +1,108 @@
 ---
 title: "Deployment"
-description: "Deploy the native binary behind your own HTTPS proxy or tunnel."
+description: "Deploy the native binary behind your own HTTPS proxy or tunnel, and how the demo builds and deploys itself."
 ---
 
-Automatic demo publication and the Scarif pull timer are **disabled** until the bundled server and initial
-deployment are validated. Pushing to `main` does not deploy a server while they are disabled.
+## The demo builds and deploys itself
 
-## Pull deployment for the demo
+The demo at `https://demo.agenthold.dev` runs in the Lima VM `agenthold` on `scarif.local` (arm64, `/dev/kvm`).
+It builds, KVM-tests and deploys every new `main` commit on its own and is the project's download origin.
+Nothing connects to the box: it polls GitHub over anonymous HTTPS, and Cloudflare Tunnel carries the
+traffic. GitHub Actions only runs what needs neither KVM nor hosting (unit tests on SQLite and PostgreSQL,
+lint, generated code, web and native builds); it does not build releases or publish anything.
 
-The prepared design uses outbound HTTPS from the Linux Lima VM on `scarif.local`; GitHub does not connect to
-the Mac and no deployment credentials leave the host. The publication workflow builds an arm64 binary and
-matching base after a successful main CI run. It publishes immutable `sha-<commit>` release assets and
-updates a small `demo-main/channel.json` pointer only while that commit is still the main head. Manual
-workflow runs are subject to the same checks. The automatic `workflow_run` trigger remains commented out.
+Two timers do the work:
 
-The disabled `agenthold-pull.timer` runs `agenthold-pull.service`, which reads the channel, checks the GitHub
-main head and verifies the binary and runtime manifest SHA-256 values. It downloads the compressed base while
-the current service runs, checks both the compressed and uncompressed hashes, and unpacks it once to the
-content-addressed base cache. It rechecks main before switching `/opt/agenthold/current`, then restarts the
-service and checks both health and the expected version. A failed or interrupted switch restores and restarts
-the previous release, and nothing is pruned in that case. Previous base disks remain available for rollback until
-the next successful deployment prunes them (see [Disk usage](#disk-usage)).
+| Unit | Runs | Does |
+| --- | --- | --- |
+| `agenthold-build.timer` → `agenthold-build.service` | 3 minutes after the last check | `/usr/local/lib/agenthold/build-local.sh`: build and test the main head, publish it into the release store |
+| `agenthold-pull.timer` → `agenthold-pull.service` | every 5 minutes, and right after a publish | `/usr/local/lib/agenthold/pull.sh`: deploy the store's channel |
 
-The updater refuses to bootstrap an empty installation. The first release is installed by hand, validated,
-and only then handed over to the timer.
+### Build (`build-local.sh`)
 
-### Bootstrap the first release
+Each run asks `https://github.com/gempir/agenthold.git` for main's head. A commit that is already in the
+store, already deployed or recorded as failed is skipped. Otherwise, with at least 12 GB free on `/`, the
+builder fetches it into its own bare clone (`/var/lib/agenthold-build/agenthold.git`, owned by the
+unprivileged `agenthold-build` user), checks it out into a fresh worktree and runs, in this order:
 
-The VM needs `jq`, `zstd`, `curl`, `nftables` and `flock` (the Lima template installs them), `/dev/kvm`, and
-about 3 GiB free for the first base image. Build a `sha-<commit>` release (the pull channel only accepts
-full-commit versions), copy `build/release/arm64` and `scripts/deploy` into the VM and run the bootstrap:
+1. `scripts/deploy/pull_test.sh` and `bootstrap_test.sh` (build user)
+2. `make test-go`: the full race suite on SQLite, also with remote edge nodes (build user; PostgreSQL is
+   covered by GitHub CI)
+3. `make web` (build user)
+4. the guest kernel, cached in `/var/cache/agenthold-build/kernel/<hash of its inputs>` (build user)
+5. `VERSION=sha-<commit> BASE_URL= scripts/release/build.sh`, which builds the guest daemon and base
+   image (root: `mmdebstrap`) and the bundled binary
+6. `make test-kvm` against the image just built (root: the jailer, taps and nftables). The KVM tests run
+   in their own network and mount namespaces with temporary data and jail directories, so they do not
+   touch the live service's taps, firewall or address pool.
+
+Every phase is a transient systemd unit in `agenthold-build.slice` (`CPUWeight=20`, `IOWeight=20`,
+`MemoryHigh=3G`, `MemoryMax=4G`, `nice 10`, idle I/O, `GOMAXPROCS=4`), so a build yields to the live
+controller and its microVMs and is killed before it can starve them. The unprivileged phases see an empty
+`/sys/fs/cgroup/agenthold` (the live microVMs' cgroups). Logs are in `/var/log/agenthold-build/<commit>.log`
+and the journal (`journalctl -u agenthold-build`); runtime and memory peak per phase are in
+`/var/lib/agenthold-build/last-build.json`.
+
+Only when everything passed is the release published atomically into the store
+`/srv/agenthold/releases/`: `sha-<commit>/` (binary, runtime manifest, compressed base, base manifest,
+`SHA256SUMS`) is renamed into place, then `channel.json` is replaced. A failure keeps the previous
+channel and writes `/srv/agenthold/failed/<commit>.log`; that commit is not rebuilt (a new commit is). To
+retry it: `sudo /usr/local/lib/agenthold/build-local.sh --force`. If main moves during a build, the build
+finishes and the next run picks up the newest head; commits in between are skipped.
+
+### Deploy (`pull.sh`)
+
+`pull.sh` reads its source from `/etc/agenthold/pull.conf`:
+
+```ini
+# a local release store (the demo) ...
+source=/srv/agenthold/releases
+# ... or the /dl/ root of another agenthold that deployed one
+# source=https://demo.agenthold.dev/dl/
+# also require free space on this mount (the Mac volume behind the Lima disk); empty to skip
+host_mount=/Users/gempir/dev/agenthold
+```
+
+It reads `channel.json` and checks every file against it: `SHA256SUMS` by the channel's hash, binary and
+runtime manifest by both, base image and base manifest by `SHA256SUMS`, the binary's `--version`, and
+the compressed and uncompressed base against the runtime manifest. While the current service still runs, it
+places the compressed base at `<data_dir>/base/<sha256>.ext4.zst` (a hard link from the local store) and
+unpacks it to `<data_dir>/base/<sha256>.ext4`. Then it switches `/opt/agenthold/current`, restarts the
+service and waits for `/healthz` and the expected `/api/v1/version`. A failed or interrupted switch restores
+and restarts the previous release, and nothing is pruned in that case.
+
+After a healthy switch it publishes `channel.json`, `sha-<commit>/SHA256SUMS` and the base manifest into
+`<data_dir>/dl/`, so the controller's [`/dl/`](/install/#download) serves the complete release it runs
+(binary, runtime manifest and base come from the binary itself and the base cache). Another host can
+therefore use `source=https://demo.agenthold.dev/dl/`. Pruning follows (see [Disk usage](#disk-usage)).
+
+`sudo /usr/local/lib/agenthold/pull.sh --check` fetches and verifies everything, including unpacking the
+base, into a temporary directory and changes nothing.
+
+The deploy scripts and units themselves are not updated by a deploy. After changing `scripts/deploy`, install
+them by hand (`install -m 0755 scripts/deploy/{pull,build-local}.sh /usr/local/lib/agenthold/`, units into
+`/etc/systemd/system`, `systemctl daemon-reload`).
+
+### Bootstrap a new host
+
+The VM needs `jq`, `zstd`, `curl`, `nftables` and `flock` (the Lima template installs them), `/dev/kvm`,
+and about 3 GiB free for the first base image. To build there as well: Go (`go.mod`'s version) in
+`/usr/local/bin`, Node 26 and `pnpm` (`web/package.json`'s version) in `/usr/local/bin`, `flex bison
+libelf-dev libssl-dev mmdebstrap` from apt, and a system user `agenthold-build`
+(`useradd --system --home-dir /var/lib/agenthold-build --create-home --shell /usr/sbin/nologin agenthold-build`).
+
+Install the first release from a build (`VERSION=sha-$(git rev-parse HEAD) BASE_URL= scripts/release/build.sh`)
+or from another host's `/dl/` (see [Install](/install/#download)):
 
 ```sh
-# On the Mac or any Linux arm64 host with the repository checked out; make web first.
-VERSION=sha-$(git rev-parse HEAD) scripts/release/build.sh
-# Inside the demo VM, as root:
-scripts/deploy/bootstrap.sh /path/to/arm64
+sudo scripts/deploy/bootstrap.sh /path/to/release-dir
 ```
 
 `bootstrap.sh` verifies the checksums, creates `/opt/agenthold/releases/<full-commit>/`, points
-`/opt/agenthold/current` at it, unpacks and verifies the base into `/var/lib/agenthold/base/<sha256>.ext4`
-and installs `pull.sh` and the four units (agenthold, pull service and timer, cloudflared) without starting
-or enabling them. Then write `/etc/agenthold/agenthold.yaml` (mode `0600`) and start the service:
+`/opt/agenthold/current` at it, keeps and unpacks the base in `/var/lib/agenthold/base/`, and installs
+`pull.sh`, `build-local.sh` and the units (agenthold, pull service and timer, build service, timer and
+slice, cloudflared) without starting or enabling them. Then write `/etc/agenthold/agenthold.yaml` (mode
+`0600`) and `/etc/agenthold/pull.conf`, and start everything:
 
 ```yaml
 listen: 127.0.0.1:8080
@@ -60,13 +121,19 @@ auth:
 ```sh
 sudo systemctl daemon-reload
 sudo systemctl enable --now agenthold
-curl -fsS http://127.0.0.1:8080/healthz
 curl -fsS http://127.0.0.1:8080/api/v1/version   # {"version":"sha-<commit>",...}
+sudo systemctl enable --now agenthold-build.timer agenthold-pull.timer
 ```
 
-To exercise a real microVM before publishing, temporarily add `test_harness: true` and an `auth.local` admin
-(a throwaway password hashed with `agenthold hash-password`) in a separate config file selected through a
-systemd drop-in, and run the repository's API smoke test inside the VM against `http://127.0.0.1:8080`:
+The GitHub sign-in configuration and the tunnel token are root-only files under `/etc/agenthold`
+(`agenthold.yaml`, and `cloudflared.env` containing one `TUNNEL_TOKEN=` line). The remotely managed tunnel's
+public hostname (`demo.agenthold.dev`) uses the service `http://127.0.0.1:8080`; start the connector with
+`sudo systemctl enable --now agenthold-cloudflared`, and stop the connector on a previous host only after
+the new one shows as healthy.
+
+To exercise a real microVM against a running server, temporarily add `test_harness: true` and an
+`auth.local` admin (a throwaway password hashed with `agenthold hash-password`) in a separate config file
+selected through a systemd drop-in, and run the API smoke test inside the VM:
 
 ```sh
 go build -o /tmp/native ./scripts/e2e/native
@@ -74,34 +141,8 @@ go build -o /tmp/fakeagent ./internal/harness/fakeagent
 AGENTHOLD_SMOKE_PASSWORD=... /tmp/native -base http://127.0.0.1:8080 -fakeagent /tmp/fakeagent
 ```
 
-It creates an agent, boots its microVM, uses the terminal and file API, chats with the scripted harness,
-sleeps and wakes it, resets its system and deletes it. Remove the drop-in, the extra config and its password
-afterwards, and start with a fresh database if the test admin should not remain.
-
-### Hand over to the timer and publish
-
-Only after the initial validation and explicit approval should the timer be enabled:
-
-```sh
-sudo systemctl enable --now agenthold-pull.timer
-sudo systemctl status agenthold-pull.timer
-sudo journalctl -u agenthold-pull.service -f
-```
-
-The GitHub sign-in configuration and the tunnel token are root-only files under `/etc/agenthold`
-(`agenthold.yaml`, and `cloudflared.env` containing one `TUNNEL_TOKEN=` line); the token is not stored in the
-workflow. Switching the public demo to the new VM:
-
-1. In the Cloudflare dashboard, check that the remotely managed tunnel's public hostname
-   (`demo.agenthold.dev`) uses the service `http://127.0.0.1:8080`. That address is local to whichever host runs
-   the connector, so it routes correctly on the new VM.
-2. Start the connector in the VM: `sudo systemctl enable --now agenthold-cloudflared`.
-3. Stop the old connector on the previous host *after* the new one shows as healthy in the dashboard. Do not
-   leave both connectors running unless the origin routes correctly on both hosts.
-4. Enable the pull timer as above.
-
-Back up the database, master key, CA and agent disks before upgrading. Binary rollback does not reverse database
-migrations.
+Back up the database, master key, CA and agent disks before upgrading. Binary rollback does not reverse
+database migrations, so migrations are append-only.
 
 ## Disk usage
 
@@ -109,23 +150,26 @@ The shared base and the per-agent disks can consume substantial host storage. A 
 full configured size to the guest while the Mac only pays for the blocks that were written, so the guest can
 show tens of GiB free that the Mac does not have. Measured on the Scarif demo VM:
 
-- One base image is about 2.4 GiB. The embedded guest daemon differs per release, so every deployed commit
-  brings a new base. After each successful switch (health and version verified) the puller prunes the base
-  cache and keeps only the base of the new release, the base of the previous release (the rollback target) and
-  every base that an agent's `state.json` still references: an agent's overlay only works with the base it was
-  created on, and it moves to the current base when the agent's system is reset. If any agent state cannot be
-  read, no base is pruned. Steady state is therefore about 2 to 3 bases (roughly 5 to 7 GiB) plus per-agent disks.
+- One base image is about 2.4 GiB, plus about 0.8 GiB for the kept compressed file. The embedded guest
+  daemon differs per release, so every deployed commit brings a new base. After each successful switch the
+  puller prunes the base cache and keeps only the base (both files) of the new release, the base of the
+  previous release (the rollback target) and every base that an agent's `state.json` still references: an
+  agent's overlay only works with the base it was created on, and it moves to the current base when the
+  agent's system is reset. If any agent state cannot be read, no base is pruned.
 - Release directories under `/opt/agenthold/releases` are pruned to the newest three, never the current or
-  previous release. Pruning only touches `<sha256>.ext4` files in `<data_dir>/base/` and 40-hex release
-  directories, ignores symlinks, tolerates missing files, and logs each removal and the bytes freed in the
-  journal. It never runs after a failed or rolled-back deployment. Set `PRUNE=0` in the puller's environment
-  (for example `systemctl edit agenthold-pull.service`) to disable it.
+  previous release; versions in the local release store to the newest three plus the deployed and previous
+  ones (the compressed base there is a hard link to the one in the base cache, so it costs nothing extra
+  while both exist); `<data_dir>/dl/` keeps only the deployed version. Pruning only touches
+  `<sha256>.ext4[.zst]` files in `<data_dir>/base/`, 40-hex release directories and `sha-<commit>`
+  directories, ignores symlinks, and logs each removal and the bytes freed. It never runs after a failed or
+  rolled-back deployment. Set `PRUNE=0` in the puller's environment (`systemctl edit agenthold-pull.service`)
+  to disable it.
+- A build needs about 10 GB of temporary space (worktree, Go and pnpm caches, the rootfs work tree, the
+  KVM test copy of the image); the builder refuses to start with less than 12 GB free.
 - A fresh agent has an 8 GiB overlay and a 10 GiB home disk as sparse files; right after boot they occupy
-  only a few MiB. The limits are what an agent can grow to, 18 GiB at most with the defaults.
-- Before downloading a new base the puller checks free space on the guest filesystem and, through the shared
-  checkout mount (`AGENTHOLD_DEPLOY_HOST_MOUNT`, default `/Users/gempir/dev/agenthold`), on the Mac volume
-  that backs the VM. `df` on the Mac and on that mount report the APFS container's free space, which also
-  changes with other workloads on the Mac.
+  only a few MiB.
+- Before placing a new base the puller checks free space on the guest filesystem and on `host_mount`, the
+  Mac volume that backs the VM.
 
 Free space freed inside the guest is returned to the Mac (the Lima disk shrinks after deletion), but keep
 substantial headroom on the Mac volume: it is shared with everything else on the host.

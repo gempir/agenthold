@@ -61,7 +61,8 @@ Known consequences, accepted:
 
 - Most cheap cloud VPSes have no KVM and cannot host agents.
 - The dev and demo setups run Firecracker under nested virtualization (slower than bare metal).
-- Only arm64 can be tested locally; x86_64 is verified in CI (GitHub's x86 Linux runners have KVM).
+- Only arm64 is built and KVM-tested (on the demo host, which has KVM on arm64). x86_64 is supported from
+  source (`scripts/release/build.sh` on an x86_64 KVM host) but not built or tested by the project.
 
 ## 3. Architecture
 
@@ -145,7 +146,7 @@ XChaCha20-Poly1305 secrets, slog.
 |---|---|
 | VMM | Firecracker + jailer, pinned release, upstream static binaries |
 | Guest kernel | Pinned upstream Firecracker-compatible kernel build per arch (needs virtio-blk, virtio-net, ext4, overlayfs, and what Docker-in-guest needs) |
-| Base rootfs | Built in CI from `images/base` (build-time tooling is free to use containers), published as a release asset with checksum |
+| Base rootfs | Built on the demo host from `images/base` (`scripts/deploy/build-local.sh`, build-time tooling is free to use containers) and served with checksums under its `/dl/`; no GitHub release assets |
 | Host networking | `vishvananda/netlink` for taps, `google/nftables` for rules (both already dependencies) |
 | Store | `sqlc` with two engines (sqlite via `modernc.org/sqlite`, postgres via `pgx`), `goose` migrations per engine, one Go interface above both |
 | Local auth | argon2id hash in YAML, `agenthold hash-password` prints one |
@@ -156,8 +157,11 @@ XChaCha20-Poly1305 secrets, slog.
 
 - Work lands on `main` in small commits; each milestone ends with its acceptance checks passing and
   tests covering them. Do not push unless told to.
-- Tests that need KVM carry the build tag `kvm` and run inside the Lima VM (`make test-kvm`) and in
-  CI on x86. Everything else uses the fake driver and must pass on macOS.
+- Tests that need KVM carry the build tag `kvm` and run inside the Lima VM (`make test-kvm`) and on the
+  demo host before every release (`scripts/deploy/build-local.sh`); GitHub CI does not run them. Tests
+  run there next to the live service: they must isolate themselves (network/mount namespace, temporary
+  data and jail directories, own address pool) and never touch host-wide state such as
+  `/sys/fs/cgroup/agenthold`. Everything else uses the fake driver and must pass on macOS.
 - The demo database is now live: never edit an applied migration. Add `00002_...` etc. (both engines). Editing `00001_init.sql` in place broke the first auto-deploy (`no such table: nodes`) and needed a manual DB reset.
 - Change `api/openapi.yaml` first, regenerate, then implement.
 - Delete what a decision removes: code, config fields, UI, docs, tests. No compatibility shims.
@@ -193,7 +197,8 @@ the wire and not readable in the guest, a guest cannot reach another guest or ho
 
 **N4. Packaging and demo.** Embed and extract runtime artifacts, base image download with checksum,
 `agenthold install`, startup preflight (KVM, root, nftables) with clear errors, release workflow
-building linux/amd64 and linux/arm64 binaries plus rootfs assets, CI with KVM tests on x86. Remove
+building linux/amd64 and linux/arm64 binaries plus rootfs assets, CI with KVM tests on x86 (both
+replaced by D1: the demo host builds and KVM-tests arm64 releases itself). Remove
 Dockerfiles, compose files, old deploy scripts. Rewrite install, sandboxes, security docs. Bring the
 demo up on `scarif.local` with a new deploy workflow. *Accept:* on a fresh KVM host, download one
 binary, write one YAML, run it, and reach a working agent.
@@ -283,6 +288,13 @@ Milestones (migration numbers are reserved so parallel work does not collide):
   (`/dl/...`, checksummed, zstd, range requests); the demo box builds and tests releases itself
   (it has KVM on arm64) and is the project's download origin. GitHub Actions keeps only what needs
   no KVM and no hosting (unit tests, lint, build).
+  - D1a (done): `/dl/` on every release controller, resumable base download, edge nodes fetch from
+    their controller.
+  - D1b (done): `build-local.sh` + `agenthold-build.timer` build, race-test, KVM-test and publish main
+    into `/srv/agenthold/releases`; `pull.sh` deploys from a configured source (local store or a `/dl/`
+    root) and publishes the deployed release under the controller's `/dl/`. `deploy.yml`,
+    `release.yml` and the CI `kvm` job are gone. Open: tagged `v*` releases (build-local only builds
+    `sha-<commit>` from main), amd64 builds (from source only).
 
 ### Later
 

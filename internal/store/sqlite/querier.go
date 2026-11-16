@@ -112,8 +112,8 @@ type Querier interface {
 	RenameSession(ctx context.Context, arg RenameSessionParams) error
 	// Reconnect: new credential, same id and seed.
 	ReplaceProviderLogin(ctx context.Context, arg ReplaceProviderLoginParams) error
-	// After a restart no turn is running anymore.
-	ResetRunningSessions(ctx context.Context) error
+	// After a restart no turn is running anymore. Returns the sessions whose turn was cut off.
+	ResetRunningSessions(ctx context.Context) ([]string, error)
 	SetAgentHarness(ctx context.Context, arg SetAgentHarnessParams) error
 	SetAgentLoginUser(ctx context.Context, arg SetAgentLoginUserParams) error
 	SetBootToken(ctx context.Context, arg SetBootTokenParams) error

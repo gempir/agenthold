@@ -101,7 +101,7 @@ type Querier interface {
 	RecordWebhookDelivery(ctx context.Context, arg RecordWebhookDeliveryParams) error
 	RenameSession(ctx context.Context, arg RenameSessionParams) error
 	ReplaceProviderLogin(ctx context.Context, arg ReplaceProviderLoginParams) error
-	ResetRunningSessions(ctx context.Context) error
+	ResetRunningSessions(ctx context.Context) ([]string, error)
 	SetAgentHarness(ctx context.Context, arg SetAgentHarnessParams) error
 	SetAgentLoginUser(ctx context.Context, arg SetAgentLoginUserParams) error
 	SetBootToken(ctx context.Context, arg SetBootTokenParams) error

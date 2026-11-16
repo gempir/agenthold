@@ -19,9 +19,9 @@ UPDATE agent_sessions SET title = $1, updated_at = $2 WHERE id = $3;
 -- name: DeleteAgentSession :exec
 DELETE FROM agent_sessions WHERE id = $1;
 
--- name: ResetRunningSessions :exec
--- After a restart no turn is running anymore.
-UPDATE agent_sessions SET status = 'idle' WHERE status = 'running';
+-- name: ResetRunningSessions :many
+-- After a restart no turn is running anymore. Returns the sessions whose turn was cut off.
+UPDATE agent_sessions SET status = 'idle' WHERE status = 'running' RETURNING id;
 
 -- name: InsertSessionEvent :exec
 INSERT INTO agent_session_events (session_id, seq, at, type, user_id, data) VALUES ($1, $2, $3, $4, $5, $6);

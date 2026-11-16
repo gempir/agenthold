@@ -37,6 +37,18 @@ func authRequired(err error) bool {
 	return errors.As(err, &re) && re.Code == -32000
 }
 
+// Timeouts of the harness protocol. A turn itself has none: it may run for
+// hours, and the user can always cancel it.
+var (
+	// startTimeout bounds starting the harness and its initialize answer.
+	startTimeout = 2 * time.Minute
+	// setupTimeout bounds each of authenticate and session/new, load or resume.
+	setupTimeout = 2 * time.Minute
+	// cancelGrace is how long a harness may take to end a turn after
+	// session/cancel before it is stopped.
+	cancelGrace = 15 * time.Second
+)
+
 // HomeDir is the harness's working directory.
 const HomeDir = "/home/agent"
 
@@ -89,7 +101,7 @@ func (m *Manager) Restart(agentID string) {
 	}
 	m.mu.Unlock()
 	if c != nil && !busy {
-		c.close()
+		c.close("the harness restarted to apply new settings")
 	}
 }
 
@@ -97,12 +109,21 @@ type turn struct {
 	sessionID string
 	agentID   string
 	depth     int
-	acpID     string
+	// setup is the context of everything before the prompt is sent (waking,
+	// starting the harness, activating the session); Cancel ends it.
+	setup     context.Context
+	stopSetup context.CancelFunc
+
+	// Guarded by Manager.mu.
 	conn      *harnessConn
+	acpID     string
+	prompting bool // session/prompt was sent
+	cancelled bool
 	perms     map[string]chan acp.PermissionOptionId // pending permission requests
 }
 
-// NewManager returns a session manager.
+// NewManager returns a session manager. Turns that were running when the
+// server stopped are ended in their logs.
 func NewManager(st *store.Store, wake Waker, lg *slog.Logger) *Manager {
 	if lg == nil {
 		lg = slog.Default()
@@ -112,8 +133,22 @@ func NewManager(st *store.Store, wake Waker, lg *slog.Logger) *Manager {
 		store: st, wake: wake, log: newLog(st), lg: lg, ctx: ctx, cancel: cancel,
 		conns: map[string]*harnessConn{}, turns: map[string]*turn{}, starting: map[string]*sync.Mutex{},
 	}
-	_ = st.ResetRunningSessions(ctx)
+	m.endInterruptedTurns(ctx)
 	return m
+}
+
+// endInterruptedTurns closes turns that a previous server process left
+// running: their harness died with the tunnel, so they can never finish.
+func (m *Manager) endInterruptedTurns(ctx context.Context) {
+	ids, err := m.store.ResetRunningSessions(ctx)
+	if err != nil {
+		m.lg.Warn("reset running sessions", "err", err)
+		return
+	}
+	for _, sid := range ids {
+		_ = m.log.append(ctx, sid, EventError, "", map[string]string{"message": "The server restarted during this turn, which stopped it. Send the message again to retry."})
+		_ = m.log.append(ctx, sid, EventTurnEnd, "", map[string]any{"stopReason": "error"})
+	}
 }
 
 // OnActivity is called with an agent id whenever a session is used.
@@ -150,7 +185,8 @@ func (m *Manager) SetTools(t Tools) { m.tools = t }
 // SetWaker sets how agents are woken (the API provides it).
 func (m *Manager) SetWaker(w Waker) { m.wake = w }
 
-// Close stops all harness connections and waits for turns to end.
+// Close stops all harness connections and waits for turns to end. Running
+// turns end with an error in their logs.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	conns := make([]*harnessConn, 0, len(m.conns))
@@ -159,7 +195,7 @@ func (m *Manager) Close() {
 	}
 	m.mu.Unlock()
 	for _, c := range conns {
-		c.close()
+		c.close("the server shut down during the turn; send the message again to retry")
 	}
 	m.cancel()
 	m.wg.Wait()
@@ -222,6 +258,10 @@ func (m *Manager) Prompt(ctx context.Context, sessionID, userID, userName, text 
 }
 
 // PromptWith is Prompt with options.
+//
+// Every turn ends with exactly one turn_end event (stopReason "error" after
+// an error event, "cancelled" after Cancel), and the session is idle again
+// before turn_end is visible.
 func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, text string, status func(string), opts PromptOpts) error {
 	sess, err := m.store.GetAgentSession(ctx, sessionID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -235,11 +275,18 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 		m.mu.Unlock()
 		return ErrBusy
 	}
-	t := &turn{sessionID: sessionID, agentID: sess.AgentID, depth: opts.Depth, perms: map[string]chan acp.PermissionOptionId{}}
+	if m.ctx.Err() != nil {
+		m.mu.Unlock()
+		return errors.New("the server is shutting down")
+	}
+	setup, stopSetup := context.WithCancel(m.ctx)
+	t := &turn{sessionID: sessionID, agentID: sess.AgentID, depth: opts.Depth, setup: setup, stopSetup: stopSetup, perms: map[string]chan acp.PermissionOptionId{}}
 	m.turns[sessionID] = t
+	m.wg.Add(1)
 	m.mu.Unlock()
 	m.touch(sess.AgentID)
 	release := func() {
+		stopSetup()
 		m.mu.Lock()
 		delete(m.turns, sessionID)
 		m.mu.Unlock()
@@ -253,6 +300,7 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 	}
 	if err := m.log.append(ctx, sessionID, EventPrompt, userID, promptData); err != nil {
 		release()
+		m.wg.Done()
 		return err
 	}
 	_ = m.store.SetSessionStatus(ctx, db.SetSessionStatusParams{Status: "running", UpdatedAt: time.Now().Unix(), ID: sessionID})
@@ -260,22 +308,35 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 		_ = m.store.RenameAgentSessionTitle(ctx, sessionID, titleFrom(text))
 	}
 
-	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
-		ctx := m.ctx
-		end, err := m.run(ctx, t, sess, text, status)
-		if err != nil {
+		// The log outlives the turn's contexts: a turn stopped by shutdown
+		// still records how it ended.
+		lctx := context.Background()
+		end, err := m.run(t, sess, text, status)
+		m.mu.Lock()
+		cancelled := t.cancelled
+		m.mu.Unlock()
+		switch {
+		case err != nil && cancelled:
+			// What failed after a cancel is the cancel taking effect, unless
+			// the harness had to be stopped for it.
+			var se *stoppedError
+			if errors.As(err, &se) {
+				_ = m.log.append(lctx, sessionID, EventNotice, "", map[string]string{"message": err.Error()})
+			}
+			end = map[string]any{"stopReason": string(acp.StopReasonCancelled)}
+		case err != nil:
 			m.lg.Warn("turn failed", "session", sessionID, "err", err)
-			_ = m.log.append(ctx, sessionID, EventError, "", map[string]string{"message": err.Error()})
+			_ = m.log.append(lctx, sessionID, EventError, "", map[string]string{"message": err.Error()})
 			end = map[string]any{"stopReason": "error"}
 		}
 		// The turn is over for new prompts before anyone can see turn_end:
 		// a client that reacts to turn_end by prompting again must not get a
 		// "turn already running" conflict.
-		_ = m.store.SetSessionStatus(ctx, db.SetSessionStatusParams{Status: "idle", UpdatedAt: time.Now().Unix(), ID: sessionID})
+		_ = m.store.SetSessionStatus(lctx, db.SetSessionStatusParams{Status: "idle", UpdatedAt: time.Now().Unix(), ID: sessionID})
 		release()
-		_ = m.log.append(ctx, sessionID, EventTurnEnd, "", end)
+		_ = m.log.append(lctx, sessionID, EventTurnEnd, "", end)
 	}()
 	return nil
 }
@@ -293,9 +354,10 @@ func titleFrom(text string) string {
 
 // run executes one turn and returns the data of its turn_end event, which the
 // caller appends once the turn has been released.
-func (m *Manager) run(ctx context.Context, t *turn, sess db.AgentSession, text string, status func(string)) (map[string]any, error) {
+func (m *Manager) run(t *turn, sess db.AgentSession, text string, status func(string)) (map[string]any, error) {
+	ctx := t.setup
 	notice := func(msg string) {
-		_ = m.log.append(ctx, sess.ID, EventNotice, "", map[string]string{"message": msg})
+		_ = m.log.append(context.WithoutCancel(ctx), sess.ID, EventNotice, "", map[string]string{"message": msg})
 		if status != nil {
 			status(msg)
 		}
@@ -311,22 +373,47 @@ func (m *Manager) run(ctx context.Context, t *turn, sess db.AgentSession, text s
 	if err != nil {
 		return nil, err
 	}
-	t.acpID = acpID
 	conn.bind(acpID, sess.ID)
 
-	res, err := conn.acp.Prompt(ctx, acp.PromptRequest{SessionId: acp.SessionId(acpID), Prompt: []acp.ContentBlock{acp.TextBlock(text)}})
+	m.mu.Lock()
+	if t.cancelled {
+		m.mu.Unlock()
+		return nil, context.Canceled
+	}
+	t.acpID, t.prompting = acpID, true
+	m.mu.Unlock()
+
+	// Not the setup context: a cancel is session/cancel, answered by the
+	// harness with stopReason "cancelled".
+	res, err := conn.acp.Prompt(m.ctx, acp.PromptRequest{SessionId: acp.SessionId(acpID), Prompt: []acp.ContentBlock{acp.TextBlock(text)}})
 	if err != nil {
-		select {
-		case <-conn.done:
-			return nil, errors.New("the agent's harness stopped during the turn")
-		default:
+		if conn.ended() {
+			return nil, conn.failure()
 		}
 		if authRequired(err) {
 			return nil, errLoginNeeded
 		}
-		return nil, fmt.Errorf("prompt: %w", err)
+		return nil, fmt.Errorf("%s failed the prompt: %w", conn.name, err)
 	}
 	return map[string]any{"stopReason": res.StopReason, "usage": res.Usage}, nil
+}
+
+// step runs one setup request with setupTimeout. A harness that does not
+// answer in time is stopped, so the next turn starts a fresh one.
+func step(ctx context.Context, conn *harnessConn, method string, fn func(context.Context) error) error {
+	sctx, cancel := context.WithTimeout(ctx, setupTimeout)
+	defer cancel()
+	err := fn(sctx)
+	if err == nil {
+		return nil
+	}
+	if ctx.Err() == nil && errors.Is(sctx.Err(), context.DeadlineExceeded) {
+		conn.close(fmt.Sprintf("%s did not answer %s within %s, so it was stopped; send the message again to retry", conn.name, method, setupTimeout))
+	}
+	if conn.ended() {
+		return conn.failure()
+	}
+	return err
 }
 
 // activate makes sure the harness knows the session: new, loaded or resumed.
@@ -352,69 +439,91 @@ func (m *Manager) activate(ctx context.Context, conn *harnessConn, sess db.Agent
 		}
 	}
 	if sess.AcpSessionID != "" {
+		sid := acp.SessionId(sess.AcpSessionID)
+		var err error
 		switch {
 		case caps.LoadSession:
-			conn.setLoading(sess.AcpSessionID, true)
-			_, err := conn.acp.LoadSession(ctx, acp.LoadSessionRequest{SessionId: acp.SessionId(sess.AcpSessionID), Cwd: HomeDir, McpServers: mcp})
-			conn.setLoading(sess.AcpSessionID, false)
-			if err == nil {
-				conn.markActive(sess.AcpSessionID)
-				return sess.AcpSessionID, nil
-			}
-			m.lg.Warn("session/load failed, starting a new session", "session", sess.ID, "err", err)
+			// The replay is not stored again: the session is bound to this
+			// connection only after it is active.
+			err = step(ctx, conn, "session/load", func(ctx context.Context) error {
+				_, err := conn.acp.LoadSession(ctx, acp.LoadSessionRequest{SessionId: sid, Cwd: HomeDir, McpServers: mcp})
+				return err
+			})
 		case caps.SessionCapabilities.Resume != nil:
-			if _, err := conn.acp.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: acp.SessionId(sess.AcpSessionID), Cwd: HomeDir, McpServers: mcp}); err == nil {
-				conn.markActive(sess.AcpSessionID)
-				return sess.AcpSessionID, nil
-			}
+			err = step(ctx, conn, "session/resume", func(ctx context.Context) error {
+				_, err := conn.acp.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: sid, Cwd: HomeDir, McpServers: mcp})
+				return err
+			})
+		default:
+			err = errors.New("the harness cannot restore sessions")
 		}
+		if err == nil {
+			conn.markActive(sess.AcpSessionID)
+			return sess.AcpSessionID, nil
+		}
+		if conn.closed() || ctx.Err() != nil {
+			return "", err
+		}
+		m.lg.Warn("restoring the session failed, starting a new one", "session", sess.ID, "err", err)
 	}
-	res, err := conn.acp.NewSession(ctx, acp.NewSessionRequest{Cwd: HomeDir, McpServers: mcp})
-	if err != nil && authRequired(err) && m.autoAuthenticate(ctx, conn, sess.AgentID) {
-		res, err = conn.acp.NewSession(ctx, acp.NewSessionRequest{Cwd: HomeDir, McpServers: mcp})
+	newSession := func() (acp.SessionId, error) {
+		var id acp.SessionId
+		err := step(ctx, conn, "session/new", func(ctx context.Context) error {
+			res, err := conn.acp.NewSession(ctx, acp.NewSessionRequest{Cwd: HomeDir, McpServers: mcp})
+			id = res.SessionId
+			return err
+		})
+		return id, err
+	}
+	acpID, err := newSession()
+	if err != nil && authRequired(err) && m.autoAuthenticate(ctx, conn) {
+		acpID, err = newSession()
+	}
+	if err != nil && conn.closed() {
+		return "", conn.failure()
 	}
 	if err != nil {
 		if authRequired(err) {
 			return "", errLoginNeeded
 		}
-		return "", fmt.Errorf("new session: %w", err)
+		if conn.closed() || ctx.Err() != nil {
+			return "", err
+		}
+		return "", fmt.Errorf("%s could not start a session: %w", conn.name, err)
 	}
 	if sess.AcpSessionID != "" {
 		notice("The agent restarted and could not restore this conversation; it starts with a fresh context.")
 	}
-	if err := m.store.SetSessionACPID(ctx, db.SetSessionACPIDParams{AcpSessionID: string(res.SessionId), ID: sess.ID}); err != nil {
+	if err := m.store.SetSessionACPID(ctx, db.SetSessionACPIDParams{AcpSessionID: string(acpID), ID: sess.ID}); err != nil {
 		return "", err
 	}
-	conn.markActive(string(res.SessionId))
-	return string(res.SessionId), nil
+	conn.markActive(string(acpID))
+	return string(acpID), nil
 }
 
-// autoAuthenticate tries the adapter's non-interactive login methods.
-func (m *Manager) autoAuthenticate(ctx context.Context, conn *harnessConn, agentID string) bool {
-	agent, err := m.store.GetAgent(ctx, agentID)
-	if err != nil {
-		return false
-	}
-	ad, ok := harness.Get(agent.Harness)
-	if !ok {
-		return false
-	}
-	aa, ok := ad.(harness.AutoAuthenticator)
-	if !ok {
-		return false
-	}
+// autoAuthenticate tries the adapter's non-interactive login methods that
+// the harness advertises.
+func (m *Manager) autoAuthenticate(ctx context.Context, conn *harnessConn) bool {
 	advertised := map[string]bool{}
 	for _, am := range conn.init.AuthMethods {
 		if am.Agent != nil {
 			advertised[am.Agent.Id] = true
 		}
 	}
-	for _, id := range aa.AutoAuthenticate() {
+	for _, id := range conn.adapter.AutoAuthenticate {
 		if !advertised[id] {
 			continue
 		}
-		if _, err := conn.acp.Authenticate(ctx, acp.AuthenticateRequest{MethodId: id}); err == nil {
+		err := step(ctx, conn, "authenticate", func(ctx context.Context) error {
+			_, err := conn.acp.Authenticate(ctx, acp.AuthenticateRequest{MethodId: id})
+			return err
+		})
+		if err == nil {
 			return true
+		}
+		m.lg.Warn("automatic authentication failed", "agent", conn.agentID, "method", id, "err", err)
+		if conn.closed() {
+			return false
 		}
 	}
 	return false
@@ -481,18 +590,40 @@ func (m *Manager) Ask(ctx context.Context, sessionID, userID, userName, text str
 	}
 }
 
-// Cancel asks the harness to stop the running turn.
+// Cancel stops the running turn. Before the prompt reached the harness the
+// turn simply ends; afterwards the harness is asked to stop (session/cancel)
+// and is stopped itself if it has not ended the turn after cancelGrace.
 func (m *Manager) Cancel(ctx context.Context, sessionID string) error {
 	m.mu.Lock()
 	t, ok := m.turns[sessionID]
-	m.mu.Unlock()
-	if !ok || t.conn == nil || t.acpID == "" {
+	if !ok {
+		m.mu.Unlock()
 		return ErrNoTurn
 	}
+	again := t.cancelled
+	t.cancelled = true
 	t.cancelPermissions()
-	return t.conn.acp.Cancel(ctx, acp.CancelNotification{SessionId: acp.SessionId(t.acpID)})
+	conn, acpID, prompting := t.conn, t.acpID, t.prompting
+	m.mu.Unlock()
+	if !prompting {
+		t.stopSetup()
+		return nil
+	}
+	if !again {
+		time.AfterFunc(cancelGrace, func() {
+			m.mu.Lock()
+			still := m.turns[sessionID] == t
+			m.mu.Unlock()
+			if still {
+				conn.close(fmt.Sprintf("%s did not stop within %s after the turn was cancelled, so it was stopped", conn.name, cancelGrace))
+			}
+		})
+	}
+	return conn.acp.Cancel(ctx, acp.CancelNotification{SessionId: acp.SessionId(acpID)})
 }
 
+// cancelPermissions answers pending permission requests with "cancelled"
+// (Manager.mu held).
 func (t *turn) cancelPermissions() {
 	for id, ch := range t.perms {
 		close(ch)
@@ -563,7 +694,7 @@ func (m *Manager) Disconnect(agentID string) {
 	c := m.conns[agentID]
 	m.mu.Unlock()
 	if c != nil {
-		c.close()
+		c.close("the harness was stopped because the agent's sandbox is stopping or its settings changed")
 	}
 }
 
@@ -593,7 +724,7 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 	}
 	m.mu.Unlock()
 	if stale != nil {
-		stale.close()
+		stale.close("the harness restarted to apply new settings")
 	}
 
 	agent, err := m.store.GetAgent(ctx, agentID)
@@ -613,62 +744,62 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 	if err != nil {
 		return nil, err
 	}
-	hc := &harnessConn{m: m, agentID: agentID, sessions: map[string]string{}, active: map[string]bool{}, loading: map[string]bool{}, done: make(chan struct{})}
 	cfg := harness.Config{Model: agent.Model}
-	env := ad.Env(cfg)
+	env := ad.Environment(cfg)
 	if m.logins != nil {
 		extra, err := m.logins.Prepare(ctx, agent, ts)
 		if err != nil {
 			m.lg.Warn("account login unavailable", "agent", agentID, "err", err)
 			status("The account login could not be prepared: " + err.Error())
 		}
-		if len(extra) > 0 {
-			if env == nil {
-				env = map[string]string{}
-			}
-			for k, v := range extra {
-				env[k] = v
-			}
+		for k, v := range extra {
+			env[k] = v
 		}
 	}
-	proc, err := ts.StartHarness(m.ctx, ad.Command(cfg), env, func(line string) {
+
+	sctx, cancel := context.WithTimeout(ctx, startTimeout)
+	defer cancel()
+	hc := newHarnessConn(m, agentID, ad, ts)
+	// The stream lives as long as the harness, not as long as this call
+	// (a remote node's stream ends with the context it was opened with).
+	proc, err := ts.StartHarness(m.ctx, ad.Command, env, func(line string) {
 		m.lg.Debug("harness stderr", "agent", agentID, "line", line)
 		hc.stderr(line)
 	})
 	if err != nil {
-		return nil, fmt.Errorf("start %s: %w", ad.Name(), err)
+		return nil, fmt.Errorf("could not start %s: %w", ad.Name, err)
 	}
-	hc.proc = proc
-	hc.ts = ts
-	hc.acp = acp.NewClientSideConnection(hc, proc, proc.Stdout)
-	hc.acp.SetLogger(m.lg.With("agent", agentID, "component", "acp"))
-	go func() {
-		select {
-		case <-proc.Done():
-		case <-hc.acp.Done():
-		}
-		hc.close()
-	}()
-
-	ictx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	init, err := hc.acp.Initialize(ictx, acp.InitializeRequest{
+	hc.start(proc)
+	init, err := hc.acp.Initialize(sctx, acp.InitializeRequest{
 		ProtocolVersion:    acp.ProtocolVersionNumber,
 		ClientInfo:         &acp.Implementation{Name: "agenthold", Version: version.Version},
 		ClientCapabilities: acp.ClientCapabilities{Auth: acp.AuthCapabilities{Terminal: true}},
 	})
 	if err != nil {
-		hc.close()
-		if tail := hc.stderrTail(); tail != "" {
-			return nil, fmt.Errorf("%s did not start (%w): %s", ad.Name(), err, tail)
+		switch {
+		case ctx.Err() != nil:
+			hc.close("the turn was cancelled while the harness started")
+			return nil, ctx.Err()
+		case errors.Is(sctx.Err(), context.DeadlineExceeded):
+			hc.close(fmt.Sprintf("%s did not answer initialize within %s, so it was stopped; send the message again to retry", ad.Name, startTimeout))
+		default:
+			var re *acp.RequestError
+			if errors.As(err, &re) && !hc.closed() {
+				hc.close(fmt.Sprintf("%s refused initialize: %v", ad.Name, err))
+			}
+			hc.close("") // the harness exited or broke the protocol: failure says which
 		}
-		return nil, fmt.Errorf("%s did not start: %w", ad.Name(), err)
+		return nil, hc.failure()
 	}
 	hc.init = init
 	m.mu.Lock()
+	if hc.closed() {
+		m.mu.Unlock()
+		return nil, hc.failure()
+	}
 	m.conns[agentID] = hc
 	m.mu.Unlock()
-	m.lg.Info("harness connected", "agent", agentID, "harness", ad.ID())
+	m.lg.Info("harness connected", "agent", agentID, "harness", ad.ID)
 	return hc, nil
 }
 

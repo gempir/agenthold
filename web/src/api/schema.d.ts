@@ -196,7 +196,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Agents you own and agents shared with you, templates included unless filtered. */
+        /** @description Agents you own and agents shared with you. Templates are left out unless asked for. */
         get: operations["listAgents"];
         put?: never;
         /** @description Create an agent. You become its owner. */
@@ -296,7 +296,9 @@ export interface paths {
         /**
          * @description Clone the machine: a new agent with a copy of its system and home disks and of its settings,
          *     attached MCP servers, skills and secrets (not its shares, sessions, schedules or webhooks).
-         *     A running machine is stopped for the copy and started again afterwards. The clone is placed on
+         *     A running machine is stopped for the copy and started again afterwards (409 while it works on a
+         *     prompt). 409 also when its system needs a reset first: it is on an older base image than the current
+         *     one, or has pending changes, and a clone would inherit that. The clone is placed on
          *     the same node and provisioned in the background. A template is cloned the same way ("new agent
          *     from template"). Owner only: the home disk can hold harness credentials.
          */
@@ -1213,7 +1215,7 @@ export interface components {
             credentialsInSandbox: boolean;
             /** @description The machine is a template. It cannot be started, chatted with or scheduled; clone it for a new machine. */
             isTemplate: boolean;
-            /** @description Id of the agent this one was cloned from. The source may no longer exist. */
+            /** @description Id of the agent this one was cloned from, shown to the owner only. The source may no longer exist. */
             clonedFrom?: string;
             login: components["schemas"]["AgentLogin"];
             /**
@@ -1250,7 +1252,11 @@ export interface components {
             asTemplate?: boolean;
         };
         AgentPatch: {
-            /** @description Convert the machine to a template (it is stopped first) or back to a normal machine. */
+            /**
+             * @description Convert the machine to a template or back to a normal machine. It is stopped first (409 while it
+             *     works on a prompt). Converting to a template disables its schedules and webhooks; they stay
+             *     disabled when it is converted back, and cannot be enabled while it is a template.
+             */
             isTemplate?: boolean;
             name?: string;
             cpus?: number;
@@ -1876,8 +1882,8 @@ export interface operations {
     listAgents: {
         parameters: {
             query?: {
-                /** @description true lists only your templates, false only machines that are not templates. Absent lists both. */
-                template?: boolean;
+                /** @description `false` (default) lists the machines that are not templates, `true` only templates, `all` both. */
+                template?: "true" | "false" | "all";
             };
             header?: never;
             path?: never;

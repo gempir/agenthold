@@ -7,6 +7,7 @@ import {
   agentsQuery,
   harnessesQuery,
   isOwner,
+  templatesQuery,
   sandboxLimitsQuery,
   type Agent,
 } from '@/api/queries';
@@ -87,7 +88,7 @@ export function TemplateList({ templates }: { templates: Agent[] }) {
 export function AgentsSection() {
   const agents = useQuery(agentsQuery);
   const [open, setOpen] = useState(false);
-  const templates = (agents.data ?? []).filter((a) => a.isTemplate);
+  const templates = useQuery(templatesQuery).data ?? [];
   return (
     <>
       <section className="flex flex-col gap-3">
@@ -99,9 +100,7 @@ export function AgentsSection() {
         </div>
         {agents.isPending && <Loading />}
         <ErrorText error={agents.error} />
-        {agents.data && (
-          <AgentList agents={agents.data.filter((a) => !a.isTemplate)} />
-        )}
+        {agents.data && <AgentList agents={agents.data} />}
         {open && <NewAgentDialog onClose={() => setOpen(false)} />}
       </section>
       {templates.length > 0 && (
@@ -148,10 +147,7 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
   const [idle, setIdle] = useState('15');
   // '' is a blank agent; otherwise the id of the template to clone. Only
   // templates you own can be cloned.
-  const agents = useQuery(agentsQuery);
-  const templates = (agents.data ?? []).filter(
-    (a) => a.isTemplate && isOwner(a),
-  );
+  const templates = (useQuery(templatesQuery).data ?? []).filter(isOwner);
   const [templateId, setTemplateId] = useState('');
   const template = templates.find((t) => t.id === templateId);
 

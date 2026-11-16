@@ -54,6 +54,13 @@ export function CloneAgent({ agent }: { agent: Agent }) {
             A running agent is stopped while it is copied, then started again.
           </>
         )}
+        {agent.needsRebuild && (
+          <>
+            {' '}
+            Reset the system first: pending changes would be inherited, and a
+            clone of an outdated system is refused.
+          </>
+        )}
         {agent.credentialsInSandbox && (
           <>
             {' '}
@@ -65,6 +72,7 @@ export function CloneAgent({ agent }: { agent: Agent }) {
       <div>
         <Button
           variant="outline"
+          disabled={agent.needsRebuild}
           onClick={() => {
             setName(template ? '' : `${agent.name} copy`);
             setAsTemplate(false);
@@ -156,8 +164,8 @@ export function TemplateToggle({
       <h2 className="text-sm font-semibold">Template</h2>
       <p className="text-sm text-muted-foreground">
         {template
-          ? 'Converting it back makes this a normal agent again: it can be started and chatted with, and it appears among your agents.'
-          : 'A template is a stopped machine that new agents are cloned from, for example with your tools installed. Saving it as a template stops it, and it no longer appears among your agents.'}
+          ? 'Converting it back makes this a normal agent again: it can be started and chatted with, and it appears among your agents. Its schedules and webhooks stay disabled until you turn them on.'
+          : 'A template is a stopped machine that new agents are cloned from, for example with your tools installed. Saving it as a template stops it and disables its schedules and webhooks, and it no longer appears among your agents. Prefer account-level harness logins for templates: a login stored inside the sandbox is copied into every clone.'}
       </p>
       <div>
         <Button

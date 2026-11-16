@@ -181,6 +181,14 @@ func (p postgresQueries) DetachSkill(ctx context.Context, arg db.DetachSkillPara
 	return value, err
 }
 
+func (p postgresQueries) DisableAgentSchedules(ctx context.Context, arg db.DisableAgentSchedulesParams) error {
+	return p.q.DisableAgentSchedules(ctx, postgres.DisableAgentSchedulesParams(arg))
+}
+
+func (p postgresQueries) DisableAgentWebhooks(ctx context.Context, arg db.DisableAgentWebhooksParams) error {
+	return p.q.DisableAgentWebhooks(ctx, postgres.DisableAgentWebhooksParams(arg))
+}
+
 func (p postgresQueries) DueSchedules(ctx context.Context, nextRunAt int64) ([]db.Schedule, error) {
 	value, err := p.q.DueSchedules(ctx, nextRunAt)
 	if err != nil {

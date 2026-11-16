@@ -33,10 +33,16 @@ var (
 // EnsureIdentity makes the system under root belong to agentID. It reports
 // true if the disk was copied from another agent's sandbox and its machine
 // identity (see instanceState) was cleared. root is "/" in the guest.
-func EnsureIdentity(root, agentID string) (reset bool, err error) {
+//
+// force is the host's explicit instruction (the boot configuration of a
+// clone's first boot): reset whatever the stamp says, because a copy of a
+// system that was never stamped looks like a first boot.
+func EnsureIdentity(root, agentID string, force bool) (reset bool, err error) {
 	stamp := filepath.Join(root, InstanceFile)
 	data, err := os.ReadFile(stamp)
 	switch {
+	case force:
+		reset = true
 	case errors.Is(err, os.ErrNotExist):
 		// First boot of this system: nothing to reset.
 	case err != nil:

@@ -140,7 +140,7 @@ func (in *initState) setup() error {
 	}
 
 	// A disk copied from another agent's sandbox must not be that machine.
-	if reset, err := EnsureIdentity("/", boot.AgentID); err != nil {
+	if reset, err := EnsureIdentity("/", boot.AgentID, boot.ResetIdentity); err != nil {
 		in.log.Warn("machine identity", "err", err)
 	} else if reset {
 		in.log.Info("system disk was cloned: machine identity reset")

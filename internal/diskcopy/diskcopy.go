@@ -93,7 +93,7 @@ func sparseCopy(ctx context.Context, in, out *os.File, size int64) error {
 		data, err := in.Seek(off, unix.SEEK_DATA)
 		switch {
 		case errors.Is(err, unix.ENXIO):
-			return nil // only a hole left
+			return checkSize(in, size) // only a hole left
 		case err != nil:
 			// The filesystem cannot tell data from holes: everything is data.
 			// All-zero blocks are still skipped below.
@@ -107,6 +107,19 @@ func sparseCopy(ctx context.Context, in, out *os.File, size int64) error {
 			return err
 		}
 		off = end
+	}
+	return checkSize(in, size)
+}
+
+// checkSize fails if the source changed size during the copy: a source that
+// shrank loses its tail extents, which would otherwise read as holes.
+func checkSize(in *os.File, size int64) error {
+	st, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	if st.Size() != size {
+		return fmt.Errorf("copy %s: size changed from %d to %d: %w", in.Name(), size, st.Size(), io.ErrUnexpectedEOF)
 	}
 	return nil
 }
@@ -122,7 +135,10 @@ func copyExtent(ctx context.Context, in, out *os.File, buf []byte, from, to int6
 			return err
 		}
 		if n == 0 {
-			return nil // the file shrank under us; the sources are never written while copied
+			// The extent ended early: the source shrank while it was copied.
+			// Sources are never written during a copy, so this is a bug or a
+			// broken disk, and a zero-filled tail would look like a valid copy.
+			return fmt.Errorf("copy %s at offset %d: %w", in.Name(), pos, io.ErrUnexpectedEOF)
 		}
 		if err := writeNonZero(out, chunk[:n], pos); err != nil {
 			return err

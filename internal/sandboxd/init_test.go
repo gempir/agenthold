@@ -17,7 +17,7 @@ import (
 func TestGuestBootRoundTrip(t *testing.T) {
 	ca := bytes.Repeat([]byte("-----CERT-----\n"), 3000) // ~45 KB, larger than MMDS' default limit
 	in := sandboxd.GuestBoot{
-		AgentID: "ag_1", Token: "secret", TunnelPort: 7443, Hostname: "agent-1",
+		AgentID: "ag_1", Token: "secret", TunnelPort: 7443, Hostname: "agent-1", ResetIdentity: true,
 		Env:   map[string]string{"HTTPS_PROXY": "http://{{server}}:3128", "PLAIN": "x"},
 		Files: map[string][]byte{"/etc/agenthold/ca.pem": ca},
 	}
@@ -301,18 +301,18 @@ func TestEnsureIdentity(t *testing.T) {
 	write("home/agent/.ssh/id_ed25519", "the user's own key")
 
 	// A system that was never stamped is not a clone: it is stamped, untouched.
-	if reset, err := sandboxd.EnsureIdentity(root, "ag_source"); err != nil || reset || stamp() != "ag_source" {
+	if reset, err := sandboxd.EnsureIdentity(root, "ag_source", false); err != nil || reset || stamp() != "ag_source" {
 		t.Fatalf("first boot: reset=%v err=%v stamp=%q", reset, err, stamp())
 	}
 	if !exists("var/lib/docker/engine-id") || !exists("etc/ssh/ssh_host_ed25519_key") {
 		t.Fatal("first boot cleared the identity")
 	}
 	// Booting again as the same agent changes nothing.
-	if reset, err := sandboxd.EnsureIdentity(root, "ag_source"); err != nil || reset {
+	if reset, err := sandboxd.EnsureIdentity(root, "ag_source", false); err != nil || reset {
 		t.Fatalf("same agent: reset=%v err=%v", reset, err)
 	}
 	// The copy boots as another agent.
-	if reset, err := sandboxd.EnsureIdentity(root, "ag_clone"); err != nil || !reset {
+	if reset, err := sandboxd.EnsureIdentity(root, "ag_clone", false); err != nil || !reset {
 		t.Fatalf("clone: reset=%v err=%v", reset, err)
 	}
 	if b, err := os.ReadFile(filepath.Join(root, "etc/machine-id")); err != nil || len(b) != 0 {
@@ -331,7 +331,35 @@ func TestEnsureIdentity(t *testing.T) {
 	if stamp() != "ag_clone" {
 		t.Fatalf("stamp = %q", stamp())
 	}
-	if reset, err := sandboxd.EnsureIdentity(root, "ag_clone"); err != nil || reset {
+	if reset, err := sandboxd.EnsureIdentity(root, "ag_clone", false); err != nil || reset {
 		t.Fatalf("second boot of the clone: reset=%v err=%v", reset, err)
+	}
+}
+
+// The host's explicit instruction resets a clone of a system that never had a stamp.
+func TestEnsureIdentityForced(t *testing.T) {
+	root := t.TempDir()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(os.MkdirAll(filepath.Join(root, "etc"), 0o755))
+	must(os.WriteFile(filepath.Join(root, "etc/machine-id"), []byte("abcd\n"), 0o644))
+	reset, err := sandboxd.EnsureIdentity(root, "ag_clone", true)
+	if err != nil || !reset {
+		t.Fatalf("forced: reset=%v err=%v", reset, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(root, "etc/machine-id")); len(b) != 0 {
+		t.Fatalf("machine-id = %q", b)
+	}
+	// It stamps, so the next boot (without the instruction) leaves the clone alone.
+	must(os.WriteFile(filepath.Join(root, "etc/machine-id"), []byte("its-own\n"), 0o644))
+	if reset, err := sandboxd.EnsureIdentity(root, "ag_clone", false); err != nil || reset {
+		t.Fatalf("second boot: reset=%v err=%v", reset, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(root, "etc/machine-id")); string(b) != "its-own\n" {
+		t.Fatalf("machine-id = %q", b)
 	}
 }

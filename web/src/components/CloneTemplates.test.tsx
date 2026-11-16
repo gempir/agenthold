@@ -70,7 +70,7 @@ it('offers templates in the new-agent dialog and clones the chosen one', async (
   const { calls } = mockApi({
     'GET /sandbox/limits': limits,
     'GET /harnesses': [],
-    'GET /agents': [agent(), template()],
+    'GET /agents?template=true': [template()],
     'POST /agents/t1/clone': { status: 500, body: { error: 'stop' } },
   });
   renderDialog();
@@ -99,8 +99,7 @@ it('has no template choice without templates, or for templates shared by others'
   mockApi({
     'GET /sandbox/limits': limits,
     'GET /harnesses': [],
-    'GET /agents': [
-      agent(),
+    'GET /agents?template=true': [
       template({
         role: 'shared',
         owner: { ...me.user, id: 'u2', name: 'Bob' },
@@ -219,7 +218,8 @@ it('shows a template without lifecycle controls', async () => {
 it('lists templates apart from agents', async () => {
   mockApi({
     'GET /me': me,
-    'GET /agents': [agent({ name: 'plain' }), template()],
+    'GET /agents': [agent({ name: 'plain' })],
+    'GET /agents?template=true': [template()],
     'GET /agents/a1/sessions': [],
     'GET /agents/t1/sessions': [],
   });
@@ -241,4 +241,16 @@ it('lists templates apart from agents', async () => {
   });
   expect(within(sideAgents).getByText('plain')).toBeVisible();
   expect(within(sideAgents).queryByText('toolchain')).toBeNull();
+});
+
+it('asks for a system reset before a clone when changes are pending', async () => {
+  mockApi({
+    'GET /me': me,
+    'GET /agents/a1': agent({ needsRebuild: true }),
+    'GET /agents/a1/sessions': [],
+    'GET /harnesses': [],
+  });
+  renderApp('/a/a1/settings');
+  expect(await screen.findByText(/Reset the system first/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Clone' })).toBeDisabled();
 });

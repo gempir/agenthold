@@ -201,6 +201,7 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins,
 	})
 	e.sessions.SetWaker(a.Wake)
+	e.sandboxes.SetBusy(e.sessions.AgentBusy)
 	e.scheduler.Runner = a.Triggers
 	e.sandboxes.OnChange(func(agentID string, p sandbox.Phase) {
 		if p == sandbox.PhaseStopping || p == sandbox.PhaseDestroying {

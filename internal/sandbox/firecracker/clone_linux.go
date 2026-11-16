@@ -47,6 +47,46 @@ func (d *Driver) notCloning(id sandbox.ID) error {
 	return nil
 }
 
+// claimDestination makes Clone calls for one destination exclusive. A clone
+// that was cancelled (for example when the node connection dropped) may still
+// be unwinding, which removes the directory: a clone started meanwhile for the
+// same id waits for it to finish, instead of having its copy removed.
+func (d *Driver) claimDestination(ctx context.Context, dst sandbox.ID) (release func(), err error) {
+	for {
+		d.cloningMu.Lock()
+		if d.destinations == nil {
+			d.destinations = map[sandbox.ID]chan struct{}{}
+		}
+		busy, ok := d.destinations[dst]
+		if !ok {
+			done := make(chan struct{})
+			d.destinations[dst] = done
+			d.cloningMu.Unlock()
+			return func() {
+				d.cloningMu.Lock()
+				delete(d.destinations, dst)
+				d.cloningMu.Unlock()
+				close(done)
+			}, nil
+		}
+		d.cloningMu.Unlock()
+		select {
+		case <-busy:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
+func syncDir(dir string) error {
+	f, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Sync()
+}
+
 func (d *Driver) chownDisk(path string, uid, gid uint32) error {
 	if d.chown != nil {
 		return d.chown(path, int(uid), int(gid))
@@ -69,6 +109,11 @@ func (d *Driver) Clone(ctx context.Context, src sandbox.ID, s sandbox.Spec) (res
 	if dst == src {
 		return "", errors.New("clone: source and destination are the same sandbox")
 	}
+	release, err := d.claimDestination(ctx, dst)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	unlock, err := d.lock(ctx)
 	if err != nil {
 		return "", err
@@ -103,6 +148,9 @@ func (d *Driver) Clone(ctx context.Context, src sandbox.ID, s sandbox.Spec) (res
 		return "", err
 	}
 	if err = os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	if err = syncDir(filepath.Dir(dir)); err != nil {
 		return "", err
 	}
 	defer func() {
@@ -150,6 +198,8 @@ func (d *Driver) Clone(ctx context.Context, src sandbox.ID, s sandbox.Spec) (res
 		// The system disk is an overlay on the base image it was built with.
 		BaseImagePath: m.BaseImagePath, Version: 1, Spec: s, Subnet: subnet,
 		UID: d.cfg.UIDBase + index, GID: d.cfg.GIDBase + index, State: sandbox.StateCreated,
+		// Its first boot clears the identity the copied disks carry.
+		Fresh: true,
 	}
 	clone.Spec.Env = maps.Clone(s.Env)
 	for _, name := range diskNames {
@@ -161,6 +211,9 @@ func (d *Driver) Clone(ctx context.Context, src sandbox.ID, s sandbox.Spec) (res
 		if err = os.Rename(filepath.Join(dir, name+".cloning"), filepath.Join(dir, name)); err != nil {
 			return "", err
 		}
+	}
+	if err = syncDir(dir); err != nil {
+		return "", err
 	}
 	if err = d.save(dst, clone); err != nil {
 		return "", err

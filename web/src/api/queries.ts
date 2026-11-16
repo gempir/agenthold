@@ -67,6 +67,15 @@ export const agentsQuery = queryOptions({
   retry: false,
 });
 
+/** Your templates: stopped machines to clone. The agents list leaves them out. */
+export const templatesQuery = queryOptions({
+  queryKey: ['agents', 'templates'],
+  queryFn: () =>
+    unwrap(api.GET('/agents', { params: { query: { template: 'true' } } })),
+  refetchInterval: (q) => agentsPollInterval(q.state.data),
+  retry: false,
+});
+
 export const agentQuery = (agentId: string) =>
   queryOptions({
     queryKey: ['agents', agentId],

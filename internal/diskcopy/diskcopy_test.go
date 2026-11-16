@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -172,5 +173,35 @@ func TestNotARegularFile(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := Copy(context.Background(), dir, filepath.Join(dir, "x"), Options{}); err == nil {
 		t.Fatal("copied a directory")
+	}
+}
+
+func TestSourceThatShrinksFailsTheCopy(t *testing.T) {
+	// Cut off between extents (after the first chunk), and in the middle of
+	// the 3 MiB extent (after its first chunk): neither may yield a zero tail.
+	for name, tc := range map[string]struct {
+		after int
+		to    int64
+	}{"between extents": {1, 512 << 10}, "inside an extent": {2, 3<<20 + 512<<10}} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			src, dst := filepath.Join(dir, "src"), filepath.Join(dir, "dst")
+			writeSparse(t, src)
+			chunks := 0
+			chunkHook = func() {
+				if chunks++; chunks == tc.after {
+					if err := os.Truncate(src, tc.to); err != nil {
+						t.Error(err)
+					}
+				}
+			}
+			t.Cleanup(func() { chunkHook = nil })
+			if _, err := Copy(context.Background(), src, dst, Options{NoReflink: true}); !errors.Is(err, io.ErrUnexpectedEOF) {
+				t.Fatalf("err = %v", err)
+			}
+			if _, err := os.Lstat(dst); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("a short copy was left behind: %v", err)
+			}
+		})
 	}
 }

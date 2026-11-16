@@ -205,6 +205,11 @@ func (a *API) UpdateSchedule(ctx context.Context, req gen.UpdateScheduleRequestO
 	if err != nil {
 		return nil, err
 	}
+	if f.enabled {
+		if err := a.notTemplate(ctx, s.AgentID); err != nil {
+			return nil, err
+		}
+	}
 	s.Name, s.Cron, s.Timezone, s.Prompt, s.Enabled, s.NextRunAt, s.UpdatedAt = f.name, f.cron, f.tz, f.prompt, b2i(f.enabled), f.next.Unix(), a.Now().Unix()
 	if err := a.Store.UpdateSchedule(ctx, db.UpdateScheduleParams{
 		Name: s.Name, Cron: s.Cron, Timezone: s.Timezone, Prompt: s.Prompt, Enabled: s.Enabled, NextRunAt: s.NextRunAt, UpdatedAt: s.UpdatedAt, ID: s.ID,
@@ -230,6 +235,9 @@ func (a *API) DeleteSchedule(ctx context.Context, req gen.DeleteScheduleRequestO
 func (a *API) RunSchedule(ctx context.Context, req gen.RunScheduleRequestObject) (gen.RunScheduleResponseObject, error) {
 	s, err := a.loadSchedule(ctx, req.ScheduleId, authz.AgentPrompt)
 	if err != nil {
+		return nil, err
+	}
+	if err := a.notTemplate(ctx, s.AgentID); err != nil {
 		return nil, err
 	}
 	if err := a.Triggers.Fire(ctx, s.AgentID, s.SessionID, s.CreatedBy, "schedule: "+s.Name, s.Prompt, map[string]any{"schedule": s.Name, "runBy": me(ctx).ID}); err != nil {
@@ -359,6 +367,11 @@ func (a *API) UpdateWebhook(ctx context.Context, req gen.UpdateWebhookRequestObj
 	if err := a.applyWebhookInput(&w, *req.Body); err != nil {
 		return nil, err
 	}
+	if w.Enabled == 1 {
+		if err := a.notTemplate(ctx, w.AgentID); err != nil {
+			return nil, err
+		}
+	}
 	w.UpdatedAt = a.Now().Unix()
 	if err := a.Store.UpdateWebhook(ctx, db.UpdateWebhookParams{
 		Name: w.Name, PromptTemplate: w.PromptTemplate, SigningSecret: w.SigningSecret, SignatureHeader: w.SignatureHeader, Enabled: w.Enabled, UpdatedAt: w.UpdatedAt, ID: w.ID,
@@ -445,4 +458,16 @@ func apiDocs(w http.ResponseWriter, _ *http.Request) {
 </body>
 </html>
 `)
+}
+
+// notTemplate refuses what would make a template run: it is never prompted.
+func (a *API) notTemplate(ctx context.Context, agentID string) error {
+	ag, err := a.Store.GetAgent(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	if ag.IsTemplate == 1 {
+		return sandbox.ErrTemplate
+	}
+	return nil
 }

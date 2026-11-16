@@ -22,6 +22,8 @@ type Sandbox struct {
 	Boot    sandbox.Boot
 	// ClonedFrom is the sandbox this one was cloned from, if any.
 	ClonedFrom sandbox.ID
+	// StaleBase makes Status report an older base image (see MarkStaleBase).
+	StaleBase bool
 }
 
 // Driver implements sandbox.Driver in memory.
@@ -75,6 +77,16 @@ func (d *Driver) Get(id sandbox.ID) (Sandbox, bool) {
 		return Sandbox{}, false
 	}
 	return *sb, true
+}
+
+// MarkStaleBase makes the sandbox report that its system disk is on an older
+// base image, until it is rebuilt.
+func (d *Driver) MarkStaleBase(id sandbox.ID) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if sb, ok := d.sandboxes[id]; ok {
+		sb.StaleBase = true
+	}
 }
 
 // Forget drops a sandbox as if it disappeared outside the platform.
@@ -183,7 +195,7 @@ func (d *Driver) Status(_ context.Context, id sandbox.ID) (sandbox.Status, error
 	if !ok {
 		return sandbox.Status{State: sandbox.StateMissing}, nil
 	}
-	return sandbox.Status{State: sb.State, GatewayIP: "127.0.0.1"}, nil
+	return sandbox.Status{State: sb.State, GatewayIP: "127.0.0.1", BaseStale: sb.StaleBase}, nil
 }
 
 // Rebuild implements sandbox.Driver.

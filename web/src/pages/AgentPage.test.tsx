@@ -45,6 +45,7 @@ it('renders agent list with state badges', async () => {
       agent({ id: 'a1', name: 'one', state: 'running' }),
       agent({ id: 'a2', name: 'two', state: 'error', needsRebuild: true }),
     ],
+    'GET /agents?template=true': [],
   });
   renderApp('/settings/agents');
   const main = await screen.findByRole('main');

@@ -45,6 +45,8 @@ type Querier interface {
 	DetachMCPServer(ctx context.Context, arg DetachMCPServerParams) (int64, error)
 	DetachSecret(ctx context.Context, arg DetachSecretParams) (int64, error)
 	DetachSkill(ctx context.Context, arg DetachSkillParams) (int64, error)
+	DisableAgentSchedules(ctx context.Context, arg DisableAgentSchedulesParams) error
+	DisableAgentWebhooks(ctx context.Context, arg DisableAgentWebhooksParams) error
 	DueSchedules(ctx context.Context, nextRunAt int64) ([]Schedule, error)
 	ExtendSession(ctx context.Context, arg ExtendSessionParams) error
 	GetAgent(ctx context.Context, id string) (Agent, error)

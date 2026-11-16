@@ -36,6 +36,8 @@ type Driver struct {
 	// without the driver lock held, so nothing else may start or remove them.
 	cloningMu sync.Mutex
 	cloning   map[sandbox.ID]int
+	// destinations are the ids a Clone is currently writing (see claimDestination).
+	destinations map[sandbox.ID]chan struct{}
 }
 
 var (
@@ -56,6 +58,9 @@ type manifest struct {
 	GID           uint32        `json:"gid"`
 	State         sandbox.State `json:"state"`
 	Process       process       `json:"process,omitempty"`
+	// Fresh marks a clone that has not booted yet: its first boot is told to
+	// reset the machine identity it inherited with the copied disks.
+	Fresh bool `json:"fresh,omitempty"`
 }
 
 // New validates runtime artifacts and opens the persistent driver. It does not
@@ -375,7 +380,7 @@ func (d *Driver) Status(ctx context.Context, id sandbox.ID) (sandbox.Status, err
 	if running {
 		state = sandbox.StateRunning
 	}
-	return sandbox.Status{State: state, Subnet: m.Subnet, GatewayIP: m.Subnet.Addr().Next().String()}, nil
+	return sandbox.Status{State: state, Subnet: m.Subnet, GatewayIP: m.Subnet.Addr().Next().String(), BaseStale: m.BaseImagePath != d.cfg.BaseImagePath}, nil
 }
 
 // Attach implements sandbox.Attacher.
@@ -539,6 +544,11 @@ func (d *Driver) Destroy(ctx context.Context, id sandbox.ID, opts sandbox.Destro
 	}
 	m, err := d.load(id)
 	if errors.Is(err, sandbox.ErrNotFound) {
+		// Without a manifest no sandbox exists, but an interrupted clone can
+		// leave its half-copied disks. KeepHome files are the user's: keep.
+		if !opts.KeepHome && validID(string(id)) {
+			return os.RemoveAll(d.dir(id))
+		}
 		return nil
 	}
 	if err != nil {

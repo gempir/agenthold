@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/gempir/agenthold/internal/sandbox"
 )
@@ -122,6 +123,14 @@ func TestCloneCopiesDisksAndGetsItsOwnIdentity(t *testing.T) {
 	st, err := d.Status(ctx, "ag_dst")
 	if err != nil || st.State != sandbox.StateCreated || st.GatewayIP == "" {
 		t.Fatalf("status %+v %v", st, err)
+	}
+	// Its first boot is told to reset the identity of the copied disks, and it
+	// reports the (older) base image its overlay was built on.
+	if !m.Fresh || !st.BaseStale {
+		t.Fatalf("fresh=%v baseStale=%v", m.Fresh, st.BaseStale)
+	}
+	if cur, err := d.Status(ctx, "ag_src"); err != nil || !cur.BaseStale {
+		t.Fatalf("source on an older base: %+v %v", cur, err)
 	}
 	// Cloning again onto the same id returns the existing sandbox untouched.
 	if again, err := d.Clone(ctx, "ag_src", spec); err != nil || again != "ag_dst" {
@@ -264,5 +273,81 @@ func TestSourceIsProtectedWhileItIsCloned(t *testing.T) {
 	d.endClone("ag_src")
 	if err := d.Destroy(ctx, "ag_src", sandbox.DestroyOpts{}); err != nil {
 		t.Fatalf("destroy after the clone: %v", err)
+	}
+}
+
+func TestBaseIsStaleOnlyWhenOlder(t *testing.T) {
+	d := cloneDriver(t)
+	ctx := context.Background()
+	if _, err := d.Create(ctx, sandbox.Spec{AgentID: "ag_new", Resources: sandbox.Resources{DiskGB: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := d.Status(ctx, "ag_new"); err != nil || st.BaseStale {
+		t.Fatalf("fresh sandbox: %+v %v", st, err)
+	}
+}
+
+// Destroy removes what an interrupted clone left, which has no manifest.
+func TestDestroyRemovesDebrisOfACrashedClone(t *testing.T) {
+	d := cloneDriver(t)
+	ctx := context.Background()
+	dir := d.dir("ag_debris")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "home.ext4.cloning"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// KeepHome means the user wants the files: leave them.
+	if err := d.Destroy(ctx, "ag_debris", sandbox.DestroyOpts{KeepHome: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("KeepHome removed the directory: %v", err)
+	}
+	if err := d.Destroy(ctx, "ag_debris", sandbox.DestroyOpts{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("debris survived: %v", err)
+	}
+	if err := d.Destroy(ctx, "../etc", sandbox.DestroyOpts{}); err != nil {
+		t.Fatal(err) // an unsafe id is not a sandbox: nothing happens
+	}
+}
+
+// A clone that is still unwinding after its caller gave up must not remove the
+// copy of the clone that replaces it: the second waits for the first.
+func TestCloneWaitsForAnUnwindingClone(t *testing.T) {
+	d := cloneDriver(t)
+	ctx := context.Background()
+	if _, err := d.Create(ctx, sandbox.Spec{AgentID: "ag_src", Resources: sandbox.Resources{DiskGB: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	release, err := d.claimDestination(ctx, "ag_dst")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	if _, err = d.Clone(waiting, "ag_src", sandbox.Spec{AgentID: "ag_dst"}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("clone while the destination is claimed: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := d.Clone(ctx, "ag_src", sandbox.Spec{AgentID: "ag_dst"})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("clone did not wait: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.load("ag_dst"); err != nil {
+		t.Fatal(err)
 	}
 }

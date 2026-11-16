@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -67,6 +68,16 @@ func TestCloneAgent(t *testing.T) {
 	if err := e.store.MarkCredentialsInSandbox(t.Context(), ag); err != nil {
 		t.Fatal(err)
 	}
+	// Changes that are not applied yet (the attached secret's variable, the
+	// new memory) are inherited by a clone: it is refused until the system is reset.
+	res := alice.raw("POST", "/agents/"+ag+"/clone", jsonBody(t, gen.CloneInput{Name: "too early"}))
+	msg, _ := io.ReadAll(res.Body)
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusConflict || !strings.Contains(string(msg), "reset the system first") {
+		t.Fatalf("clone with pending changes: %d %s", res.StatusCode, msg)
+	}
+	expect(t, "reset", alice.do("POST", "/agents/"+ag+"/rebuild", nil, nil), 202)
+	e.sandboxes.Wait()
 	startsBefore := mustSandbox(t, e, ag).Starts
 
 	dst := e.cloneOf(alice, src, "the copy", false)
@@ -298,13 +309,15 @@ func TestTemplates(t *testing.T) {
 	}
 
 	// Listing: templates have their own filter.
-	var all, only, normal []gen.Agent
-	alice.do("GET", "/agents", nil, &all)
+	var all, only, normal, dflt []gen.Agent
+	alice.do("GET", "/agents?template=all", nil, &all)
 	alice.do("GET", "/agents?template=true", nil, &only)
 	alice.do("GET", "/agents?template=false", nil, &normal)
-	if len(all) != 1 || len(only) != 1 || only[0].Id != ag || len(normal) != 0 {
-		t.Fatalf("all=%d templates=%d normal=%d", len(all), len(only), len(normal))
+	alice.do("GET", "/agents", nil, &dflt)
+	if len(all) != 1 || len(only) != 1 || only[0].Id != ag || len(normal) != 0 || len(dflt) != 0 {
+		t.Fatalf("all=%d templates=%d normal=%d default=%d", len(all), len(only), len(normal), len(dflt))
 	}
+	expect(t, "bad filter", alice.do("GET", "/agents?template=maybe", nil, nil), 400)
 
 	// It cannot be started, chatted with or scheduled.
 	for _, tt := range []struct{ name, method, path string }{
@@ -423,4 +436,131 @@ func jsonBody(t *testing.T, v any) io.Reader {
 		t.Fatal(err)
 	}
 	return bytes.NewReader(b)
+}
+
+func TestCloneNeedsACurrentSystem(t *testing.T) {
+	tm := newTeam(t)
+	e, alice := tm.e, tm.alice
+	ag := tm.agent.Id
+	// Its system disk sits on an older base image: a clone would inherit it
+	// (and a guest that predates machine identity resets cannot tell it is a copy).
+	e.driver.MarkStaleBase(sandbox.ID("fake-" + ag))
+	res := alice.raw("POST", "/agents/"+ag+"/clone", jsonBody(t, gen.CloneInput{Name: "x"}))
+	msg, _ := io.ReadAll(res.Body)
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusConflict || !strings.Contains(string(msg), "reset the system first") {
+		t.Fatalf("clone from an older base: %d %s", res.StatusCode, msg)
+	}
+	if s := alice.agent(ag); s.State != gen.SandboxStateRunning {
+		t.Fatalf("a refused clone disturbed the source: %s", s.State)
+	}
+	expect(t, "reset", alice.do("POST", "/agents/"+ag+"/rebuild", nil, nil), 202)
+	e.sandboxes.Wait()
+	e.cloneOf(alice, tm.agent, "after the reset", false)
+}
+
+func TestClonedFromIsForTheOwner(t *testing.T) {
+	tm := newTeam(t)
+	dst := tm.e.cloneOf(tm.alice, tm.agent, "copy", false)
+	if got := tm.alice.agent(dst.Id); got.ClonedFrom == nil || *got.ClonedFrom != tm.agent.Id {
+		t.Fatalf("owner sees %v", got.ClonedFrom)
+	}
+	expect(t, "share", tm.alice.do("POST", "/agents/"+dst.Id+"/shares", gen.ShareInput{Email: tm.emails["bob"]}, nil), 200)
+	if got := tm.bob.agent(dst.Id); got.ClonedFrom != nil {
+		t.Fatalf("a shared user learns the source id %q", *got.ClonedFrom)
+	}
+	var list []gen.Agent
+	tm.bob.do("GET", "/agents", nil, &list)
+	if len(list) != 1 || list[0].ClonedFrom != nil {
+		t.Fatalf("list for the shared user: %+v", list)
+	}
+}
+
+// While the source is stopped for the copy, nothing may start work on it: a
+// prompt accepted now would be killed.
+func TestNoPromptsWhileTheSourceIsCopied(t *testing.T) {
+	tm := newTeam(t)
+	e, alice := tm.e, tm.alice
+	var sess gen.Session
+	expect(t, "session", alice.do("POST", "/agents/"+tm.agent.Id+"/sessions", map[string]string{}, &sess), 201)
+	release, entered := make(chan struct{}), make(chan struct{})
+	e.driver.OnClone = func(ctx context.Context, _ sandbox.ID) error {
+		close(entered)
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return nil
+	}
+	expect(t, "clone", alice.do("POST", "/agents/"+tm.agent.Id+"/clone", gen.CloneInput{Name: "slow"}, nil), 201)
+	<-entered
+	// The prompt is accepted (the turn runs in the background) but the wake is
+	// refused, so the turn fails visibly instead of running on a doomed VM.
+	expect(t, "prompt while copied", alice.do("POST", "/sessions/"+sess.Id+"/prompt", map[string]string{"text": "hi"}, nil), 202)
+	e.sessions.Wait()
+	var evs []gen.SessionEvent
+	alice.do("GET", "/sessions/"+sess.Id+"/events", nil, &evs)
+	if !strings.Contains(fmt.Sprint(evs), "being stopped or copied") {
+		t.Fatalf("the turn was not refused: %v", evs)
+	}
+	if got := mustSandbox(t, e, tm.agent.Id).Starts; got != 1 {
+		t.Fatalf("a prompt woke the source during the copy (%d starts)", got)
+	}
+	close(release)
+	e.sandboxes.Wait()
+	if s := alice.agent(tm.agent.Id).State; s != gen.SandboxStateRunning {
+		t.Fatalf("source is %s", s)
+	}
+}
+
+func TestTemplateConversionIsAllOrNothingAndSilencesTriggers(t *testing.T) {
+	tm := newTeam(t)
+	e, alice := tm.e, tm.alice
+	ag := tm.agent.Id
+	var sched gen.Schedule
+	expect(t, "schedule", alice.do("POST", "/agents/"+ag+"/schedules", gen.ScheduleInput{Name: "nightly", Cron: "@daily", Prompt: "go"}, &sched), 201)
+	var hook gen.Webhook
+	expect(t, "webhook", alice.do("POST", "/agents/"+ag+"/webhooks", gen.WebhookInput{Name: "hook", PromptTemplate: "{{payload}}"}, &hook), 201)
+
+	// A refusal changes nothing, not even the other fields of the same request:
+	// here the machine is being copied.
+	release, entered := make(chan struct{}), make(chan struct{})
+	e.driver.OnClone = func(ctx context.Context, _ sandbox.ID) error {
+		close(entered)
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return nil
+	}
+	expect(t, "clone", alice.do("POST", "/agents/"+ag+"/clone", gen.CloneInput{Name: "copy"}, nil), 201)
+	<-entered
+	expect(t, "template while copied", alice.do("PATCH", "/agents/"+ag, gen.AgentPatch{Name: ptr("renamed"), IsTemplate: ptr(true)}, nil), 409)
+	if got := alice.agent(ag); got.Name == "renamed" || got.IsTemplate {
+		t.Fatalf("a refused update changed the agent: %+v", got)
+	}
+	close(release)
+	e.sandboxes.Wait()
+
+	expect(t, "template", alice.do("PATCH", "/agents/"+ag, gen.AgentPatch{Name: ptr("renamed"), IsTemplate: ptr(true)}, nil), 200)
+	var schedules []gen.Schedule
+	alice.do("GET", "/agents/"+ag+"/schedules", nil, &schedules)
+	var hooks []gen.Webhook
+	alice.do("GET", "/agents/"+ag+"/webhooks", nil, &hooks)
+	if len(schedules) != 1 || schedules[0].Enabled || len(hooks) != 1 || hooks[0].Enabled {
+		t.Fatalf("triggers of a template: %+v %+v", schedules, hooks)
+	}
+	// They cannot be switched on while it is a template, nor run by hand.
+	in := gen.ScheduleInput{Name: "nightly", Cron: "@daily", Prompt: "go", Enabled: ptr(true)}
+	expect(t, "enable schedule", alice.do("PUT", "/schedules/"+sched.Id, in, nil), 409)
+	expect(t, "run schedule", alice.do("POST", "/schedules/"+sched.Id+"/run", nil, nil), 409)
+	expect(t, "enable webhook", alice.do("PUT", "/webhooks/"+hook.Id, gen.WebhookInput{Name: "hook", PromptTemplate: "{{payload}}", Enabled: ptr(true)}, nil), 409)
+
+	// Back to an agent: they stay off until the owner turns them on.
+	expect(t, "agent", alice.do("PATCH", "/agents/"+ag, gen.AgentPatch{IsTemplate: ptr(false)}, nil), 200)
+	alice.do("GET", "/agents/"+ag+"/schedules", nil, &schedules)
+	if schedules[0].Enabled {
+		t.Fatal("a schedule came back on by itself")
+	}
+	expect(t, "enable schedule again", alice.do("PUT", "/schedules/"+sched.Id, in, nil), 200)
 }

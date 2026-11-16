@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -57,7 +58,7 @@ func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role aut
 		CredentialsInSandbox: ag.CredentialsInSandbox == 1, Login: login, IsTemplate: ag.IsTemplate == 1,
 		CreatedAt: ts(ag.CreatedAt), UpdatedAt: ts(ag.UpdatedAt),
 	}
-	if ag.ClonedFrom != "" {
+	if ag.ClonedFrom != "" && role == authz.Owner {
 		result.ClonedFrom = &ag.ClonedFrom
 	}
 	info := nodeByID(infos, sb.NodeID)
@@ -125,9 +126,19 @@ func (a *API) ListAgents(ctx context.Context, req gen.ListAgentsRequestObject) (
 	if err != nil {
 		return nil, err
 	}
+	want := gen.False
+	if req.Params.Template != nil {
+		want = *req.Params.Template
+	}
+	if !want.Valid() {
+		return nil, badRequest("template must be true, false or all")
+	}
 	out := gen.ListAgents200JSONResponse{}
 	for _, r := range rows {
-		if req.Params.Template != nil && *req.Params.Template != (r.Agent.IsTemplate == 1) {
+		// Machines that are not templates, unless templates were asked for.
+		switch t := r.Agent.IsTemplate == 1; {
+		case want == gen.All:
+		case want == gen.True && !t, want == gen.False && t:
 			continue
 		}
 		role := authz.RoleOf(u.ID, r.Agent.OwnerID, true) // listed: owned or shared
@@ -255,26 +266,66 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	if err := a.validateSettings(&s); err != nil {
 		return nil, err
 	}
-	if b.IsTemplate != nil && *b.IsTemplate != (ag.IsTemplate == 1) {
-		if err := a.setTemplate(ctx, acc.Row, *b.IsTemplate); err != nil {
+	// Everything is validated before anything changes: the template change
+	// has preconditions of its own, and stopping the machine is the only step
+	// with an effect outside the transaction below.
+	toTemplate := b.IsTemplate != nil && *b.IsTemplate && ag.IsTemplate == 0
+	toAgent := b.IsTemplate != nil && !*b.IsTemplate && ag.IsTemplate == 1
+	if toTemplate || toAgent {
+		if err := a.checkTemplateChange(acc.Row, toTemplate); err != nil {
 			return nil, err
 		}
 	}
-	if err := a.Store.UpdateAgent(ctx, db.UpdateAgentParams{
-		Name: s.name, Image: ag.Image, Cpus: s.cpus, MemoryMb: s.memoryMB, IdleMinutes: s.idleMinutes,
-		UpdatedAt: a.Now().Unix(), ID: ag.ID,
+	if toTemplate && sandbox.Phase(acc.Row.Sandbox.State) != sandbox.PhaseSleeping {
+		if err := a.Sandboxes.Stop(ctx, ag.ID); err != nil {
+			return nil, err
+		}
+	}
+	harnessChanged := s.harness != ag.Harness || s.model != ag.Model
+	now := a.Now().Unix()
+	if err := a.Store.Tx(ctx, func(q *db.Queries) error {
+		if err := q.UpdateAgent(ctx, db.UpdateAgentParams{
+			Name: s.name, Image: ag.Image, Cpus: s.cpus, MemoryMb: s.memoryMB, IdleMinutes: s.idleMinutes,
+			UpdatedAt: now, ID: ag.ID,
+		}); err != nil {
+			return err
+		}
+		if err := q.SetPermissionPolicy(ctx, db.SetPermissionPolicyParams{PermissionPolicy: s.policy, UpdatedAt: now, ID: ag.ID}); err != nil {
+			return err
+		}
+		if harnessChanged {
+			if err := q.SetAgentHarness(ctx, db.SetAgentHarnessParams{Harness: s.harness, Model: s.model, UpdatedAt: now, ID: ag.ID}); err != nil {
+				return err
+			}
+		}
+		if toTemplate || toAgent {
+			if err := q.SetAgentTemplate(ctx, db.SetAgentTemplateParams{IsTemplate: b2i(toTemplate), UpdatedAt: now, ID: ag.ID}); err != nil {
+				return err
+			}
+		}
+		if toTemplate {
+			// A template is never prompted: its triggers would only fail. They
+			// stay off when it becomes an agent again; the owner turns on what
+			// still makes sense.
+			if err := q.DisableAgentSchedules(ctx, db.DisableAgentSchedulesParams{UpdatedAt: now, AgentID: ag.ID}); err != nil {
+				return err
+			}
+			return q.DisableAgentWebhooks(ctx, db.DisableAgentWebhooksParams{UpdatedAt: now, AgentID: ag.ID})
+		}
+		return nil
 	}); err != nil {
 		return nil, err
 	}
-	if err := a.Store.SetPermissionPolicy(ctx, db.SetPermissionPolicyParams{PermissionPolicy: s.policy, UpdatedAt: a.Now().Unix(), ID: ag.ID}); err != nil {
-		return nil, err
-	}
-	if s.harness != ag.Harness || s.model != ag.Model {
-		if err := a.Store.SetAgentHarness(ctx, db.SetAgentHarnessParams{Harness: s.harness, Model: s.model, UpdatedAt: a.Now().Unix(), ID: ag.ID}); err != nil {
-			return nil, err
-		}
+	if harnessChanged {
 		a.Sessions.Disconnect(ag.ID) // the next prompt starts the new harness
 		a.Egress.Invalidate()        // and the proxy injects that harness's login
+	}
+	if toTemplate || toAgent {
+		convertedTo := "agent"
+		if toTemplate {
+			convertedTo = "template"
+		}
+		a.record(ctx, ag, audit.AgentUpdate, ag.Name, map[string]any{"convertedTo": convertedTo})
 	}
 	g, err := a.reloadAgent(ctx, ag.ID, acc.Role)
 	if err != nil {
@@ -383,34 +434,30 @@ func (a *API) startChecked(ctx context.Context, agentID string) error {
 	return a.Sandboxes.Start(ctx, agentID)
 }
 
-// setTemplate converts a machine to a template, which stops it first, or back
-// to a normal machine. It only changes machines at rest.
-func (a *API) setTemplate(ctx context.Context, row db.GetAgentWithSandboxRow, template bool) error {
-	ag := row.Agent
-	if template {
-		switch sandbox.Phase(row.Sandbox.State) {
-		case sandbox.PhaseSleeping:
-		case sandbox.PhaseRunning, sandbox.PhaseError:
-			if row.Sandbox.DriverID != "" {
-				if err := a.Sandboxes.Stop(ctx, ag.ID); err != nil {
-					return err
-				}
-			}
-		default:
-			return errStatus(http.StatusConflict, "the machine is busy; try again when it is running or asleep")
+// checkTemplateChange says whether a machine may be converted now. Only
+// machines at rest are: a turn in progress would be killed, a machine being
+// created or copied is busy.
+func (a *API) checkTemplateChange(row db.GetAgentWithSandboxRow, toTemplate bool) error {
+	phase := sandbox.Phase(row.Sandbox.State)
+	if !toTemplate {
+		if phase == sandbox.PhaseStopping || phase == sandbox.PhaseCreating {
+			// A clone of it may be copying its disks, or it is still being created.
+			return errStatus(http.StatusConflict, "the template is busy; try again in a moment")
 		}
-	} else if sandbox.Phase(row.Sandbox.State) == sandbox.PhaseStopping || sandbox.Phase(row.Sandbox.State) == sandbox.PhaseCreating {
-		// A clone of it may be copying its disks, or it is still being created.
-		return errStatus(http.StatusConflict, "the template is busy; try again in a moment")
+		return nil
 	}
-	if err := a.Store.SetAgentTemplate(ctx, db.SetAgentTemplateParams{IsTemplate: b2i(template), UpdatedAt: a.Now().Unix(), ID: ag.ID}); err != nil {
-		return err
+	if a.Sessions.AgentBusy(row.Agent.ID) {
+		return errStatus(http.StatusConflict, "the machine is working on a prompt; wait for it to finish before making it a template, because it is stopped first")
 	}
-	action := "template"
-	if !template {
-		action = "agent"
+	switch phase {
+	case sandbox.PhaseSleeping:
+	case sandbox.PhaseRunning, sandbox.PhaseError:
+		if row.Sandbox.DriverID == "" {
+			return errStatus(http.StatusConflict, "the machine has no sandbox to make a template of")
+		}
+	default:
+		return errStatus(http.StatusConflict, "the machine is busy; try again when it is running or asleep")
 	}
-	a.record(ctx, ag, audit.AgentUpdate, ag.Name, map[string]any{"convertedTo": action})
 	return nil
 }
 
@@ -431,6 +478,15 @@ func (a *API) CloneAgent(ctx context.Context, req gen.CloneAgentRequestObject) (
 	}
 	if a.Sessions.AgentBusy(src.ID) {
 		return nil, errStatus(http.StatusConflict, "the machine is working on a prompt; wait for it to finish or stop it first, because it is stopped while it is copied")
+	}
+	if err := a.Sandboxes.CheckCloneable(ctx, src.ID); err != nil {
+		return nil, err
+	}
+	// A clone lives on its source's node and has its resources. Like
+	// placement, which only considers nodes that can report their capacity,
+	// do not start a copy on a node that cannot.
+	if err := a.nodeCanHost(ctx, src.ID); err != nil {
+		return nil, err
 	}
 	// Cloning a template that failed to create has nothing to copy: ProvisionClone says so.
 	asTemplate := req.Body.AsTemplate != nil && *req.Body.AsTemplate
@@ -520,6 +576,26 @@ func copyAttachments(ctx context.Context, q *db.Queries, src, dst string, now in
 		if err := q.AttachSkill(ctx, db.AttachSkillParams{AgentID: dst, SkillID: s.ID}); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// nodeCanHost applies to a clone what placement applies to a new agent: its
+// node has to answer a capacity query.
+func (a *API) nodeCanHost(ctx context.Context, agentID string) error {
+	var err error
+	if n, ok := a.Node.(interface {
+		AgentCapacity(context.Context, string) (node.Capacity, error)
+	}); ok {
+		_, err = n.AgentCapacity(ctx, agentID)
+	} else {
+		_, err = a.Node.Capacity(ctx)
+	}
+	if errors.Is(err, sandbox.ErrUnreachable) {
+		return err
+	}
+	if err != nil {
+		return fmt.Errorf("%w: its node could not report its capacity: %v", sandbox.ErrNoCapacity, err)
 	}
 	return nil
 }

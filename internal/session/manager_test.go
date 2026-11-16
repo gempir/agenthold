@@ -42,7 +42,6 @@ func TestMain(m *testing.M) {
 		panic(string(out))
 	}
 	fake.SetCommand(fakeBin)
-	cancelGrace = 300 * time.Millisecond
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
@@ -146,6 +145,37 @@ func (e *env) pids() []int {
 		}
 	}
 	return out
+}
+
+// waitPrompt waits until the fake agent has received n prompts in total.
+func (e *env) waitPrompt(n int) {
+	e.t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		b, _ := os.ReadFile(filepath.Join(e.home, ".fakeagent", "prompts"))
+		if strings.Count(string(b), "\n") >= n {
+			return
+		}
+		if time.Now().After(deadline) {
+			e.t.Fatalf("the harness did not receive prompt %d", n)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// prompts is how many prompts the fake agent has received.
+func (e *env) prompts() int {
+	b, _ := os.ReadFile(filepath.Join(e.home, ".fakeagent", "prompts"))
+	return strings.Count(string(b), "\n")
+}
+
+// startAndWait prompts and waits until the harness has the prompt.
+func (e *env) startAndWait(text string) *Subscription {
+	e.t.Helper()
+	n := e.prompts()
+	sub := e.start(text)
+	e.waitPrompt(n + 1)
+	return sub
 }
 
 func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
@@ -310,10 +340,10 @@ func TestHarnessKilledAtStart(t *testing.T) {
 }
 
 func TestInitializeHangs(t *testing.T) {
-	setTimeout(t, &startTimeout, 500*time.Millisecond)
+	setTimeout(t, &setupIdle, 500*time.Millisecond)
 	e := newEnv(t)
 	e.script("initialize hang")
-	e.failed("hello", "did not answer initialize within 500ms", "send the message again")
+	e.failed("hello", "did not answer initialize and showed no activity for 500ms", "send the message again")
 	e.waitDead(e.pids()[0])
 }
 
@@ -324,10 +354,10 @@ func TestInitializeError(t *testing.T) {
 }
 
 func TestSessionNewHangs(t *testing.T) {
-	setTimeout(t, &setupTimeout, 500*time.Millisecond)
+	setTimeout(t, &setupIdle, 500*time.Millisecond)
 	e := newEnv(t)
 	e.script("session/new hang")
-	e.failed("hello", "did not answer session/new within 500ms")
+	e.failed("hello", "did not answer session/new and showed no activity for 500ms")
 	e.waitDead(e.pids()[0])
 }
 
@@ -337,17 +367,46 @@ func TestSessionNewError(t *testing.T) {
 	e.failed("hello", "could not start a session", "scripted failure at session/new")
 }
 
-func TestSessionLoadHangs(t *testing.T) {
-	setTimeout(t, &setupTimeout, 500*time.Millisecond)
+func TestSessionLoadHangsFallsBack(t *testing.T) {
+	setTimeout(t, &setupIdle, 500*time.Millisecond)
 	e := newEnv(t)
 	e.ok("remember me")
 	e.m.Disconnect(agentID) // like a sleep: the next turn starts a new process
 	e.script("session/load hang")
-	e.expectError(e.turn("hello"), "did not answer session/load within 500ms")
-	// The next process restores the conversation.
-	if r := e.ok("again"); len(r.notices) != 0 {
+	// A load that does not come back starts a fresh session, and says so.
+	r := e.ok("hello")
+	if len(r.notices) != 1 || !strings.Contains(r.notices[0], "could not restore this conversation") {
 		t.Fatalf("notices %q", r.notices)
 	}
+	e.ok("again")
+}
+
+func TestSlowButAliveSetup(t *testing.T) {
+	setTimeout(t, &setupIdle, 500*time.Millisecond)
+	e := newEnv(t)
+	// Each step takes three times the idle limit, writing stderr all along.
+	e.script("initialize slow 1.5", "session/new slow 1.5")
+	e.ok("remember me")
+	e.m.Disconnect(agentID)
+	e.script("session/load slow 1.5")
+	if r := e.ok("hello"); len(r.notices) != 0 {
+		t.Fatalf("a slow load was not waited for: notices %q", r.notices)
+	}
+}
+
+func TestQuietSetupTimesOut(t *testing.T) {
+	setTimeout(t, &setupIdle, 500*time.Millisecond)
+	e := newEnv(t)
+	e.script("session/new quiet 1.5")
+	e.failed("hello", "did not answer session/new and showed no activity for 500ms")
+}
+
+func TestSetupCap(t *testing.T) {
+	setTimeout(t, &setupIdle, 500*time.Millisecond)
+	setTimeout(t, &setupCap, time.Second)
+	e := newEnv(t)
+	e.script("session/new slow 3")
+	e.failed("hello", "was still working on session/new after 1s, the limit")
 }
 
 func TestSessionLostAfterRestart(t *testing.T) {
@@ -397,10 +456,10 @@ func TestAutoAuthenticateFails(t *testing.T) {
 }
 
 func TestAuthenticateHangs(t *testing.T) {
-	setTimeout(t, &setupTimeout, 500*time.Millisecond)
+	setTimeout(t, &setupIdle, 500*time.Millisecond)
 	e := newEnv(t)
 	e.script("session/new auth", "authenticate hang")
-	e.failed("hello", "did not answer authenticate within 500ms")
+	e.failed("hello", "did not answer authenticate and showed no activity for 500ms")
 }
 
 func TestExitMidTurn(t *testing.T) {
@@ -453,7 +512,11 @@ func TestHugeStderr(t *testing.T) {
 
 func TestStdoutClosed(t *testing.T) {
 	e := newEnv(t)
-	e.failed("closestdout", "closed its stdout")
+	r := e.failed("closestdout", "was stopped by the sandbox", "closed its stdout")
+	// sandboxd's own kill is not mistaken for the OOM killer.
+	if strings.Contains(r.errs[0], "memory") {
+		t.Fatalf("error %q", r.errs[0])
+	}
 }
 
 func TestHelperKeepsStdoutOpen(t *testing.T) {
@@ -496,8 +559,7 @@ func TestConcurrentPrompts(t *testing.T) {
 
 func TestCancel(t *testing.T) {
 	e := newEnv(t)
-	sub := e.start("slow 50")
-	time.Sleep(500 * time.Millisecond)
+	sub := e.startAndWait("slow 50")
 	if err := e.m.Cancel(context.Background(), e.sid); err != nil {
 		t.Fatal(err)
 	}
@@ -511,9 +573,9 @@ func TestCancel(t *testing.T) {
 }
 
 func TestCancelIgnored(t *testing.T) {
+	setTimeout(t, &cancelGrace, 300*time.Millisecond)
 	e := newEnv(t)
-	sub := e.start("hang")
-	time.Sleep(300 * time.Millisecond)
+	sub := e.startAndWait("hang")
 	if err := e.m.Cancel(context.Background(), e.sid); err != nil {
 		t.Fatal(err)
 	}
@@ -559,8 +621,7 @@ func TestCancelRacesTurnEnd(t *testing.T) {
 
 func TestTunnelDropsMidTurn(t *testing.T) {
 	e := newEnv(t)
-	sub := e.start("slow 50")
-	time.Sleep(300 * time.Millisecond)
+	sub := e.startAndWait("slow 50")
 	e.hub.Disconnect(agentID)
 	e.expectError(e.wait(sub, 10*time.Second), "lost the connection to the agent's sandbox")
 	e.waitDead(e.pids()[0])
@@ -569,8 +630,7 @@ func TestTunnelDropsMidTurn(t *testing.T) {
 
 func TestSandboxStopsMidTurn(t *testing.T) {
 	e := newEnv(t)
-	sub := e.start("hang")
-	time.Sleep(300 * time.Millisecond)
+	sub := e.startAndWait("hang")
 	e.m.Disconnect(agentID)
 	e.expectError(e.wait(sub, 5*time.Second), "sandbox is stopping")
 	e.ok("again")
@@ -578,8 +638,7 @@ func TestSandboxStopsMidTurn(t *testing.T) {
 
 func TestServerShutdownMidTurn(t *testing.T) {
 	e := newEnv(t)
-	sub := e.start("hang")
-	time.Sleep(300 * time.Millisecond)
+	sub := e.startAndWait("hang")
 	e.m.Close()
 	e.expectError(e.wait(sub, 5*time.Second), "server shut down")
 	if err := e.m.Prompt(context.Background(), e.sid, "u_1", "U", "late", nil); err == nil {
@@ -590,23 +649,47 @@ func TestServerShutdownMidTurn(t *testing.T) {
 func TestServerCrashMidTurn(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
-	// What a crashed server leaves behind: a running session without turn_end.
-	if err := e.st.SetSessionStatus(ctx, db.SetSessionStatusParams{Status: "running", UpdatedAt: time.Now().Unix(), ID: e.sid}); err != nil {
-		t.Fatal(err)
-	}
-	m2 := NewManager(e.st, nil, nil)
-	defer m2.Close()
-	evs, sub, err := m2.Subscribe(ctx, e.sid, 0, nil)
+	s2, err := e.m.Create(ctx, agentID, "u_1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub.Close()
-	if len(evs) != 2 || evs[0].Type != EventError || !strings.Contains(string(evs[0].Data), "server restarted") || evs[1].Type != EventTurnEnd {
-		t.Fatalf("events %+v", evs)
+	e.ok("finished turn")
+	// What crashes leave behind: a prompt without turn_end, with the session
+	// still running (crash during the turn) or already idle (crash between
+	// the status update and turn_end).
+	if err := e.m.log.append(ctx, e.sid, EventPrompt, "u_1", map[string]string{"text": "cut off"}); err != nil {
+		t.Fatal(err)
 	}
-	if s, _ := e.st.GetAgentSession(ctx, e.sid); s.Status != "idle" {
-		t.Fatalf("status %q", s.Status)
+	if err := e.st.SetSessionStatus(ctx, db.SetSessionStatusParams{Status: "running", UpdatedAt: 1, ID: e.sid}); err != nil {
+		t.Fatal(err)
 	}
+	if err := e.m.log.append(ctx, s2.ID, EventPrompt, "u_1", map[string]string{"text": "cut off"}); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 { // a second restart adds nothing
+		m2 := NewManager(e.st, nil, nil)
+		m2.Close()
+	}
+	for _, sid := range []string{e.sid, s2.ID} {
+		seq, _ := e.st.MaxSessionSeq(ctx, sid)
+		evs, sub, err := e.m.Subscribe(ctx, sid, seq-3, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sub.Close()
+		if len(evs) != 3 || evs[0].Type != EventPrompt || evs[1].Type != EventError || !strings.Contains(string(evs[1].Data), "server restarted") || evs[2].Type != EventTurnEnd {
+			t.Fatalf("session %s: events %+v", sid, evs)
+		}
+		if s, _ := e.st.GetAgentSession(ctx, sid); s.Status != "idle" {
+			t.Fatalf("status %q", s.Status)
+		}
+	}
+	// The manager's in-memory sequence numbers are stale after another
+	// manager wrote to the log: continue with a fresh one, like a restart.
+	m3 := NewManager(e.st, e.m.wake, nil)
+	t.Cleanup(m3.Close)
+	e.m.Close()
+	e.m = m3
 	e.ok("again")
 }
 
@@ -635,4 +718,156 @@ func TestPermissionCancelled(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(e.home, "f.txt")); err == nil {
 		t.Fatal("file written after cancel")
 	}
+}
+
+// hungOpen is a sandbox whose node accepts the stream but never opens it
+// (a connected but hung edge node).
+func hungOpen(ctx context.Context, _ string, _ func(string)) (*tunnel.Session, error) {
+	return tunnel.NewClient(agentID, func(ctx context.Context, _ tunnel.Open) (io.ReadWriteCloser, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}), nil
+}
+
+func TestHarnessOpenHangs(t *testing.T) {
+	setTimeout(t, &openTimeout, 300*time.Millisecond)
+	e := newEnv(t)
+	wake := e.m.wake
+	e.m.SetWaker(hungOpen)
+	e.expectError(e.turn("hello"), "the sandbox did not open the harness within 300ms")
+	e.m.SetWaker(wake)
+	e.ok("again") // the startup lock was released
+}
+
+func TestCancelWhileOpenHangs(t *testing.T) {
+	e := newEnv(t)
+	wake := e.m.wake
+	e.m.SetWaker(hungOpen)
+	sub := e.start("hello")
+	// The turn is cancellable however far it got.
+	deadline := time.Now().Add(5 * time.Second)
+	for e.m.Cancel(context.Background(), e.sid) != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("no turn to cancel")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if r := e.wait(sub, 5*time.Second); r.stop != "cancelled" || len(r.errs) != 0 {
+		t.Fatalf("stop %q errors %q", r.stop, r.errs)
+	}
+	e.m.SetWaker(wake)
+	e.ok("again")
+}
+
+func TestCancelWhileWaitingForStartup(t *testing.T) {
+	e := newEnv(t)
+	e.script("initialize hang")
+	first := e.start("first")
+	for len(e.pids()) == 0 { // the first turn holds the startup lock in initialize
+		time.Sleep(10 * time.Millisecond)
+	}
+	s2, err := e.m.Create(context.Background(), agentID, "u_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e2 := *e
+	e2.sid = s2.ID
+	second := e2.start("second")
+	if err := e.m.Cancel(context.Background(), s2.ID); err != nil {
+		t.Fatal(err)
+	}
+	if r := e2.wait(second, 5*time.Second); r.stop != "cancelled" {
+		t.Fatalf("waiting turn: stop %q errors %q", r.stop, r.errs)
+	}
+	if err := e.m.Cancel(context.Background(), e.sid); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.wait(first, 5*time.Second); r.stop != "cancelled" {
+		t.Fatalf("starting turn: stop %q errors %q", r.stop, r.errs)
+	}
+	e.ok("again")
+}
+
+func TestPermissionAfterCancel(t *testing.T) {
+	for _, policy := range []string{PolicyAsk, PolicyAutoApprove} {
+		t.Run(policy, func(t *testing.T) {
+			e := newEnv(t)
+			if err := e.st.SetPermissionPolicy(context.Background(), db.SetPermissionPolicyParams{PermissionPolicy: policy, UpdatedAt: 1, ID: agentID}); err != nil {
+				t.Fatal(err)
+			}
+			// The harness asks for a permission after it got session/cancel:
+			// the answer must be "cancelled", right away.
+			sub := e.startAndWait("permafter")
+			if err := e.m.Cancel(context.Background(), e.sid); err != nil {
+				t.Fatal(err)
+			}
+			r := e.wait(sub, 5*time.Second)
+			if r.stop != "cancelled" || len(r.notices) != 0 || strings.Contains(r.text, "granted") {
+				t.Fatalf("stop %q notices %q text %q", r.stop, r.notices, r.text)
+			}
+			if n := len(e.pids()); n != 1 {
+				t.Fatalf("the harness was restarted (%d processes)", n)
+			}
+		})
+	}
+}
+
+// second returns an env for another session of the same agent.
+func (e *env) second() *env {
+	e.t.Helper()
+	s, err := e.m.Create(context.Background(), agentID, "u_1", "")
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	e2 := *e
+	e2.sid = s.ID
+	return &e2
+}
+
+func TestCancelIgnoredWhileOthersRun(t *testing.T) {
+	setTimeout(t, &cancelGrace, 300*time.Millisecond)
+	e := newEnv(t)
+	other := e.second()
+	busy := other.startAndWait("slow 15") // 3 s of output
+	stuck := e.startAndWait("hang")
+	if err := e.m.Cancel(context.Background(), e.sid); err != nil {
+		t.Fatal(err)
+	}
+	r := e.wait(stuck, 5*time.Second)
+	if r.stop != "cancelled" || len(r.notices) != 1 || !strings.Contains(r.notices[0], "other conversations") {
+		t.Fatalf("stuck turn: stop %q errors %q notices %q", r.stop, r.errs, r.notices)
+	}
+	// The other conversation is not touched.
+	if r := other.wait(busy, 10*time.Second); r.stop != "end_turn" || !strings.Contains(r.text, "chunk 15") {
+		t.Fatalf("other turn: stop %q errors %q", r.stop, r.errs)
+	}
+	// Then the wedged harness goes, and the next turn gets a fresh one.
+	e.waitDead(e.pids()[0])
+	e.ok("again")
+	if n := len(e.pids()); n != 2 {
+		t.Fatalf("%d harness processes", n)
+	}
+}
+
+func TestSetupTimeoutWhileOthersRun(t *testing.T) {
+	setTimeout(t, &setupIdle, 500*time.Millisecond)
+	setTimeout(t, &cancelGrace, 300*time.Millisecond)
+	e := newEnv(t)
+	other := e.second()
+	busy := other.startAndWait("hang") // a live turn, silent
+	e.script("session/new hang")
+	r := e.turn("hello")
+	e.expectError(r, "did not answer session/new", "this turn was stopped, and the harness restarts once the agent's other conversations are done")
+	if !e.m.Running(other.sid) {
+		t.Fatal("the other conversation's turn was ended")
+	}
+	if !alive(e.pids()[0]) {
+		t.Fatal("the harness was stopped under the other conversation")
+	}
+	if err := e.m.Cancel(context.Background(), other.sid); err != nil {
+		t.Fatal(err)
+	}
+	other.wait(busy, 5*time.Second)
+	e.waitDead(e.pids()[0])
+	e.ok("again")
 }

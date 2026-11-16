@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -33,8 +34,15 @@ type harnessConn struct {
 	ts      *tunnel.Session
 	acp     *acp.ClientSideConnection
 	init    acp.InitializeResponse
-	// stale: restart once no turn uses it (guarded by Manager.mu).
-	stale bool
+	// stale: restart once no turn uses it (guarded by Manager.mu). staleWhy
+	// says why.
+	stale    bool
+	staleWhy string
+	// stopStream ends the context the harness stream was opened with.
+	stopStream context.CancelFunc
+	// lastActive is when the harness last showed life (unix nanoseconds): an
+	// ACP message or a stderr line.
+	lastActive atomic.Int64
 
 	mu       sync.Mutex
 	sessions map[string]string // ACP session id -> our session id
@@ -48,10 +56,25 @@ type harnessConn struct {
 var _ acp.Client = (*harnessConn)(nil)
 
 func newHarnessConn(m *Manager, agentID string, ad *harness.Adapter, ts *tunnel.Session) *harnessConn {
-	return &harnessConn{
+	c := &harnessConn{
 		m: m, agentID: agentID, adapter: ad, name: ad.Name, ts: ts,
 		sessions: map[string]string{}, active: map[string]bool{}, done: make(chan struct{}),
 	}
+	c.alive()
+	return c
+}
+
+// alive records that the harness showed life.
+func (c *harnessConn) alive() { c.lastActive.Store(time.Now().UnixNano()) }
+
+// idleSince is how long the harness has been silent, counting from no
+// earlier than since.
+func (c *harnessConn) idleSince(since time.Time) time.Duration {
+	last := time.Unix(0, c.lastActive.Load())
+	if last.Before(since) {
+		last = since
+	}
+	return time.Since(last)
 }
 
 // start attaches the ACP connection to proc. The connection closes when the
@@ -89,6 +112,15 @@ func (c *harnessConn) bind(acpID, sessionID string) {
 	c.sessions[acpID] = sessionID
 }
 
+// forget drops what this process knows about a session, so the next turn
+// loads it again (or starts a new one).
+func (c *harnessConn) forget(acpID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.sessions, acpID)
+	delete(c.active, acpID)
+}
+
 func (c *harnessConn) markActive(acpID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -108,6 +140,7 @@ const (
 )
 
 func (c *harnessConn) stderr(line string) {
+	c.alive()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.errLines = append(c.errLines, line)
@@ -169,6 +202,9 @@ func (c *harnessConn) close(reason string) {
 		if c.proc != nil {
 			_ = c.proc.Close()
 		}
+		if c.stopStream != nil {
+			c.stopStream()
+		}
 		c.m.dropConn(c)
 	})
 }
@@ -210,6 +246,9 @@ func (c *harnessConn) describeExit() string {
 		return "could not run " + c.name + ": " + re.Msg
 	case err != nil:
 		return "lost the connection to the agent's sandbox while " + c.name + " was running; send the message again to retry"
+	case c.proc.StoppedBySandbox():
+		// The stderr tail carries sandboxd's reason.
+		return c.name + " was stopped by the sandbox; send the message again to retry"
 	case code == 128+9:
 		return c.name + " was killed (signal 9; it may have run out of memory); send the message again to retry"
 	case code > 128:
@@ -230,6 +269,7 @@ func (c *harnessConn) sessionFor(acpID acp.SessionId) (string, bool) {
 
 // SessionUpdate implements acp.Client.
 func (c *harnessConn) SessionUpdate(ctx context.Context, n acp.SessionNotification) error {
+	c.alive() // also for sessions being loaded: a long replay is progress
 	sessionID, ok := c.sessionFor(n.SessionId)
 	if !ok {
 		return nil
@@ -243,10 +283,14 @@ func (c *harnessConn) SessionUpdate(ctx context.Context, n acp.SessionNotificati
 }
 
 // RequestPermission implements acp.Client.
+//
+// ACP requires answering with "cancelled" once the turn was cancelled, also
+// for requests that cross the cancel on the wire.
 func (c *harnessConn) RequestPermission(ctx context.Context, p acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+	c.alive()
 	sessionID, ok := c.sessionFor(p.SessionId)
 	cancelled := acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}
-	if !ok || len(p.Options) == 0 {
+	if !ok || len(p.Options) == 0 || !c.m.turnLive(sessionID) {
 		return cancelled, nil
 	}
 	agent, err := c.m.store.GetAgent(ctx, c.agentID)
@@ -255,25 +299,29 @@ func (c *harnessConn) RequestPermission(ctx context.Context, p acp.RequestPermis
 	}
 	requestID := id.New("perm")
 	lctx := context.WithoutCancel(ctx)
+	ch := make(chan acp.PermissionOptionId, 1)
+	// Registered (or refused) under the lock Cancel takes, so a cancel
+	// either sees this request or this request sees the cancel.
+	c.m.mu.Lock()
+	t := c.m.turns[sessionID]
+	if t == nil || t.cancelled || t.finished {
+		c.m.mu.Unlock()
+		return cancelled, nil
+	}
+	ask := agent.PermissionPolicy == PolicyAsk
+	if ask {
+		t.perms[requestID] = ch
+	}
+	c.m.mu.Unlock()
 	_ = c.m.log.append(lctx, sessionID, EventPermission, "", map[string]any{
 		"requestId": requestID, "toolCall": p.ToolCall, "options": p.Options, "policy": agent.PermissionPolicy,
 	})
-	if agent.PermissionPolicy != PolicyAsk {
+	if !ask {
 		// The sandbox is the safety boundary: approve.
 		opt := pickAllow(p.Options)
 		_ = c.m.log.append(lctx, sessionID, EventPermissionResolved, "", map[string]string{"requestId": requestID, "optionId": string(opt), "by": "auto"})
 		return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(opt)}, nil
 	}
-
-	ch := make(chan acp.PermissionOptionId, 1)
-	c.m.mu.Lock()
-	t := c.m.turns[sessionID]
-	if t == nil {
-		c.m.mu.Unlock()
-		return cancelled, nil
-	}
-	t.perms[requestID] = ch
-	c.m.mu.Unlock()
 
 	select {
 	case opt, ok := <-ch:
@@ -310,36 +358,43 @@ func pickAllow(opts []acp.PermissionOption) acp.PermissionOptionId {
 var errUnsupported = errors.New("not supported by this client")
 
 // ReadTextFile implements acp.Client.
-func (c *harnessConn) ReadTextFile(context.Context, acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {
+func (c *harnessConn) ReadTextFile(_ context.Context, _ acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {
+	c.alive()
 	return acp.ReadTextFileResponse{}, errUnsupported
 }
 
 // WriteTextFile implements acp.Client.
-func (c *harnessConn) WriteTextFile(context.Context, acp.WriteTextFileRequest) (acp.WriteTextFileResponse, error) {
+func (c *harnessConn) WriteTextFile(_ context.Context, _ acp.WriteTextFileRequest) (acp.WriteTextFileResponse, error) {
+	c.alive()
 	return acp.WriteTextFileResponse{}, errUnsupported
 }
 
 // CreateTerminal implements acp.Client.
-func (c *harnessConn) CreateTerminal(context.Context, acp.CreateTerminalRequest) (acp.CreateTerminalResponse, error) {
+func (c *harnessConn) CreateTerminal(_ context.Context, _ acp.CreateTerminalRequest) (acp.CreateTerminalResponse, error) {
+	c.alive()
 	return acp.CreateTerminalResponse{}, errUnsupported
 }
 
 // KillTerminal implements acp.Client.
-func (c *harnessConn) KillTerminal(context.Context, acp.KillTerminalRequest) (acp.KillTerminalResponse, error) {
+func (c *harnessConn) KillTerminal(_ context.Context, _ acp.KillTerminalRequest) (acp.KillTerminalResponse, error) {
+	c.alive()
 	return acp.KillTerminalResponse{}, errUnsupported
 }
 
 // TerminalOutput implements acp.Client.
-func (c *harnessConn) TerminalOutput(context.Context, acp.TerminalOutputRequest) (acp.TerminalOutputResponse, error) {
+func (c *harnessConn) TerminalOutput(_ context.Context, _ acp.TerminalOutputRequest) (acp.TerminalOutputResponse, error) {
+	c.alive()
 	return acp.TerminalOutputResponse{}, errUnsupported
 }
 
 // ReleaseTerminal implements acp.Client.
-func (c *harnessConn) ReleaseTerminal(context.Context, acp.ReleaseTerminalRequest) (acp.ReleaseTerminalResponse, error) {
+func (c *harnessConn) ReleaseTerminal(_ context.Context, _ acp.ReleaseTerminalRequest) (acp.ReleaseTerminalResponse, error) {
+	c.alive()
 	return acp.ReleaseTerminalResponse{}, errUnsupported
 }
 
 // WaitForTerminalExit implements acp.Client.
-func (c *harnessConn) WaitForTerminalExit(context.Context, acp.WaitForTerminalExitRequest) (acp.WaitForTerminalExitResponse, error) {
+func (c *harnessConn) WaitForTerminalExit(_ context.Context, _ acp.WaitForTerminalExitRequest) (acp.WaitForTerminalExitResponse, error) {
+	c.alive()
 	return acp.WaitForTerminalExitResponse{}, errUnsupported
 }

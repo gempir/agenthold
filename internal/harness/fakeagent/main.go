@@ -17,14 +17,22 @@
 //	bigline                  print a line longer than the client accepts
 //	stderr <bytes>           write one stderr line of that size and 1000 short ones, then answer
 //	closestdout              close stdout and keep running
-//	spawn                    start a helper that keeps stdout open, then exit 0
-//	                         (its pid goes to $HOME/.fakeagent/helper.pid)
+//	spawn [setsid]           start a helper that keeps stdout open (in its own
+//	                         session with setsid), then exit 0; its pid goes
+//	                         to $HOME/.fakeagent/helper.pid
+//	permafter                wait for session/cancel, then ask for a permission
+//	                         and end as cancelled only if it is refused as cancelled
+//
+// Each prompt is appended to $HOME/.fakeagent/prompts when it arrives, so
+// tests can wait until the harness has it.
 //
 // $HOME/.fakeagent/script scripts the protocol steps, one directive per line:
 //
 //	<step> <action> [arg]    fail at step, once (the line is removed when it fires)
 //	                         step: start, initialize, authenticate, session/new, session/load
-//	                         action: exit <code>, kill, hang, error, auth (session/new: needs authenticate)
+//	                         action: exit <code>, kill, hang, error, auth (session/new: needs authenticate),
+//	                         slow <seconds> (answer late, writing stderr all along),
+//	                         quiet <seconds> (answer late, silently)
 //	no-load                  do not advertise session/load
 //	require-login            session/new needs a login (credentials file or FAKEAGENT_TOKEN)
 //
@@ -195,6 +203,15 @@ func (a *agent) fail(step, action, arg string) error {
 		select {}
 	case "auth":
 		return acp.NewAuthRequired("authenticate first")
+	case "slow", "quiet":
+		secs, _ := strconv.ParseFloat(arg, 64)
+		for end := time.Now().Add(time.Duration(secs * float64(time.Second))); time.Now().Before(end); {
+			time.Sleep(100 * time.Millisecond)
+			if action == "slow" {
+				fmt.Fprintf(os.Stderr, "fakeagent: still working on %s\n", step)
+			}
+		}
+		return nil
 	}
 	return acp.NewInternalError(map[string]any{"error": "scripted failure at " + step})
 }
@@ -355,12 +372,16 @@ func (a *agent) Prompt(_ context.Context, p acp.PromptRequest) (acp.PromptRespon
 		}
 	}
 	in := strings.TrimSpace(text.String())
+	if f, err := os.OpenFile(filepath.Join(a.dir, "prompts"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+		fmt.Fprintln(f, strings.ReplaceAll(in, "\n", " "))
+		_ = f.Close()
+	}
 	a.record(string(sid), turn{"user", in})
 	fields := strings.Fields(in)
 	answer := ""
 	if len(fields) > 0 {
-		if done, err := a.misbehave(ctx, sid, fields); done {
-			return acp.PromptResponse{}, err
+		if stop, done, err := a.misbehave(ctx, sid, fields); done {
+			return acp.PromptResponse{StopReason: stop}, err
 		}
 	}
 	switch {
@@ -485,7 +506,7 @@ func (a *agent) SetSessionMode(context.Context, acp.SetSessionModeRequest) (acp.
 
 // misbehave runs the failure prompts. done is false for other prompts and
 // for failures after which the prompt is answered normally.
-func (a *agent) misbehave(ctx context.Context, sid acp.SessionId, f []string) (bool, error) {
+func (a *agent) misbehave(ctx context.Context, sid acp.SessionId, f []string) (acp.StopReason, bool, error) {
 	arg := ""
 	if len(f) > 1 {
 		arg = f[1]
@@ -493,11 +514,11 @@ func (a *agent) misbehave(ctx context.Context, sid acp.SessionId, f []string) (b
 	switch f[0] {
 	case "exit", "kill":
 		_ = a.say(ctx, sid, "about to "+f[0]+" ")
-		return true, a.fail("prompt", f[0], arg)
+		return "", true, a.fail("prompt", f[0], arg)
 	case "hang":
 		select {}
 	case "error":
-		return true, a.fail("prompt", "error", "")
+		return "", true, a.fail("prompt", "error", "")
 	case "garbage":
 		_, _ = a.out.Write([]byte("this is not JSON-RPC\n{\"neither\": \"is this\"}\n"))
 	case "bigline":
@@ -511,14 +532,29 @@ func (a *agent) misbehave(ctx context.Context, sid acp.SessionId, f []string) (b
 	case "closestdout":
 		_ = os.Stdout.Close()
 		select {}
+	case "permafter":
+		<-ctx.Done() // session/cancel
+		res, err := a.conn.RequestPermission(context.Background(), acp.RequestPermissionRequest{
+			SessionId: sid,
+			ToolCall:  acp.ToolCallUpdate{ToolCallId: "call-after-cancel", Title: acp.Ptr("Late tool call")},
+			Options:   []acp.PermissionOption{{Kind: acp.PermissionOptionKindAllowOnce, Name: "Allow", OptionId: "allow"}},
+		})
+		if err != nil || res.Outcome.Cancelled != nil {
+			return acp.StopReasonCancelled, true, nil
+		}
+		_ = a.say(context.Background(), sid, "permission granted after cancel")
+		return acp.StopReasonEndTurn, true, nil
 	case "spawn":
 		helper := exec.CommandContext(context.Background(), "sleep", "300")
 		helper.Stdout, helper.Stderr = os.Stdout, os.Stderr
+		if arg == "setsid" {
+			helper.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		}
 		if err := helper.Start(); err != nil {
-			return true, err
+			return "", true, err
 		}
 		_ = os.WriteFile(filepath.Join(a.dir, "helper.pid"), []byte(strconv.Itoa(helper.Process.Pid)), 0o644)
 		os.Exit(0)
 	}
-	return false, nil
+	return "", false, nil
 }

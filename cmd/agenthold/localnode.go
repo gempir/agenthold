@@ -130,7 +130,7 @@ func newDriver(ctx context.Context, cfg *config.Config, name string, fw *egress.
 	switch name {
 	case "fake":
 		logger.Warn("using the fake sandbox driver: terminals run on this machine as the server's user")
-		fakeharness.Command = filepath.Join(filepath.Dir(cfg.Sandbox.SandboxdPath), "fakeagent")
+		fakeharness.SetCommand(filepath.Join(filepath.Dir(cfg.Sandbox.SandboxdPath), "fakeagent"))
 		d := fake.New(cfg.Sandbox.FakeDir)
 		d.RunSandboxd("127.0.0.1", logger)
 		return d, nil

@@ -52,7 +52,7 @@ func TestChatGPTLoginIsTakenOverAndRefreshed(t *testing.T) {
 		valid = "rt-2" // rotation: rt-1 is spent
 		_ = json.NewEncoder(w).Encode(map[string]string{"access_token": jwt(map[string]any{"exp": exp.Unix()}), "refresh_token": "rt-2"})
 	})
-	a := adapter{}
+	a := logins{}
 	authJSON, _ := json.Marshal(map[string]any{"OPENAI_API_KEY": nil, "tokens": map[string]any{
 		"id_token": idToken, "access_token": jwt(map[string]any{"exp": 1}), "refresh_token": "rt-1", "account_id": "acct-1",
 	}, "last_refresh": "2026-01-01T00:00:00Z"})
@@ -131,7 +131,7 @@ func mapValues(m map[string]string) []string {
 }
 
 func TestCodexKeysAndValidation(t *testing.T) {
-	a := adapter{}
+	a := logins{}
 	for _, bad := range []struct{ kind, in string }{
 		{KindAPIKey, "nope"},
 		{KindAPIKey, "sk-a b"},

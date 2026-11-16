@@ -51,13 +51,12 @@ func (p Provider) Prepare(ctx context.Context, agentID string, ts *tunnel.Sessio
 	if !ok {
 		return nil
 	}
-	sd, ok := ad.(harness.SkillsDirer)
-	if !ok {
+	if ad.SkillsDir == "" {
 		return nil
 	}
 	skills, err := p.Store.ListAgentSkills(ctx, agentID)
 	if err != nil {
 		return err
 	}
-	return InstallSkills(ctx, ts, sd.SkillsDir(), skills)
+	return InstallSkills(ctx, ts, ad.SkillsDir, skills)
 }

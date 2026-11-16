@@ -99,7 +99,7 @@ func (a *API) DownloadFile(ctx context.Context, req gen.DownloadFileRequestObjec
 	if !authz.Can(acc.Role, authz.AgentTerminal) {
 		deny = append(deny, "/etc/agenthold")
 		if ad, ok := harness.Get(acc.Row.Agent.Harness); ok {
-			for _, p := range ad.CredentialPaths() {
+			for _, p := range ad.CredentialPaths {
 				deny = append(deny, "~/"+p)
 			}
 		}

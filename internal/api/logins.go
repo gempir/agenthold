@@ -17,13 +17,12 @@ import (
 // there is no way to name another user's.
 
 // loginAdapter returns a harness with account logins that this server offers.
-func (a *API) loginAdapter(provider string) (harness.Adapter, harness.AccountLoginer, bool) {
+func (a *API) loginAdapter(provider string) (*harness.Adapter, harness.AccountLoginer, bool) {
 	ad, ok := harness.Get(provider)
-	if !ok || (isHidden(ad) && !a.ShowTestHarness) {
+	if !ok || ad.Login == nil || (ad.Hidden && !a.ShowTestHarness) {
 		return nil, nil, false
 	}
-	al, ok := ad.(harness.AccountLoginer)
-	return ad, al, ok
+	return ad, ad.Login, true
 }
 
 func apiProviderLogin(l db.ProviderLogin) *gen.ProviderLogin {
@@ -42,8 +41,8 @@ func apiProviderLogin(l db.ProviderLogin) *gen.ProviderLogin {
 	return out
 }
 
-func (a *API) providerLoginInfo(ctx context.Context, userID string, ad harness.Adapter, al harness.AccountLoginer, rows []db.ProviderLogin, agents []db.Agent) (gen.ProviderLoginInfo, error) {
-	info := gen.ProviderLoginInfo{Provider: ad.ID(), Name: ad.Name(), Kinds: []gen.ProviderLoginKind{}, Agents: []gen.LoginAgent{}}
+func (a *API) providerLoginInfo(ctx context.Context, userID string, ad *harness.Adapter, al harness.AccountLoginer, rows []db.ProviderLogin, agents []db.Agent) (gen.ProviderLoginInfo, error) {
+	info := gen.ProviderLoginInfo{Provider: ad.ID, Name: ad.Name, Kinds: []gen.ProviderLoginKind{}, Agents: []gen.LoginAgent{}}
 	for _, k := range al.LoginKinds() {
 		gk := gen.ProviderLoginKind{Id: k.ID, Name: k.Name, Description: k.Description, InputLabel: k.InputLabel, Multiline: k.Multiline}
 		if k.Command != "" {
@@ -52,12 +51,12 @@ func (a *API) providerLoginInfo(ctx context.Context, userID string, ad harness.A
 		info.Kinds = append(info.Kinds, gk)
 	}
 	for _, l := range rows {
-		if l.Provider == ad.ID() {
+		if l.Provider == ad.ID {
 			info.Login = apiProviderLogin(l)
 		}
 	}
 	for _, ag := range agents {
-		if ag.Harness != ad.ID() {
+		if ag.Harness != ad.ID {
 			continue
 		}
 		// Only agents the user can still see (others do not get the login).
@@ -85,11 +84,10 @@ func (a *API) ListProviderLogins(ctx context.Context, _ gen.ListProviderLoginsRe
 	}
 	out := gen.ListProviderLogins200JSONResponse{}
 	for _, ad := range harness.List(a.ShowTestHarness) {
-		al, ok := ad.(harness.AccountLoginer)
-		if !ok {
+		if ad.Login == nil {
 			continue
 		}
-		info, err := a.providerLoginInfo(ctx, u.ID, ad, al, rows, agents)
+		info, err := a.providerLoginInfo(ctx, u.ID, ad, ad.Login, rows, agents)
 		if err != nil {
 			return nil, err
 		}

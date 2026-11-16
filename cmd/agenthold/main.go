@@ -33,6 +33,7 @@ import (
 	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/node/enrollment"
 	"github.com/gempir/agenthold/internal/platform"
+	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/firecracker"
 	"github.com/gempir/agenthold/internal/secrets"
@@ -238,7 +239,16 @@ func run() error {
 		platformCmd = cfg.Sandbox.SandboxdPath
 	}
 	sessions.SetTools(tools.Provider{Store: st, PlatformCommand: platformCmd})
-	platformSvc := &platform.Service{Store: st, Sessions: sessions, Audit: auditLog, Log: logger}
+	previewSvc := &preview.Service{Store: st, Hosts: preview.NewHosts(cfg.Preview.HostSuffix, cfg.PublicURL)}
+	var identity *preview.Signer
+	if previewSvc.Enabled() {
+		identity, err = preview.LoadOrCreateSigner(filepath.Join(cfg.DataDir, "preview", "identity.key"))
+		if err != nil {
+			return fmt.Errorf("preview identity key: %w", err)
+		}
+		logger.Info("preview URLs enabled", "host_suffix", cfg.Preview.HostSuffix)
+	}
+	platformSvc := &platform.Service{Store: st, Sessions: sessions, Audit: auditLog, Log: logger, Preview: previewSvc}
 	go func() {
 		for {
 			info, stream, err := cluster.NextIncoming(ctx)
@@ -270,6 +280,7 @@ func run() error {
 	apiSrv := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Node: cluster, Nodes: cluster, Limits: cfg.Sandbox,
 		Box: box, Egress: directory, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc,
+		Preview: previewSvc, Identity: identity,
 		ShowTestHarness: cfg.TestHarness || driverName == "fake",
 	})
 	sessions.SetWaker(apiSrv.Wake)
@@ -285,7 +296,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           server.New(srvCfg),
+		Handler:           apiSrv.PreviewHandler(server.New(srvCfg)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

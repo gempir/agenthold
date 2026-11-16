@@ -18,6 +18,7 @@ import (
 	"github.com/gempir/agenthold/internal/idle"
 	"github.com/gempir/agenthold/internal/logins"
 	"github.com/gempir/agenthold/internal/node"
+	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/session"
@@ -42,6 +43,10 @@ type Deps struct {
 	Audit    *audit.Log
 	Triggers *trigger.Runner
 	Logins   *logins.Service
+	// Preview serves exposures; it is never nil (disabled without a host suffix).
+	Preview *preview.Service
+	// Identity signs X-Agenthold-Identity tokens; nil when previews are off.
+	Identity *preview.Signer
 	// ShowTestHarness lists the scripted test harness (development).
 	ShowTestHarness bool
 	Limits          config.Sandbox
@@ -52,6 +57,7 @@ type Deps struct {
 type API struct {
 	Deps
 	authz authz.Checker
+	wakes
 }
 
 var _ gen.StrictServerInterface = (*API)(nil)
@@ -67,12 +73,16 @@ func New(d Deps) *API {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &API{Deps: d, authz: authz.Checker{Q: d.Store.Queries}}
+	if d.Preview == nil {
+		d.Preview = &preview.Service{Store: d.Store}
+	}
+	return &API{Deps: d, authz: authz.Checker{Q: d.Store.Queries}, wakes: wakes{pending: map[string]*wakeCall{}}}
 }
 
 // Mount registers all /api/v1 routes on r.
 func (a *API) Mount(r chi.Router) {
 	r.Get("/api/docs", apiDocs)
+	r.Get("/.well-known/agenthold/jwks.json", a.jwks)
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public endpoints that must not interpret Authorization headers.
 		r.Post("/hooks/{token}", a.deliver)
@@ -88,6 +98,7 @@ func (a *API) mountAuthenticated(r chi.Router) {
 		r.Get("/auth/callback/{provider}", a.callback)
 		r.Post("/auth/local", a.localLogin)
 		r.Post("/auth/logout", a.logout)
+		r.Get("/preview/authorize", a.authorizePreview)
 		r.Get("/agents/{agentId}/terminal", a.terminal)
 		r.Get("/sessions/{sessionId}/stream", a.stream)
 

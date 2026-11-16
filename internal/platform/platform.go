@@ -1,6 +1,6 @@
 // Package platform serves the agenthold MCP tools that agents use from inside
-// their sandboxes: list the agents they may talk to, send them messages, and
-// ask them for an answer. An agent may talk to the agents its owner owns or
+// their sandboxes: list the agents they may talk to, send them messages, ask
+// them for an answer, and expose ports of their own machine. An agent may talk to the agents its owner owns or
 // that are shared with its owner. Calls arrive over the caller's tunnel, so the server
 // knows which agent is calling; it never trusts the sandbox for that.
 package platform
@@ -17,6 +17,7 @@ import (
 
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
+	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
@@ -37,6 +38,8 @@ type Service struct {
 	Log      *slog.Logger
 	// AskTimeout bounds ask(). Default 30 minutes.
 	AskTimeout time.Duration
+	// Preview serves exposures; the exposure tools are listed when it is enabled.
+	Preview *preview.Service
 }
 
 // Tools are the platform tools in MCP form.
@@ -72,6 +75,47 @@ var Tools = []map[string]any{
 	},
 }
 
+// exposureTools act on the calling agent's own machine.
+var exposureTools = []map[string]any{
+	{
+		"name": "expose_port",
+		"description": "Serve a TCP port of your machine over HTTPS at a preview URL and return the URL. " +
+			"Start the server first (it may listen on 127.0.0.1). Access \"private\" (default) lets in your owner " +
+			"and the people your machine is shared with, \"authenticated\" anyone signed in to this agenthold. " +
+			"Only your owner can make an exposure public. Signed-in visitors' requests carry X-Agenthold-User, " +
+			"X-Agenthold-Email and a signed X-Agenthold-Identity JWT.",
+		"inputSchema": map[string]any{
+			"type": "object", "required": []string{"port"},
+			"properties": map[string]any{
+				"port":   map[string]any{"type": "integer", "description": "The port your server listens on."},
+				"name":   map[string]any{"type": "string", "description": "Optional host name: lowercase letters, digits and hyphens, up to 40."},
+				"access": map[string]any{"type": "string", "enum": []string{"private", "authenticated"}},
+			},
+		},
+	},
+	{
+		"name":        "list_exposures",
+		"description": "List the ports of your machine that are exposed, with their URLs and access.",
+		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+	},
+	{
+		"name":        "unexpose",
+		"description": "Stop serving a port of your machine at its preview URL.",
+		"inputSchema": map[string]any{
+			"type": "object", "required": []string{"port"},
+			"properties": map[string]any{"port": map[string]any{"type": "integer"}},
+		},
+	},
+}
+
+// tools lists the tools offered to agents.
+func (p *Service) tools() []map[string]any {
+	if !p.Preview.Enabled() {
+		return Tools
+	}
+	return append(append([]map[string]any{}, Tools...), exposureTools...)
+}
+
 // Handle serves one call from the agent behind s.
 func (p *Service) Handle(ctx context.Context, agentID string, st io.ReadWriteCloser, o tunnel.Open) {
 	res, err := p.Call(ctx, agentID, o.Session, o.Tool, o.Args)
@@ -92,15 +136,18 @@ var (
 // Call runs a tool for callerID. sessionID is the caller's session (for linking).
 func (p *Service) Call(ctx context.Context, callerID, sessionID, tool string, args json.RawMessage) (any, error) {
 	if tool == "_list_tools" {
-		return Tools, nil
+		return p.tools(), nil
 	}
 	caller, err := p.Store.GetAgent(ctx, callerID)
 	if err != nil {
 		return nil, err
 	}
 	var in struct {
-		Agent string `json:"agent"`
-		Text  string `json:"text"`
+		Agent  string `json:"agent"`
+		Text   string `json:"text"`
+		Port   int    `json:"port"`
+		Name   string `json:"name"`
+		Access string `json:"access"`
 	}
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &in); err != nil {
@@ -115,6 +162,12 @@ func (p *Service) Call(ctx context.Context, callerID, sessionID, tool string, ar
 			return nil, errors.New("text is required")
 		}
 		return p.message(ctx, caller, sessionID, in.Agent, in.Text, tool == "ask")
+	case "expose_port":
+		return p.expose(ctx, caller, in.Port, in.Name, preview.Access(in.Access))
+	case "list_exposures":
+		return p.listExposures(ctx, caller)
+	case "unexpose":
+		return p.unexpose(ctx, caller, in.Port)
 	}
 	return nil, fmt.Errorf("unknown tool %q", tool)
 }

@@ -19,9 +19,16 @@ UPDATE agent_sessions SET title = $1, updated_at = $2 WHERE id = $3;
 -- name: DeleteAgentSession :exec
 DELETE FROM agent_sessions WHERE id = $1;
 
--- name: ResetRunningSessions :many
--- After a restart no turn is running anymore. Returns the sessions whose turn was cut off.
-UPDATE agent_sessions SET status = 'idle' WHERE status = 'running' RETURNING id;
+-- name: ResetRunningSessions :exec
+-- After a restart no turn is running anymore.
+UPDATE agent_sessions SET status = 'idle' WHERE status = 'running';
+
+-- name: ListUnfinishedSessions :many
+-- Sessions whose last prompt has no turn_end after it: their turn was cut off.
+SELECT p.session_id FROM agent_session_events p
+WHERE p.type = 'prompt'
+  AND p.seq = (SELECT MAX(l.seq) FROM agent_session_events l WHERE l.session_id = p.session_id AND l.type = 'prompt')
+  AND NOT EXISTS (SELECT 1 FROM agent_session_events e WHERE e.session_id = p.session_id AND e.type = 'turn_end' AND e.seq > p.seq);
 
 -- name: InsertSessionEvent :exec
 INSERT INTO agent_session_events (session_id, seq, at, type, user_id, data) VALUES ($1, $2, $3, $4, $5, $6);

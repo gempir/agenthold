@@ -88,6 +88,7 @@ type Querier interface {
 	ListSandboxSubnets(ctx context.Context) ([]ListSandboxSubnetsRow, error)
 	ListSandboxes(ctx context.Context) ([]Sandbox, error)
 	ListSessionEvents(ctx context.Context, arg ListSessionEventsParams) ([]AgentSessionEvent, error)
+	ListUnfinishedSessions(ctx context.Context) ([]string, error)
 	ListUserAgents(ctx context.Context, userID string) ([]ListUserAgentsRow, error)
 	ListUserAudit(ctx context.Context, userID string) ([]AuditLog, error)
 	ListUserMCPServers(ctx context.Context, ownerID string) ([]McpServer, error)
@@ -101,7 +102,7 @@ type Querier interface {
 	RecordWebhookDelivery(ctx context.Context, arg RecordWebhookDeliveryParams) error
 	RenameSession(ctx context.Context, arg RenameSessionParams) error
 	ReplaceProviderLogin(ctx context.Context, arg ReplaceProviderLoginParams) error
-	ResetRunningSessions(ctx context.Context) ([]string, error)
+	ResetRunningSessions(ctx context.Context) error
 	SetAgentHarness(ctx context.Context, arg SetAgentHarnessParams) error
 	SetAgentLoginUser(ctx context.Context, arg SetAgentLoginUserParams) error
 	SetBootToken(ctx context.Context, arg SetBootTokenParams) error

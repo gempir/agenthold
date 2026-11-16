@@ -95,6 +95,8 @@ type Querier interface {
 	ListSandboxSubnets(ctx context.Context) ([]ListSandboxSubnetsRow, error)
 	ListSandboxes(ctx context.Context) ([]Sandbox, error)
 	ListSessionEvents(ctx context.Context, arg ListSessionEventsParams) ([]AgentSessionEvent, error)
+	// Sessions whose last prompt has no turn_end after it: their turn was cut off.
+	ListUnfinishedSessions(ctx context.Context) ([]string, error)
 	// Agents the user owns or that are shared with them.
 	ListUserAgents(ctx context.Context, userID string) ([]ListUserAgentsRow, error)
 	ListUserAudit(ctx context.Context, userID string) ([]AuditLog, error)
@@ -112,8 +114,8 @@ type Querier interface {
 	RenameSession(ctx context.Context, arg RenameSessionParams) error
 	// Reconnect: new credential, same id and seed.
 	ReplaceProviderLogin(ctx context.Context, arg ReplaceProviderLoginParams) error
-	// After a restart no turn is running anymore. Returns the sessions whose turn was cut off.
-	ResetRunningSessions(ctx context.Context) ([]string, error)
+	// After a restart no turn is running anymore.
+	ResetRunningSessions(ctx context.Context) error
 	SetAgentHarness(ctx context.Context, arg SetAgentHarnessParams) error
 	SetAgentLoginUser(ctx context.Context, arg SetAgentLoginUserParams) error
 	SetBootToken(ctx context.Context, arg SetBootTokenParams) error

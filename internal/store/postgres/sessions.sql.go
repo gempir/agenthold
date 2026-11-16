@@ -212,6 +212,37 @@ func (q *Queries) ListSessionEvents(ctx context.Context, arg ListSessionEventsPa
 	return items, nil
 }
 
+const listUnfinishedSessions = `-- name: ListUnfinishedSessions :many
+SELECT p.session_id FROM agent_session_events p
+WHERE p.type = 'prompt'
+  AND p.seq = (SELECT MAX(l.seq) FROM agent_session_events l WHERE l.session_id = p.session_id AND l.type = 'prompt')
+  AND NOT EXISTS (SELECT 1 FROM agent_session_events e WHERE e.session_id = p.session_id AND e.type = 'turn_end' AND e.seq > p.seq)
+`
+
+// Sessions whose last prompt has no turn_end after it: their turn was cut off.
+func (q *Queries) ListUnfinishedSessions(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listUnfinishedSessions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var session_id string
+		if err := rows.Scan(&session_id); err != nil {
+			return nil, err
+		}
+		items = append(items, session_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markCredentialsInSandbox = `-- name: MarkCredentialsInSandbox :exec
 UPDATE agents SET credentials_in_sandbox = 1 WHERE id = $1
 `
@@ -247,32 +278,14 @@ func (q *Queries) RenameSession(ctx context.Context, arg RenameSessionParams) er
 	return err
 }
 
-const resetRunningSessions = `-- name: ResetRunningSessions :many
-UPDATE agent_sessions SET status = 'idle' WHERE status = 'running' RETURNING id
+const resetRunningSessions = `-- name: ResetRunningSessions :exec
+UPDATE agent_sessions SET status = 'idle' WHERE status = 'running'
 `
 
-// After a restart no turn is running anymore. Returns the sessions whose turn was cut off.
-func (q *Queries) ResetRunningSessions(ctx context.Context) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, resetRunningSessions)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+// After a restart no turn is running anymore.
+func (q *Queries) ResetRunningSessions(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, resetRunningSessions)
+	return err
 }
 
 const setAgentHarness = `-- name: SetAgentHarness :exec

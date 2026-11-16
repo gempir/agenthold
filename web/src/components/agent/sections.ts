@@ -2,6 +2,7 @@ import {
   Activity,
   Cpu,
   FolderOpen,
+  Globe,
   KeyRound,
   Plug,
   Settings2,
@@ -16,6 +17,7 @@ export type AgentSection =
   | 'harness'
   | 'files'
   | 'terminal'
+  | 'preview'
   | 'secrets'
   | 'tools'
   | 'triggers'
@@ -62,6 +64,13 @@ export const AGENT_SECTIONS: {
     hint: 'A shell in the sandbox',
     icon: SquareTerminal,
     show: (a) => a.canUse,
+  },
+  {
+    id: 'preview',
+    label: 'Preview',
+    hint: 'Ports of the machine at preview URLs',
+    icon: Globe,
+    show: () => true,
   },
   {
     id: 'secrets',

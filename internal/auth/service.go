@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -20,8 +21,15 @@ import (
 	"github.com/gempir/agenthold/internal/store/db"
 )
 
-// CookieName is the session cookie.
-const CookieName = "agenthold_session"
+// Session cookie names. Over https the cookie carries the __Host- prefix:
+// browsers only accept such a cookie from the main host itself, Secure,
+// with Path=/ and without Domain, so no other host (an exposure on the same
+// parent domain) can plant one that shadows the real session. The plain name
+// is used, and read, only over http (development).
+const (
+	CookieName       = "agenthold_session"
+	SecureCookieName = "__Host-agenthold_session"
+)
 
 const loginStateTTL = 10 * time.Minute
 
@@ -40,6 +48,7 @@ type Service struct {
 	order      []string
 	sessionTTL time.Duration
 	secure     bool
+	host       string // the main host, for clearing planted cookies
 	now        func() time.Time
 	local      *localAdmin
 	admins     config.Auth
@@ -53,6 +62,7 @@ func NewService(st *store.Store, cfg *config.Config) (*Service, error) {
 		sessionTTL: cfg.Auth.SessionTTL,
 		admins:     cfg.Auth,
 		secure:     strings.HasPrefix(cfg.PublicURL, "https://"),
+		host:       hostOf(cfg.PublicURL),
 		now:        time.Now,
 	}
 	for _, pc := range cfg.Auth.Providers {
@@ -259,10 +269,18 @@ func (s *Service) EndSession(ctx context.Context, token string) error {
 	return s.store.DeleteSession(ctx, HashToken(token))
 }
 
+// SessionCookieName is the name of the session cookie on this server.
+func (s *Service) SessionCookieName() string {
+	if s.secure {
+		return SecureCookieName
+	}
+	return CookieName
+}
+
 // SessionCookie builds the cookie for a token; an empty token clears it.
 func (s *Service) SessionCookie(token string) *http.Cookie {
 	c := &http.Cookie{
-		Name: CookieName, Value: token, Path: "/", HttpOnly: true,
+		Name: s.SessionCookieName(), Value: token, Path: "/", HttpOnly: true,
 		Secure: s.secure, SameSite: http.SameSiteLaxMode,
 	}
 	if token == "" {
@@ -296,4 +314,42 @@ func b2i(b bool) int64 {
 		return 1
 	}
 	return 0
+}
+
+func hostOf(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
+}
+
+// clearPlanted returns cookies that delete every session cookie a request
+// may carry: the host-only one and, over http, ones another host planted
+// with a Domain attribute of a parent domain and a Path prefix of this
+// request's path.
+func (s *Service) clearPlanted(path string) []*http.Cookie {
+	paths := []string{"/"}
+	p := ""
+	for seg := range strings.SplitSeq(strings.Trim(path, "/"), "/") {
+		if seg == "" {
+			continue
+		}
+		p += "/" + seg
+		paths = append(paths, p)
+	}
+	domains := []string{""}
+	if !s.secure && s.host != "" && net.ParseIP(s.host) == nil {
+		labels := strings.Split(s.host, ".")
+		for i := 0; i < len(labels)-1; i++ {
+			domains = append(domains, strings.Join(labels[i:], "."))
+		}
+	}
+	var out []*http.Cookie
+	for _, d := range domains {
+		for _, p := range paths {
+			out = append(out, &http.Cookie{Name: s.SessionCookieName(), Value: "", Path: p, Domain: d, MaxAge: -1, HttpOnly: true, Secure: s.secure})
+		}
+	}
+	return out
 }

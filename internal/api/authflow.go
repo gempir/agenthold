@@ -100,8 +100,11 @@ func loginFailed(w http.ResponseWriter, r *http.Request, msg string) {
 }
 
 func (a *API) logout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(auth.CookieName); err == nil && c.Value != "" {
+	if c, err := r.Cookie(a.Auth.SessionCookieName()); err == nil && c.Value != "" {
 		_ = a.Auth.EndSession(r.Context(), c.Value)
+	}
+	if u := auth.UserFrom(r.Context()); u != nil {
+		_ = a.Preview.EndUserSessions(r.Context(), u.ID)
 	}
 	http.SetCookie(w, a.Auth.SessionCookie(""))
 	w.WriteHeader(http.StatusNoContent)

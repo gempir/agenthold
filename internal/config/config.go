@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+	"golang.org/x/net/publicsuffix"
 
 	"github.com/gempir/agenthold/internal/password"
 )
@@ -42,6 +43,99 @@ type Config struct {
 	Nodes Nodes `yaml:"nodes"`
 	// Node configures `agenthold node` (an edge node).
 	Node Node `yaml:"node"`
+	// Preview configures preview URLs for ports exposed by machines.
+	Preview Preview `yaml:"preview"`
+}
+
+// Preview configures exposure (preview URLs).
+type Preview struct {
+	// HostSuffix turns preview URLs on: an exposure named "web" is served at
+	// "web" + HostSuffix. It starts with "." (".apps.example.com": one
+	// wildcard subdomain level) or "-" ("-demo.example.com": names share the
+	// first label, so a one-level wildcard certificate of the parent domain
+	// covers them). Empty turns the feature off.
+	HostSuffix string `yaml:"host_suffix"`
+}
+
+// MaxExposureName is the longest exposure name (one DNS label part).
+const MaxExposureName = 40
+
+// ValidateHostSuffix checks preview.host_suffix against the main host.
+func ValidateHostSuffix(suffix, mainHost string) error {
+	if suffix == "" {
+		return nil
+	}
+	if suffix != strings.ToLower(suffix) {
+		return errors.New("must be lowercase")
+	}
+	if suffix[0] != '.' && suffix[0] != '-' {
+		return errors.New(`must start with "." or "-"`)
+	}
+	rest := suffix[1:]
+	if suffix[0] == '-' && !strings.Contains(rest, ".") {
+		return errors.New(`a "-" suffix needs a domain after the dash, like "-demo.example.com"`)
+	}
+	labels := strings.Split(rest, ".")
+	for _, l := range labels {
+		if !validLabel(l) {
+			return fmt.Errorf("%q is not a valid hostname label", l)
+		}
+	}
+	if suffix[0] == '-' && MaxExposureName+1+len(labels[0]) > 63 {
+		return fmt.Errorf("the first label %q is too long: names plus it must fit in 63 characters", labels[0])
+	}
+	if len(rest) > 200 {
+		return errors.New("too long")
+	}
+	// The domain exposure hosts live under must be one you control: with a
+	// public suffix ("-x.dev", ".co.uk") there is no wildcard to point at.
+	parent := rest
+	if suffix[0] == '-' {
+		_, parent, _ = strings.Cut(rest, ".")
+	}
+	// (Unlisted single-label names such as "localhost" are allowed for development.)
+	if ps, icann := publicsuffix.PublicSuffix(parent); ps == parent && (icann || strings.Contains(parent, ".")) {
+		return fmt.Errorf("exposure hosts would sit directly under the public suffix %q; use a domain you own", parent)
+	}
+	h := strings.ToLower(mainHost)
+	if h != "" && strings.HasSuffix(h, suffix) {
+		return fmt.Errorf("the main host %q must not end with it", mainHost)
+	}
+	// Exposures below the main host ("web.agents.example.com" for main host
+	// "agents.example.com") could set cookies with Domain=<main host>, which
+	// browsers send to the main host. Keep them beside it instead. (A main
+	// host that is itself a public suffix, such as "localhost", cannot be a
+	// cookie domain.)
+	if ps, _ := publicsuffix.PublicSuffix(h); h != "" && ps != h && suffix[0] == '.' && (rest == h || strings.HasSuffix(rest, "."+h)) {
+		return fmt.Errorf("exposure hosts must not be subdomains of the main host %q", mainHost)
+	}
+	return nil
+}
+
+// PreviewSameSite reports whether exposure hosts share a registrable domain
+// (a "site") with the main host. Then they are isolated from it only by the
+// host-only cookies and checks agenthold makes, not by the browser's
+// same-site rules.
+func PreviewSameSite(suffix, mainHost string) bool {
+	if suffix == "" || mainHost == "" || net.ParseIP(mainHost) != nil {
+		return false
+	}
+	a, err1 := publicsuffix.EffectiveTLDPlusOne(strings.ToLower(mainHost))
+	b, err2 := publicsuffix.EffectiveTLDPlusOne("x" + suffix)
+	return err1 == nil && err2 == nil && a == b
+}
+
+// validLabel checks a DNS label (RFC 1123).
+func validLabel(l string) bool {
+	if l == "" || len(l) > 63 || l[0] == '-' || l[len(l)-1] == '-' {
+		return false
+	}
+	for _, c := range l {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 // Nodes configures the controller's listener for edge nodes.
@@ -261,6 +355,7 @@ func applyEnv(cfg *Config) {
 	set(&cfg.DataDir, "AGENTHOLD_DATA_DIR")
 	set(&cfg.Database.URL, "AGENTHOLD_DATABASE_URL")
 	set(&cfg.DevProxy, "AGENTHOLD_DEV_PROXY")
+	set(&cfg.Preview.HostSuffix, "AGENTHOLD_PREVIEW_HOST_SUFFIX")
 	set(&cfg.Sandbox.Firecracker.BaseURL, "AGENTHOLD_FIRECRACKER_BASE_URL")
 	if cfg.DevProxy == "off" { // serve the embedded build even if the file sets a dev proxy
 		cfg.DevProxy = ""
@@ -425,8 +520,10 @@ func (c *Config) Validate() error {
 			errs = append(errs, errors.New("database.url: scheme must be sqlite, postgres, or postgresql"))
 		}
 	}
-	if _, err := url.Parse(c.PublicURL); err != nil {
+	if u, err := url.Parse(c.PublicURL); err != nil {
 		errs = append(errs, fmt.Errorf("public_url: %w", err))
+	} else if err := ValidateHostSuffix(c.Preview.HostSuffix, u.Hostname()); err != nil {
+		errs = append(errs, fmt.Errorf("preview.host_suffix: %w", err))
 	}
 	switch c.Sandbox.Driver {
 	case "auto", "firecracker", "none", "fake":

@@ -57,6 +57,8 @@ const (
 	AgentDelete     Action = "agent.delete"      // destroy
 	AgentAuthLogin  Action = "agent.auth.login"  // harness login inside the sandbox
 	AgentReadAudit  Action = "agent.audit.read"
+	AgentPreview    Action = "agent.preview" // open its private exposures (preview URLs)
+	AgentExpose     Action = "agent.expose"  // expose ports, change and remove exposures
 )
 
 // sharedActions are what a shared user may do. The owner may do everything.
@@ -67,6 +69,7 @@ var sharedActions = map[Action]bool{
 	AgentFilesWrite: true,
 	AgentLifecycle:  true,
 	AgentDelegateTo: true,
+	AgentPreview:    true,
 }
 
 var ownerActions = map[Action]bool{
@@ -78,6 +81,7 @@ var ownerActions = map[Action]bool{
 	AgentDelete:    true,
 	AgentAuthLogin: true,
 	AgentReadAudit: true,
+	AgentExpose:    true,
 }
 
 // Errors returned by checks. Handlers map ErrNotFound to 404 and ErrForbidden to 403.

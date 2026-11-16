@@ -25,6 +25,8 @@ tags:
     description: MCP servers and skills.
   - name: secrets
   - name: egress
+  - name: exposure
+    description: Preview URLs for ports of a machine.
   - name: streams
     description: WebSocket endpoints. Not generated as JSON handlers.
   - name: meta
@@ -864,6 +866,125 @@ paths:
                 items: { $ref: "#/components/schemas/AuditEntry" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/exposures:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listExposures
+      tags: [exposure]
+      description: |
+        The machine's exposed ports (owner or shared user). `enabled` is false
+        when the server has no `preview.host_suffix`; the list is then empty.
+      responses:
+        "200":
+          description: Exposures.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExposureList" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createExposure
+      tags: [exposure]
+      description: |
+        Expose a TCP port of the machine over HTTP at
+        `<name><preview.host_suffix>` (owner only). The name defaults to
+        `<agent-name>-<port>`. A port can be exposed once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExposureInput" }
+      responses:
+        "201":
+          description: Exposed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Exposure" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/exposures/{exposureId}:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+      - { name: exposureId, in: path, required: true, schema: { type: string } }
+    patch:
+      operationId: updateExposure
+      tags: [exposure]
+      description: Rename an exposure or change who may open it (owner only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExposurePatch" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Exposure" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteExposure
+      tags: [exposure]
+      description: Stop exposing the port (owner only).
+      responses:
+        "204": { description: Removed. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /preview/authorize:
+    get:
+      operationId: authorizePreview
+      tags: [auth-flow]
+      description: |
+        Exposure hosts send browsers here when they have no preview cookie.
+        Only top-level navigations are served (`Sec-Fetch-Dest: document`,
+        `Sec-Fetch-Mode: navigate` when the browser sends them). Requires a
+        signed-in user (otherwise redirects to the login page and back),
+        checks access to the exposure, asks for consent when the exposure is
+        `authenticated` and the user has no access to the machine, and
+        redirects to `<exposure host>/_agenthold/callback` with a single-use
+        code bound to the exposure and to `state`.
+      parameters:
+        - { name: host, in: query, required: true, schema: { type: string } }
+        - name: return
+          in: query
+          description: Path on the exposure host to return to. Defaults to "/".
+          schema: { type: string }
+        - name: state
+          in: query
+          required: true
+          description: Hash of the exposure host's state cookie; binds the code to the browser.
+          schema: { type: string }
+      responses:
+        "200": { description: "Consent page: an authenticated exposure of a machine you have no access to asks to see your identity." }
+        "302": { description: Redirect to the exposure host or the login page. }
+        "403": { description: No access to this exposure (HTML page). }
+        "404": { description: No such exposure (HTML page). }
+    post:
+      operationId: confirmPreview
+      tags: [auth-flow]
+      description: The consent page's form. Records consent and continues like the GET.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [host]
+              properties:
+                host: { type: string }
+                return: { type: string }
+                state: { type: string }
+      responses:
+        "302": { description: Redirect to the exposure host. }
+        "403": { description: Refused (HTML page). }
 
   /agents/{agentId}/mcp-servers:
     parameters:
@@ -1822,6 +1943,64 @@ components:
         details:
           type: object
           additionalProperties: true
+
+    ExposureAccess:
+      type: string
+      description: |
+        Who may open an exposure: `private` (the owner and users the machine
+        is shared with), `authenticated` (anyone signed in to this agenthold)
+        or `public` (anyone).
+      enum: [private, authenticated, public]
+
+    Exposure:
+      type: object
+      required: [id, agentId, port, name, access, wakeOnRequest, url, createdBy, createdAt]
+      properties:
+        id: { type: string }
+        agentId: { type: string }
+        port: { type: integer, minimum: 1, maximum: 65535 }
+        name: { type: string }
+        access: { $ref: "#/components/schemas/ExposureAccess" }
+        wakeOnRequest:
+          type: boolean
+          description: |
+            Whether visitors who are neither the owner nor a shared user wake a
+            sleeping machine (and keep it awake). Owner and shared users always do.
+        url: { type: string, description: The full URL of the exposure. }
+        createdBy:
+          type: string
+          description: The id of the user who created it, or `agent:<id>` for the agent itself.
+        createdAt: { type: string, format: date-time }
+
+    ExposureList:
+      type: object
+      required: [enabled, hostSuffix, exposures]
+      properties:
+        enabled: { type: boolean, description: Whether the server has preview URLs configured. }
+        hostSuffix: { type: string }
+        exposures:
+          type: array
+          items: { $ref: "#/components/schemas/Exposure" }
+
+    ExposureInput:
+      type: object
+      required: [port]
+      properties:
+        port: { type: integer }
+        name:
+          type: string
+          description: |
+            Lowercase letters, digits and hyphens, 1 to 40 characters. Some names
+            (www, api, admin, ...) and names starting with xn-- are reserved.
+        access: { $ref: "#/components/schemas/ExposureAccess" }
+        wakeOnRequest: { type: boolean }
+
+    ExposurePatch:
+      type: object
+      properties:
+        name: { type: string }
+        access: { $ref: "#/components/schemas/ExposureAccess" }
+        wakeOnRequest: { type: boolean }
 
     MCPServerInput:
       type: object

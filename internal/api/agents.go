@@ -359,6 +359,10 @@ func (a *API) DeleteAgent(ctx context.Context, req gen.DeleteAgentRequestObject)
 	if err := a.Sandboxes.Destroy(ctx, req.AgentId); err != nil {
 		return nil, err
 	}
+	// Its preview URLs stop now; their names stay reserved for the owner.
+	if err := a.Preview.DeleteAgent(ctx, acc.Row.Agent); err != nil {
+		return nil, err
+	}
 	a.record(ctx, acc.Row.Agent, audit.AgentDelete, acc.Row.Agent.Name, nil)
 	return gen.DeleteAgent202Response{}, nil
 }

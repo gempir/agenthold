@@ -135,3 +135,19 @@ export const providerLoginsQuery = queryOptions({
   queryFn: () => unwrap(api.GET('/me/provider-logins')),
   retry: false,
 });
+
+export type Exposure = components['schemas']['Exposure'];
+export type ExposureAccess = components['schemas']['ExposureAccess'];
+
+/** Ports of the machine served at preview URLs. */
+export const exposuresQuery = (agentId: string) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'exposures'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/exposures', {
+          params: { path: { agentId } },
+        }),
+      ),
+    retry: false,
+  });

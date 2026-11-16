@@ -736,6 +736,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agentId}/exposures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description The machine's exposed ports (owner or shared user). `enabled` is false
+         *     when the server has no `preview.host_suffix`; the list is then empty.
+         */
+        get: operations["listExposures"];
+        put?: never;
+        /**
+         * @description Expose a TCP port of the machine over HTTP at
+         *     `<name><preview.host_suffix>` (owner only). The name defaults to
+         *     `<agent-name>-<port>`. A port can be exposed once.
+         */
+        post: operations["createExposure"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/exposures/{exposureId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+                exposureId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Stop exposing the port (owner only). */
+        delete: operations["deleteExposure"];
+        options?: never;
+        head?: never;
+        /** @description Rename an exposure or change who may open it (owner only). */
+        patch: operations["updateExposure"];
+        trace?: never;
+    };
+    "/preview/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Exposure hosts send browsers here when they have no preview cookie.
+         *     Only top-level navigations are served (`Sec-Fetch-Dest: document`,
+         *     `Sec-Fetch-Mode: navigate` when the browser sends them). Requires a
+         *     signed-in user (otherwise redirects to the login page and back),
+         *     checks access to the exposure, asks for consent when the exposure is
+         *     `authenticated` and the user has no access to the machine, and
+         *     redirects to `<exposure host>/_agenthold/callback` with a single-use
+         *     code bound to the exposure and to `state`.
+         */
+        get: operations["authorizePreview"];
+        put?: never;
+        /** @description The consent page's form. Records consent and continues like the GET. */
+        post: operations["confirmPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agentId}/mcp-servers": {
         parameters: {
             query?: never;
@@ -1488,6 +1563,52 @@ export interface components {
             details: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * @description Who may open an exposure: `private` (the owner and users the machine
+         *     is shared with), `authenticated` (anyone signed in to this agenthold)
+         *     or `public` (anyone).
+         * @enum {string}
+         */
+        ExposureAccess: "private" | "authenticated" | "public";
+        Exposure: {
+            id: string;
+            agentId: string;
+            port: number;
+            name: string;
+            access: components["schemas"]["ExposureAccess"];
+            /**
+             * @description Whether visitors who are neither the owner nor a shared user wake a
+             *     sleeping machine (and keep it awake). Owner and shared users always do.
+             */
+            wakeOnRequest: boolean;
+            /** @description The full URL of the exposure. */
+            url: string;
+            /** @description The id of the user who created it, or `agent:<id>` for the agent itself. */
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ExposureList: {
+            /** @description Whether the server has preview URLs configured. */
+            enabled: boolean;
+            hostSuffix: string;
+            exposures: components["schemas"]["Exposure"][];
+        };
+        ExposureInput: {
+            port: number;
+            /**
+             * @description Lowercase letters, digits and hyphens, 1 to 40 characters. Some names
+             *     (www, api, admin, ...) and names starting with xn-- are reserved.
+             */
+            name?: string;
+            access?: components["schemas"]["ExposureAccess"];
+            wakeOnRequest?: boolean;
+        };
+        ExposurePatch: {
+            name?: string;
+            access?: components["schemas"]["ExposureAccess"];
+            wakeOnRequest?: boolean;
         };
         MCPServerInput: {
             /** @description Letters, digits, dashes and underscores. */
@@ -2898,6 +3019,191 @@ export interface operations {
             };
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+        };
+    };
+    listExposures: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Exposures. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExposureList"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createExposure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExposureInput"];
+            };
+        };
+        responses: {
+            /** @description Exposed. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Exposure"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    deleteExposure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+                exposureId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    updateExposure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+                exposureId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExposurePatch"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Exposure"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    authorizePreview: {
+        parameters: {
+            query: {
+                host: string;
+                /** @description Path on the exposure host to return to. Defaults to "/". */
+                return?: string;
+                /** @description Hash of the exposure host's state cookie; binds the code to the browser. */
+                state: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Consent page: an authenticated exposure of a machine you have no access to asks to see your identity. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Redirect to the exposure host or the login page. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No access to this exposure (HTML page). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such exposure (HTML page). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirmPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    host: string;
+                    return?: string;
+                    state?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Redirect to the exposure host. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Refused (HTML page). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     listAgentMCPServers: {

@@ -169,6 +169,72 @@ func TestDatabaseConfiguration(t *testing.T) {
 	}
 }
 
+func TestValidateHostSuffix(t *testing.T) {
+	for _, tc := range []struct {
+		suffix, main string
+		ok           bool
+	}{
+		{"", "agents.example.com", true},
+		{".apps.example.com", "agents.example.com", true},
+		{"-demo.agenthold.dev", "demo.agenthold.dev", true},
+		{".localhost", "localhost", true},
+		{"apps.example.com", "x", false},              // no leading . or -
+		{".Apps.example.com", "x", false},             // uppercase
+		{"-example", "x", false},                      // "-" needs a domain
+		{".apps..example.com", "x", false},            // empty label
+		{".apps.example.com.", "x", false},            // trailing dot
+		{".-apps.example.com", "x", false},            // label starts with -
+		{".apps_x.example.com", "x", false},           // underscore
+		{".example.com", "agents.example.com", false}, // main host would match
+		{"-demo.agenthold.dev", "x-demo.agenthold.dev", false},
+		{"-" + strings.Repeat("a", 23) + ".example.dev", "x", false}, // label too long for 40-char names
+		{"-" + strings.Repeat("a", 22) + ".example.dev", "x", true},
+		{".dev", "x", false}, // a public suffix
+		{".co.uk", "x", false},
+		{"-x.dev", "x", false}, // web-x.dev is its own registrable domain
+		{".github.io", "x", false},
+		{".demo.agenthold.dev", "demo.agenthold.dev", false}, // below the main host
+		{".apps.agents.example.com", "agents.example.com", false},
+		{".agents-apps.example.com", "agents.example.com", true},
+	} {
+		err := ValidateHostSuffix(tc.suffix, tc.main)
+		if (err == nil) != tc.ok {
+			t.Errorf("ValidateHostSuffix(%q, %q) = %v, want ok=%v", tc.suffix, tc.main, err, tc.ok)
+		}
+	}
+}
+
+func TestPreviewSuffixFromEnv(t *testing.T) {
+	t.Setenv("AGENTHOLD_CONFIG", "")
+	t.Setenv("AGENTHOLD_PUBLIC_URL", "https://agents.example.com")
+	t.Setenv("AGENTHOLD_PREVIEW_HOST_SUFFIX", ".example.com")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "preview.host_suffix") {
+		t.Fatalf("err = %v", err)
+	}
+	t.Setenv("AGENTHOLD_PREVIEW_HOST_SUFFIX", ".apps.example.com")
+	cfg, err := Load()
+	if err != nil || cfg.Preview.HostSuffix != ".apps.example.com" {
+		t.Fatalf("cfg = %+v, err %v", cfg.Preview, err)
+	}
+}
+
+func TestPreviewSameSite(t *testing.T) {
+	for _, tc := range []struct {
+		suffix, main string
+		want         bool
+	}{
+		{"-demo.agenthold.dev", "demo.agenthold.dev", true},
+		{".apps.example.com", "agents.example.com", true},
+		{".example-apps.net", "agents.example.com", false},
+		{".apps.test", "127.0.0.1", false},
+		{"", "agents.example.com", false},
+	} {
+		if got := PreviewSameSite(tc.suffix, tc.main); got != tc.want {
+			t.Errorf("PreviewSameSite(%q, %q) = %v", tc.suffix, tc.main, got)
+		}
+	}
+}
+
 func TestBaseURL(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "c.yaml")

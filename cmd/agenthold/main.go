@@ -228,7 +228,11 @@ func run() error {
 			Handle: func(ctx context.Context, p enrollment.Peer, conn net.Conn) { cluster.Serve(ctx, p.ID, conn) },
 		}
 		if release != nil {
-			nodeSrv.DownloadURL = cfg.PublicURL + "/dl/"
+			if root, why := dl.AdvertisedURL(cfg.PublicURL); root != "" {
+				nodeSrv.DownloadURL = root
+			} else {
+				logger.Warn("not telling edge nodes where to download their base image from: "+why, "public_url", cfg.PublicURL)
+			}
 		}
 		go func() {
 			if err := nodeSrv.Serve(ctx, ln); err != nil && ctx.Err() == nil {

@@ -75,6 +75,12 @@ type Controller struct {
 	DownloadURL string
 	// Version is the agenthold version the controller runs.
 	Version string
+	// Live says both values were just reported by the controller; otherwise they were read from
+	// the node's state file and may be stale.
+	Live bool
+	// Refresh, if set, asks the controller again. It is called only when a download is needed, so
+	// a node that already has its base never needs the controller at start.
+	Refresh func(context.Context) (Controller, error)
 }
 
 // Prepare extracts the bundled runtime into dataDir/runtime/<release>/ and verifies the base at
@@ -155,6 +161,7 @@ func prepare(ctx context.Context, dataDir string, assets fs.FS, client *http.Cli
 			return paths, err
 		}
 	}
+	sweepBase(baseDir, m.Base.SHA256)
 	base := filepath.Join(baseDir, m.Base.SHA256+".ext4")
 	ok, err := verifyFile(ctx, base, m.Base.artifact)
 	if err != nil {
@@ -162,7 +169,7 @@ func prepare(ctx context.Context, dataDir string, assets fs.FS, client *http.Cli
 	}
 	if !ok {
 		d := newDownloader(client, opts.Log)
-		if err := d.fetchBase(ctx, base, func() ([]string, error) { return opts.candidates(m) }, m.Base); err != nil {
+		if err := d.fetchBase(ctx, base, func() ([]string, error) { return opts.candidates(ctx, m) }, m.Base); err != nil {
 			return paths, fmt.Errorf("prepare base image: %w", err)
 		}
 	} else if err := os.Chmod(base, 0o644); err != nil {

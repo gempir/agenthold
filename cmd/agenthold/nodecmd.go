@@ -78,6 +78,7 @@ func runNode(args []string) error {
 		}
 	}
 	var conn net.Conn
+	var controller runtimeassets.Controller
 	if state == nil {
 		conn, state, err = enrollment.Join(ctx, cfg.Node.StateFile, token, cfg.Node.Name)
 		if err != nil {
@@ -87,14 +88,23 @@ func runNode(args []string) error {
 			return fmt.Errorf("join %s: %w", token.Endpoint, err)
 		}
 		logger.Info("joined controller", "node", state.NodeID, "name", state.Name, "controller", state.Endpoint)
-		// Fetching the base image can take long: do not hold an idle connection meanwhile.
+		// Fetching the base image can take long: do not hold an idle connection meanwhile. The
+		// controller sees a node that connects and goes away before it answered its setup call;
+		// that changes no node state (cluster.Serve returns before registering it).
 		_ = conn.Close()
 		conn = nil
+		controller = runtimeassets.Controller{DownloadURL: state.DownloadURL, Version: state.ControllerVersion, Live: true}
 	} else {
-		refreshController(ctx, cfg.Node.StateFile, state, logger)
+		// What the state file says may be stale (the controller was upgraded since). It is only
+		// worth asking again when the base image has to be fetched, which Prepare decides.
+		controller = runtimeassets.Controller{
+			DownloadURL: state.DownloadURL, Version: state.ControllerVersion,
+			Refresh: func(ctx context.Context) (runtimeassets.Controller, error) {
+				return askController(ctx, cfg.Node.StateFile, state, logger)
+			},
+		}
 	}
-	host, err := startLocalHost(ctx, cfg, driverName,
-		runtimeassets.Controller{DownloadURL: state.DownloadURL, Version: state.ControllerVersion}, logger)
+	host, err := startLocalHost(ctx, cfg, driverName, controller, logger)
 	if err != nil {
 		return err
 	}
@@ -142,23 +152,19 @@ func runNode(args []string) error {
 	}
 }
 
-// refreshController asks the controller which release it runs and where it serves downloads from,
-// so an upgraded node fetches the base image of its new release from the right place. Best effort:
-// the controller may be down, and a node that already has its base image does not need it.
-func refreshController(ctx context.Context, path string, state *enrollment.State, logger *slog.Logger) {
-	if rel, err := runtimeassets.Embedded(); err != nil || rel == nil {
-		return
-	}
+// askController asks the controller which release it runs and where it serves downloads from,
+// with a connection that is closed right away (see the note at the join). It saves what it learned.
+func askController(ctx context.Context, path string, state *enrollment.State, logger *slog.Logger) (runtimeassets.Controller, error) {
 	before := *state
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	conn, err := enrollment.Connect(ctx, state)
 	if err != nil {
-		logger.Info("could not ask the controller where it serves downloads from; using what was learned before", "err", err)
-		return
+		return runtimeassets.Controller{}, err
 	}
 	_ = conn.Close()
 	saveController(path, state, before, logger)
+	return runtimeassets.Controller{DownloadURL: state.DownloadURL, Version: state.ControllerVersion, Live: true}, nil
 }
 
 // saveController persists what the controller said about itself when it changed.

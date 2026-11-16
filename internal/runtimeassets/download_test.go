@@ -514,8 +514,38 @@ func TestBaseSourceResolution(t *testing.T) {
 			opts: Options{BaseURL: "https://demo.example/dl/"}, want: []string{"https://demo.example/dl/v1.2.3/custom.zst"},
 		},
 		{
-			name: "version skew without fallback", opts: Options{Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v2.0.0"}},
+			name: "version skew without fallback", opts: Options{Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v2.0.0", Live: true}},
 			wantErr: "runs agenthold v1.2.3 but its controller runs v2.0.0",
+		},
+		{
+			name: "persisted version is only last seen", opts: Options{Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v2.0.0"}},
+			wantErr: "its controller was last seen running v2.0.0",
+		},
+		{
+			name: "unusable controller url falls through to embedded", embed: "https://github.example/base.zst",
+			opts: Options{Controller: Controller{DownloadURL: "ftp://ctl.example/dl/", Version: "v1.2.3"}, Log: slog.New(slog.DiscardHandler)},
+			want: []string{"https://github.example/base.zst"},
+		},
+		{
+			name: "unusable controller url without fallback", opts: Options{Controller: Controller{DownloadURL: "ctl.example/dl/", Version: "v1.2.3"}},
+			wantErr: "download URL is unusable",
+		},
+		{
+			name: "refreshed controller replaces the persisted one", embed: "https://github.example/base.zst",
+			opts: Options{Controller: Controller{
+				DownloadURL: "https://old.example/dl/", Version: "v1.0.0",
+				Refresh: func(context.Context) (Controller, error) {
+					return Controller{DownloadURL: "https://new.example/dl/", Version: "v1.2.3"}, nil
+				},
+			}, Log: slog.New(slog.DiscardHandler)},
+			want: []string{"https://new.example/dl/" + file, "https://github.example/base.zst"},
+		},
+		{
+			name: "failed refresh keeps what was learned", opts: Options{Controller: Controller{
+				DownloadURL: "https://old.example/dl/", Version: "v1.2.3",
+				Refresh: func(context.Context) (Controller, error) { return Controller{}, errors.New("down") },
+			}, Log: slog.New(slog.DiscardHandler)},
+			want: []string{"https://old.example/dl/" + file},
 		},
 		{
 			name: "version skew falls back to embedded", embed: "https://github.example/base.zst",
@@ -534,7 +564,7 @@ func TestBaseSourceResolution(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := m
 			m.Base.URL = tt.embed
-			got, err := tt.opts.candidates(m)
+			got, err := tt.opts.candidates(t.Context(), m)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("err = %v, want %q", err, tt.wantErr)
@@ -586,6 +616,172 @@ func TestManifestBaseURLForms(t *testing.T) {
 		_, err := readManifest(files)
 		if (err == nil) != ok {
 			t.Errorf("base url %q: err=%v, want ok=%v", url, err, ok)
+		}
+	}
+}
+
+func TestControllerIsOnlyAskedWhenADownloadIsNeeded(t *testing.T) {
+	m, files, _, _ := fixture(t)
+	dir := privateDir(t)
+	base := baseDirOf(t, dir)
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw := bytes.Repeat([]byte("base disk fixture\n"), 100)
+	if err := os.WriteFile(filepath.Join(base, m.Base.SHA256+".ext4"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	asked := false
+	opts := Options{Controller: Controller{
+		DownloadURL: "https://c.example/dl/", Version: m.Version,
+		Refresh: func(context.Context) (Controller, error) { asked = true; return Controller{}, errors.New("down") },
+	}}
+	if _, err := prepare(t.Context(), dir, files, &http.Client{Timeout: time.Millisecond}, opts); err != nil || asked {
+		t.Fatalf("err=%v asked=%v: a node with its base must start without the controller", err, asked)
+	}
+}
+
+// A server that ignores Range and cuts the connection every time restarts from zero forever. Bytes
+// it re-sends below the high-water mark are no progress, so the give-up clock keeps running.
+func TestDownloadRestartingFromZeroDoesNotCountAsProgress(t *testing.T) {
+	fastDownloads(t)
+	tune0 := tune
+	tune = func(d *downloader) { tune0(d); d.giveUp = 300 * time.Millisecond }
+	m, files, _, compressed := bigFixture(t)
+	var rec recorder
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := 300_000
+		if rec.add(r) == 1 {
+			n = 400_000
+		}
+		dropAfter(w, compressed, "", n) // always a plain 200 from byte zero
+	}))
+	defer srv.Close()
+	done := make(chan error, 1)
+	go func() { done <- prepareFrom(t, srv, m, files, privateDir(t)) }()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "no progress") {
+			t.Fatalf("err = %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("never gave up")
+	}
+	if n := len(rec.get()); n < 3 {
+		t.Fatalf("only %d requests: it did not retry", n)
+	}
+}
+
+func TestDownloadGrowthBeyondTheHighWaterMarkIsProgress(t *testing.T) {
+	fastDownloads(t)
+	tune0 := tune
+	tune = func(d *downloader) { tune0(d); d.giveUp = 300 * time.Millisecond }
+	m, files, raw, compressed := bigFixture(t)
+	var rec recorder
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := rec.add(r)
+		if n < 6 {
+			time.Sleep(100 * time.Millisecond) // longer than giveUp in total: only growth keeps it alive
+			dropAfter(w, compressed, "", 100_000*n)
+		}
+		_, _ = w.Write(compressed)
+	}))
+	defer srv.Close()
+	dir := privateDir(t)
+	if err := prepareFrom(t, srv, m, files, dir); err != nil {
+		t.Fatal(err)
+	}
+	assertBase(t, dir, m, raw, compressed)
+}
+
+func TestUnreachableSourceDoesNotBlockTheNextOne(t *testing.T) {
+	fastDownloads(t)
+	tune0 := tune
+	tune = func(d *downloader) {
+		tune0(d)
+		d.unreachable, d.unreachableOnly = 150*time.Millisecond, 400*time.Millisecond
+		d.giveUp = time.Minute
+	}
+	m, files, raw, compressed := bigFixture(t)
+	dead := httptest.NewServer(http.NotFoundHandler())
+	deadURL := dead.URL
+	dead.Close() // connection refused from now on
+	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serveBytes(w, r, compressed, `"v1"`) }))
+	defer good.Close()
+	m.Base.URL = good.URL + "/base.zst"
+	setManifest(t, files, m)
+	dir := privateDir(t)
+	start := time.Now()
+	opts := Options{Controller: Controller{DownloadURL: deadURL + "/dl/", Version: m.Version}, Log: slog.New(slog.DiscardHandler)}
+	if _, err := prepare(t.Context(), dir, files, good.Client(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Fatalf("took %s", took)
+	}
+	assertBase(t, dir, m, raw, compressed)
+
+	// The only source gets the longer allowance, then the error says so.
+	m.Base.URL = ""
+	setManifest(t, files, m)
+	start = time.Now()
+	_, err := prepare(t.Context(), privateDir(t), files, good.Client(), Options{BaseURL: deadURL + "/x.zst", Log: slog.New(slog.DiscardHandler)})
+	if err == nil || !strings.Contains(err.Error(), "delivered no data") || time.Since(start) < 400*time.Millisecond {
+		t.Fatalf("err=%v after %s", err, time.Since(start))
+	}
+}
+
+func TestSweepRemovesOnlyOldIdleLeftovers(t *testing.T) {
+	m, files, _, _ := fixture(t)
+	dir := privateDir(t)
+	base := baseDirOf(t, dir)
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw := bytes.Repeat([]byte("base disk fixture\n"), 100)
+	if err := os.WriteFile(filepath.Join(base, m.Base.SHA256+".ext4"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	other := strings.Repeat("c", 64)
+	oldTemp, newTemp := filepath.Join(base, ".agenthold-old"), filepath.Join(base, ".agenthold-new")
+	oldLock, ownLock := filepath.Join(base, "."+other+".lock"), filepath.Join(base, "."+m.Base.SHA256+".lock")
+	part := partPath(base, m.Base.SHA256)
+	for _, p := range []string{oldTemp, newTemp, oldLock, ownLock, part} {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-time.Hour)
+	for _, p := range []string{oldTemp, oldLock, ownLock, part} {
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Somebody else holds the lock of a third release: temp files might be theirs.
+	busy := filepath.Join(base, "."+strings.Repeat("d", 64)+".lock")
+	if err := os.WriteFile(busy, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(busy, old, old); err != nil {
+		t.Fatal(err)
+	}
+	unlock, ok, err := tryLock(busy)
+	if err != nil || !ok {
+		t.Fatal(err)
+	}
+	if _, err := prepare(t.Context(), dir, files, http.DefaultClient, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(oldTemp); err != nil {
+		t.Fatal("temp file removed while another process holds a lock")
+	}
+	unlock()
+	if _, err := prepare(t.Context(), dir, files, http.DefaultClient, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	for p, want := range map[string]bool{oldTemp: false, newTemp: true, oldLock: false, ownLock: true, part: true, busy: false} {
+		if _, err := os.Stat(p); (err == nil) != want {
+			t.Errorf("%s exists=%v, want %v", filepath.Base(p), err == nil, want)
 		}
 	}
 }

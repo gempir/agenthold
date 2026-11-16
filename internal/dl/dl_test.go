@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -34,12 +36,30 @@ type fixture struct {
 	rel      *runtimeassets.Release
 	h        *Handler
 	srv      *httptest.Server
+	logs     *syncBuffer
+}
+
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 func newFixture(t *testing.T, mutate func(*Config)) *fixture {
 	t.Helper()
 	f := &fixture{
-		t: t, dataDir: t.TempDir(),
+		t: t, dataDir: t.TempDir(), logs: &syncBuffer{},
 		exe:      bytes.Repeat([]byte("binary "), 1000),
 		manifest: []byte(`{"format":1,"version":"v1.2.3"}`),
 		base:     bytes.Repeat([]byte("compressed base "), 5000),
@@ -53,7 +73,7 @@ func newFixture(t *testing.T, mutate func(*Config)) *fixture {
 		t.Fatal(err)
 	}
 	cfg := Config{
-		DataDir: f.dataDir, Release: f.rel, Log: slog.New(slog.DiscardHandler),
+		DataDir: f.dataDir, Release: f.rel, Log: slog.New(slog.NewTextHandler(f.logs, nil)),
 		Exe: func() (*os.File, error) { return os.Open(exePath) },
 	}
 	if mutate != nil {
@@ -196,17 +216,26 @@ func TestBaseServedOnlyWhenItIsTheVerifiedFile(t *testing.T) {
 	f := newFixture(t, nil)
 	_, _, base := f.paths()
 	resp, body := f.do("GET", base, nil)
-	if resp.StatusCode != http.StatusNotFound || !strings.Contains(string(body), "no base image") || !strings.Contains(string(body), "does not exist") {
+	if resp.StatusCode != http.StatusNotFound || !strings.Contains(string(body), "no base image") {
 		t.Fatalf("missing base: %d %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(f.logs.String(), "does not exist") {
+		t.Fatalf("the reason belongs in the log:\n%s", f.logs)
 	}
 	wrong := bytes.Repeat([]byte("x"), len(f.base)) // right size, wrong content
 	f.placeBase(wrong)
 	resp, body = f.do("GET", base, nil)
-	if resp.StatusCode != http.StatusNotFound || !strings.Contains(string(body), "sha256") {
-		t.Fatalf("wrong base: %d %s", resp.StatusCode, body)
+	if resp.StatusCode != http.StatusNotFound || !strings.Contains(f.logs.String(), "does not match the sha256") {
+		t.Fatalf("wrong base: %d %s\n%s", resp.StatusCode, body, f.logs)
+	}
+	for _, leak := range []string{f.dataDir, "sha256", "no such file", ".ext4.zst", f.rel.CompressedSHA256} {
+		if strings.Contains(string(body), leak) {
+			t.Fatalf("response discloses %q: %s", leak, body)
+		}
 	}
 	f.placeBase(f.base[:100])
-	if resp, body = f.do("GET", base, nil); resp.StatusCode != http.StatusNotFound || !strings.Contains(string(body), "pins") {
+	if resp, body = f.do("GET", base, nil); resp.StatusCode != http.StatusNotFound || !strings.Contains(f.logs.String(), "pins") ||
+		strings.Contains(string(body), "pins") {
 		t.Fatalf("short base: %d %s", resp.StatusCode, body)
 	}
 	f.placeBase(f.base)
@@ -403,6 +432,96 @@ func TestClientIP(t *testing.T) {
 		}
 		if got := clientIP(r); got != tt.want {
 			t.Errorf("remote=%s xff=%q: got %s, want %s", tt.remote, tt.xff, got, tt.want)
+		}
+	}
+}
+
+func TestOperatorFileProblemsDoNotFallThrough(t *testing.T) {
+	f := newFixture(t, nil)
+	bin, _, _ := f.paths()
+	name := strings.TrimPrefix(bin, "/dl/")
+
+	// Unreadable: the generated binary must not silently answer instead of the operator's file.
+	f.operatorFile(name, []byte("operator binary"))
+	p := filepath.Join(f.dataDir, "dl", filepath.FromSlash(name))
+	if err := os.Chmod(p, 0); err != nil {
+		t.Fatal(err)
+	}
+	if f, err := os.Open(p); err == nil {
+		_ = f.Close()
+		t.Skip("running as a user that can read mode 0 files")
+	}
+	resp, body := f.do("GET", bin, nil)
+	if resp.StatusCode != http.StatusInternalServerError || strings.Contains(string(body), f.dataDir) ||
+		!strings.Contains(f.logs.String(), "cannot open an operator file") {
+		t.Fatalf("unreadable operator file: %d %s", resp.StatusCode, body)
+	}
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	if resp, body = f.do("GET", bin, nil); resp.StatusCode != http.StatusOK || !bytes.Equal(body, f.exe) {
+		t.Fatalf("without the operator file the generated one is served: %d", resp.StatusCode)
+	}
+}
+
+func TestOperatorFifoIsRefusedWithoutBlocking(t *testing.T) {
+	f := newFixture(t, nil)
+	if err := os.MkdirAll(filepath.Join(f.dataDir, "dl", "v1.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(f.dataDir, "dl", "v1.0.0", "pipe"), 0o644); err != nil {
+		t.Skipf("mkfifo: %v", err)
+	}
+	done := make(chan int, 1)
+	go func() { resp, _ := f.do("GET", "/dl/v1.0.0/pipe", nil); done <- resp.StatusCode }()
+	select {
+	case status := <-done:
+		if status != http.StatusNotFound {
+			t.Fatalf("FIFO: %d", status)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("opening a FIFO blocked the request")
+	}
+}
+
+func TestOperatorCaching(t *testing.T) {
+	f := newFixture(t, nil)
+	for name, want := range map[string]string{
+		"manifest.json":              "no-cache",
+		"top.txt":                    "no-cache",
+		"latest/agenthold":           "no-cache",
+		"downloads/x":                "no-cache",
+		"v2.0.0/agenthold-linux-arm": immutable,
+		"0.3.1/x":                    immutable,
+		"sha-0123abc/x":              immutable,
+		"v1.2.3/other":               immutable, // this controller's own version directory
+	} {
+		f.operatorFile(name, []byte("data"))
+		resp, _ := f.do("GET", "/dl/"+name, nil)
+		if resp.StatusCode != http.StatusOK || resp.Header.Get("Cache-Control") != want {
+			t.Errorf("%s: %d cache=%q, want %q", name, resp.StatusCode, resp.Header.Get("Cache-Control"), want)
+		}
+	}
+}
+
+func TestAdvertisedURL(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://agents.example.com":      "https://agents.example.com/dl/",
+		"https://agents.example.com/":     "https://agents.example.com/dl/",
+		"http://10.0.0.5:8080":            "http://10.0.0.5:8080/dl/",
+		"https://agents.example.com/base": "https://agents.example.com/base/dl/",
+		"http://localhost:8080":           "", // the default when public_url is unset
+		"http://LOCALHOST":                "",
+		"http://127.0.0.1:8080":           "",
+		"http://[::1]:8080":               "",
+		"http://0.0.0.0:8080":             "",
+		"http://app.localhost":            "",
+		"":                                "",
+		"agents.example.com":              "",
+	} {
+		got, why := AdvertisedURL(in)
+		if got != want || (got == "") != (why != "") {
+			t.Errorf("%q: got %q (%q), want %q", in, got, why, want)
 		}
 	}
 }

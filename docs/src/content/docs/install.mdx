@@ -115,11 +115,23 @@ base image is only offered when `<data_dir>/base/<sha256>.ext4.zst` exists and m
 manifest (the startup log says whether it does, and `/dl/manifest.json` then leaves `base` out). A server that
 never downloaded the image itself, for example a controller with `sandbox.driver: none`, needs that file
 copied there. A client address can run two large downloads at a time; more get `429`. Behind a reverse proxy
-the address comes from `X-Forwarded-For`.
+the address comes from `X-Forwarded-For`: the proxy must **append** the real client address to that header
+(the right-most public entry is used), otherwise every client shares one limit. Responses name no paths or
+system errors; the reason a file is not served (for example a base image that is missing or does not match)
+is in the server log.
+
+Edge nodes are told to download from `<public_url>/dl/`. With `public_url` unset (it defaults to
+`http://localhost:8080`) or pointing at loopback, no node could reach that, so the server does not
+advertise it and logs a warning at startup; set `public_url` to an address the nodes can open.
 
 To publish other versions or architectures (a build host serving its releases), put files into
 `<data_dir>/dl/`, with the same layout. They are served under `/dl/` and win over the generated files of the
-same name, including a `manifest.json` of your own. Hidden files, directories and anything that leaves
+same name, including a `manifest.json` of your own. Files in a version directory
+(`<version>/...`, for example `v0.4.0/` or `sha-<commit>/`) are served with immutable caching headers, so treat a
+published version directory as immutable and publish changes under a new version; everything else
+(including your `manifest.json`) is revalidated by clients on every use. A file in that directory that
+cannot be opened (permissions, too many open files) is an error (`500`, logged), never replaced by the
+generated file of the same name. Hidden files, directories and anything that leaves
 that directory (including through symlinks) are never served. A development build (without the release
 bundle) serves nothing of its own.
 

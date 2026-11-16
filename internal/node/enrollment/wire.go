@@ -34,6 +34,9 @@ type welcome struct {
 	// serves its release (including the base image) from, for nodes that sent NodeVersion.
 	ControllerVersion string `json:"controllerVersion,omitempty"`
 	DownloadURL       string `json:"downloadUrl,omitempty"`
+
+	// legacy is set locally when the controller only answered a hello without NodeVersion.
+	legacy bool
 }
 
 // readFrame reads exactly one length-prefixed JSON object. A buffered decoder

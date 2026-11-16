@@ -28,8 +28,13 @@ type downloader struct {
 	log    *slog.Logger
 	// stall aborts one attempt when no bytes arrive for this long.
 	stall time.Duration
-	// giveUp ends the retries after this long without progress.
+	// giveUp ends the retries after this long without progress: without the high-water mark of
+	// the downloaded file moving, so a source that restarts from zero each time does not count.
 	giveUp time.Duration
+	// unreachable and unreachableOnly end the retries of a source that has never delivered a
+	// single byte: after unreachable when another source can still be tried, else after
+	// unreachableOnly.
+	unreachable, unreachableOnly time.Duration
 	// backoffMin and backoffMax bound the wait between attempts.
 	backoffMin, backoffMax time.Duration
 	// progress is how often progress is logged.
@@ -43,6 +48,7 @@ func newDownloader(client *http.Client, l *slog.Logger) *downloader {
 	d := &downloader{
 		client: client, log: log(l).With("component", "base-download"),
 		stall: 90 * time.Second, giveUp: 30 * time.Minute,
+		unreachable: 90 * time.Second, unreachableOnly: 5 * time.Minute,
 		backoffMin: time.Second, backoffMax: 30 * time.Second, progress: 5 * time.Second,
 	}
 	if tune != nil {
@@ -82,8 +88,8 @@ func (d *downloader) fetchBase(ctx context.Context, path string, sources func() 
 			return err
 		}
 		var errs []error
-		for _, u := range urls {
-			err := d.fetch(ctx, u, zst, b)
+		for i, u := range urls {
+			err := d.fetch(ctx, u, zst, b, i < len(urls)-1)
 			if err == nil {
 				errs = nil
 				break
@@ -117,11 +123,13 @@ func decompress(ctx context.Context, zst, path string, want artifact) error {
 	return atomicWrite(ctx, path, decoder, want, 0o644)
 }
 
-// fetch downloads url into dest (dir/<sha256>.ext4.zst) and checks it against want.
-func (d *downloader) fetch(ctx context.Context, url, dest string, b baseArtifact) error {
+// fetch downloads url into dest (dir/<sha256>.ext4.zst) and checks it against want. more says
+// that another source can be tried if this one fails.
+func (d *downloader) fetch(ctx context.Context, url, dest string, b baseArtifact, more bool) error {
 	want := b.Compressed
 	part := partPath(filepath.Dir(dest), b.SHA256)
-	t := &transfer{d: d, url: url, part: part, want: want, lastProgress: time.Now(), lastLog: time.Now()}
+	now := time.Now()
+	t := &transfer{d: d, url: url, part: part, want: want, startedAt: now, lastProgress: now, lastLog: now}
 	backoff := d.backoffMin
 	hashRestarts := 0
 	for {
@@ -156,6 +164,15 @@ func (d *downloader) fetch(ctx context.Context, url, dest string, b baseArtifact
 		if progressed {
 			backoff = d.backoffMin
 		}
+		if !t.delivered {
+			limit := d.unreachableOnly
+			if more {
+				limit = d.unreachable
+			}
+			if since := time.Since(t.startedAt); since > limit {
+				return fmt.Errorf("%s delivered no data in %s, giving up on it: %w", url, since.Round(time.Second), err)
+			}
+		}
 		if idle := time.Since(t.lastProgress); idle > d.giveUp {
 			return fmt.Errorf("no progress for %s, giving up (the bytes so far are kept for the next start): %w", idle.Round(time.Second), err)
 		}
@@ -179,9 +196,13 @@ type transfer struct {
 	part string
 	want artifact
 
-	have         int64 // bytes in the part file
-	resumedFrom  int64 // bytes that were already there when the first attempt started
-	started      bool
+	have        int64 // bytes in the part file
+	high        int64 // most bytes the part file ever held; only growth beyond it is progress
+	resumedFrom int64 // bytes that were already there when the first attempt started
+	started     bool
+	delivered   bool // this source has sent at least one body byte
+	startedAt   time.Time
+	// lastProgress is when high last grew (or the transfer started).
 	lastProgress time.Time
 	lastLog      time.Time
 }
@@ -216,7 +237,7 @@ func (t *transfer) attempt(ctx context.Context) (progressed bool, err error) {
 		have = 0
 	}
 	if !t.started {
-		t.started, t.resumedFrom = true, have
+		t.started, t.resumedFrom, t.high = true, have, have
 		if have > 0 {
 			t.d.log.Info("resuming base download", "url", t.url, "have", have, "of", t.want.Size)
 		} else {
@@ -268,10 +289,14 @@ func (t *transfer) attempt(ctx context.Context) (progressed bool, err error) {
 		if have > 0 {
 			t.d.log.Info("server restarted the transfer from zero", "url", t.url, "dropped", have)
 		}
-		flags |= os.O_TRUNC
+		// Empty the part file before the new validator is recorded: a crash in between must
+		// never leave the validator of a new file next to bytes of an old one.
+		if err := os.Truncate(t.part, 0); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return false, permanentError{err}
+		}
+		saveValidator(t.part, validatorOf(resp))
 		have = 0
 		t.resumedFrom = 0
-		saveValidator(t.part, validatorOf(resp))
 	case resp.StatusCode == http.StatusRequestedRangeNotSatisfiable && have > 0:
 		discard(t.part)
 		t.resumedFrom = 0
@@ -304,8 +329,13 @@ func (t *transfer) attempt(ctx context.Context) (progressed bool, err error) {
 				return progressed, permanentError{werr}
 			}
 			t.have += int64(n)
-			progressed = true
-			t.lastProgress = time.Now()
+			t.delivered = true
+			if t.have > t.high {
+				// Bytes below the high-water mark were fetched before: a source that restarts
+				// from zero every time is not making progress.
+				t.high, progressed = t.have, true
+				t.lastProgress = time.Now()
+			}
 			t.logProgress()
 		}
 		if rerr == io.EOF {
@@ -472,6 +502,45 @@ func removeStaleParts(dir, keepSHA string) {
 		}
 		discard(part)
 		_ = os.Remove(lock)
+		unlock()
+	}
+}
+
+// sweepAge is how old a leftover must be before it is swept.
+var sweepAge = 5 * time.Minute
+
+// sweepBase removes what crashed runs left in the base directory: decompression temp files
+// (.agenthold-*) and lock files of other releases, when they are older than sweepAge and no
+// process holds a lock. The lock and partial download of keepSHA are never touched.
+func sweepBase(dir, keepSHA string) {
+	cutoff := time.Now().Add(-sweepAge)
+	old := func(path string) bool {
+		fi, err := os.Lstat(path)
+		return err == nil && fi.Mode().IsRegular() && fi.ModTime().Before(cutoff)
+	}
+	locks, _ := filepath.Glob(filepath.Join(dir, ".*.lock"))
+	var held []func()
+	busy := false
+	for _, lock := range locks {
+		unlock, ok, err := tryLock(lock)
+		if err != nil || !ok {
+			busy = true // somebody is working here: their temp files are live
+			continue
+		}
+		held = append(held, unlock)
+		if sha := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(lock), "."), ".lock"); sha != keepSHA && old(lock) {
+			_ = os.Remove(lock)
+		}
+	}
+	if !busy {
+		temps, _ := filepath.Glob(filepath.Join(dir, ".agenthold-*"))
+		for _, temp := range temps {
+			if old(temp) {
+				_ = os.Remove(temp)
+			}
+		}
+	}
+	for _, unlock := range held {
 		unlock()
 	}
 }

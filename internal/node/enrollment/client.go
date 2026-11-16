@@ -8,8 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/gempir/agenthold/internal/version"
@@ -51,6 +54,10 @@ func (s *State) Save(path string) error { return s.save(path) }
 
 // learn records what the controller said about itself in its welcome.
 func (s *State) learn(w welcome) {
+	if w.legacy {
+		s.ControllerVersion, s.DownloadURL = "", ""
+		return
+	}
 	if w.ControllerVersion != "" || w.DownloadURL != "" {
 		s.ControllerVersion, s.DownloadURL = w.ControllerVersion, w.DownloadURL
 	}
@@ -81,7 +88,7 @@ func Join(ctx context.Context, statePath string, token Token, name string) (net.
 	if err := s.save(statePath); err != nil {
 		return nil, nil, fmt.Errorf("save node state: %w", err)
 	}
-	conn, w, err := handshake(ctx, s, id, hello{Version: protocolVersion, Kind: "join", Secret: token.Secret, Name: name, NodeVersion: version.Version})
+	conn, w, err := handshakeCompat(ctx, s, id, hello{Version: protocolVersion, Kind: "join", Secret: token.Secret, Name: name, NodeVersion: version.Version})
 	if err != nil {
 		_ = os.Remove(statePath)
 		return nil, nil, err
@@ -102,7 +109,7 @@ func Connect(ctx context.Context, s *State) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, w, err := handshake(ctx, s, id, hello{Version: protocolVersion, Kind: "connect", NodeVersion: version.Version})
+	conn, w, err := handshakeCompat(ctx, s, id, hello{Version: protocolVersion, Kind: "connect", NodeVersion: version.Version})
 	if err == nil {
 		s.learn(w)
 	}
@@ -114,6 +121,33 @@ var errPinMismatch = errors.New("controller certificate does not match the pinne
 
 // IsDenied reports errors after which retrying the same credentials is useless.
 func IsDenied(err error) bool { return errors.Is(err, ErrDenied) || errors.Is(err, errPinMismatch) }
+
+// errNoReply means the controller closed the connection without answering the hello. A controller
+// that predates NodeVersion does so: it rejects hellos with fields it does not know.
+var errNoReply = errors.New("the controller closed the connection without answering")
+
+// handshakeCompat is handshake, but a controller that closes the connection on a hello with this
+// node's version is tried once more without it, as a node of the old protocol would: it then
+// connects normally and just learns nothing about downloads. Safe to repeat for a join, too: the
+// old controller rejected the hello before it looked at the token.
+func handshakeCompat(ctx context.Context, s *State, id *Identity, h hello) (net.Conn, welcome, error) {
+	conn, w, err := handshake(ctx, s, id, h)
+	if !errors.Is(err, errNoReply) || h.NodeVersion == "" {
+		return conn, w, err
+	}
+	h.NodeVersion = ""
+	conn, w, err = handshake(ctx, s, id, h)
+	switch {
+	case err == nil:
+		w.legacy = true
+		slog.Warn("the controller is older than this node (agenthold "+version.Version+") and does not say where it serves downloads from; "+
+			"upgrade the controller first, nodes must not be newer than their controller", "controller", s.Endpoint)
+	case errors.Is(err, errNoReply):
+		err = fmt.Errorf("the controller closed the connection during the handshake, with and without this node's version (agenthold %s): "+
+			"it is probably an older release than this node; upgrade the controller first: %w", version.Version, err)
+	}
+	return conn, w, err
+}
 
 func handshake(ctx context.Context, s *State, id *Identity, h hello) (net.Conn, welcome, error) {
 	var w welcome
@@ -148,6 +182,9 @@ func handshake(ctx context.Context, s *State, id *Identity, h hello) (net.Conn, 
 	}
 	if err := readFrame(conn, &w); err != nil {
 		_ = conn.Close()
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) {
+			return nil, w, fmt.Errorf("%w: %w", errNoReply, err)
+		}
 		return nil, w, err
 	}
 	if !w.OK || w.Version != protocolVersion {

@@ -299,12 +299,14 @@ func TestJailedLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The listener lives in a harness of its own: everything a harness
-	// starts goes with it.
-	peerServer, err := peer.StartHarness(ctx, []string{"bash", "-lc", "exec </dev/null; exec python3 -m http.server 18080 --bind 0.0.0.0 >/tmp/listener.log 2>&1"}, nil, nil)
+	// starts goes with it. Its stdout stays open (sandboxd stops a harness
+	// that closes it) and is drained.
+	peerServer, err := peer.StartHarness(ctx, []string{"bash", "-lc", "exec </dev/null; exec python3 -u -m http.server 18080 --bind 0.0.0.0 2>/tmp/listener.log"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer peerServer.Close()
+	go func() { _, _ = io.Copy(io.Discard, peerServer.Stdout) }()
 	run(peer, "for i in $(seq 1 50); do curl --noproxy '*' --max-time 1 -fsS http://127.0.0.1:18080/ >/dev/null 2>&1 && exit 0; sleep 0.1; done; cat /tmp/listener.log; exit 1")
 	if got := run(peer, "curl --noproxy '*' --max-time 2 -fsS -o /dev/null http://10.214.0.6:18080/ && echo reachable"); got != "reachable" {
 		t.Fatal("the peer's listener is not reachable on its own address:", got)

@@ -95,6 +95,8 @@ type Querier interface {
 	ListSandboxSubnets(ctx context.Context) ([]ListSandboxSubnetsRow, error)
 	ListSandboxes(ctx context.Context) ([]Sandbox, error)
 	ListSessionEvents(ctx context.Context, arg ListSessionEventsParams) ([]AgentSessionEvent, error)
+	// Sessions whose last prompt has no turn_end after it: their turn was cut off.
+	ListUnfinishedSessions(ctx context.Context) ([]string, error)
 	// Agents the user owns or that are shared with them.
 	ListUserAgents(ctx context.Context, userID string) ([]ListUserAgentsRow, error)
 	ListUserAudit(ctx context.Context, userID string) ([]AuditLog, error)

@@ -44,6 +44,8 @@ func TestCan(t *testing.T) {
 		{AgentDelete, false, false, true},
 		{AgentAuthLogin, false, false, true},
 		{AgentReadAudit, false, false, true},
+		{AgentPreview, false, true, true},
+		{AgentExpose, false, false, true},
 		{Action("unknown"), false, false, false},
 	}
 	for _, r := range rows {

@@ -36,6 +36,7 @@ import (
 	"github.com/gempir/agenthold/internal/node/enrollment"
 	"github.com/gempir/agenthold/internal/password"
 	"github.com/gempir/agenthold/internal/platform"
+	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
 	"github.com/gempir/agenthold/internal/secrets"
@@ -65,6 +66,10 @@ type env struct {
 	scheduler *trigger.Scheduler
 	// edge is set when AGENTHOLD_TEST_NODE=remote.
 	edge *edgeNode
+	// Previews are served at <name>.apps.test on the test server.
+	preview  *preview.Service
+	identity *preview.Signer
+	platform *platform.Service
 }
 
 type slogDiscard struct{}
@@ -179,7 +184,12 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	e.sessions.SetLogins(e.logins)
 	e.logins.Restart = e.sessions.Restart
 	e.sessions.SetTools(tools.Provider{Store: st, PlatformCommand: sandboxdBin})
-	platformSvc := &platform.Service{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}
+	e.preview = &preview.Service{Store: st, Hosts: preview.NewHosts(".apps.test", srv.URL)}
+	if e.identity, err = preview.LoadOrCreateSigner(filepath.Join(t.TempDir(), "identity.key")); err != nil {
+		t.Fatal(err)
+	}
+	platformSvc := &platform.Service{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}, Preview: e.preview}
+	e.platform = platformSvc
 	go func() {
 		for {
 			info, stream, err := n.NextIncoming(t.Context())
@@ -199,6 +209,7 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Node: n, Nodes: nodes, Limits: cfg.Sandbox,
 		Box: box, Egress: e.directory, Sessions: e.sessions, Idle: e.sleeper, Audit: &audit.Log{Store: st}, ShowTestHarness: true,
 		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins,
+		Preview: e.preview, Identity: e.identity,
 	})
 	e.sessions.SetWaker(a.Wake)
 	e.scheduler.Runner = a.Triggers
@@ -211,10 +222,10 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		}
 	})
 	t.Cleanup(e.sessions.Close)
-	handler = server.New(server.Config{
+	handler = a.PreviewHandler(server.New(server.Config{
 		Web: fstest.MapFS{"index.html": {Data: []byte("app")}},
 		API: a.Mount,
-	})
+	}))
 	return e
 }
 

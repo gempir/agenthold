@@ -182,6 +182,8 @@ func (d *Daemon) handle(ctx context.Context, st net.Conn, o tunnel.Open) {
 		err = d.pty(ctx, st, o)
 	case tunnel.OpHarness:
 		err = d.harness(ctx, st, o)
+	case tunnel.OpDial:
+		err = d.dial(ctx, st, o)
 	case tunnel.OpFSList:
 		err = d.fsList(st, o)
 	case tunnel.OpFSRead:

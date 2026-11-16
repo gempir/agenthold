@@ -1,0 +1,187 @@
+---
+title: "Preview URLs"
+description: "Expose ports of a machine over HTTP at their own hostname, behind the agenthold sign-in or in public."
+---
+
+A machine can expose any TCP port its software listens on. Each exposure gets its own hostname,
+`<name><preview.host_suffix>`, for example `todo-3000.apps.example.com`. agenthold routes the request by its
+`Host` header, connects to the port inside the microVM through the machine's tunnel (this works for machines on
+[edge nodes](/edge-nodes/) too) and proxies HTTP, streaming responses and WebSockets.
+
+A sleeping machine wakes up on the first request of its owner or a user it is shared with. A browser sees a short
+"Waking up" page that reloads itself while it boots; other clients get `503` with `Retry-After`. Their requests count
+as activity, so a machine being browsed does not fall asleep. Other visitors (anyone on a `public` exposure, users
+without access on an `authenticated` one) see "This app is asleep" and do not keep it awake, unless the owner turns
+on **Visitors wake it** (`wakeOnRequest`) for that exposure; visitor wakes are limited to one a minute per machine.
+
+Each exposure serves at most 128 requests (open WebSockets included) at a time; more get `429`. A machine can have
+at most 20 exposures.
+
+## Turn it on
+
+Preview URLs are off until you set a host suffix:
+
+```yaml
+public_url: https://agents.example.com
+preview:
+  host_suffix: .apps.example.com   # or AGENTHOLD_PREVIEW_HOST_SUFFIX
+```
+
+The suffix starts with `.` or `-` and must sit under a domain you control: not directly under a public suffix
+(`.dev`, `.co.uk`, `-x.dev`), and not below the main host (`.apps.agents.example.com` for `agents.example.com`, whose
+exposures could set cookies for the main host):
+
+| Suffix | Exposure `web` | Certificate you need |
+| --- | --- | --- |
+| `.apps.example.com` | `web.apps.example.com` | `*.apps.example.com` |
+| `-demo.example.com` | `web-demo.example.com` | `*.example.com` (names stay one label below the domain) |
+
+The `-` form is for providers whose free wildcard certificates cover only one level below the domain
+(Cloudflare's universal certificate, for example). The main host must not end with the suffix, and names are
+1 to 40 lowercase letters, digits and hyphens. `www`, `api`, `admin`, `auth`, `login`, `app`, `apps`, `demo`,
+`mail`, `dl`, `static`, `assets`, `agenthold` and names starting with `xn--` are reserved. A deleted or renamed
+exposure's name stays reserved for 7 days for the same owner, so a name browsers trusted never moves to someone
+else's app right away.
+
+Then point a wildcard DNS record at the same reverse proxy that serves agenthold and forward the hosts to the
+same `listen` address. agenthold still terminates no TLS: exposures use the scheme and port of `public_url`.
+
+### Caddy
+
+A wildcard certificate needs the DNS challenge, so build Caddy with your DNS provider's module:
+
+```caddy
+agents.example.com, *.apps.example.com {
+  tls {
+    dns cloudflare {env.CF_API_TOKEN}
+  }
+  reverse_proxy 127.0.0.1:8080
+}
+```
+
+### Cloudflare Tunnel
+
+Add a wildcard DNS record (`*.apps` or, for the `-` form, `*`) as a CNAME to `YOUR_TUNNEL_ID.cfargotunnel.com`
+and a wildcard ingress rule:
+
+```yaml
+ingress:
+  - hostname: agents.example.com
+    service: http://127.0.0.1:8080
+  - hostname: "*.apps.example.com"
+    service: http://127.0.0.1:8080
+  - service: http_status:404
+```
+
+## Expose a port
+
+- In the UI: agent settings, **Preview**. The owner exposes a port, picks the name and access, changes access
+  and removes exposures. Shared users see the links.
+- Over the API: `GET`/`POST /api/v1/agents/{id}/exposures`, `PATCH`/`DELETE /api/v1/agents/{id}/exposures/{exposureId}`
+  (owner only for changes). Every change is in the agent's audit log.
+- From inside the machine: the agent's platform tools `expose_port(port, name?, access?)`, `list_exposures()` and
+  `unexpose(port)` act on the agent's own machine. An agent can create `private` and `authenticated` exposures;
+  only the owner can make one `public`.
+
+The server must listen on the machine's loopback (`127.0.0.1` or `::1`); `python3 -m http.server 8000` works as is.
+When nothing listens on the port, visitors get `502 Nothing is listening on port N`.
+
+## Access
+
+| Access | Who gets in |
+| --- | --- |
+| `private` (default) | the machine's owner and the users it is shared with |
+| `authenticated` | anyone signed in to this agenthold |
+| `public` | anyone; no identity is passed on |
+
+Access is checked on every request: unsharing a machine or tightening access applies at once.
+
+For `private` and `authenticated` exposures agenthold is the sign-in gate:
+
+1. A browser without a preview cookie gets a short-lived state cookie on the exposure host and is redirected to
+   `<public_url>/api/v1/preview/authorize?host=...&return=/path&state=...`.
+2. The main host only answers top-level page loads (browsers that send fetch metadata must send
+   `Sec-Fetch-Dest: document` and `Sec-Fetch-Mode: navigate`), asks for the normal sign-in if needed and checks
+   access. For an `authenticated` exposure of a machine the user has no access to, it first shows a consent page
+   ("This app is run by Alice (alice@example.com). It will see your name and email address."); the answer is
+   remembered per user and exposure.
+3. It redirects back to `<exposure host>/_agenthold/callback` with a single-use code valid for 60 seconds, bound
+   to that exposure and to the browser's state cookie: a sign-in link made in another browser is refused.
+4. The exposure host exchanges the code and sets its own host-only cookie, valid for 24 hours, then returns to the
+   path. Only paths are accepted as return targets. A user keeps at most 10 preview sessions per exposure.
+
+Over https the cookies are `__Host-ah_preview` and `__Host-ah_preview_state` (HttpOnly, SameSite=Lax); browsers
+refuse `__Host-` cookies that another host tries to set. Over http they are `ah_preview` and `ah_preview_state`.
+Sessions belong to one exposure: deleting, renaming or recreating it signs everyone out of it.
+
+Requests without a cookie that are not page loads (API calls, `fetch`) get `401` JSON instead of a redirect.
+Scripts can send an agenthold API token as `Authorization: Bearer ahp_...`. An `Authorization` header that
+contains an agenthold token (any scheme) never reaches the app. Signing out of agenthold also ends all preview
+sessions; `/_agenthold/logout` (a POST; GET shows a button) ends one. Paths under `/_agenthold/` are reserved.
+
+## Identity headers
+
+agenthold removes every incoming `X-Agenthold-*`, `X-Forwarded-*` and `Forwarded` header (also spelled with
+underscores, as some stacks read them) and its own cookies before proxying, then sets `X-Forwarded-For`,
+`-Host` and `-Proto` itself. For `private` and
+`authenticated` exposures it then sets:
+
+| Header | Value |
+| --- | --- |
+| `X-Agenthold-User` | the user id |
+| `X-Agenthold-Email` | the user's email (may be empty) |
+| `X-Agenthold-Name` | the display name |
+| `X-Agenthold-Identity` | a JWT (EdDSA, Ed25519) valid for 5 minutes: `sub`, `email`, `name`, `aud` = the exposure host, `iss` = `public_url` |
+
+The plain headers are fine for an app that is only reachable through agenthold. To be sure a request came
+through agenthold, verify the JWT with the keys at `<public_url>/.well-known/agenthold/jwks.json`:
+
+```js
+import { createRemoteJWKSet, jwtVerify } from "jose";
+
+const jwks = createRemoteJWKSet(new URL("https://agents.example.com/.well-known/agenthold/jwks.json"));
+
+export async function user(req) {
+  const { payload } = await jwtVerify(req.headers["x-agenthold-identity"], jwks, {
+    issuer: "https://agents.example.com",
+    audience: "todo-3000.apps.example.com",
+    algorithms: ["EdDSA"],
+  });
+  return { id: payload.sub, email: payload.email, name: payload.name };
+}
+```
+
+Pin the algorithm to `EdDSA` and always check `aud` (your exposure host), `iss` (`public_url`) and `exp`; without
+the audience check a token for another exposure would be accepted.
+
+The signing key is generated on first start at `<data_dir>/preview/identity.key` (mode 0600 in a 0700 directory;
+agenthold repairs both on start). To rotate it, move it to `identity.previous.key` and restart: a new key is made
+and both are published until you delete the previous one. Back them up with the rest of the data directory.
+
+## Isolation
+
+Browsers isolate sites by registrable domain. Only a suffix under a **separate registrable domain** (main host
+`agents.example.com`, exposures under `.example-apps.net`) fully isolates apps from agenthold and from each other's
+cookies. agenthold logs a warning at startup when the suffix shares a registrable domain with `public_url`.
+
+With a shared registrable domain (`-demo.agenthold.dev` next to `demo.agenthold.dev`, or `.apps.example.com` next to
+`agents.example.com`) apps are *same-site* with agenthold and with each other. agenthold guards what that allows:
+
+- Exposure hosts never reach the API or the web app: every host under the suffix, valid name or not, is answered by
+  the preview router.
+- The session cookies are host-only and, over https, `__Host-` prefixed, so an app cannot plant one; a request
+  carrying two session cookies is refused and the cookies are cleared. App `Set-Cookie` headers lose their `Domain`
+  attribute, and ambiguous ones are dropped.
+- State-changing API requests from other origins are refused (fetch metadata), and the API sends no CORS headers.
+- The identity hand over needs a top-level navigation and, for strangers, consent.
+
+What same-site still allows: an app's JavaScript can set cookies for the shared parent domain that other apps
+under the suffix receive (agenthold strips none of those from requests), and requests from one app to another, or
+to agenthold, count as same-site for `SameSite=Lax` cookies. Treat apps under one suffix as able to send
+authenticated GET requests to each other. Keep untrusted apps on a separate domain.
+
+## Security notes
+
+- The tunnel only connects to the machine's loopback interface.
+- Machines whose guest image predates preview URLs answer with an error until they restart on a current base
+  image.

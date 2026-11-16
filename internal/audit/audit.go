@@ -38,6 +38,9 @@ const (
 	MCPDetach     = "mcp.detach"
 	SkillAttach   = "skill.attach"
 	SkillDetach   = "skill.detach"
+	ExposeAdd     = "exposure.add"
+	ExposeUpdate  = "exposure.update"
+	ExposeRemove  = "exposure.remove"
 )
 
 // Entry is one audit record. AgentID is empty for account-level actions.

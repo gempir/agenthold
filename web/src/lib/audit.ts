@@ -21,6 +21,9 @@ const ACTIONS: Record<string, string> = {
   'share.remove': 'Stopped sharing',
   'secret.attach': 'Attached a secret',
   'secret.detach': 'Detached a secret',
+  'exposure.add': 'Exposed a port',
+  'exposure.update': 'Changed an exposure',
+  'exposure.remove': 'Removed an exposure',
 };
 
 /** Human wording for an audit action; the raw action if unknown. */
@@ -38,6 +41,10 @@ export function describeDetails(e: Pick<AuditEntry, 'action' | 'details'>) {
     return t.length > MAX_TEXT ? `${t.slice(0, MAX_TEXT)}…` : t;
   }
   if (e.action.startsWith('share.')) return s(d.email) || s(d.userId);
+  if (e.action.startsWith('exposure.'))
+    return [s(d.name), typeof d.port === 'number' ? `port ${d.port}` : '']
+      .filter(Boolean)
+      .join(', ');
   const t = s(d.text);
   return t.length > MAX_TEXT ? `${t.slice(0, MAX_TEXT)}…` : t;
 }

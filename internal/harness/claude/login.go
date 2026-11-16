@@ -34,7 +34,7 @@ const (
 const setupTokenLifetime = 365 * 24 * time.Hour
 
 // LoginKinds implements harness.AccountLoginer.
-func (adapter) LoginKinds() []harness.LoginKind {
+func (logins) LoginKinds() []harness.LoginKind {
 	return []harness.LoginKind{
 		{
 			ID: KindOAuthToken, Name: "Claude subscription",
@@ -50,7 +50,7 @@ func (adapter) LoginKinds() []harness.LoginKind {
 }
 
 // ParseLogin implements harness.AccountLoginer.
-func (adapter) ParseLogin(_ context.Context, _ *http.Client, kind, input string) (harness.Credential, error) {
+func (logins) ParseLogin(_ context.Context, _ *http.Client, kind, input string) (harness.Credential, error) {
 	v := strings.TrimSpace(input)
 	if strings.ContainsAny(v, " \t\r\n") || len(v) > 4096 {
 		return harness.Credential{}, errors.New("paste only the token, on one line")
@@ -71,7 +71,7 @@ func (adapter) ParseLogin(_ context.Context, _ *http.Client, kind, input string)
 }
 
 // Deliver implements harness.AccountLoginer.
-func (adapter) Deliver(c harness.Credential, seed string) (harness.Delivery, error) {
+func (logins) Deliver(c harness.Credential, seed string) (harness.Delivery, error) {
 	switch c.Kind {
 	case KindOAuthToken:
 		ph := harness.Placeholder("sk-ant-oat01-", seed)
@@ -91,4 +91,7 @@ func (adapter) Deliver(c harness.Credential, seed string) (harness.Delivery, err
 
 // ManagedFiles implements harness.AccountLoginer: Claude Code logins travel
 // in the environment only.
-func (adapter) ManagedFiles() []string { return nil }
+func (logins) ManagedFiles() []string { return nil }
+
+// logins implements harness.AccountLoginer and, where credentials expire, harness.Refresher.
+type logins struct{}

@@ -143,13 +143,14 @@ func stopOnCancel(ctx context.Context, c io.ReadWriteCloser) func() bool {
 // Process is a harness process in the sandbox: Stdout and Stdin carry its
 // raw stdio.
 type Process struct {
-	wmu    sync.Mutex
-	c      io.ReadWriteCloser
-	Stdout *io.PipeReader
-	out    *io.PipeWriter
-	done   chan struct{}
-	code   int
-	err    error
+	wmu     sync.Mutex
+	c       io.ReadWriteCloser
+	Stdout  *io.PipeReader
+	out     *io.PipeWriter
+	done    chan struct{}
+	code    int
+	stopped bool
+	err     error
 }
 
 // StartHarness starts cmd in the sandbox. stderr receives its stderr lines.
@@ -182,9 +183,10 @@ func (p *Process) read(stderr func(string)) {
 			}
 		case FrameJSON:
 			var m struct {
-				Type string `json:"type"`
-				Line string `json:"line"`
-				Code int    `json:"code"`
+				Type    string `json:"type"`
+				Line    string `json:"line"`
+				Code    int    `json:"code"`
+				Stopped bool   `json:"stopped"`
 			}
 			if jsonUnmarshal(b, &m) != nil {
 				continue
@@ -195,7 +197,7 @@ func (p *Process) read(stderr func(string)) {
 					stderr(m.Line)
 				}
 			case "exit":
-				p.code = m.Code
+				p.code, p.stopped = m.Code, m.Stopped
 				_ = p.out.Close()
 				return
 			}
@@ -218,10 +220,19 @@ func (p *Process) Write(b []byte) (int, error) {
 func (p *Process) Done() <-chan struct{} { return p.done }
 
 // ExitCode returns the exit code (-1 if unknown) and any transport error.
+// Call it after Done.
 func (p *Process) ExitCode() (int, error) { return p.code, p.err }
 
-// Close kills the process.
-func (p *Process) Close() error { return p.c.Close() }
+// StoppedBySandbox reports whether sandboxd killed the process itself
+// rather than it exiting or being killed by something else. Call it after Done.
+func (p *Process) StoppedBySandbox() bool { return p.stopped }
+
+// Close kills the process. Output not read yet is dropped, so the reader
+// never blocks the stream.
+func (p *Process) Close() error {
+	_ = p.Stdout.CloseWithError(io.ErrClosedPipe)
+	return p.c.Close()
+}
 
 // Stats returns the sandbox's resource usage.
 func (s *Session) Stats(ctx context.Context) (Stats, error) {

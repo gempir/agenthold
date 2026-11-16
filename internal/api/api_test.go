@@ -99,7 +99,7 @@ func TestMain(m *testing.M) {
 	if out, err := exec.Command("go", "build", "-o", bin, "github.com/gempir/agenthold/internal/harness/fakeagent").CombinedOutput(); err != nil {
 		panic(string(out))
 	}
-	fakeharness.Command = bin
+	fakeharness.SetCommand(bin)
 	sandboxdBin = filepath.Join(dir, "sandboxd")
 	if out, err := exec.Command("go", "build", "-o", sandboxdBin, "github.com/gempir/agenthold/cmd/sandboxd").CombinedOutput(); err != nil {
 		panic(string(out))
@@ -308,7 +308,10 @@ func joinEdgeNode(t *testing.T, st *store.Store, backend *node.Local, ca *egress
 	}
 	connected := make(chan string, 4)
 	cluster.OnConnect(func(_ context.Context, id string) { connected <- id })
-	srv := &enrollment.Server{Identity: identity, Registry: cluster, Handle: func(ctx context.Context, p enrollment.Peer, conn net.Conn) { cluster.Serve(ctx, p.ID, conn) }}
+	srv := &enrollment.Server{
+		Identity: identity, Registry: cluster, Version: "v-test", DownloadURL: "https://controller.example/dl/",
+		Handle: func(ctx context.Context, p enrollment.Peer, conn net.Conn) { cluster.Serve(ctx, p.ID, conn) },
+	}
 	go func() { _ = srv.Serve(ctx, ln) }()
 	jt, err := cluster.CreateJoinToken(ctx, "admin", "edge", time.Hour)
 	if err != nil {
@@ -321,6 +324,9 @@ func joinEdgeNode(t *testing.T, st *store.Store, backend *node.Local, ca *egress
 	conn, state, err := enrollment.Join(ctx, filepath.Join(t.TempDir(), "state.json"), tok, "edge")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if state.DownloadURL != "https://controller.example/dl/" || state.ControllerVersion != "v-test" {
+		t.Fatalf("a joined node must learn where its controller serves downloads: %+v", state)
 	}
 	n := &edgeNode{t: t, ctx: ctx, cluster: cluster, backend: backend, state: state, connected: connected}
 	n.serve(conn)

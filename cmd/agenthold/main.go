@@ -24,6 +24,7 @@ import (
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/config"
+	"github.com/gempir/agenthold/internal/dl"
 	"github.com/gempir/agenthold/internal/egress"
 	_ "github.com/gempir/agenthold/internal/harness/claude"
 	_ "github.com/gempir/agenthold/internal/harness/codex"
@@ -34,6 +35,7 @@ import (
 	"github.com/gempir/agenthold/internal/node/enrollment"
 	"github.com/gempir/agenthold/internal/platform"
 	"github.com/gempir/agenthold/internal/preview"
+	"github.com/gempir/agenthold/internal/runtimeassets"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/firecracker"
 	"github.com/gempir/agenthold/internal/secrets"
@@ -150,7 +152,7 @@ func run() error {
 	// The built-in node exists only when this host runs VMs (or uses the fake driver).
 	clusterCfg := node.ClusterConfig{Store: st, CA: ca, Log: logger}
 	if driverName != "none" {
-		host, err := startLocalHost(ctx, cfg, driverName, logger)
+		host, err := startLocalHost(ctx, cfg, driverName, runtimeassets.Controller{}, logger)
 		if err != nil {
 			return err
 		}
@@ -170,6 +172,12 @@ func run() error {
 		}
 		clusterCfg.Endpoint, clusterCfg.Fingerprint = cfg.Nodes.Advertise, nodeIdentity.Fingerprint
 	}
+	release, err := runtimeassets.Embedded()
+	if err != nil {
+		return fmt.Errorf("embedded release: %w", err)
+	}
+	downloads := dl.New(dl.Config{DataDir: cfg.DataDir, Release: release, Log: logger})
+	downloads.Start(ctx)
 	cluster, err := node.NewCluster(ctx, clusterCfg)
 	if err != nil {
 		return err
@@ -217,8 +225,15 @@ func run() error {
 			return fmt.Errorf("node listener: %w", err)
 		}
 		nodeSrv := &enrollment.Server{
-			Identity: nodeIdentity, Registry: cluster, Log: logger,
+			Identity: nodeIdentity, Registry: cluster, Log: logger, Version: version.Version,
 			Handle: func(ctx context.Context, p enrollment.Peer, conn net.Conn) { cluster.Serve(ctx, p.ID, conn) },
+		}
+		if release != nil {
+			if root, why := dl.AdvertisedURL(cfg.PublicURL); root != "" {
+				nodeSrv.DownloadURL = root
+			} else {
+				logger.Warn("not telling edge nodes where to download their base image from: "+why, "public_url", cfg.PublicURL)
+			}
 		}
 		go func() {
 			if err := nodeSrv.Serve(ctx, ln); err != nil && ctx.Err() == nil {
@@ -290,7 +305,7 @@ func run() error {
 	})
 	sessions.SetWaker(apiSrv.Wake)
 
-	srvCfg := server.Config{Web: web.Dist(), Logger: logger, API: apiSrv.Mount}
+	srvCfg := server.Config{Web: web.Dist(), Logger: logger, API: apiSrv.Mount, DL: downloads}
 	if cfg.DevProxy != "" {
 		u, err := url.Parse(cfg.DevProxy)
 		if err != nil {

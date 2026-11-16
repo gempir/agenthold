@@ -107,3 +107,14 @@ func TestDevProxy(t *testing.T) {
 		t.Fatalf("api must not be proxied: %d %q", rec.Code, rec.Body.String())
 	}
 }
+
+func TestMountsDownloadsOutsideAuthAndCSRF(t *testing.T) {
+	dl := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "dl:"+r.URL.Path) })
+	h := New(Config{Web: testSite(), DL: dl})
+	if rec := get(t, h, "/dl/manifest.json"); rec.Code != http.StatusOK || rec.Body.String() != "dl:/dl/manifest.json" {
+		t.Fatalf("got %d %q", rec.Code, rec.Body)
+	}
+	if rec := get(t, New(Config{Web: testSite()}), "/dl/manifest.json"); rec.Body.String() == "dl:/dl/manifest.json" {
+		t.Fatal("downloads mounted without a handler")
+	}
+}

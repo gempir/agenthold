@@ -1709,7 +1709,7 @@ components:
 
     HarnessType:
       type: object
-      required: [id, name, default, secretPresets, installHint, accountLogins]
+      required: [id, name, default, secretPresets, accountLogins]
       properties:
         id: { type: string }
         accountLogins: { type: boolean, description: Its login can live on the user's account (/me/provider-logins). }
@@ -1718,7 +1718,6 @@ components:
         secretPresets:
           type: array
           items: { type: string }
-        installHint: { type: string }
 
     AgentLogin:
       type: object

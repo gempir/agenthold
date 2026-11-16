@@ -234,3 +234,26 @@ func TestPreviewSameSite(t *testing.T) {
 		}
 	}
 }
+
+func TestBaseURL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.yaml")
+	if err := os.WriteFile(path, []byte("sandbox:\n  firecracker:\n    base_url: https://demo.example/dl/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTHOLD_CONFIG", path)
+	cfg, err := Load()
+	if err != nil || cfg.Sandbox.Firecracker.BaseURL != "https://demo.example/dl/" {
+		t.Fatalf("file: %v %q", err, cfg.Sandbox.Firecracker.BaseURL)
+	}
+	t.Setenv("AGENTHOLD_FIRECRACKER_BASE_URL", "https://mirror.example/base.zst")
+	if cfg, err = Load(); err != nil || cfg.Sandbox.Firecracker.BaseURL != "https://mirror.example/base.zst" {
+		t.Fatalf("env override: %v %q", err, cfg.Sandbox.Firecracker.BaseURL)
+	}
+	for _, bad := range []string{"demo.example/dl/", "ftp://x/", "https://u:p@x.example/dl/", "/local/path"} {
+		t.Setenv("AGENTHOLD_FIRECRACKER_BASE_URL", bad)
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "base_url") {
+			t.Errorf("%q accepted: %v", bad, err)
+		}
+	}
+}

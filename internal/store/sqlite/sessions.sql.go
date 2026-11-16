@@ -212,6 +212,37 @@ func (q *Queries) ListSessionEvents(ctx context.Context, arg ListSessionEventsPa
 	return items, nil
 }
 
+const listUnfinishedSessions = `-- name: ListUnfinishedSessions :many
+SELECT p.session_id FROM agent_session_events p
+WHERE p.type = 'prompt'
+  AND p.seq = (SELECT MAX(l.seq) FROM agent_session_events l WHERE l.session_id = p.session_id AND l.type = 'prompt')
+  AND NOT EXISTS (SELECT 1 FROM agent_session_events e WHERE e.session_id = p.session_id AND e.type = 'turn_end' AND e.seq > p.seq)
+`
+
+// Sessions whose last prompt has no turn_end after it: their turn was cut off.
+func (q *Queries) ListUnfinishedSessions(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listUnfinishedSessions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var session_id string
+		if err := rows.Scan(&session_id); err != nil {
+			return nil, err
+		}
+		items = append(items, session_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markCredentialsInSandbox = `-- name: MarkCredentialsInSandbox :exec
 UPDATE agents SET credentials_in_sandbox = 1 WHERE id = ?
 `

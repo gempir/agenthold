@@ -107,6 +107,7 @@ type Querier interface {
 	ListSandboxSubnets(ctx context.Context) ([]ListSandboxSubnetsRow, error)
 	ListSandboxes(ctx context.Context) ([]Sandbox, error)
 	ListSessionEvents(ctx context.Context, arg ListSessionEventsParams) ([]AgentSessionEvent, error)
+	ListUnfinishedSessions(ctx context.Context) ([]string, error)
 	ListUserAgents(ctx context.Context, userID string) ([]ListUserAgentsRow, error)
 	ListUserAudit(ctx context.Context, userID string) ([]AuditLog, error)
 	ListUserMCPServers(ctx context.Context, ownerID string) ([]McpServer, error)

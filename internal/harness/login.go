@@ -81,8 +81,8 @@ type Delivery struct {
 	InSandbox bool
 }
 
-// AccountLoginer is implemented by adapters whose provider login can live on
-// the user's account instead of inside each sandbox.
+// AccountLoginer is how an adapter's provider login lives on the user's
+// account instead of inside each sandbox (Adapter.Login).
 type AccountLoginer interface {
 	LoginKinds() []LoginKind
 	// ParseLogin validates what the user provided for kind. It may call the
@@ -96,8 +96,8 @@ type AccountLoginer interface {
 	ManagedFiles() []string
 }
 
-// Refresher is implemented by adapters whose stored credentials expire and
-// can be renewed. The server is the only place that refreshes them, so many
+// Refresher is implemented by an AccountLoginer whose stored credentials
+// expire and can be renewed. The server is the only place that refreshes them, so many
 // sandboxes can share one login with a rotating refresh token.
 type Refresher interface {
 	// RefreshDue reports whether c should be refreshed now.

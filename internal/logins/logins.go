@@ -124,11 +124,10 @@ func (s *Service) lock(loginID string) func() {
 // Adapter returns the account-login side of a harness.
 func Adapter(provider string) (harness.AccountLoginer, bool) {
 	ad, ok := harness.Get(provider)
-	if !ok {
+	if !ok || ad.Login == nil {
 		return nil, false
 	}
-	al, ok := ad.(harness.AccountLoginer)
-	return al, ok
+	return ad.Login, true
 }
 
 func (s *Service) open(l db.ProviderLogin) (harness.Credential, error) {
@@ -344,7 +343,7 @@ func (s *Service) secretOverrides(ctx context.Context, ag db.Agent) (bool, error
 	}
 	vars := map[string]bool{}
 	for _, p := range secrets.Presets {
-		for _, id := range ad.SecretPresets() {
+		for _, id := range ad.SecretPresets {
 			if p.ID == id {
 				vars[p.EnvVar] = true
 			}

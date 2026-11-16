@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -31,27 +32,20 @@ var (
 // code are sent as JSON frames.
 //
 // Whatever ends first (the harness exits, closes its stdout, the server
-// closes the stream or the tunnel drops), the harness's whole process group
-// is killed, and an exit frame is the last frame of a stream that is still
-// open. The exit code of a harness killed by a signal is 128+signal.
+// closes the stream or the tunnel drops), everything the harness started is
+// killed: its cgroup where cgroup v2 is available (in the microVM; this also
+// catches helpers that left the process group with setsid), its process
+// group otherwise. An exit frame is the last frame of a stream that is still
+// open. The exit code of a harness killed by a signal is 128+signal, and
+// Stopped tells whether sandboxd killed it itself.
 func (d *Daemon) harness(ctx context.Context, st net.Conn, o tunnel.Open) error {
 	if len(o.Cmd) == 0 {
 		return errors.New("harness: no command")
 	}
-	// Not CommandContext: the process group is killed below, not just the leader.
-	cmd := exec.Command(o.Cmd[0], o.Cmd[1:]...) //nolint:noctx
-	cmd.Dir = d.acct.home
-	cmd.Env = d.env(o.Env, d.shell()[0])
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if d.acct.switchTo {
-		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(d.acct.uid), Gid: uint32(d.acct.gid)}
-	}
+	cg := newHarnessCgroup(d.log)
+	defer cg.remove()
 	// Own pipes rather than cmd's: Wait must not wait for helpers that
 	// inherited them, and reading must not stop at Wait.
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return err
-	}
 	outR, outW, err := os.Pipe()
 	if err != nil {
 		return err
@@ -62,8 +56,7 @@ func (d *Daemon) harness(ctx context.Context, st net.Conn, o tunnel.Open) error 
 		_ = outW.Close()
 		return err
 	}
-	cmd.Stdout, cmd.Stderr = outW, errW
-	err = cmd.Start()
+	cmd, stdin, err := d.startHarness(o, outW, errW, cg)
 	_ = outW.Close()
 	_ = errW.Close()
 	if err != nil {
@@ -73,8 +66,11 @@ func (d *Daemon) harness(ctx context.Context, st net.Conn, o tunnel.Open) error 
 	}
 	pid := cmd.Process.Pid
 	// Harnesses spawn helpers (MCP servers, shells): they all go.
-	killGroup := func() { _ = syscall.Kill(-pid, syscall.SIGKILL) }
-	d.log.Info("harness started", "cmd", o.Cmd, "pid", pid)
+	killAll := func() {
+		cg.kill()
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+	}
+	d.log.Info("harness started", "cmd", o.Cmd, "pid", pid, "cgroup", cg.path())
 
 	var wmu sync.Mutex // frames from stdout and stderr interleave
 	write := func(t tunnel.FrameType, b []byte) error {
@@ -89,7 +85,16 @@ func (d *Daemon) harness(ctx context.Context, st net.Conn, o tunnel.Open) error 
 	}
 
 	exited := make(chan struct{})
-	stop := sync.OnceFunc(killGroup)
+	var stopped atomic.Bool // sandboxd killed the harness itself
+	killOnce := sync.OnceFunc(killAll)
+	stop := func() {
+		select {
+		case <-exited:
+		default:
+			stopped.Store(true)
+		}
+		killOnce()
+	}
 	go func() {
 		// Server -> harness stdin. When the server goes away, stop the harness.
 		_, _ = tunnel.CopyData(stdin, st, nil)
@@ -159,8 +164,47 @@ func (d *Daemon) harness(ctx context.Context, st net.Conn, o tunnel.Open) error 
 	<-stderrDone
 
 	code := exitCode(err)
-	d.log.Info("harness exited", "pid", pid, "code", code)
-	return writeJSON(tunnel.Exit{Type: "exit", Code: code})
+	d.log.Info("harness exited", "pid", pid, "code", code, "stopped", stopped.Load())
+	return writeJSON(tunnel.Exit{Type: "exit", Code: code, Stopped: stopped.Load()})
+}
+
+// startHarness starts the harness in cg (if any; without it when the
+// kernel refuses) and in its own process group.
+func (d *Daemon) startHarness(o tunnel.Open, stdout, stderr *os.File, cg *harnessCgroup) (*exec.Cmd, io.WriteCloser, error) {
+	start := func(inCgroup bool) (*exec.Cmd, io.WriteCloser, error) {
+		// Not CommandContext: everything the harness started is killed, not just it.
+		cmd := exec.Command(o.Cmd[0], o.Cmd[1:]...) //nolint:noctx
+		cmd.Dir = d.acct.home
+		cmd.Env = d.env(o.Env, d.shell()[0])
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if d.acct.switchTo {
+			cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(d.acct.uid), Gid: uint32(d.acct.gid)}
+		}
+		if inCgroup {
+			cg.attach(cmd.SysProcAttr)
+		}
+		cmd.Stdout, cmd.Stderr = stdout, stderr
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := cmd.Start(); err != nil {
+			return nil, nil, err
+		}
+		return cmd, stdin, nil
+	}
+	if cg.path() != "" {
+		cmd, stdin, err := start(true)
+		if err == nil {
+			return cmd, stdin, nil
+		}
+		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
+			return nil, nil, err
+		}
+		d.log.Warn("starting the harness in its cgroup failed, using its process group only", "err", err)
+		cg.remove()
+	}
+	return start(false)
 }
 
 // exitCode is the shell-style exit status: 128+signal for a killed process.

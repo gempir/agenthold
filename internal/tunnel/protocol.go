@@ -63,6 +63,9 @@ type Resize struct {
 type Exit struct {
 	Type string `json:"type"` // "exit"
 	Code int    `json:"code"`
+	// Stopped: sandboxd killed the harness itself (the server went away, or
+	// the harness closed its stdout), so a signal is not an outside kill.
+	Stopped bool `json:"stopped,omitempty"`
 }
 
 // Stats answers OpStats.

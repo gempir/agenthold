@@ -58,7 +58,8 @@ type Resize struct {
 	Rows uint16 `json:"rows"`
 }
 
-// Exit is sent on a pty stream by sandboxd when the process ends.
+// Exit is sent on a pty or harness stream by sandboxd when the process
+// ends. A harness killed by a signal exits with 128+signal.
 type Exit struct {
 	Type string `json:"type"` // "exit"
 	Code int    `json:"code"`

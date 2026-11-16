@@ -220,8 +220,12 @@ func (p *Process) Done() <-chan struct{} { return p.done }
 // ExitCode returns the exit code (-1 if unknown) and any transport error.
 func (p *Process) ExitCode() (int, error) { return p.code, p.err }
 
-// Close kills the process.
-func (p *Process) Close() error { return p.c.Close() }
+// Close kills the process. Output not read yet is dropped, so the reader
+// never blocks the stream.
+func (p *Process) Close() error {
+	_ = p.Stdout.CloseWithError(io.ErrClosedPipe)
+	return p.c.Close()
+}
 
 // Stats returns the sandbox's resource usage.
 func (s *Session) Stats(ctx context.Context) (Stats, error) {

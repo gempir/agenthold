@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+	"golang.org/x/net/publicsuffix"
 
 	"github.com/gempir/agenthold/internal/password"
 )
@@ -86,10 +87,42 @@ func ValidateHostSuffix(suffix, mainHost string) error {
 	if len(rest) > 200 {
 		return errors.New("too long")
 	}
-	if h := strings.ToLower(mainHost); h != "" && strings.HasSuffix(h, suffix) {
+	// The domain exposure hosts live under must be one you control: with a
+	// public suffix ("-x.dev", ".co.uk") there is no wildcard to point at.
+	parent := rest
+	if suffix[0] == '-' {
+		_, parent, _ = strings.Cut(rest, ".")
+	}
+	// (Unlisted single-label names such as "localhost" are allowed for development.)
+	if ps, icann := publicsuffix.PublicSuffix(parent); ps == parent && (icann || strings.Contains(parent, ".")) {
+		return fmt.Errorf("exposure hosts would sit directly under the public suffix %q; use a domain you own", parent)
+	}
+	h := strings.ToLower(mainHost)
+	if h != "" && strings.HasSuffix(h, suffix) {
 		return fmt.Errorf("the main host %q must not end with it", mainHost)
 	}
+	// Exposures below the main host ("web.agents.example.com" for main host
+	// "agents.example.com") could set cookies with Domain=<main host>, which
+	// browsers send to the main host. Keep them beside it instead. (A main
+	// host that is itself a public suffix, such as "localhost", cannot be a
+	// cookie domain.)
+	if ps, _ := publicsuffix.PublicSuffix(h); h != "" && ps != h && suffix[0] == '.' && (rest == h || strings.HasSuffix(rest, "."+h)) {
+		return fmt.Errorf("exposure hosts must not be subdomains of the main host %q", mainHost)
+	}
 	return nil
+}
+
+// PreviewSameSite reports whether exposure hosts share a registrable domain
+// (a "site") with the main host. Then they are isolated from it only by the
+// host-only cookies and checks agenthold makes, not by the browser's
+// same-site rules.
+func PreviewSameSite(suffix, mainHost string) bool {
+	if suffix == "" || mainHost == "" || net.ParseIP(mainHost) != nil {
+		return false
+	}
+	a, err1 := publicsuffix.EffectiveTLDPlusOne(strings.ToLower(mainHost))
+	b, err2 := publicsuffix.EffectiveTLDPlusOne("x" + suffix)
+	return err1 == nil && err2 == nil && a == b
 }
 
 // validLabel checks a DNS label (RFC 1123).

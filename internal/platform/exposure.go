@@ -78,7 +78,7 @@ func (p *Service) unexpose(ctx context.Context, caller db.Agent, port int) (stri
 	if err != nil {
 		return "", err
 	}
-	if err := p.Preview.Delete(ctx, e); err != nil {
+	if err := p.Preview.Delete(ctx, e, caller.OwnerID); err != nil {
 		return "", err
 	}
 	p.Audit.Record(ctx, audit.Entry{

@@ -11,6 +11,7 @@ const exposure = {
   port: 3000,
   name: 'web-3000',
   access: 'private',
+  wakeOnRequest: false,
   url: 'https://web-3000.apps.example.com/',
   createdBy: 'u1',
   createdAt: '2026-01-01T00:00:00Z',
@@ -33,7 +34,9 @@ it('lists exposures and exposes a port', async () => {
       exposures: [exposure],
     },
     'POST /agents/ag1/exposures': { status: 201, body: exposure },
-    'PATCH /agents/ag1/exposures/exp1': { ...exposure, access: 'public' },
+    'PATCH /agents/ag1/exposures/exp1': (req: { body: unknown }) => ({
+      body: { ...exposure, ...(req.body as object) },
+    }),
   });
   renderTab(true);
   const list = await screen.findByRole('list', { name: 'Exposed ports' });
@@ -59,11 +62,23 @@ it('lists exposures and exposes a port', async () => {
     screen.getByRole('textbox', { name: 'Name (optional)' }),
     'Docs',
   );
+  await user.selectOptions(
+    screen.getByRole('combobox', { name: 'Who can open it' }),
+    'authenticated',
+  );
+  await user.click(
+    screen.getByRole('checkbox', { name: /may wake it from sleep/ }),
+  );
   await user.click(screen.getByRole('button', { name: 'Expose' }));
   await waitFor(() =>
     expect(
       calls.find((c) => c.key === 'POST /agents/ag1/exposures')?.body,
-    ).toEqual({ port: 8080, access: 'private', name: 'docs' }),
+    ).toEqual({
+      port: 8080,
+      access: 'authenticated',
+      wakeOnRequest: true,
+      name: 'docs',
+    }),
   );
 });
 

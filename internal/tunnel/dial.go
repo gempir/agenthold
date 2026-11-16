@@ -49,9 +49,11 @@ func (s *Session) Dial(ctx context.Context, port int) (net.Conn, error) {
 		}
 		return nil, err
 	}
+	// Until the reply, ctx also ends a stream that is not tied to life.
+	unblock := context.AfterFunc(ctx, func() { _ = c.Close() })
 	var reply DialReply
 	err = ReadJSON(c, &reply)
-	if !detach() {
+	if !unblock() || !detach() {
 		_ = c.Close()
 		cancel()
 		return nil, ctx.Err()

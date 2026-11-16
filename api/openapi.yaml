@@ -907,19 +907,47 @@ paths:
       tags: [auth-flow]
       description: |
         Exposure hosts send browsers here when they have no preview cookie.
-        Requires a signed-in user (otherwise redirects to the login page and
-        back), checks access to the exposure and redirects to
-        `<exposure host>/_agenthold/callback` with a single-use code.
+        Only top-level navigations are served (`Sec-Fetch-Dest: document`,
+        `Sec-Fetch-Mode: navigate` when the browser sends them). Requires a
+        signed-in user (otherwise redirects to the login page and back),
+        checks access to the exposure, asks for consent when the exposure is
+        `authenticated` and the user has no access to the machine, and
+        redirects to `<exposure host>/_agenthold/callback` with a single-use
+        code bound to the exposure and to `state`.
       parameters:
         - { name: host, in: query, required: true, schema: { type: string } }
         - name: return
           in: query
           description: Path on the exposure host to return to. Defaults to "/".
           schema: { type: string }
+        - name: state
+          in: query
+          required: true
+          description: Hash of the exposure host's state cookie; binds the code to the browser.
+          schema: { type: string }
       responses:
+        "200": { description: "Consent page: an authenticated exposure of a machine you have no access to asks to see your identity." }
         "302": { description: Redirect to the exposure host or the login page. }
         "403": { description: No access to this exposure (HTML page). }
         "404": { description: No such exposure (HTML page). }
+    post:
+      operationId: confirmPreview
+      tags: [auth-flow]
+      description: The consent page's form. Records consent and continues like the GET.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [host]
+              properties:
+                host: { type: string }
+                return: { type: string }
+                state: { type: string }
+      responses:
+        "302": { description: Redirect to the exposure host. }
+        "403": { description: Refused (HTML page). }
 
   /agents/{agentId}/mcp-servers:
     parameters:
@@ -1871,13 +1899,18 @@ components:
 
     Exposure:
       type: object
-      required: [id, agentId, port, name, access, url, createdBy, createdAt]
+      required: [id, agentId, port, name, access, wakeOnRequest, url, createdBy, createdAt]
       properties:
         id: { type: string }
         agentId: { type: string }
         port: { type: integer, minimum: 1, maximum: 65535 }
         name: { type: string }
         access: { $ref: "#/components/schemas/ExposureAccess" }
+        wakeOnRequest:
+          type: boolean
+          description: |
+            Whether visitors who are neither the owner nor a shared user wake a
+            sleeping machine (and keep it awake). Owner and shared users always do.
         url: { type: string, description: The full URL of the exposure. }
         createdBy:
           type: string
@@ -1901,14 +1934,18 @@ components:
         port: { type: integer }
         name:
           type: string
-          description: Lowercase letters, digits and hyphens, 1 to 40 characters.
+          description: |
+            Lowercase letters, digits and hyphens, 1 to 40 characters. Some names
+            (www, api, admin, ...) and names starting with xn-- are reserved.
         access: { $ref: "#/components/schemas/ExposureAccess" }
+        wakeOnRequest: { type: boolean }
 
     ExposurePatch:
       type: object
       properties:
         name: { type: string }
         access: { $ref: "#/components/schemas/ExposureAccess" }
+        wakeOnRequest: { type: boolean }
 
     MCPServerInput:
       type: object

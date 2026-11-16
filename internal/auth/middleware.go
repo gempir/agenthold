@@ -46,8 +46,20 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(context.WithValue(WithUser(r.Context(), u), viaTokenKey{}, true)))
 			return
 		}
-		if c, err := r.Cookie(CookieName); err == nil && c.Value != "" {
-			if u, err := s.SessionUser(r.Context(), c.Value); err == nil {
+		cookies := r.CookiesNamed(s.SessionCookieName())
+		if len(cookies) > 1 {
+			// Only a planted cookie makes a second one: refuse to guess
+			// which is real, and clear what can be cleared.
+			for _, c := range s.clearPlanted(r.URL.Path) {
+				http.SetCookie(w, c)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"conflicting session cookies; sign in again"}` + "\n"))
+			return
+		}
+		if len(cookies) == 1 && cookies[0].Value != "" {
+			if u, err := s.SessionUser(r.Context(), cookies[0].Value); err == nil {
 				r = r.WithContext(WithUser(r.Context(), u))
 			}
 		}

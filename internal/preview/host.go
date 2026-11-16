@@ -55,9 +55,11 @@ func (h Hosts) Enabled() bool { return h.Suffix != "" }
 // Secure reports whether exposures are served over https.
 func (h Hosts) Secure() bool { return h.Scheme == "https" }
 
-// Match returns the exposure name of a request Host header, if it is an
-// exposure host. The port is ignored and case does not matter.
-func (h Hosts) Match(host string) (string, bool) {
+// Classify splits a request Host header: under reports whether it is an
+// exposure host (ends with the suffix, ignoring port, case and trailing
+// dots); name is the exposure name, valid only if ValidName accepts it.
+// Every host under the suffix belongs to the preview router, valid or not.
+func (h Hosts) Classify(host string) (name string, under bool) {
 	if h.Suffix == "" {
 		return "", false
 	}
@@ -65,9 +67,15 @@ func (h Hosts) Match(host string) (string, bool) {
 	if hn, _, err := net.SplitHostPort(host); err == nil {
 		host = hn
 	}
-	host = strings.TrimSuffix(host, ".")
-	name, ok := strings.CutSuffix(host, h.Suffix)
-	if !ok || ValidName(name) != nil {
+	host = strings.TrimRight(host, ".")
+	return strings.CutSuffix(host, h.Suffix)
+}
+
+// Match returns the exposure name of a request Host header, if it is a host
+// of a valid exposure name.
+func (h Hosts) Match(host string) (string, bool) {
+	name, under := h.Classify(host)
+	if !under || ValidName(name) != nil {
 		return "", false
 	}
 	return name, true
@@ -88,9 +96,30 @@ func (h Hosts) Origin(name string) string {
 // URL is the URL an exposure is opened at.
 func (h Hosts) URL(name string) string { return h.Origin(name) + "/" }
 
-// ValidName checks an exposure name: a DNS label part of lowercase letters,
-// digits and hyphens, 1 to 40 characters, not starting or ending with a hyphen.
+// reserved names look like infrastructure; xn-- (punycode) names can
+// imitate other names.
+var reserved = map[string]bool{
+	"www": true, "api": true, "admin": true, "auth": true, "login": true, "app": true, "apps": true,
+	"demo": true, "mail": true, "dl": true, "static": true, "assets": true, "agenthold": true,
+}
+
+// ValidName checks a new exposure name: a DNS label part of lowercase
+// letters, digits and hyphens, 1 to 40 characters, not starting or ending
+// with a hyphen, not reserved and not punycode.
 func ValidName(name string) error {
+	if err := checkName(name); err != nil {
+		return err
+	}
+	if reserved[name] {
+		return Invalid(fmt.Sprintf("the name %q is reserved", name))
+	}
+	if strings.HasPrefix(name, "xn--") {
+		return Invalid("names starting with xn-- are reserved")
+	}
+	return nil
+}
+
+func checkName(name string) error {
 	if name == "" || len(name) > config.MaxExposureName {
 		return Invalid(fmt.Sprintf("name must be 1 to %d characters", config.MaxExposureName))
 	}
@@ -108,6 +137,7 @@ func ValidName(name string) error {
 // DefaultName is <agent-name-slug>-<port>, shortened to fit.
 func DefaultName(agentName string, port int) string {
 	p := "-" + strconv.Itoa(port)
+	// Slug collapses "--", so a default name is never punycode.
 	return trimSlug(Slug(agentName), config.MaxExposureName-len(p)) + p
 }
 

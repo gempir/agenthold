@@ -33,11 +33,18 @@ export function PreviewTab({
     qc.invalidateQueries({ queryKey: exposuresQuery(agentId).queryKey });
 
   const update = useMutation({
-    mutationFn: (v: { id: string; access: ExposureAccess }) =>
+    mutationFn: ({
+      id,
+      ...body
+    }: {
+      id: string;
+      access?: ExposureAccess;
+      wakeOnRequest?: boolean;
+    }) =>
       unwrap(
         api.PATCH('/agents/{agentId}/exposures/{exposureId}', {
-          params: { path: { agentId, exposureId: v.id } },
-          body: { access: v.access },
+          params: { path: { agentId, exposureId: id } },
+          body,
         }),
       ),
     onSuccess: refresh,
@@ -81,6 +88,9 @@ export function PreviewTab({
                 isOwner={isOwner}
                 busy={update.isPending || remove.isPending}
                 onAccess={(access) => update.mutate({ id: e.id, access })}
+                onWake={(wakeOnRequest) =>
+                  update.mutate({ id: e.id, wakeOnRequest })
+                }
                 onRemove={() => remove.mutate(e.id)}
               />
             ))}
@@ -98,12 +108,14 @@ function ExposureRow({
   isOwner,
   busy,
   onAccess,
+  onWake,
   onRemove,
 }: {
   exposure: Exposure;
   isOwner: boolean;
   busy: boolean;
   onAccess: (a: ExposureAccess) => void;
+  onWake: (wake: boolean) => void;
   onRemove: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -155,6 +167,17 @@ function ExposureRow({
               </option>
             ))}
           </Select>
+          {e.access !== 'private' && (
+            <label className="flex items-center gap-1 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={e.wakeOnRequest}
+                disabled={busy}
+                onChange={(ev) => onWake(ev.target.checked)}
+              />
+              Visitors wake it
+            </label>
+          )}
           <Button
             variant="ghost"
             size="icon-sm"
@@ -182,6 +205,7 @@ function ExposeForm({
   const [port, setPort] = useState('');
   const [name, setName] = useState('');
   const [access, setAccess] = useState<ExposureAccess>('private');
+  const [wake, setWake] = useState(false);
   const create = useMutation({
     mutationFn: () =>
       unwrap(
@@ -190,6 +214,7 @@ function ExposeForm({
           body: {
             port: Number(port),
             access,
+            ...(access !== 'private' && wake && { wakeOnRequest: true }),
             ...(name.trim() && { name: name.trim() }),
           },
         }),
@@ -242,6 +267,16 @@ function ExposeForm({
           ))}
         </Select>
       </label>
+      {access !== 'private' && (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={wake}
+            onChange={(e) => setWake(e.target.checked)}
+          />
+          Visitors without access to the machine may wake it from sleep
+        </label>
+      )}
       <p className="text-xs text-muted-foreground">
         Requests reach whatever listens on that port inside the machine.
         Signed-in visitors arrive with X-Agenthold-User, X-Agenthold-Email and a

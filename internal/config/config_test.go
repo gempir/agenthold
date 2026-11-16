@@ -187,8 +187,15 @@ func TestValidateHostSuffix(t *testing.T) {
 		{".apps_x.example.com", "x", false},           // underscore
 		{".example.com", "agents.example.com", false}, // main host would match
 		{"-demo.agenthold.dev", "x-demo.agenthold.dev", false},
-		{"-" + strings.Repeat("a", 23) + ".dev", "x", false}, // label too long for 40-char names
-		{"-" + strings.Repeat("a", 22) + ".dev", "x", true},
+		{"-" + strings.Repeat("a", 23) + ".example.dev", "x", false}, // label too long for 40-char names
+		{"-" + strings.Repeat("a", 22) + ".example.dev", "x", true},
+		{".dev", "x", false}, // a public suffix
+		{".co.uk", "x", false},
+		{"-x.dev", "x", false}, // web-x.dev is its own registrable domain
+		{".github.io", "x", false},
+		{".demo.agenthold.dev", "demo.agenthold.dev", false}, // below the main host
+		{".apps.agents.example.com", "agents.example.com", false},
+		{".agents-apps.example.com", "agents.example.com", true},
 	} {
 		err := ValidateHostSuffix(tc.suffix, tc.main)
 		if (err == nil) != tc.ok {
@@ -208,5 +215,22 @@ func TestPreviewSuffixFromEnv(t *testing.T) {
 	cfg, err := Load()
 	if err != nil || cfg.Preview.HostSuffix != ".apps.example.com" {
 		t.Fatalf("cfg = %+v, err %v", cfg.Preview, err)
+	}
+}
+
+func TestPreviewSameSite(t *testing.T) {
+	for _, tc := range []struct {
+		suffix, main string
+		want         bool
+	}{
+		{"-demo.agenthold.dev", "demo.agenthold.dev", true},
+		{".apps.example.com", "agents.example.com", true},
+		{".example-apps.net", "agents.example.com", false},
+		{".apps.test", "127.0.0.1", false},
+		{"", "agents.example.com", false},
+	} {
+		if got := PreviewSameSite(tc.suffix, tc.main); got != tc.want {
+			t.Errorf("PreviewSameSite(%q, %q) = %v", tc.suffix, tc.main, got)
+		}
 	}
 }

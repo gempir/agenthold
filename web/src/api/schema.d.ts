@@ -766,13 +766,18 @@ export interface paths {
         };
         /**
          * @description Exposure hosts send browsers here when they have no preview cookie.
-         *     Requires a signed-in user (otherwise redirects to the login page and
-         *     back), checks access to the exposure and redirects to
-         *     `<exposure host>/_agenthold/callback` with a single-use code.
+         *     Only top-level navigations are served (`Sec-Fetch-Dest: document`,
+         *     `Sec-Fetch-Mode: navigate` when the browser sends them). Requires a
+         *     signed-in user (otherwise redirects to the login page and back),
+         *     checks access to the exposure, asks for consent when the exposure is
+         *     `authenticated` and the user has no access to the machine, and
+         *     redirects to `<exposure host>/_agenthold/callback` with a single-use
+         *     code bound to the exposure and to `state`.
          */
         get: operations["authorizePreview"];
         put?: never;
-        post?: never;
+        /** @description The consent page's form. Records consent and continues like the GET. */
+        post: operations["confirmPreview"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1531,6 +1536,11 @@ export interface components {
             port: number;
             name: string;
             access: components["schemas"]["ExposureAccess"];
+            /**
+             * @description Whether visitors who are neither the owner nor a shared user wake a
+             *     sleeping machine (and keep it awake). Owner and shared users always do.
+             */
+            wakeOnRequest: boolean;
             /** @description The full URL of the exposure. */
             url: string;
             /** @description The id of the user who created it, or `agent:<id>` for the agent itself. */
@@ -1546,13 +1556,18 @@ export interface components {
         };
         ExposureInput: {
             port: number;
-            /** @description Lowercase letters, digits and hyphens, 1 to 40 characters. */
+            /**
+             * @description Lowercase letters, digits and hyphens, 1 to 40 characters. Some names
+             *     (www, api, admin, ...) and names starting with xn-- are reserved.
+             */
             name?: string;
             access?: components["schemas"]["ExposureAccess"];
+            wakeOnRequest?: boolean;
         };
         ExposurePatch: {
             name?: string;
             access?: components["schemas"]["ExposureAccess"];
+            wakeOnRequest?: boolean;
         };
         MCPServerInput: {
             /** @description Letters, digits, dashes and underscores. */
@@ -3044,6 +3059,8 @@ export interface operations {
                 host: string;
                 /** @description Path on the exposure host to return to. Defaults to "/". */
                 return?: string;
+                /** @description Hash of the exposure host's state cookie; binds the code to the browser. */
+                state: string;
             };
             header?: never;
             path?: never;
@@ -3051,6 +3068,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Consent page: an authenticated exposure of a machine you have no access to asks to see your identity. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Redirect to the exposure host or the login page. */
             302: {
                 headers: {
@@ -3067,6 +3091,39 @@ export interface operations {
             };
             /** @description No such exposure (HTML page). */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirmPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    host: string;
+                    return?: string;
+                    state?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Redirect to the exposure host. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Refused (HTML page). */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

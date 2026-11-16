@@ -14,7 +14,7 @@ import (
 
 func (a *API) apiExposure(e db.Exposure) gen.Exposure {
 	return gen.Exposure{
-		Id: e.ID, AgentId: e.AgentID, Port: int(e.Port), Name: e.Name, Access: gen.ExposureAccess(e.Access),
+		Id: e.ID, AgentId: e.AgentID, Port: int(e.Port), Name: e.Name, Access: gen.ExposureAccess(e.Access), WakeOnRequest: e.WakeOnRequest != 0,
 		Url: a.Preview.URL(e), CreatedBy: e.CreatedBy, CreatedAt: ts(e.CreatedAt),
 	}
 }
@@ -26,7 +26,7 @@ func exposureError(err error) error {
 		return errStatus(http.StatusConflict, err.Error())
 	case errors.Is(err, preview.ErrNotFound):
 		return errNotFound
-	case errors.Is(err, preview.ErrNameTaken), errors.Is(err, preview.ErrPortTaken):
+	case errors.Is(err, preview.ErrNameTaken), errors.Is(err, preview.ErrPortTaken), errors.Is(err, preview.ErrTooMany):
 		return errStatus(http.StatusConflict, err.Error())
 	}
 	var invalid *preview.InvalidError
@@ -68,6 +68,9 @@ func (a *API) CreateExposure(ctx context.Context, req gen.CreateExposureRequestO
 	if req.Body.Access != nil {
 		p.Access = preview.Access(*req.Body.Access)
 	}
+	if req.Body.WakeOnRequest != nil {
+		p.WakeOnRequest = *req.Body.WakeOnRequest
+	}
 	e, err := a.Preview.Create(ctx, p)
 	if err != nil {
 		return nil, exposureError(err)
@@ -86,22 +89,22 @@ func (a *API) UpdateExposure(ctx context.Context, req gen.UpdateExposureRequestO
 	if err != nil {
 		return nil, exposureError(err)
 	}
-	var name string
-	var access preview.Access
+	var p preview.Patch
 	if req.Body.Name != nil {
-		name = *req.Body.Name
-		if name == "" {
+		if *req.Body.Name == "" {
 			return nil, badRequest("name must not be empty")
 		}
+		p.Name = *req.Body.Name
 	}
 	if req.Body.Access != nil {
-		access = preview.Access(*req.Body.Access)
+		p.Access = preview.Access(*req.Body.Access)
 	}
-	e, err = a.Preview.Update(ctx, e, name, access)
+	p.WakeOnRequest = req.Body.WakeOnRequest
+	e, err = a.Preview.Update(ctx, e, acc.Row.Agent.OwnerID, p)
 	if err != nil {
 		return nil, exposureError(err)
 	}
-	a.record(ctx, acc.Row.Agent, audit.ExposeUpdate, e.ID, map[string]any{"port": e.Port, "name": e.Name, "access": e.Access})
+	a.record(ctx, acc.Row.Agent, audit.ExposeUpdate, e.ID, map[string]any{"port": e.Port, "name": e.Name, "access": e.Access, "wakeOnRequest": e.WakeOnRequest != 0})
 	return gen.UpdateExposure200JSONResponse(a.apiExposure(e)), nil
 }
 
@@ -115,7 +118,7 @@ func (a *API) DeleteExposure(ctx context.Context, req gen.DeleteExposureRequestO
 	if err != nil {
 		return nil, exposureError(err)
 	}
-	if err := a.Preview.Delete(ctx, e); err != nil {
+	if err := a.Preview.Delete(ctx, e, acc.Row.Agent.OwnerID); err != nil {
 		return nil, exposureError(err)
 	}
 	a.record(ctx, acc.Row.Agent, audit.ExposeRemove, e.ID, map[string]any{"port": e.Port, "name": e.Name})

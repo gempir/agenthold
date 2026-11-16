@@ -55,7 +55,9 @@ verified; see [Sharing and audit](/sharing/).
 
 ## Sessions
 
-Sessions are cookie based and expire after `session_ttl` without use (default `720h`, 30 days).
+Sessions are cookie based and expire after `session_ttl` without use (default `720h`, 30 days). With an https
+`public_url` the cookie is `__Host-agenthold_session` (host-only, Secure, Path=/), which no other host can set or
+shadow; over http (development) it is `agenthold_session`. A request with two session cookies is refused.
 
 ## Config reference
 

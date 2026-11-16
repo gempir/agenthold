@@ -23,13 +23,30 @@ const IdentityTTL = 5 * time.Minute
 type Signer struct {
 	key ed25519.PrivateKey
 	kid string
+	// previous is the key before the last rotation, still published so
+	// tokens and caches made with it keep verifying.
+	previous *Signer
+}
+
+// PreviousKeyPath is where a rotated-out key is kept: <name>.previous.key.
+func PreviousKeyPath(path string) string {
+	return strings.TrimSuffix(path, ".key") + ".previous.key"
 }
 
 // LoadOrCreateSigner reads an Ed25519 key (PKCS#8 PEM) from path, creating it
-// on first use, like the egress CA and the node listener identity next to it.
+// on first use, like the egress CA and the node listener identity. The file
+// must be private: its mode is repaired to 0600 and its directory to 0700.
+// A key at PreviousKeyPath(path) is published in the JWKS too; rotating is
+// "move the key to the previous path, restart".
 func LoadOrCreateSigner(path string) (*Signer, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	if err := ensureMode(dir, 0o700); err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		_, key, gerr := ed25519.GenerateKey(rand.Reader)
 		if gerr != nil {
 			return nil, gerr
@@ -38,14 +55,43 @@ func LoadOrCreateSigner(path string) (*Signer, error) {
 		if merr != nil {
 			return nil, merr
 		}
-		data = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			return nil, err
-		}
+		data := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			return nil, err
 		}
 	} else if err != nil {
+		return nil, err
+	}
+	s, err := loadKey(path)
+	if err != nil {
+		return nil, err
+	}
+	prev := PreviousKeyPath(path)
+	if _, err := os.Stat(prev); err == nil {
+		if s.previous, err = loadKey(prev); err != nil {
+			return nil, err
+		}
+	}
+	return s, nil
+}
+
+func ensureMode(path string, mode os.FileMode) error {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if fi.Mode().Perm() != mode {
+		return os.Chmod(path, mode)
+	}
+	return nil
+}
+
+func loadKey(path string) (*Signer, error) {
+	if err := ensureMode(path, 0o600); err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
 		return nil, err
 	}
 	block, _ := pem.Decode(data)
@@ -116,10 +162,19 @@ type JWKS struct {
 	Keys []JWK `json:"keys"`
 }
 
-// JWKS returns the public keys apps verify identity tokens with.
+// JWKS returns the public keys apps verify identity tokens with: the
+// current key, then the previous one if there is one.
 func (s *Signer) JWKS() JWKS {
+	set := JWKS{Keys: []JWK{s.jwk()}}
+	if s.previous != nil {
+		set.Keys = append(set.Keys, s.previous.jwk())
+	}
+	return set
+}
+
+func (s *Signer) jwk() JWK {
 	pub := s.key.Public().(ed25519.PublicKey)
-	return JWKS{Keys: []JWK{{Kty: "OKP", Crv: "Ed25519", X: b64(pub), Kid: s.kid, Alg: "EdDSA", Use: "sig"}}}
+	return JWK{Kty: "OKP", Crv: "Ed25519", X: b64(pub), Kid: s.kid, Alg: "EdDSA", Use: "sig"}
 }
 
 // Verify checks a token against a key set, audience, issuer and time, the

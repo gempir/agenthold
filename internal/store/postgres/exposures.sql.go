@@ -9,18 +9,39 @@ import (
 	"context"
 )
 
+const claimExposureName = `-- name: ClaimExposureName :exec
+DELETE FROM exposure_released_names WHERE name = $1
+`
+
+func (q *Queries) ClaimExposureName(ctx context.Context, name string) error {
+	_, err := q.db.ExecContext(ctx, claimExposureName, name)
+	return err
+}
+
+const countExposures = `-- name: CountExposures :one
+SELECT COUNT(*) FROM exposures WHERE agent_id = $1
+`
+
+func (q *Queries) CountExposures(ctx context.Context, agentID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countExposures, agentID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createExposure = `-- name: CreateExposure :exec
-INSERT INTO exposures (id, agent_id, port, name, access, created_by, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO exposures (id, agent_id, port, name, access, wake_on_request, created_by, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
 type CreateExposureParams struct {
-	ID        string
-	AgentID   string
-	Port      int64
-	Name      string
-	Access    string
-	CreatedBy string
-	CreatedAt int64
+	ID            string
+	AgentID       string
+	Port          int64
+	Name          string
+	Access        string
+	WakeOnRequest int64
+	CreatedBy     string
+	CreatedAt     int64
 }
 
 func (q *Queries) CreateExposure(ctx context.Context, arg CreateExposureParams) error {
@@ -30,6 +51,7 @@ func (q *Queries) CreateExposure(ctx context.Context, arg CreateExposureParams) 
 		arg.Port,
 		arg.Name,
 		arg.Access,
+		arg.WakeOnRequest,
 		arg.CreatedBy,
 		arg.CreatedAt,
 	)
@@ -37,42 +59,64 @@ func (q *Queries) CreateExposure(ctx context.Context, arg CreateExposureParams) 
 }
 
 const createPreviewCode = `-- name: CreatePreviewCode :exec
-INSERT INTO preview_codes (code_hash, user_id, host, expires_at) VALUES ($1, $2, $3, $4)
+INSERT INTO preview_codes (code_hash, user_id, exposure_id, host, state_hash, expires_at) VALUES ($1, $2, $3, $4, $5, $6)
 `
 
 type CreatePreviewCodeParams struct {
-	CodeHash  string
-	UserID    string
-	Host      string
-	ExpiresAt int64
+	CodeHash   string
+	UserID     string
+	ExposureID string
+	Host       string
+	StateHash  string
+	ExpiresAt  int64
 }
 
 func (q *Queries) CreatePreviewCode(ctx context.Context, arg CreatePreviewCodeParams) error {
 	_, err := q.db.ExecContext(ctx, createPreviewCode,
 		arg.CodeHash,
 		arg.UserID,
+		arg.ExposureID,
 		arg.Host,
+		arg.StateHash,
 		arg.ExpiresAt,
 	)
 	return err
 }
 
+const createPreviewConsent = `-- name: CreatePreviewConsent :exec
+INSERT INTO preview_consents (user_id, exposure_id, created_at) VALUES ($1, $2, $3)
+ON CONFLICT (user_id, exposure_id) DO NOTHING
+`
+
+type CreatePreviewConsentParams struct {
+	UserID     string
+	ExposureID string
+	CreatedAt  int64
+}
+
+func (q *Queries) CreatePreviewConsent(ctx context.Context, arg CreatePreviewConsentParams) error {
+	_, err := q.db.ExecContext(ctx, createPreviewConsent, arg.UserID, arg.ExposureID, arg.CreatedAt)
+	return err
+}
+
 const createPreviewSession = `-- name: CreatePreviewSession :exec
-INSERT INTO preview_sessions (token_hash, user_id, host, created_at, expires_at) VALUES ($1, $2, $3, $4, $5)
+INSERT INTO preview_sessions (token_hash, user_id, exposure_id, host, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6)
 `
 
 type CreatePreviewSessionParams struct {
-	TokenHash string
-	UserID    string
-	Host      string
-	CreatedAt int64
-	ExpiresAt int64
+	TokenHash  string
+	UserID     string
+	ExposureID string
+	Host       string
+	CreatedAt  int64
+	ExpiresAt  int64
 }
 
 func (q *Queries) CreatePreviewSession(ctx context.Context, arg CreatePreviewSessionParams) error {
 	_, err := q.db.ExecContext(ctx, createPreviewSession,
 		arg.TokenHash,
 		arg.UserID,
+		arg.ExposureID,
 		arg.Host,
 		arg.CreatedAt,
 		arg.ExpiresAt,
@@ -110,6 +154,15 @@ func (q *Queries) DeleteExposure(ctx context.Context, id string) (int64, error) 
 	return result.RowsAffected()
 }
 
+const deleteOldReleasedExposureNames = `-- name: DeleteOldReleasedExposureNames :exec
+DELETE FROM exposure_released_names WHERE released_at <= $1
+`
+
+func (q *Queries) DeleteOldReleasedExposureNames(ctx context.Context, releasedAt int64) error {
+	_, err := q.db.ExecContext(ctx, deleteOldReleasedExposureNames, releasedAt)
+	return err
+}
+
 const deletePreviewSession = `-- name: DeletePreviewSession :exec
 DELETE FROM preview_sessions WHERE token_hash = $1
 `
@@ -119,8 +172,17 @@ func (q *Queries) DeletePreviewSession(ctx context.Context, tokenHash string) er
 	return err
 }
 
+const deleteUserPreviewSessions = `-- name: DeleteUserPreviewSessions :exec
+DELETE FROM preview_sessions WHERE user_id = $1
+`
+
+func (q *Queries) DeleteUserPreviewSessions(ctx context.Context, userID string) error {
+	_, err := q.db.ExecContext(ctx, deleteUserPreviewSessions, userID)
+	return err
+}
+
 const getExposure = `-- name: GetExposure :one
-SELECT id, agent_id, port, name, access, created_by, created_at FROM exposures WHERE id = $1 AND agent_id = $2
+SELECT id, agent_id, port, name, access, wake_on_request, created_by, created_at FROM exposures WHERE id = $1 AND agent_id = $2
 `
 
 type GetExposureParams struct {
@@ -137,6 +199,7 @@ func (q *Queries) GetExposure(ctx context.Context, arg GetExposureParams) (Expos
 		&i.Port,
 		&i.Name,
 		&i.Access,
+		&i.WakeOnRequest,
 		&i.CreatedBy,
 		&i.CreatedAt,
 	)
@@ -144,7 +207,7 @@ func (q *Queries) GetExposure(ctx context.Context, arg GetExposureParams) (Expos
 }
 
 const getExposureByName = `-- name: GetExposureByName :one
-SELECT id, agent_id, port, name, access, created_by, created_at FROM exposures WHERE name = $1
+SELECT id, agent_id, port, name, access, wake_on_request, created_by, created_at FROM exposures WHERE name = $1
 `
 
 func (q *Queries) GetExposureByName(ctx context.Context, name string) (Exposure, error) {
@@ -156,6 +219,7 @@ func (q *Queries) GetExposureByName(ctx context.Context, name string) (Exposure,
 		&i.Port,
 		&i.Name,
 		&i.Access,
+		&i.WakeOnRequest,
 		&i.CreatedBy,
 		&i.CreatedAt,
 	)
@@ -163,7 +227,7 @@ func (q *Queries) GetExposureByName(ctx context.Context, name string) (Exposure,
 }
 
 const getExposureByPort = `-- name: GetExposureByPort :one
-SELECT id, agent_id, port, name, access, created_by, created_at FROM exposures WHERE agent_id = $1 AND port = $2
+SELECT id, agent_id, port, name, access, wake_on_request, created_by, created_at FROM exposures WHERE agent_id = $1 AND port = $2
 `
 
 type GetExposureByPortParams struct {
@@ -180,6 +244,7 @@ func (q *Queries) GetExposureByPort(ctx context.Context, arg GetExposureByPortPa
 		&i.Port,
 		&i.Name,
 		&i.Access,
+		&i.WakeOnRequest,
 		&i.CreatedBy,
 		&i.CreatedAt,
 	)
@@ -188,13 +253,14 @@ func (q *Queries) GetExposureByPort(ctx context.Context, arg GetExposureByPortPa
 
 const getPreviewSessionUser = `-- name: GetPreviewSessionUser :one
 SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at FROM preview_sessions JOIN users ON users.id = preview_sessions.user_id
-WHERE preview_sessions.token_hash = $1 AND preview_sessions.host = $2 AND preview_sessions.expires_at > $3
+WHERE preview_sessions.token_hash = $1 AND preview_sessions.exposure_id = $2 AND preview_sessions.host = $3 AND preview_sessions.expires_at > $4
 `
 
 type GetPreviewSessionUserParams struct {
-	TokenHash string
-	Host      string
-	ExpiresAt int64
+	TokenHash  string
+	ExposureID string
+	Host       string
+	ExpiresAt  int64
 }
 
 type GetPreviewSessionUserRow struct {
@@ -202,7 +268,12 @@ type GetPreviewSessionUserRow struct {
 }
 
 func (q *Queries) GetPreviewSessionUser(ctx context.Context, arg GetPreviewSessionUserParams) (GetPreviewSessionUserRow, error) {
-	row := q.db.QueryRowContext(ctx, getPreviewSessionUser, arg.TokenHash, arg.Host, arg.ExpiresAt)
+	row := q.db.QueryRowContext(ctx, getPreviewSessionUser,
+		arg.TokenHash,
+		arg.ExposureID,
+		arg.Host,
+		arg.ExpiresAt,
+	)
 	var i GetPreviewSessionUserRow
 	err := row.Scan(
 		&i.User.ID,
@@ -216,8 +287,35 @@ func (q *Queries) GetPreviewSessionUser(ctx context.Context, arg GetPreviewSessi
 	return i, err
 }
 
+const getReleasedExposureName = `-- name: GetReleasedExposureName :one
+SELECT name, owner_id, released_at FROM exposure_released_names WHERE name = $1
+`
+
+func (q *Queries) GetReleasedExposureName(ctx context.Context, name string) (ExposureReleasedName, error) {
+	row := q.db.QueryRowContext(ctx, getReleasedExposureName, name)
+	var i ExposureReleasedName
+	err := row.Scan(&i.Name, &i.OwnerID, &i.ReleasedAt)
+	return i, err
+}
+
+const hasPreviewConsent = `-- name: HasPreviewConsent :one
+SELECT COUNT(*) FROM preview_consents WHERE user_id = $1 AND exposure_id = $2
+`
+
+type HasPreviewConsentParams struct {
+	UserID     string
+	ExposureID string
+}
+
+func (q *Queries) HasPreviewConsent(ctx context.Context, arg HasPreviewConsentParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, hasPreviewConsent, arg.UserID, arg.ExposureID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const listExposures = `-- name: ListExposures :many
-SELECT id, agent_id, port, name, access, created_by, created_at FROM exposures WHERE agent_id = $1 ORDER BY port
+SELECT id, agent_id, port, name, access, wake_on_request, created_by, created_at FROM exposures WHERE agent_id = $1 ORDER BY port
 `
 
 func (q *Queries) ListExposures(ctx context.Context, agentID string) ([]Exposure, error) {
@@ -235,6 +333,7 @@ func (q *Queries) ListExposures(ctx context.Context, agentID string) ([]Exposure
 			&i.Port,
 			&i.Name,
 			&i.Access,
+			&i.WakeOnRequest,
 			&i.CreatedBy,
 			&i.CreatedAt,
 		); err != nil {
@@ -251,8 +350,24 @@ func (q *Queries) ListExposures(ctx context.Context, agentID string) ([]Exposure
 	return items, nil
 }
 
+const releaseExposureName = `-- name: ReleaseExposureName :exec
+INSERT INTO exposure_released_names (name, owner_id, released_at) VALUES ($1, $2, $3)
+ON CONFLICT (name) DO UPDATE SET owner_id = excluded.owner_id, released_at = excluded.released_at
+`
+
+type ReleaseExposureNameParams struct {
+	Name       string
+	OwnerID    string
+	ReleasedAt int64
+}
+
+func (q *Queries) ReleaseExposureName(ctx context.Context, arg ReleaseExposureNameParams) error {
+	_, err := q.db.ExecContext(ctx, releaseExposureName, arg.Name, arg.OwnerID, arg.ReleasedAt)
+	return err
+}
+
 const takePreviewCode = `-- name: TakePreviewCode :one
-DELETE FROM preview_codes WHERE code_hash = $1 AND expires_at > $2 RETURNING code_hash, user_id, host, expires_at
+DELETE FROM preview_codes WHERE code_hash = $1 AND expires_at > $2 RETURNING code_hash, user_id, exposure_id, host, state_hash, expires_at
 `
 
 type TakePreviewCodeParams struct {
@@ -266,23 +381,50 @@ func (q *Queries) TakePreviewCode(ctx context.Context, arg TakePreviewCodeParams
 	err := row.Scan(
 		&i.CodeHash,
 		&i.UserID,
+		&i.ExposureID,
 		&i.Host,
+		&i.StateHash,
 		&i.ExpiresAt,
 	)
 	return i, err
 }
 
+const trimPreviewSessions = `-- name: TrimPreviewSessions :exec
+DELETE FROM preview_sessions WHERE preview_sessions.user_id = $1 AND preview_sessions.exposure_id = $2
+AND token_hash NOT IN (
+    SELECT token_hash FROM preview_sessions AS keep
+    WHERE keep.user_id = $1 AND keep.exposure_id = $2
+    ORDER BY keep.created_at DESC, keep.token_hash LIMIT 10
+)
+`
+
+type TrimPreviewSessionsParams struct {
+	UserID     string
+	ExposureID string
+}
+
+func (q *Queries) TrimPreviewSessions(ctx context.Context, arg TrimPreviewSessionsParams) error {
+	_, err := q.db.ExecContext(ctx, trimPreviewSessions, arg.UserID, arg.ExposureID)
+	return err
+}
+
 const updateExposure = `-- name: UpdateExposure :exec
-UPDATE exposures SET name = $1, access = $2 WHERE id = $3
+UPDATE exposures SET name = $1, access = $2, wake_on_request = $3 WHERE id = $4
 `
 
 type UpdateExposureParams struct {
-	Name   string
-	Access string
-	ID     string
+	Name          string
+	Access        string
+	WakeOnRequest int64
+	ID            string
 }
 
 func (q *Queries) UpdateExposure(ctx context.Context, arg UpdateExposureParams) error {
-	_, err := q.db.ExecContext(ctx, updateExposure, arg.Name, arg.Access, arg.ID)
+	_, err := q.db.ExecContext(ctx, updateExposure,
+		arg.Name,
+		arg.Access,
+		arg.WakeOnRequest,
+		arg.ID,
+	)
 	return err
 }

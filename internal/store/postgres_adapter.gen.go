@@ -25,8 +25,17 @@ func (p postgresQueries) AttachSkill(ctx context.Context, arg db.AttachSkillPara
 	return p.q.AttachSkill(ctx, postgres.AttachSkillParams(arg))
 }
 
+func (p postgresQueries) ClaimExposureName(ctx context.Context, name string) error {
+	return p.q.ClaimExposureName(ctx, name)
+}
+
 func (p postgresQueries) ConsumeNodeJoinToken(ctx context.Context, arg db.ConsumeNodeJoinTokenParams) (string, error) {
 	value, err := p.q.ConsumeNodeJoinToken(ctx, postgres.ConsumeNodeJoinTokenParams(arg))
+	return value, err
+}
+
+func (p postgresQueries) CountExposures(ctx context.Context, agentID string) (int64, error) {
+	value, err := p.q.CountExposures(ctx, agentID)
 	return value, err
 }
 
@@ -78,6 +87,10 @@ func (p postgresQueries) CreateNodeJoinToken(ctx context.Context, arg db.CreateN
 
 func (p postgresQueries) CreatePreviewCode(ctx context.Context, arg db.CreatePreviewCodeParams) error {
 	return p.q.CreatePreviewCode(ctx, postgres.CreatePreviewCodeParams(arg))
+}
+
+func (p postgresQueries) CreatePreviewConsent(ctx context.Context, arg db.CreatePreviewConsentParams) error {
+	return p.q.CreatePreviewConsent(ctx, postgres.CreatePreviewConsentParams(arg))
 }
 
 func (p postgresQueries) CreatePreviewSession(ctx context.Context, arg db.CreatePreviewSessionParams) error {
@@ -158,6 +171,10 @@ func (p postgresQueries) DeleteNode(ctx context.Context, id string) error {
 	return p.q.DeleteNode(ctx, id)
 }
 
+func (p postgresQueries) DeleteOldReleasedExposureNames(ctx context.Context, releasedAt int64) error {
+	return p.q.DeleteOldReleasedExposureNames(ctx, releasedAt)
+}
+
 func (p postgresQueries) DeletePreviewSession(ctx context.Context, tokenHash string) error {
 	return p.q.DeletePreviewSession(ctx, tokenHash)
 }
@@ -185,6 +202,10 @@ func (p postgresQueries) DeleteSkill(ctx context.Context, id string) error {
 
 func (p postgresQueries) DeleteStaleNodeJoinTokens(ctx context.Context, before int64) error {
 	return p.q.DeleteStaleNodeJoinTokens(ctx, before)
+}
+
+func (p postgresQueries) DeleteUserPreviewSessions(ctx context.Context, userID string) error {
+	return p.q.DeleteUserPreviewSessions(ctx, userID)
 }
 
 func (p postgresQueries) DeleteWebhook(ctx context.Context, id string) error {
@@ -287,6 +308,11 @@ func (p postgresQueries) GetProviderLoginByID(ctx context.Context, id string) (d
 	return db.ProviderLogin(value), err
 }
 
+func (p postgresQueries) GetReleasedExposureName(ctx context.Context, name string) (db.ExposureReleasedName, error) {
+	value, err := p.q.GetReleasedExposureName(ctx, name)
+	return db.ExposureReleasedName(value), err
+}
+
 func (p postgresQueries) GetSandbox(ctx context.Context, agentID string) (db.Sandbox, error) {
 	value, err := p.q.GetSandbox(ctx, agentID)
 	return db.Sandbox(value), err
@@ -345,6 +371,11 @@ func (p postgresQueries) GetWebhook(ctx context.Context, id string) (db.Webhook,
 func (p postgresQueries) GetWebhookByToken(ctx context.Context, tokenHash string) (db.Webhook, error) {
 	value, err := p.q.GetWebhookByToken(ctx, tokenHash)
 	return db.Webhook(value), err
+}
+
+func (p postgresQueries) HasPreviewConsent(ctx context.Context, arg db.HasPreviewConsentParams) (int64, error) {
+	value, err := p.q.HasPreviewConsent(ctx, postgres.HasPreviewConsentParams(arg))
+	return value, err
 }
 
 func (p postgresQueries) InsertAudit(ctx context.Context, arg db.InsertAuditParams) error {
@@ -689,6 +720,10 @@ func (p postgresQueries) RecordWebhookDelivery(ctx context.Context, arg db.Recor
 	return p.q.RecordWebhookDelivery(ctx, postgres.RecordWebhookDeliveryParams(arg))
 }
 
+func (p postgresQueries) ReleaseExposureName(ctx context.Context, arg db.ReleaseExposureNameParams) error {
+	return p.q.ReleaseExposureName(ctx, postgres.ReleaseExposureNameParams(arg))
+}
+
 func (p postgresQueries) RenameSession(ctx context.Context, arg db.RenameSessionParams) error {
 	return p.q.RenameSession(ctx, postgres.RenameSessionParams(arg))
 }
@@ -798,6 +833,10 @@ func (p postgresQueries) TransitionSandbox(ctx context.Context, arg db.Transitio
 		return 0, err
 	}
 	return p.q.TransitionSandbox(ctx, postgres.TransitionSandboxParams{ToState: arg.ToState, Error: arg.Error, Now: arg.Now, AgentID: arg.AgentID, FromStates: states})
+}
+
+func (p postgresQueries) TrimPreviewSessions(ctx context.Context, arg db.TrimPreviewSessionsParams) error {
+	return p.q.TrimPreviewSessions(ctx, postgres.TrimPreviewSessionsParams(arg))
 }
 
 func (p postgresQueries) UnshareAgent(ctx context.Context, arg db.UnshareAgentParams) (int64, error) {

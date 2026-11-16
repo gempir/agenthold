@@ -76,7 +76,7 @@ func New(d Deps) *API {
 	if d.Preview == nil {
 		d.Preview = &preview.Service{Store: d.Store}
 	}
-	return &API{Deps: d, authz: authz.Checker{Q: d.Store.Queries}, wakes: wakes{pending: map[string]*wakeCall{}}}
+	return &API{Deps: d, authz: authz.Checker{Q: d.Store.Queries}, wakes: wakes{pending: map[string]*wakeCall{}, visitorWake: map[string]time.Time{}, slots: map[string]chan struct{}{}}}
 }
 
 // Mount registers all /api/v1 routes on r.
@@ -99,6 +99,7 @@ func (a *API) mountAuthenticated(r chi.Router) {
 		r.Post("/auth/local", a.localLogin)
 		r.Post("/auth/logout", a.logout)
 		r.Get("/preview/authorize", a.authorizePreview)
+		r.Post("/preview/authorize", a.authorizePreview)
 		r.Get("/agents/{agentId}/terminal", a.terminal)
 		r.Get("/sessions/{sessionId}/stream", a.stream)
 

@@ -2,64 +2,69 @@ package api
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"html"
 	"log/slog"
-	"net"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/authz"
-	"github.com/gempir/agenthold/internal/node"
+	"github.com/gempir/agenthold/internal/id"
 	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/store/db"
-	"github.com/gempir/agenthold/internal/tunnel"
 )
 
 // Exposure hosts reserve this path prefix for the gate.
 const previewReserved = "/_agenthold/"
 
-// Time limits of the preview proxy.
+// Limits of the preview router.
 const (
 	// previewWakeWait is how long a request waits for a sleeping machine
 	// before a browser gets the "waking up" page.
 	previewWakeWait = 20 * time.Second
-	previewDial     = 15 * time.Second
-	// previewHeaders bounds how long an app may take to start its response
-	// (dev servers compile on the first request).
-	previewHeaders = 5 * time.Minute
+	// visitorWakeEvery bounds how often visitors who are not members of a
+	// machine (on exposures with wake_on_request) start it.
+	visitorWakeEvery = time.Minute
+	// previewConcurrency bounds concurrent requests (and open WebSockets)
+	// per exposure; more get 429.
+	previewConcurrency = 128
+	stateCookieTTL     = 10 * time.Minute
 )
 
-// previewCookieName is host-only on every exposure host. Over https it uses
-// the __Host- prefix, which browsers refuse to accept with a Domain
-// attribute, so another exposure on the same parent domain cannot plant one.
-func (a *API) previewCookieName() string {
+// Cookie names on exposure hosts. Over https they carry the __Host- prefix,
+// which browsers refuse to accept with a Domain attribute, so another
+// exposure on the same parent domain cannot plant one.
+func (a *API) previewCookieName() string { return a.previewCookie("ah_preview") }
+func (a *API) stateCookieName() string   { return a.previewCookie("ah_preview_state") }
+
+func (a *API) previewCookie(base string) string {
 	if a.Preview.Hosts.Secure() {
-		return "__Host-ah_preview"
+		return "__Host-" + base
 	}
-	return "ah_preview"
+	return base
 }
 
-// PreviewHandler routes requests for exposure hosts (<name><suffix>) to the
-// preview proxy. They never reach next, so the API and the web app are not
-// served on exposure hosts.
+// PreviewHandler routes every request for a host under the preview suffix
+// to the preview router, valid exposure name or not. They never reach next,
+// so the API and the web app are not served on exposure hosts.
 func (a *API) PreviewHandler(next http.Handler) http.Handler {
 	if !a.Preview.Enabled() {
 		return next
 	}
 	proxy := a.previewProxy()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		name, ok := a.Preview.Hosts.Match(r.Host)
-		if !ok {
+		name, under := a.Preview.Hosts.Classify(r.Host)
+		if !under {
 			next.ServeHTTP(w, r)
+			return
+		}
+		if _, ok := a.Preview.Hosts.Match(r.Host); !ok {
+			previewFail(w, r, http.StatusNotFound, "Nothing here", "No port is exposed at this address.")
 			return
 		}
 		a.servePreview(w, r, name, proxy)
@@ -69,17 +74,18 @@ func (a *API) PreviewHandler(next http.Handler) http.Handler {
 type previewTarget struct {
 	exposure db.Exposure
 	host     string
-	user     *db.User // nil for public exposures
+	user     *db.User // set for private and authenticated exposures
 }
 
 type previewKey struct{}
 
+// visitor is who is asking for an exposure.
+type visitor struct {
+	user   *db.User
+	member bool // owner or shared user of the machine
+}
+
 func (a *API) servePreview(w http.ResponseWriter, r *http.Request, name string, proxy http.Handler) {
-	host := a.Preview.Hosts.Host(name)
-	if strings.HasPrefix(r.URL.Path, previewReserved) {
-		a.previewReserved(w, r, host)
-		return
-	}
 	ctx := r.Context()
 	e, err := a.Preview.Lookup(ctx, name)
 	if errors.Is(err, preview.ErrNotFound) {
@@ -91,87 +97,99 @@ func (a *API) servePreview(w http.ResponseWriter, r *http.Request, name string, 
 		previewFail(w, r, http.StatusInternalServerError, "Error", "Something went wrong.")
 		return
 	}
-	t := previewTarget{exposure: e, host: host}
-	if preview.Access(e.Access) != preview.Public {
-		u, err := a.previewUser(r, host)
-		if err != nil {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="agenthold"`)
-			previewFail(w, r, http.StatusUnauthorized, "Not signed in", "invalid or expired token")
-			return
-		}
-		if u == nil {
+	if strings.HasPrefix(r.URL.Path, previewReserved) {
+		a.previewReserved(w, r, e)
+		return
+	}
+	v, err := a.previewVisitor(r, e)
+	if err != nil {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="agenthold"`)
+		previewFail(w, r, http.StatusUnauthorized, "Not signed in", "invalid or expired token")
+		return
+	}
+	t := previewTarget{exposure: e, host: a.Preview.Hosts.Host(e.Name)}
+	switch preview.Access(e.Access) {
+	case preview.Public:
+	default:
+		if v.user == nil {
 			if browserNavigation(r) {
-				q := url.Values{"host": {host}, "return": {auth.SafeRedirect(r.URL.RequestURI())}}
-				http.Redirect(w, r, a.PublicURL+"/api/v1/preview/authorize?"+q.Encode(), http.StatusFound)
+				a.redirectToAuthorize(w, r, e)
 				return
 			}
 			previewFail(w, r, http.StatusUnauthorized, "Not signed in", "sign in to open this preview")
 			return
 		}
-		if ok, err := a.mayOpen(ctx, u, e); err != nil {
-			slog.ErrorContext(ctx, "preview access", "err", err)
-			previewFail(w, r, http.StatusInternalServerError, "Error", "Something went wrong.")
-			return
-		} else if !ok {
+		if preview.Access(e.Access) == preview.Private && !v.member {
 			previewFail(w, r, http.StatusForbidden, "No access", "You do not have access to this preview. Ask its owner to share the machine with you.")
 			return
 		}
-		t.user = u
+		t.user = v.user
 	}
-	if a.Idle != nil {
+
+	// Only members (and anyone, when the owner allows it) wake the machine
+	// and keep it awake.
+	mayWake := v.member || e.WakeOnRequest != 0
+	if mayWake && a.Idle != nil {
 		a.Idle.Tracker.Touch(e.AgentID)
 		defer a.Idle.Tracker.Touch(e.AgentID)
 	}
-	if err := a.previewReady(ctx, e.AgentID); err != nil {
-		if errors.Is(err, errWaking) {
+	if err := a.previewReady(ctx, e.AgentID, mayWake, !v.member); err != nil {
+		switch {
+		case errors.Is(err, errAsleep):
+			previewFail(w, r, http.StatusServiceUnavailable, "Asleep", "This app is asleep. Its owner can wake it.")
+		case errors.Is(err, errWaking):
 			w.Header().Set("Retry-After", "2")
 			if browserNavigation(r) {
 				wakingPage(w)
 				return
 			}
 			previewFail(w, r, http.StatusServiceUnavailable, "Waking up", "the machine is starting, retry shortly")
-			return
+		default:
+			_, msg := toHTTP(err)
+			previewFail(w, r, http.StatusServiceUnavailable, "Unavailable", "The machine could not be started: "+msg)
 		}
-		_, msg := toHTTP(err)
-		previewFail(w, r, http.StatusServiceUnavailable, "Unavailable", "The machine could not be started: "+msg)
 		return
 	}
+	release, ok := a.previewSlot(e.ID)
+	if !ok {
+		w.Header().Set("Retry-After", "1")
+		previewFail(w, r, http.StatusTooManyRequests, "Busy", "Too many requests to this preview at once.")
+		return
+	}
+	defer release()
 	proxy.ServeHTTP(w, r.WithContext(context.WithValue(ctx, previewKey{}, t)))
 }
 
-// previewUser identifies the caller on an exposure host: an agenthold API
-// token, else the host's preview cookie. A bad token is an error; no
-// credentials is (nil, nil).
-func (a *API) previewUser(r *http.Request, host string) (*db.User, error) {
+// previewVisitor identifies the caller on an exposure host: an agenthold
+// API token, else the exposure's preview cookie. A bad token is an error on
+// gated exposures (and ignored on public ones); no credentials is no user.
+func (a *API) previewVisitor(r *http.Request, e db.Exposure) (visitor, error) {
+	var u *db.User
 	if token, ok := agentholdBearer(r); ok {
-		return a.Auth.TokenUser(r.Context(), token)
+		tu, err := a.Auth.TokenUser(r.Context(), token)
+		if err != nil {
+			if preview.Access(e.Access) == preview.Public {
+				return visitor{}, nil
+			}
+			return visitor{}, err
+		}
+		u = tu
+	} else if c, err := r.Cookie(a.previewCookieName()); err == nil && c.Value != "" {
+		u, _ = a.Preview.SessionUser(r.Context(), c.Value, e) // a stale cookie means: sign in again
 	}
-	c, err := r.Cookie(a.previewCookieName())
-	if err != nil || c.Value == "" {
-		return nil, nil
+	if u == nil {
+		return visitor{}, nil
 	}
-	u, err := a.Preview.SessionUser(r.Context(), c.Value, host)
+	member, err := a.isMember(r.Context(), u, e)
 	if err != nil {
-		return nil, nil //nolint:nilerr // a stale cookie means: sign in again
+		return visitor{}, err
 	}
-	return u, nil
+	return visitor{user: u, member: member}, nil
 }
 
-// agentholdBearer returns an agenthold API token from the Authorization
-// header. Other bearer tokens belong to the app and pass through.
-func agentholdBearer(r *http.Request) (string, bool) {
-	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	token = strings.TrimSpace(token)
-	return token, ok && strings.HasPrefix(token, auth.TokenPrefix)
-}
-
-// mayOpen decides whether u may open e. Access is checked on every request,
-// so unsharing or tightening access applies at once.
-func (a *API) mayOpen(ctx context.Context, u *db.User, e db.Exposure) (bool, error) {
-	switch preview.Access(e.Access) {
-	case preview.Public, preview.Authenticated:
-		return true, nil
-	}
+// isMember reports whether u owns the exposure's machine or it is shared
+// with u. Checked on every request, so unsharing applies at once.
+func (a *API) isMember(ctx context.Context, u *db.User, e db.Exposure) (bool, error) {
 	ag, err := a.Store.GetAgent(ctx, e.AgentID)
 	if err != nil {
 		return false, err
@@ -181,6 +199,14 @@ func (a *API) mayOpen(ctx context.Context, u *db.User, e db.Exposure) (bool, err
 		return false, err
 	}
 	return authz.Can(role, authz.AgentPreview), nil
+}
+
+// agentholdBearer returns an agenthold API token from the Authorization
+// header (scheme case-insensitive). Other tokens belong to the app.
+func agentholdBearer(r *http.Request) (string, bool) {
+	scheme, token, _ := strings.Cut(strings.TrimSpace(r.Header.Get("Authorization")), " ")
+	token = strings.TrimSpace(token)
+	return token, strings.EqualFold(scheme, "bearer") && strings.HasPrefix(token, auth.TokenPrefix)
 }
 
 // browserNavigation reports whether a request is a page load, which may be
@@ -195,18 +221,57 @@ func browserNavigation(r *http.Request) bool {
 	return strings.Contains(r.Header.Get("Accept"), "text/html")
 }
 
-// previewReserved serves /_agenthold/* on an exposure host.
-func (a *API) previewReserved(w http.ResponseWriter, r *http.Request, host string) {
-	cookie := func(value string, maxAge int) *http.Cookie {
-		return &http.Cookie{
-			Name: a.previewCookieName(), Value: value, Path: "/", MaxAge: maxAge,
-			HttpOnly: true, Secure: a.Preview.Hosts.Secure(), SameSite: http.SameSiteLaxMode,
-		}
+// topLevelNavigation reports whether a request may start the sign-in hand
+// over: a top-level page load, not an image, frame or fetch. Browsers that
+// send no fetch metadata are let through; the consent page still stands
+// between them and exposures of machines they have no access to.
+func topLevelNavigation(r *http.Request) bool {
+	if d := r.Header.Get("Sec-Fetch-Dest"); d != "" && d != "document" {
+		return false
 	}
+	if m := r.Header.Get("Sec-Fetch-Mode"); m != "" && m != "navigate" {
+		return false
+	}
+	return true
+}
+
+// redirectToAuthorize starts the sign-in hand over. The state cookie binds
+// the code to this browser: a sign-in link from someone else's browser is
+// refused at the callback.
+func (a *API) redirectToAuthorize(w http.ResponseWriter, r *http.Request, e db.Exposure) {
+	state := ""
+	if c, err := r.Cookie(a.stateCookieName()); err == nil && len(c.Value) >= 32 && len(c.Value) <= 128 {
+		state = c.Value // keep it, so sign-ins in several tabs do not undo each other
+	} else {
+		state = id.Random(24)
+	}
+	http.SetCookie(w, a.exposureCookie(a.stateCookieName(), state, int(stateCookieTTL.Seconds())))
+	q := url.Values{
+		"host":   {a.Preview.Hosts.Host(e.Name)},
+		"return": {auth.SafeRedirect(r.URL.RequestURI())},
+		"state":  {preview.Hash(state)},
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, a.PublicURL+"/api/v1/preview/authorize?"+q.Encode(), http.StatusFound)
+}
+
+func (a *API) exposureCookie(name, value string, maxAge int) *http.Cookie {
+	return &http.Cookie{
+		Name: name, Value: value, Path: "/", MaxAge: maxAge,
+		HttpOnly: true, Secure: a.Preview.Hosts.Secure(), SameSite: http.SameSiteLaxMode,
+	}
+}
+
+// previewReserved serves /_agenthold/* on an exposure host.
+func (a *API) previewReserved(w http.ResponseWriter, r *http.Request, e db.Exposure) {
 	switch r.URL.Path {
 	case previewReserved + "callback":
 		q := r.URL.Query()
-		userID, err := a.Preview.TakeCode(r.Context(), q.Get("code"), host)
+		state := ""
+		if c, err := r.Cookie(a.stateCookieName()); err == nil {
+			state = c.Value
+		}
+		userID, err := a.Preview.TakeCode(r.Context(), q.Get("code"), e, state)
 		if err != nil {
 			if !errors.Is(err, preview.ErrBadCode) {
 				slog.ErrorContext(r.Context(), "preview code", "err", err)
@@ -214,20 +279,25 @@ func (a *API) previewReserved(w http.ResponseWriter, r *http.Request, host strin
 			previewPage(w, http.StatusBadRequest, "Sign-in failed", preview.ErrBadCode.Error(), "/")
 			return
 		}
-		token, err := a.Preview.CreateSession(r.Context(), userID, host)
+		token, err := a.Preview.CreateSession(r.Context(), userID, e)
 		if err != nil {
 			slog.ErrorContext(r.Context(), "preview session", "err", err)
 			previewFail(w, r, http.StatusInternalServerError, "Error", "Something went wrong.")
 			return
 		}
-		http.SetCookie(w, cookie(token, int(preview.SessionTTL.Seconds())))
+		http.SetCookie(w, a.exposureCookie(a.stateCookieName(), "", -1))
+		http.SetCookie(w, a.exposureCookie(a.previewCookieName(), token, int(preview.SessionTTL.Seconds())))
 		w.Header().Set("Cache-Control", "no-store")
 		http.Redirect(w, r, auth.SafeRedirect(q.Get("return")), http.StatusFound)
 	case previewReserved + "logout":
+		if r.Method != http.MethodPost {
+			logoutPage(w)
+			return
+		}
 		if c, err := r.Cookie(a.previewCookieName()); err == nil && c.Value != "" {
 			_ = a.Preview.EndSession(r.Context(), c.Value)
 		}
-		http.SetCookie(w, cookie("", -1))
+		http.SetCookie(w, a.exposureCookie(a.previewCookieName(), "", -1))
 		previewPage(w, http.StatusOK, "Signed out", "You are signed out of this preview.", "/")
 	default:
 		previewFail(w, r, http.StatusNotFound, "Not found", "This path is reserved by agenthold.")
@@ -235,20 +305,35 @@ func (a *API) previewReserved(w http.ResponseWriter, r *http.Request, host strin
 }
 
 // authorizePreview runs on the main host: it hands a signed-in user's
-// identity to an exposure host as a single-use code.
+// identity to an exposure host as a single-use code. GET shows the consent
+// page where one is needed; POST is that page's form.
 func (a *API) authorizePreview(w http.ResponseWriter, r *http.Request) {
 	if !a.Preview.Enabled() {
 		previewPage(w, http.StatusNotFound, "Not found", preview.ErrDisabled.Error(), "")
 		return
 	}
-	q := r.URL.Query()
-	name, ok := a.Preview.Hosts.Match(q.Get("host"))
-	if !ok {
-		previewPage(w, http.StatusBadRequest, "Bad request", "That is not a preview address of this server.", "")
+	post := r.Method == http.MethodPost
+	if post {
+		if err := r.ParseForm(); err != nil {
+			previewPage(w, http.StatusBadRequest, "Bad request", "Malformed form.", "")
+			return
+		}
+	} else if !topLevelNavigation(r) {
+		previewPage(w, http.StatusForbidden, "Refused", "Sign-in to a preview only starts from a page load.", "")
+		return
+	}
+	host, ret, state := r.FormValue("host"), auth.SafeRedirect(r.FormValue("return")), r.FormValue("state")
+	name, ok := a.Preview.Hosts.Match(host)
+	if !ok || len(state) != 64 {
+		previewPage(w, http.StatusBadRequest, "Bad request", "That is not a preview sign-in link of this server.", "")
 		return
 	}
 	u := auth.UserFrom(r.Context())
 	if u == nil {
+		if post {
+			previewPage(w, http.StatusUnauthorized, "Not signed in", "Sign in and try again.", "")
+			return
+		}
 		http.Redirect(w, r, "/login?redirect="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
 		return
 	}
@@ -257,21 +342,73 @@ func (a *API) authorizePreview(w http.ResponseWriter, r *http.Request) {
 		previewPage(w, http.StatusNotFound, "Nothing here", "No port is exposed at this address.", "")
 		return
 	}
-	if ok, err := a.mayOpen(r.Context(), u, e); err != nil {
-		writeError(w, r, err)
-		return
-	} else if !ok {
-		previewPage(w, http.StatusForbidden, "No access", "You do not have access to this preview. Ask its owner to share the machine with you.", "/")
-		return
-	}
-	code, err := a.Preview.IssueCode(r.Context(), u.ID, a.Preview.Hosts.Host(name))
+	member, err := a.isMember(r.Context(), u, e)
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	back := url.Values{"code": {code}, "return": {auth.SafeRedirect(q.Get("return"))}}
+	switch preview.Access(e.Access) {
+	case preview.Private:
+		if !member {
+			previewPage(w, http.StatusForbidden, "No access", "You do not have access to this preview. Ask its owner to share the machine with you.", "")
+			return
+		}
+	case preview.Authenticated:
+		if !member {
+			consented, err := a.Preview.Consented(r.Context(), u.ID, e)
+			if err != nil {
+				writeError(w, r, err)
+				return
+			}
+			if !consented && !post {
+				a.consentPage(w, r, e, host, ret, state)
+				return
+			}
+			if !consented {
+				if err := a.Preview.Consent(r.Context(), u.ID, e); err != nil {
+					writeError(w, r, err)
+					return
+				}
+			}
+		}
+	}
+	code, err := a.Preview.IssueCode(r.Context(), u.ID, e, state)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	back := url.Values{"code": {code}, "return": {ret}}
 	w.Header().Set("Cache-Control", "no-store")
-	http.Redirect(w, r, a.Preview.Hosts.Origin(name)+previewReserved+"callback?"+back.Encode(), http.StatusFound)
+	http.Redirect(w, r, a.Preview.Hosts.Origin(e.Name)+previewReserved+"callback?"+back.Encode(), http.StatusSeeOther)
+}
+
+// consentPage asks a user before their identity goes to an app on a
+// machine they have no access to.
+func (a *API) consentPage(w http.ResponseWriter, r *http.Request, e db.Exposure, host, ret, state string) {
+	ag, err := a.Store.GetAgent(r.Context(), e.AgentID)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	owner, err := a.Store.GetUser(r.Context(), ag.OwnerID)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	who := owner.Name
+	if owner.Email != "" {
+		who += " (" + owner.Email + ")"
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.WriteHeader(http.StatusOK)
+	h := html.EscapeString
+	_, _ = fmt.Fprintf(w, `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width"><title>Continue to %s?</title><style>%s button{font:inherit;padding:.4rem 1rem}</style>
+<h1>Continue to %s?</h1><p>This app is run by %s. It will see your name and email address.</p>
+<form method=post action="/api/v1/preview/authorize"><input type=hidden name=host value="%s"><input type=hidden name=return value="%s"><input type=hidden name=state value="%s"><button type=submit>Continue</button></form>
+`, h(host), pageStyle, h(host), h(who), h(host), h(ret), h(state))
 }
 
 // jwks serves the keys of X-Agenthold-Identity tokens.
@@ -284,23 +421,46 @@ func (a *API) jwks(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, a.Identity.JWKS())
 }
 
-var errWaking = errors.New("the machine is waking up")
+var (
+	errWaking = errors.New("the machine is waking up")
+	errAsleep = errors.New("the machine is asleep")
+)
 
 type wakeCall struct {
 	done chan struct{}
 	err  error
 }
 
-// previewReady makes sure the machine's sandboxd is connected, waking it if
-// it sleeps. It waits up to previewWakeWait, then returns errWaking while the
-// wake goes on in the background.
-func (a *API) previewReady(ctx context.Context, agentID string) error {
+// wakes tracks background wakes and request slots of the preview router.
+type wakes struct {
+	wakeMu      sync.Mutex
+	pending     map[string]*wakeCall
+	visitorWake map[string]time.Time // last wake started by a non-member, per agent
+	slots       map[string]chan struct{}
+}
+
+// previewReady makes sure the machine's sandboxd is connected. If it sleeps
+// and mayWake, it wakes it (non-members at most once per visitorWakeEvery),
+// waiting up to previewWakeWait before returning errWaking while the wake
+// goes on. Without mayWake a sleeping machine is errAsleep.
+func (a *API) previewReady(ctx context.Context, agentID string, mayWake, visitor bool) error {
 	if ok, err := a.Node.Connected(ctx, agentID); err == nil && ok {
 		return nil
 	}
 	a.wakeMu.Lock()
 	c, ok := a.pending[agentID]
 	if !ok {
+		if !mayWake {
+			a.wakeMu.Unlock()
+			return errAsleep
+		}
+		if visitor {
+			if last, seen := a.visitorWake[agentID]; seen && a.Now().Sub(last) < visitorWakeEvery {
+				a.wakeMu.Unlock()
+				return errWaking
+			}
+			a.visitorWake[agentID] = a.Now()
+		}
 		c = &wakeCall{done: make(chan struct{})}
 		a.pending[agentID] = c
 		go func() {
@@ -326,195 +486,19 @@ func (a *API) previewReady(ctx context.Context, agentID string) error {
 	}
 }
 
-// previewProxy proxies to guest ports through tunnel dial streams. The
-// upstream URL host encodes agent and port, so pooled connections are never
-// shared between machines.
-func (a *API) previewProxy() http.Handler {
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
-			agentID, port, err := parseGuestAddr(addr)
-			if err != nil {
-				return nil, err
-			}
-			ctx, cancel := context.WithTimeout(ctx, previewDial)
-			defer cancel()
-			return node.Client(a.Node, agentID).Dial(ctx, port)
-		},
-		MaxIdleConnsPerHost:   16,
-		IdleConnTimeout:       60 * time.Second,
-		ResponseHeaderTimeout: previewHeaders,
-		ExpectContinueTimeout: time.Second,
-		DisableCompression:    true,
+// previewSlot takes one of an exposure's concurrent request slots.
+func (a *API) previewSlot(exposureID string) (func(), bool) {
+	a.wakeMu.Lock()
+	ch, ok := a.slots[exposureID]
+	if !ok {
+		ch = make(chan struct{}, previewConcurrency)
+		a.slots[exposureID] = ch
 	}
-	return &httputil.ReverseProxy{
-		Transport:     transport,
-		FlushInterval: -1, // stream (SSE, chunked responses) without buffering
-		Rewrite:       a.rewritePreview,
-		ModifyResponse: func(res *http.Response) error {
-			hostOnlyCookies(res.Header, a.previewCookieName())
-			return nil
-		},
-		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			var de *tunnel.DialError
-			switch {
-			case errors.As(err, &de) && de.Refused:
-				previewFail(w, r, http.StatusBadGateway, "Nothing is listening", fmt.Sprintf("Nothing is listening on port %d in the machine. Start the server and reload.", de.Port))
-			case errors.As(err, &de):
-				previewFail(w, r, http.StatusBadGateway, "Bad gateway", de.Error())
-			case errors.Is(err, tunnel.ErrNotConnected):
-				previewFail(w, r, http.StatusServiceUnavailable, "Unavailable", "The machine is not running.")
-			case errors.Is(err, context.Canceled):
-				// The client went away.
-			default:
-				slog.WarnContext(r.Context(), "preview proxy", "host", r.Host, "err", err)
-				previewFail(w, r, http.StatusBadGateway, "Bad gateway", "The app did not answer.")
-			}
-		},
+	a.wakeMu.Unlock()
+	select {
+	case ch <- struct{}{}:
+		return func() { <-ch }, true
+	default:
+		return nil, false
 	}
-}
-
-func (a *API) rewritePreview(pr *httputil.ProxyRequest) {
-	t := pr.In.Context().Value(previewKey{}).(previewTarget)
-	out := pr.Out
-	out.URL.Scheme = "http"
-	out.URL.Host = guestAddr(t.exposure.AgentID, int(t.exposure.Port))
-	out.Host = pr.In.Host // the app sees its public hostname
-	pr.SetXForwarded()
-	out.Header.Set("X-Forwarded-Proto", a.Preview.Hosts.Scheme)
-	for k := range out.Header {
-		if strings.HasPrefix(k, "X-Agenthold-") {
-			out.Header.Del(k)
-		}
-	}
-	if _, ok := agentholdBearer(pr.In); ok {
-		out.Header.Del("Authorization")
-	}
-	stripCookies(out.Header, a.previewCookieName(), auth.CookieName)
-	if t.user == nil {
-		return
-	}
-	u := t.user
-	out.Header.Set("X-Agenthold-User", u.ID)
-	out.Header.Set("X-Agenthold-Email", u.Email)
-	out.Header.Set("X-Agenthold-Name", u.Name)
-	now := a.Now()
-	if a.Identity != nil {
-		tok, err := a.Identity.Sign(preview.Claims{
-			Issuer: a.PublicURL, Subject: u.ID, Audience: t.host, Email: u.Email, Name: u.Name,
-			IssuedAt: now.Unix(), Expires: now.Add(preview.IdentityTTL).Unix(),
-		})
-		if err == nil {
-			out.Header.Set("X-Agenthold-Identity", tok)
-		}
-	}
-}
-
-// guestAddr encodes a machine and port as a dial address.
-func guestAddr(agentID string, port int) string {
-	return net.JoinHostPort(hex.EncodeToString([]byte(agentID))+".guest", strconv.Itoa(port))
-}
-
-func parseGuestAddr(addr string) (string, int, error) {
-	host, p, err := net.SplitHostPort(addr)
-	if err != nil {
-		return "", 0, err
-	}
-	raw, err := hex.DecodeString(strings.TrimSuffix(host, ".guest"))
-	if err != nil {
-		return "", 0, fmt.Errorf("bad guest address %q", addr)
-	}
-	port, err := strconv.Atoi(p)
-	return string(raw), port, err
-}
-
-// stripCookies removes the named cookies from a request's Cookie headers.
-func stripCookies(h http.Header, names ...string) {
-	lines := h.Values("Cookie")
-	if len(lines) == 0 {
-		return
-	}
-	var kept []string
-	for _, line := range lines {
-		for part := range strings.SplitSeq(line, ";") {
-			part = strings.TrimSpace(part)
-			name, _, _ := strings.Cut(part, "=")
-			drop := part == ""
-			for _, n := range names {
-				drop = drop || strings.EqualFold(strings.TrimSpace(name), n)
-			}
-			if !drop {
-				kept = append(kept, part)
-			}
-		}
-	}
-	h.Del("Cookie")
-	if len(kept) > 0 {
-		h.Set("Cookie", strings.Join(kept, "; "))
-	}
-}
-
-// hostOnlyCookies drops the Domain attribute from an app's cookies, so one
-// exposure cannot set cookies for its siblings, and drops cookies that
-// would shadow the gate's own.
-func hostOnlyCookies(h http.Header, gateCookie string) {
-	lines := h.Values("Set-Cookie")
-	if len(lines) == 0 {
-		return
-	}
-	h.Del("Set-Cookie")
-	for _, line := range lines {
-		c, err := http.ParseSetCookie(line)
-		if err != nil {
-			continue
-		}
-		if strings.EqualFold(c.Name, gateCookie) || strings.EqualFold(c.Name, "ah_preview") {
-			continue
-		}
-		if c.Domain != "" {
-			c.Domain = ""
-			line = c.String()
-		}
-		h.Add("Set-Cookie", line)
-	}
-}
-
-// previewFail answers a browser navigation with a small page and anything
-// else with JSON.
-func previewFail(w http.ResponseWriter, r *http.Request, status int, title, msg string) {
-	if browserNavigation(r) {
-		previewPage(w, status, title, msg, "")
-		return
-	}
-	writeJSON(w, status, map[string]string{"error": msg})
-}
-
-const pageStyle = `body{font:15px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#222}` +
-	`@media(prefers-color-scheme:dark){body{background:#111;color:#ddd}a{color:#8ab4f8}}h1{font-size:1.25rem}`
-
-func previewPage(w http.ResponseWriter, status int, title, msg, link string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
-	w.WriteHeader(status)
-	body := "<p>" + html.EscapeString(msg) + "</p>"
-	if link != "" {
-		body += `<p><a href="` + html.EscapeString(link) + `">Try again</a></p>`
-	}
-	_, _ = fmt.Fprintf(w, "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width\"><title>%s</title><style>%s</style><h1>%s</h1>%s\n",
-		html.EscapeString(title), pageStyle, html.EscapeString(title), body)
-}
-
-func wakingPage(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
-	w.Header().Set("Refresh", "2")
-	w.WriteHeader(http.StatusServiceUnavailable)
-	_, _ = fmt.Fprintf(w, "<!doctype html><meta charset=utf-8><meta http-equiv=refresh content=2><meta name=viewport content=\"width=device-width\"><title>Waking up…</title><style>%s</style><h1>Waking up…</h1><p>The machine was asleep and is starting. This page reloads by itself.</p>\n", pageStyle)
-}
-
-// wakes tracks background wakes started by preview requests.
-type wakes struct {
-	wakeMu  sync.Mutex
-	pending map[string]*wakeCall
 }

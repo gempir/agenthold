@@ -247,6 +247,11 @@ func run() error {
 			return fmt.Errorf("preview identity key: %w", err)
 		}
 		logger.Info("preview URLs enabled", "host_suffix", cfg.Preview.HostSuffix)
+		if u, err := url.Parse(cfg.PublicURL); err == nil && config.PreviewSameSite(cfg.Preview.HostSuffix, u.Hostname()) {
+			logger.Warn("preview hosts share a registrable domain with public_url: apps can make same-site requests to agenthold; "+
+				"use a separate domain for full isolation", "host_suffix", cfg.Preview.HostSuffix, "public_url", cfg.PublicURL)
+		}
+		go previewSvc.Run(ctx, 10*time.Minute, logger)
 	}
 	platformSvc := &platform.Service{Store: st, Sessions: sessions, Audit: auditLog, Log: logger, Preview: previewSvc}
 	go func() {

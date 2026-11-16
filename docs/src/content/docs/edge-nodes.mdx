@@ -60,6 +60,23 @@ node:
 The node only ever dials the controller (and the internet on behalf of its agents). The controller never
 connects to a node, so nodes can sit behind NAT.
 
+## Base image and version
+
+A node needs the base disk of its own release. It fetches it **from the controller it joined**, over HTTP(S)
+from the controller's [`/dl/`](/install/#serving-the-release-to-others) (`<public_url>/dl/<version>/base-<arch>.ext4.zst`),
+not from a third-party host. The controller tells the node that address, together with its own version, every
+time the node joins or connects, and the node keeps it in its state file; so `public_url` must be reachable
+from the node, and the controller must have the compressed image (it keeps it after downloading, or you place
+it). The node verifies the image against the sums embedded in its binary: neither the controller nor the
+network has to be trusted for that. The transfer resumes after interruptions and is logged.
+
+The node can only use the controller's copy when both run **the same version**; otherwise it logs an error
+naming both versions and falls back to the URL embedded in its release, if that has one. Upgrade the
+controller first, then its nodes (a node newer than its controller cannot join). Set
+`sandbox.firecracker.base_url` in the node's YAML to fetch from somewhere else, for example another
+controller's `https://demo.agenthold.dev/dl/`, or place the file as described under
+[runtime artifacts](/install/#runtime-artifacts) to stay offline.
+
 ## Trust model
 
 **Nodes are trusted infrastructure**, exactly like the controller's own host.
@@ -90,6 +107,6 @@ A node that is gone for good blocks its agents. An admin can remove an offline n
 agents ("Forget node and its agents"); their disks stay on the lost machine. A node that still hosts agents
 cannot be removed while it is online.
 
-Edge nodes and the controller should run the same release. Each node uses its own base image, kernel and
+Edge nodes and the controller should run the same release (see above). Each node uses its own base image, kernel and
 runtime from its `data_dir`; keep `egress.explicit_port` the same on all nodes (agents get the proxy
 address from the controller's configuration).

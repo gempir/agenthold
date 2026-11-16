@@ -120,7 +120,7 @@ func securityHeaders(dev bool) func(http.Handler) http.Handler {
 			h.Set("X-Content-Type-Options", "nosniff")
 			h.Set("X-Frame-Options", "DENY")
 			h.Set("Referrer-Policy", "same-origin")
-			if !dev && !strings.HasPrefix(r.URL.Path, "/api/") {
+			if !dev && !strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/dl/") {
 				h.Set("Content-Security-Policy", appCSP)
 			}
 			next.ServeHTTP(w, r)

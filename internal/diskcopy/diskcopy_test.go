@@ -126,6 +126,7 @@ func TestDefaultCopyFallsBackWithoutReflink(t *testing.T) {
 	if m != Reflink && m != Sparse {
 		t.Fatalf("method %q", m)
 	}
+	t.Logf("copied by %s", m)
 	equal(t, src, dst)
 }
 

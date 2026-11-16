@@ -145,7 +145,9 @@ func (in *initState) setup() error {
 	} else if reset {
 		in.log.Info("system disk was cloned: machine identity reset")
 		if _, err := os.Stat("/usr/sbin/sshd"); err == nil {
-			if out, err := exec.Command("ssh-keygen", "-A").CombinedOutput(); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if out, err := exec.CommandContext(ctx, "ssh-keygen", "-A").CombinedOutput(); err != nil {
 				in.log.Warn("regenerate ssh host keys", "err", err, "output", string(out))
 			}
 		}

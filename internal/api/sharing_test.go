@@ -85,6 +85,7 @@ func TestAccessMatrix(t *testing.T) {
 		{"audit", "GET", "/agents/" + ag + "/audit", nil, true},
 		{"agent mcp server", "POST", "/agents/" + ag + "/mcp-servers", gen.MCPServerInput{Name: "m", Transport: "stdio", Command: ptr("true")}, true},
 		{"use my logins", "PUT", "/agents/" + ag + "/login", nil, true},
+		{"clone", "POST", "/agents/" + ag + "/clone", gen.CloneInput{Name: "copy"}, true},
 	}
 	users := []struct {
 		name   string
@@ -104,6 +105,7 @@ func TestAccessMatrix(t *testing.T) {
 					status = u.c.do(c.method, c.path, c.body, nil)
 				}
 				tm.e.sessions.Wait()
+				tm.e.sandboxes.Wait()
 				allowed := u.access == "owner" || (u.access == "shared" && !c.owner)
 				switch {
 				case allowed && status >= 400:

@@ -358,10 +358,10 @@ func (m *Manager) create(agentID string) func(ctx context.Context) error {
 // The source is moved to stopping, which keeps every other operation off it
 // while its disks are copied, and remembers whether to boot it again. A clone
 // lives on the node of its source: disks never leave their node.
+//
+// The caller checks Reachable(srcID) first: it queries the store, which must
+// not be done from inside the transaction.
 func (m *Manager) ProvisionClone(ctx context.Context, q *db.Queries, srcID, dstID string) (start func(), err error) {
-	if err := m.Reachable(ctx, srcID); err != nil {
-		return nil, err
-	}
 	src, err := q.GetSandbox(ctx, srcID)
 	if err != nil {
 		return nil, notFound(err)

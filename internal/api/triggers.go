@@ -16,6 +16,7 @@ import (
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/id"
+	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/trigger"
 )
@@ -153,8 +154,12 @@ func (a *API) ListSchedules(ctx context.Context, req gen.ListSchedulesRequestObj
 
 // CreateSchedule implements gen.StrictServerInterface.
 func (a *API) CreateSchedule(ctx context.Context, req gen.CreateScheduleRequestObject) (gen.CreateScheduleResponseObject, error) {
-	if _, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentConfigure); err != nil {
+	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentConfigure)
+	if err != nil {
 		return nil, err
+	}
+	if acc.Row.Agent.IsTemplate == 1 {
+		return nil, sandbox.ErrTemplate
 	}
 	f, err := a.validSchedule(*req.Body)
 	if err != nil {
@@ -301,8 +306,12 @@ func (a *API) ListWebhooks(ctx context.Context, req gen.ListWebhooksRequestObjec
 
 // CreateWebhook implements gen.StrictServerInterface.
 func (a *API) CreateWebhook(ctx context.Context, req gen.CreateWebhookRequestObject) (gen.CreateWebhookResponseObject, error) {
-	if _, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentConfigure); err != nil {
+	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentConfigure)
+	if err != nil {
 		return nil, err
+	}
+	if acc.Row.Agent.IsTemplate == 1 {
+		return nil, sandbox.ErrTemplate
 	}
 	now := a.Now().Unix()
 	token := id.Random(24)

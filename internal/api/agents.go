@@ -54,8 +54,11 @@ func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role aut
 		State: gen.SandboxState(sb.State), StateError: sb.Error, StateChangedAt: ts(sb.StateChangedAt),
 		NeedsRebuild: a.Sandboxes.NeedsRebuild(ag, sb), Role: gen.AgentRole(role),
 		Model: ag.Model, PermissionPolicy: gen.AgentPermissionPolicy(ag.PermissionPolicy),
-		CredentialsInSandbox: ag.CredentialsInSandbox == 1, Login: login,
+		CredentialsInSandbox: ag.CredentialsInSandbox == 1, Login: login, IsTemplate: ag.IsTemplate == 1,
 		CreatedAt: ts(ag.CreatedAt), UpdatedAt: ts(ag.UpdatedAt),
+	}
+	if ag.ClonedFrom != "" {
+		result.ClonedFrom = &ag.ClonedFrom
 	}
 	info := nodeByID(infos, sb.NodeID)
 	result.NodeId, result.NodeName = &info.ID, &info.Name
@@ -112,7 +115,7 @@ func (a *API) validateSettings(s *agentSettings) error {
 }
 
 // ListAgents implements gen.StrictServerInterface.
-func (a *API) ListAgents(ctx context.Context, _ gen.ListAgentsRequestObject) (gen.ListAgentsResponseObject, error) {
+func (a *API) ListAgents(ctx context.Context, req gen.ListAgentsRequestObject) (gen.ListAgentsResponseObject, error) {
 	u := me(ctx)
 	rows, err := a.Store.ListUserAgents(ctx, u.ID)
 	if err != nil {
@@ -124,6 +127,9 @@ func (a *API) ListAgents(ctx context.Context, _ gen.ListAgentsRequestObject) (ge
 	}
 	out := gen.ListAgents200JSONResponse{}
 	for _, r := range rows {
+		if req.Params.Template != nil && *req.Params.Template != (r.Agent.IsTemplate == 1) {
+			continue
+		}
 		role := authz.RoleOf(u.ID, r.Agent.OwnerID, true) // listed: owned or shared
 		ag, err := a.apiAgent(ctx, r.Agent, r.Sandbox, role, infos)
 		if err != nil {
@@ -249,6 +255,11 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	if err := a.validateSettings(&s); err != nil {
 		return nil, err
 	}
+	if b.IsTemplate != nil && *b.IsTemplate != (ag.IsTemplate == 1) {
+		if err := a.setTemplate(ctx, acc.Row, *b.IsTemplate); err != nil {
+			return nil, err
+		}
+	}
 	if err := a.Store.UpdateAgent(ctx, db.UpdateAgentParams{
 		Name: s.name, Image: ag.Image, Cpus: s.cpus, MemoryMb: s.memoryMB, IdleMinutes: s.idleMinutes,
 		UpdatedAt: a.Now().Unix(), ID: ag.ID,
@@ -370,4 +381,145 @@ func (a *API) startChecked(ctx context.Context, agentID string) error {
 		return err
 	}
 	return a.Sandboxes.Start(ctx, agentID)
+}
+
+// setTemplate converts a machine to a template, which stops it first, or back
+// to a normal machine. It only changes machines at rest.
+func (a *API) setTemplate(ctx context.Context, row db.GetAgentWithSandboxRow, template bool) error {
+	ag := row.Agent
+	if template {
+		switch sandbox.Phase(row.Sandbox.State) {
+		case sandbox.PhaseSleeping:
+		case sandbox.PhaseRunning, sandbox.PhaseError:
+			if row.Sandbox.DriverID != "" {
+				if err := a.Sandboxes.Stop(ctx, ag.ID); err != nil {
+					return err
+				}
+			}
+		default:
+			return errStatus(http.StatusConflict, "the machine is busy; try again when it is running or asleep")
+		}
+	} else if sandbox.Phase(row.Sandbox.State) == sandbox.PhaseStopping || sandbox.Phase(row.Sandbox.State) == sandbox.PhaseCreating {
+		// A clone of it may be copying its disks, or it is still being created.
+		return errStatus(http.StatusConflict, "the template is busy; try again in a moment")
+	}
+	if err := a.Store.SetAgentTemplate(ctx, db.SetAgentTemplateParams{IsTemplate: b2i(template), UpdatedAt: a.Now().Unix(), ID: ag.ID}); err != nil {
+		return err
+	}
+	action := "template"
+	if !template {
+		action = "agent"
+	}
+	a.record(ctx, ag, audit.AgentUpdate, ag.Name, map[string]any{"convertedTo": action})
+	return nil
+}
+
+// CloneAgent implements gen.StrictServerInterface.
+func (a *API) CloneAgent(ctx context.Context, req gen.CloneAgentRequestObject) (gen.CloneAgentResponseObject, error) {
+	u := me(ctx)
+	acc, err := a.authz.Agent(ctx, u.ID, req.AgentId, authz.AgentClone)
+	if err != nil {
+		return nil, err
+	}
+	src := acc.Row.Agent
+	name, err := validName(req.Body.Name)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.Sandboxes.Reachable(ctx, src.ID); err != nil {
+		return nil, err
+	}
+	if a.Sessions.AgentBusy(src.ID) {
+		return nil, errStatus(http.StatusConflict, "the machine is working on a prompt; wait for it to finish or stop it first, because it is stopped while it is copied")
+	}
+	// Cloning a template that failed to create has nothing to copy: ProvisionClone says so.
+	asTemplate := req.Body.AsTemplate != nil && *req.Body.AsTemplate
+	// Only the owner clones, so the clone's account logins are the owner's.
+	loginUser := ""
+	if src.LoginUserID == u.ID {
+		loginUser = u.ID
+	}
+	now := a.Now().Unix()
+	dstID := id.New("ag")
+	var provision func()
+	err = a.Store.Tx(ctx, func(q *db.Queries) error {
+		if err := q.CreateClonedAgent(ctx, db.CreateClonedAgentParams{
+			ID: dstID, OwnerID: u.ID, Name: name, Image: src.Image, Harness: src.Harness, Model: src.Model,
+			Cpus: src.Cpus, MemoryMb: src.MemoryMb, IdleMinutes: src.IdleMinutes, PermissionPolicy: src.PermissionPolicy,
+			// The home disk is copied, so a login completed inside the sandbox goes with it.
+			CredentialsInSandbox: src.CredentialsInSandbox, LoginUserID: loginUser,
+			IsTemplate: b2i(asTemplate), ClonedFrom: src.ID, CreatedAt: now, UpdatedAt: now,
+		}); err != nil {
+			return err
+		}
+		if err := copyAttachments(ctx, q, src.ID, dstID, now); err != nil {
+			return err
+		}
+		var err error
+		provision, err = a.Sandboxes.ProvisionClone(ctx, q, src.ID, dstID)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	a.Egress.Invalidate() // the clone's secrets are proxied like its source's
+	provision()
+	row, err := a.Store.GetAgentWithSandbox(ctx, dstID)
+	if err != nil {
+		return nil, err
+	}
+	a.record(ctx, src, audit.AgentClone, row.Agent.Name, map[string]any{"cloneId": dstID, "asTemplate": asTemplate})
+	a.record(ctx, row.Agent, audit.AgentCreate, row.Agent.Name, map[string]any{"harness": row.Agent.Harness, "clonedFrom": src.ID})
+	infos, err := a.nodeInfos(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out, err := a.apiAgent(ctx, row.Agent, row.Sandbox, authz.Owner, infos)
+	if err != nil {
+		return nil, err
+	}
+	return gen.CloneAgent201JSONResponse(out), nil
+}
+
+// copyAttachments gives dst the library MCP servers, skills and secrets
+// attached to src (attachments only: the secrets stay the owner's) and its
+// own MCP servers.
+func copyAttachments(ctx context.Context, q *db.Queries, src, dst string, now int64) error {
+	secrets, err := q.ListAgentSecrets(ctx, src)
+	if err != nil {
+		return err
+	}
+	for _, s := range secrets {
+		if err := q.AttachSecret(ctx, db.AttachSecretParams{AgentID: dst, SecretID: s.Secret.ID, EnvVar: s.EnvVar, CreatedAt: now}); err != nil {
+			return err
+		}
+	}
+	servers, err := q.ListAgentMCPServers(ctx, src)
+	if err != nil {
+		return err
+	}
+	for _, s := range servers {
+		if s.AgentID == "" {
+			if err := q.AttachMCPServer(ctx, db.AttachMCPServerParams{AgentID: dst, ServerID: s.ID}); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := q.CreateMCPServer(ctx, db.CreateMCPServerParams{
+			ID: id.New("mcp"), OwnerID: s.OwnerID, AgentID: dst, Name: s.Name, Transport: s.Transport, Command: s.Command,
+			Args: s.Args, Env: s.Env, Url: s.Url, Headers: s.Headers, CreatedAt: now, UpdatedAt: now,
+		}); err != nil {
+			return err
+		}
+	}
+	skills, err := q.ListAgentSkills(ctx, src)
+	if err != nil {
+		return err
+	}
+	for _, s := range skills {
+		if err := q.AttachSkill(ctx, db.AttachSkillParams{AgentID: dst, SkillID: s.ID}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

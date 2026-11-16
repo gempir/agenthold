@@ -14,6 +14,7 @@ type Querier interface {
 	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) error
 	CreateAgent(ctx context.Context, arg CreateAgentParams) error
 	CreateAgentSession(ctx context.Context, arg CreateAgentSessionParams) error
+	CreateClonedAgent(ctx context.Context, arg CreateClonedAgentParams) error
 	CreateIdentity(ctx context.Context, arg CreateIdentityParams) error
 	CreateLoginState(ctx context.Context, arg CreateLoginStateParams) error
 	CreateMCPServer(ctx context.Context, arg CreateMCPServerParams) error
@@ -104,6 +105,7 @@ type Querier interface {
 	ResetRunningSessions(ctx context.Context) error
 	SetAgentHarness(ctx context.Context, arg SetAgentHarnessParams) error
 	SetAgentLoginUser(ctx context.Context, arg SetAgentLoginUserParams) error
+	SetAgentTemplate(ctx context.Context, arg SetAgentTemplateParams) error
 	SetBootToken(ctx context.Context, arg SetBootTokenParams) error
 	SetNodeCapacity(ctx context.Context, arg SetNodeCapacityParams) error
 	SetNodeState(ctx context.Context, arg SetNodeStateParams) error
@@ -111,6 +113,7 @@ type Querier interface {
 	SetProviderLoginStatus(ctx context.Context, arg SetProviderLoginStatusParams) error
 	SetRemoteNodesOffline(ctx context.Context) error
 	SetSandboxBuilt(ctx context.Context, arg SetSandboxBuiltParams) error
+	SetSandboxResume(ctx context.Context, arg SetSandboxResumeParams) error
 	SetSandboxState(ctx context.Context, arg SetSandboxStateParams) error
 	SetSandboxSubnet(ctx context.Context, arg SetSandboxSubnetParams) error
 	SetSessionACPID(ctx context.Context, arg SetSessionACPIDParams) error

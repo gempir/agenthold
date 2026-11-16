@@ -50,6 +50,53 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) error 
 	return err
 }
 
+const createClonedAgent = `-- name: CreateClonedAgent :exec
+INSERT INTO agents (id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, permission_policy, credentials_in_sandbox, login_user_id, is_template, cloned_from, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+`
+
+type CreateClonedAgentParams struct {
+	ID                   string
+	OwnerID              string
+	Name                 string
+	Image                string
+	Harness              string
+	Model                string
+	Cpus                 float64
+	MemoryMb             int64
+	IdleMinutes          int64
+	PermissionPolicy     string
+	CredentialsInSandbox int64
+	LoginUserID          string
+	IsTemplate           int64
+	ClonedFrom           string
+	CreatedAt            int64
+	UpdatedAt            int64
+}
+
+// A clone keeps the settings of its source, including whether its disks hold harness credentials.
+func (q *Queries) CreateClonedAgent(ctx context.Context, arg CreateClonedAgentParams) error {
+	_, err := q.db.ExecContext(ctx, createClonedAgent,
+		arg.ID,
+		arg.OwnerID,
+		arg.Name,
+		arg.Image,
+		arg.Harness,
+		arg.Model,
+		arg.Cpus,
+		arg.MemoryMb,
+		arg.IdleMinutes,
+		arg.PermissionPolicy,
+		arg.CredentialsInSandbox,
+		arg.LoginUserID,
+		arg.IsTemplate,
+		arg.ClonedFrom,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+	)
+	return err
+}
+
 const createSandbox = `-- name: CreateSandbox :exec
 INSERT INTO sandboxes (agent_id, node_id, driver, state, state_changed_at) VALUES ($1, $2, $3, $4, $5)
 `
@@ -83,7 +130,7 @@ func (q *Queries) DeleteAgent(ctx context.Context, id string) error {
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, permission_policy, credentials_in_sandbox, login_user_id, created_at, updated_at FROM agents WHERE id = $1
+SELECT id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, permission_policy, credentials_in_sandbox, login_user_id, created_at, updated_at, is_template, cloned_from FROM agents WHERE id = $1
 `
 
 func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
@@ -104,12 +151,14 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
 		&i.LoginUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IsTemplate,
+		&i.ClonedFrom,
 	)
 	return i, err
 }
 
 const getAgentWithSandbox = `-- name: GetAgentWithSandbox :one
-SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, sandboxes.agent_id, sandboxes.node_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet
+SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, agents.is_template, agents.cloned_from, sandboxes.agent_id, sandboxes.node_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet, sandboxes.resume
 FROM agents JOIN sandboxes ON sandboxes.agent_id = agents.id
 WHERE agents.id = $1
 `
@@ -137,6 +186,8 @@ func (q *Queries) GetAgentWithSandbox(ctx context.Context, id string) (GetAgentW
 		&i.Agent.LoginUserID,
 		&i.Agent.CreatedAt,
 		&i.Agent.UpdatedAt,
+		&i.Agent.IsTemplate,
+		&i.Agent.ClonedFrom,
 		&i.Sandbox.AgentID,
 		&i.Sandbox.NodeID,
 		&i.Sandbox.Driver,
@@ -147,12 +198,13 @@ func (q *Queries) GetAgentWithSandbox(ctx context.Context, id string) (GetAgentW
 		&i.Sandbox.StateChangedAt,
 		&i.Sandbox.BootTokenHash,
 		&i.Sandbox.Subnet,
+		&i.Sandbox.Resume,
 	)
 	return i, err
 }
 
 const getSandbox = `-- name: GetSandbox :one
-SELECT agent_id, node_id, driver, driver_id, state, error, applied_spec, state_changed_at, boot_token_hash, subnet FROM sandboxes WHERE agent_id = $1
+SELECT agent_id, node_id, driver, driver_id, state, error, applied_spec, state_changed_at, boot_token_hash, subnet, resume FROM sandboxes WHERE agent_id = $1
 `
 
 func (q *Queries) GetSandbox(ctx context.Context, agentID string) (Sandbox, error) {
@@ -169,6 +221,7 @@ func (q *Queries) GetSandbox(ctx context.Context, agentID string) (Sandbox, erro
 		&i.StateChangedAt,
 		&i.BootTokenHash,
 		&i.Subnet,
+		&i.Resume,
 	)
 	return i, err
 }
@@ -206,7 +259,7 @@ func (q *Queries) ListSandboxSubnets(ctx context.Context) ([]ListSandboxSubnetsR
 }
 
 const listSandboxes = `-- name: ListSandboxes :many
-SELECT agent_id, node_id, driver, driver_id, state, error, applied_spec, state_changed_at, boot_token_hash, subnet FROM sandboxes ORDER BY agent_id
+SELECT agent_id, node_id, driver, driver_id, state, error, applied_spec, state_changed_at, boot_token_hash, subnet, resume FROM sandboxes ORDER BY agent_id
 `
 
 func (q *Queries) ListSandboxes(ctx context.Context) ([]Sandbox, error) {
@@ -229,6 +282,7 @@ func (q *Queries) ListSandboxes(ctx context.Context) ([]Sandbox, error) {
 			&i.StateChangedAt,
 			&i.BootTokenHash,
 			&i.Subnet,
+			&i.Resume,
 		); err != nil {
 			return nil, err
 		}
@@ -244,7 +298,7 @@ func (q *Queries) ListSandboxes(ctx context.Context) ([]Sandbox, error) {
 }
 
 const listUserAgents = `-- name: ListUserAgents :many
-SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, sandboxes.agent_id, sandboxes.node_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet
+SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, agents.is_template, agents.cloned_from, sandboxes.agent_id, sandboxes.node_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet, sandboxes.resume
 FROM agents JOIN sandboxes ON sandboxes.agent_id = agents.id
 WHERE agents.owner_id = $1
    OR agents.id IN (SELECT agent_shares.agent_id FROM agent_shares WHERE agent_shares.user_id = $1)
@@ -281,6 +335,8 @@ func (q *Queries) ListUserAgents(ctx context.Context, userID string) ([]ListUser
 			&i.Agent.LoginUserID,
 			&i.Agent.CreatedAt,
 			&i.Agent.UpdatedAt,
+			&i.Agent.IsTemplate,
+			&i.Agent.ClonedFrom,
 			&i.Sandbox.AgentID,
 			&i.Sandbox.NodeID,
 			&i.Sandbox.Driver,
@@ -291,6 +347,7 @@ func (q *Queries) ListUserAgents(ctx context.Context, userID string) ([]ListUser
 			&i.Sandbox.StateChangedAt,
 			&i.Sandbox.BootTokenHash,
 			&i.Sandbox.Subnet,
+			&i.Sandbox.Resume,
 		); err != nil {
 			return nil, err
 		}
@@ -303,6 +360,21 @@ func (q *Queries) ListUserAgents(ctx context.Context, userID string) ([]ListUser
 		return nil, err
 	}
 	return items, nil
+}
+
+const setAgentTemplate = `-- name: SetAgentTemplate :exec
+UPDATE agents SET is_template = $1, updated_at = $2 WHERE id = $3
+`
+
+type SetAgentTemplateParams struct {
+	IsTemplate int64
+	UpdatedAt  int64
+	ID         string
+}
+
+func (q *Queries) SetAgentTemplate(ctx context.Context, arg SetAgentTemplateParams) error {
+	_, err := q.db.ExecContext(ctx, setAgentTemplate, arg.IsTemplate, arg.UpdatedAt, arg.ID)
+	return err
 }
 
 const setBootToken = `-- name: SetBootToken :exec
@@ -331,6 +403,20 @@ type SetSandboxBuiltParams struct {
 
 func (q *Queries) SetSandboxBuilt(ctx context.Context, arg SetSandboxBuiltParams) error {
 	_, err := q.db.ExecContext(ctx, setSandboxBuilt, arg.DriverID, arg.AppliedSpec, arg.AgentID)
+	return err
+}
+
+const setSandboxResume = `-- name: SetSandboxResume :exec
+UPDATE sandboxes SET resume = $1 WHERE agent_id = $2
+`
+
+type SetSandboxResumeParams struct {
+	Resume  int64
+	AgentID string
+}
+
+func (q *Queries) SetSandboxResume(ctx context.Context, arg SetSandboxResumeParams) error {
+	_, err := q.db.ExecContext(ctx, setSandboxResume, arg.Resume, arg.AgentID)
 	return err
 }
 

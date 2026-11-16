@@ -208,7 +208,10 @@ func migrate(ctx context.Context, sqlDB *sql.DB, engine Engine) error {
 	if engine == PostgreSQL {
 		dialect, dir = goose.DialectPostgres, "migrations/postgres"
 	}
-	provider, err := goose.NewProvider(dialect, sqlDB, mustSub(migrations, dir))
+	// Migrations that land in parallel branches get reserved numbers, so one
+	// can reach a database that already applied a later number. Out of order
+	// is fine here: migrations are append-only and independent.
+	provider, err := goose.NewProvider(dialect, sqlDB, mustSub(migrations, dir), goose.WithAllowOutofOrder(true))
 	if err != nil {
 		return fmt.Errorf("migrations: %w", err)
 	}

@@ -52,6 +52,10 @@ func (p postgresQueries) CreateAgentSession(ctx context.Context, arg db.CreateAg
 	return p.q.CreateAgentSession(ctx, postgres.CreateAgentSessionParams(arg))
 }
 
+func (p postgresQueries) CreateClonedAgent(ctx context.Context, arg db.CreateClonedAgentParams) error {
+	return p.q.CreateClonedAgent(ctx, postgres.CreateClonedAgentParams(arg))
+}
+
 func (p postgresQueries) CreateIdentity(ctx context.Context, arg db.CreateIdentityParams) error {
 	return p.q.CreateIdentity(ctx, postgres.CreateIdentityParams(arg))
 }
@@ -648,6 +652,10 @@ func (p postgresQueries) SetAgentLoginUser(ctx context.Context, arg db.SetAgentL
 	return p.q.SetAgentLoginUser(ctx, postgres.SetAgentLoginUserParams(arg))
 }
 
+func (p postgresQueries) SetAgentTemplate(ctx context.Context, arg db.SetAgentTemplateParams) error {
+	return p.q.SetAgentTemplate(ctx, postgres.SetAgentTemplateParams(arg))
+}
+
 func (p postgresQueries) SetBootToken(ctx context.Context, arg db.SetBootTokenParams) error {
 	return p.q.SetBootToken(ctx, postgres.SetBootTokenParams(arg))
 }
@@ -674,6 +682,10 @@ func (p postgresQueries) SetRemoteNodesOffline(ctx context.Context) error {
 
 func (p postgresQueries) SetSandboxBuilt(ctx context.Context, arg db.SetSandboxBuiltParams) error {
 	return p.q.SetSandboxBuilt(ctx, postgres.SetSandboxBuiltParams(arg))
+}
+
+func (p postgresQueries) SetSandboxResume(ctx context.Context, arg db.SetSandboxResumeParams) error {
+	return p.q.SetSandboxResume(ctx, postgres.SetSandboxResumeParams(arg))
 }
 
 func (p postgresQueries) SetSandboxState(ctx context.Context, arg db.SetSandboxStateParams) error {

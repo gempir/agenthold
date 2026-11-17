@@ -70,12 +70,12 @@ func TestServicesCRUDAndLogs(t *testing.T) {
 	}
 	waitUntil(t, "running", 5*time.Second, func() bool { return e.serviceState(bob, ag, "web") == "running" })
 
-	res := bob.raw("GET", "/agents/"+ag+"/services/web/logs?lines=5", nil)
-	body := readAll(t, res.Body)
-	_ = res.Body.Close()
-	if res.StatusCode != 200 || !strings.Contains(body, "hello svc") {
-		t.Fatalf("logs: %d %q", res.StatusCode, body)
-	}
+	waitUntil(t, "log line", 5*time.Second, func() bool {
+		res := bob.raw("GET", "/agents/"+ag+"/services/web/logs?lines=5", nil)
+		body := readAll(t, res.Body)
+		_ = res.Body.Close()
+		return res.StatusCode == 200 && strings.Contains(body, "hello svc")
+	})
 	if _, err := os.Stat(filepath.Join(e.home(ag), ".agenthold/services/web/log")); err != nil {
 		t.Fatal("no log file on the home disk")
 	}

@@ -212,6 +212,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -232,6 +233,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -250,6 +252,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -268,6 +271,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -282,11 +286,133 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Apps you own and apps shared with you. */
+        get: operations["listApps"];
+        put?: never;
+        /** @description Create an app (a machine without a harness). You become its owner. */
+        post: operations["createApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps/{appId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        get: operations["getApp"];
+        put?: never;
+        post?: never;
+        /** @description Owner only. Destroys the machine and its disks. Runs in the background. */
+        delete: operations["deleteApp"];
+        options?: never;
+        head?: never;
+        /** @description Owner only. Resource changes take effect after a system reset (see `needsRebuild`). */
+        patch: operations["updateApp"];
+        trace?: never;
+    };
+    "/apps/{appId}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["startApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps/{appId}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["stopApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps/{appId}/rebuild": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Owner only. Resets the system disk; the home disk (with the deployed releases) is kept. */
+        post: operations["rebuildApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps/{appId}/deploy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Owner only. Copy a directory of a source machine (one you may open a
+         *     terminal in) into a new release of the app (`~/app/releases/<n>`),
+         *     point `~/app/current` at it, define the service `app` (the command
+         *     runs in `~/app/current` with `PORT`), (re)start it, expose the port and
+         *     wait up to 60 s for it to accept connections. A copy that fails
+         *     leaves the previous release serving; a release whose port does not
+         *     come up is rolled back (`ready` false, `rolledBack` true, `logs` set).
+         *     Sleeping machines are woken. The last 3 releases are kept.
+         */
+        post: operations["deployApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agentId}/terminal": {
         parameters: {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -313,6 +439,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -334,6 +461,7 @@ export interface paths {
             };
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -353,6 +481,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -439,6 +568,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -457,6 +587,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
                 secretId: string;
             };
@@ -496,6 +627,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -515,6 +647,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -651,6 +784,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -675,6 +809,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
                 userId: string;
             };
@@ -695,6 +830,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -714,6 +850,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -741,6 +878,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
                 exposureId: string;
             };
@@ -755,6 +893,173 @@ export interface paths {
         head?: never;
         /** @description Rename an exposure or change who may open it (owner only). */
         patch: operations["updateExposure"];
+        trace?: never;
+    };
+    "/agents/{agentId}/services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description The machine's services (owner or shared user), with their live status
+         *     while the machine runs (`running` false: the machine is not connected
+         *     and every service is down; enabled services start with it).
+         */
+        get: operations["listServices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/services/{serviceName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        get: operations["getService"];
+        /**
+         * @description Create or replace a service (owner only) and apply it to the running
+         *     machine: a new or changed service (re)starts, an unchanged one keeps
+         *     running. The command runs with `sh -lc` as the agent account in
+         *     `workdir` (relative to the home). Secrets reach services through
+         *     attached secrets' placeholders, never through `env`.
+         */
+        put: operations["putService"];
+        post?: never;
+        /** @description Stop and remove a service (owner only). */
+        delete: operations["deleteService"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/services/{serviceName}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Enable the service and start it if the machine runs (owner only). */
+        post: operations["startService"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/services/{serviceName}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Disable the service and stop it with everything it started (owner only). */
+        post: operations["stopService"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/services/{serviceName}/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Restart the service now, resetting its backoff (owner only; the machine must run). */
+        post: operations["restartService"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/services/{serviceName}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description The last `lines` lines (default 200, at most 10000) of the service's
+         *     output, as plain text (owner or shared user; the machine must run).
+         *     Lines starting with `agenthold:` are written by the supervisor
+         *     (starts, exits, restarts).
+         */
+        get: operations["getServiceLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/services/{serviceName}/logs/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description WebSocket. The server sends the last `lines` lines, then new output
+         *     as it is written, as text messages of raw log text. It sends
+         *     `{"type":"error","message":"..."}` as a text message starting with
+         *     `{` only when following fails, then closes.
+         */
+        get: operations["streamServiceLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/preview/authorize": {
@@ -789,6 +1094,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -809,6 +1115,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
                 serverId: string;
             };
@@ -898,6 +1205,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -916,6 +1224,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
                 skillId: string;
             };
@@ -1019,6 +1328,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -1045,6 +1355,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -1101,6 +1412,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -1568,6 +1880,138 @@ export interface components {
             access?: components["schemas"]["ExposureAccess"];
             wakeOnRequest?: boolean;
         };
+        ServiceInput: {
+            /** @description Run with `sh -lc` as the agent account. */
+            command: string;
+            /** @description Relative to the home (default the home). */
+            workdir?: string;
+            env?: {
+                [key: string]: string;
+            };
+            /** @description Default true. */
+            enabled?: boolean;
+        };
+        ServiceStatus: {
+            /** @enum {string} */
+            state: "running" | "backoff" | "stopped" | "failed";
+            pid?: number;
+            restarts: number;
+            /** @description Exit code of the last run (absent when a signal ended it). */
+            exitCode?: number;
+            /** @description Signal that ended the last run. */
+            signal?: string;
+            /** @description Why it could not be started (state failed). */
+            error?: string;
+            /** Format: date-time */
+            startedAt?: string;
+        };
+        Service: {
+            name: string;
+            command: string;
+            workdir: string;
+            env: {
+                [key: string]: string;
+            };
+            enabled: boolean;
+            status?: components["schemas"]["ServiceStatus"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ServiceList: {
+            /** @description Whether the machine is connected (its services can run). */
+            running: boolean;
+            /** @description Why the live status is missing although the machine runs. */
+            error?: string;
+            services: components["schemas"]["Service"][];
+        };
+        App: {
+            id: string;
+            name: string;
+            owner: components["schemas"]["User"];
+            nodeId?: string;
+            nodeName?: string;
+            cpus: number;
+            /** Format: int64 */
+            memoryMb: number;
+            /** @description 0 means always on (never sleeps for idleness). */
+            idleMinutes: number;
+            state: components["schemas"]["SandboxState"];
+            stateError: string;
+            /** Format: date-time */
+            stateChangedAt: string;
+            needsRebuild: boolean;
+            role: components["schemas"]["AgentRole"];
+            /** @description The agent that created the app with deploy_app (it may since have been deleted). */
+            createdByAgent?: {
+                id: string;
+                /** @description Empty when the agent was deleted. */
+                name: string;
+            };
+            /** @description The app's primary preview URL */
+            url?: string;
+            /** Format: date-time */
+            lastActivityAt?: string;
+            /** Format: date-time */
+            sleepsAt?: string;
+            /** @description Where the machine sub-resources of this app are. */
+            links: {
+                services: string;
+                exposures: string;
+                files: string;
+                terminal: string;
+                shares: string;
+                secrets: string;
+                audit: string;
+            };
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        AppInput: {
+            name: string;
+            cpus?: number;
+            /** Format: int64 */
+            memoryMb?: number;
+            /** @description Default 0 (always on). */
+            idleMinutes?: number;
+        };
+        AppPatch: {
+            name?: string;
+            cpus?: number;
+            /** Format: int64 */
+            memoryMb?: number;
+            idleMinutes?: number;
+        };
+        DeployInput: {
+            /** @description The machine to copy from. */
+            sourceAgentId: string;
+            /** @description Directory in the source machine */
+            sourceDir: string;
+            /** @description Runs in `~/app/current` with `PORT` set. */
+            command: string;
+            port: number;
+            env?: {
+                [key: string]: string;
+            };
+            access?: components["schemas"]["ExposureAccess"];
+            /** @description Names (any depth) or relative paths left out. Default [".git"]. */
+            exclude?: string[];
+        };
+        DeployResult: {
+            release: number;
+            /** @description The port accepted connections. */
+            ready: boolean;
+            /** @description The new release did not come up and the previous one serves again. */
+            rolledBack: boolean;
+            /** @description The service's last log lines when it did not come up. */
+            logs: string;
+            url?: string;
+            exposure?: components["schemas"]["Exposure"];
+            service?: components["schemas"]["ServiceStatus"];
+        };
         MCPServerInput: {
             /** @description Letters, digits, dashes and underscores. */
             name: string;
@@ -1699,7 +2143,10 @@ export interface components {
     };
     parameters: {
         SessionId: string;
+        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
         AgentId: string;
+        AppId: string;
+        ServiceName: string;
     };
     requestBodies: never;
     headers: never;
@@ -2007,6 +2454,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2030,6 +2478,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2053,6 +2502,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2082,6 +2532,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2107,6 +2558,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2132,6 +2584,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2152,6 +2605,232 @@ export interface operations {
             409: components["responses"]["Error"];
         };
     };
+    listApps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Apps. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["App"][];
+                };
+            };
+        };
+    };
+    createApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppInput"];
+            };
+        };
+        responses: {
+            /** @description Created. The machine is provisioned in the background. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["App"];
+                };
+            };
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The app. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["App"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Destruction started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppPatch"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["App"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    startApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Starting. Its services start with it. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["App"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    stopApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stopping. Its services stop; the disks are kept. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["App"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    rebuildApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resetting. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["App"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    deployApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeployInput"];
+            };
+        };
+        responses: {
+            /** @description Deployed (see `ready`). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeployResult"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
     openTerminal: {
         parameters: {
             query?: {
@@ -2162,6 +2841,7 @@ export interface operations {
             };
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2186,6 +2866,7 @@ export interface operations {
             };
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2214,6 +2895,7 @@ export interface operations {
             };
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2240,6 +2922,7 @@ export interface operations {
             };
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2267,6 +2950,7 @@ export interface operations {
             };
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2295,6 +2979,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2462,6 +3147,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2485,6 +3171,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
                 secretId: string;
             };
@@ -2518,6 +3205,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
                 secretId: string;
             };
@@ -2563,6 +3251,7 @@ export interface operations {
             };
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2587,6 +3276,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2610,6 +3300,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2847,6 +3538,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2870,6 +3562,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2900,6 +3593,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
                 userId: string;
             };
@@ -2926,6 +3620,7 @@ export interface operations {
             };
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2950,6 +3645,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -2973,6 +3669,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -3003,6 +3700,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
                 exposureId: string;
             };
@@ -3026,6 +3724,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
                 exposureId: string;
             };
@@ -3050,6 +3749,246 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+        };
+    };
+    listServices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Services. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceList"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    getService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The service. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Service"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    putService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServiceInput"];
+            };
+        };
+        responses: {
+            /** @description Saved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Service"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    deleteService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    startService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Started. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Service"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    stopService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stopped. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Service"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    restartService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Restarted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Service"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getServiceLogs: {
+        parameters: {
+            query?: {
+                lines?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Log output. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    streamServiceLogs: {
+        parameters: {
+            query?: {
+                lines?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Switching to WebSocket. */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
         };
     };
     authorizePreview: {
@@ -3135,6 +4074,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -3158,6 +4098,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -3188,6 +4129,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
                 serverId: string;
             };
@@ -3211,6 +4153,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
                 serverId: string;
             };
@@ -3429,6 +4372,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -3452,6 +4396,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
                 skillId: string;
             };
@@ -3475,6 +4420,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
                 skillId: string;
             };
@@ -3639,6 +4585,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -3663,6 +4610,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -3687,6 +4635,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -3710,6 +4659,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -3813,6 +4763,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;
@@ -3836,6 +4787,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
                 agentId: components["parameters"]["AgentId"];
             };
             cookie?: never;

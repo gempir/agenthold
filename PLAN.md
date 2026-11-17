@@ -279,6 +279,22 @@ Milestones (migration numbers are reserved so parallel work does not collide):
 - **A1. Apps.** `00004_apps`. `kind`, service supervision in sandboxd, `/apps` API, app tools, UI.
   Builds on X1. *Accept:* an agent writes a small web app, calls `deploy_app`, and the returned URL
   serves it behind the auth gate; the app survives a server restart and a redeploy.
+  *As built:* services are machine-level (`services` table, any kind): sandboxd runs each as the agent
+  user in its own cgroup leaf (`agenthold-svc-<name>`), restarts with backoff (1 s doubling to 30 s,
+  reset after 60 s), logs to `~/.agenthold/services/<name>/log` (10 MiB x 2), and gets the desired set in
+  the boot files (`/etc/agenthold/services.json`, so old guests ignore it instead of failing to boot) and
+  through the `service` tunnel op. Service CPU does not count as idle activity. Commands are shell strings
+  run with `sh -lc`. API rule: `/agents/{id}` (and its lifecycle) is agents only, `/apps/{id}` apps only
+  (404 for the other kind); harness sub-resources answer 409 for apps; machine sub-resources stay under
+  `/agents/{id}/...` for both and an App lists them in `links`. `idle_minutes = 0` means never sleep
+  (apps default). Deploy: `fs.tar`/`fs.untar` through the controller into `~/app/releases/<n>`,
+  `fs.symlink` swap of `~/app/current`, keep 3, service `app`, exposure, wait for the port; a release
+  that does not come up (or crash-loops) is rolled back to the previous one. Deviation: tar/untar run
+  in sandboxd itself (root) with ownership set to the agent user, not re-executed as the agent user: the
+  agent has passwordless sudo in its machine, so the separation would buy nothing; sandboxd's own state
+  (`/etc/agenthold`, `/run/agenthold`) is never archived. Agents read, exec in, restart and stop any of
+  their owner's apps, and deploy to or delete only the ones they created. Apps cannot call platform tools.
+
 - **S1. Memory snapshots.** `00005_snapshots` if needed. Sleep = pause, snapshot to disk, exit;
   wake = restore, fix the guest clock, sandboxd re-dials the tunnel. Balloon to shrink the
   snapshot. Any restore failure (version change, missing file, error) falls back to cold boot.

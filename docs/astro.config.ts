@@ -25,7 +25,7 @@ const nimbusConfig = defineNimbusConfig({
       { label: "Run it", items: ["install", "database", "edge-nodes", "deploy"] },
       {
         label: "Using agenthold",
-        items: ["sessions", "sandboxes", "agents", "tools", "sharing", "previews", "automation"],
+        items: ["sessions", "sandboxes", "agents", "tools", "sharing", "previews", "apps", "automation"],
       },
       { label: "Sign-in", items: ["auth", "auth-github", "auth-keycloak"] },
       { label: "Security", items: ["security", "egress", "hardening"] },

@@ -23,6 +23,8 @@ type Agent struct {
 	LoginUserID          string
 	CreatedAt            int64
 	UpdatedAt            int64
+	IsTemplate           int64
+	ClonedFrom           string
 }
 
 type AgentMcpServer struct {
@@ -215,6 +217,7 @@ type Sandbox struct {
 	StateChangedAt int64
 	BootTokenHash  string
 	Subnet         string
+	Resume         int64
 }
 
 type Schedule struct {

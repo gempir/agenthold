@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -54,8 +55,11 @@ func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role aut
 		State: gen.SandboxState(sb.State), StateError: sb.Error, StateChangedAt: ts(sb.StateChangedAt),
 		NeedsRebuild: a.Sandboxes.NeedsRebuild(ag, sb), Role: gen.AgentRole(role),
 		Model: ag.Model, PermissionPolicy: gen.AgentPermissionPolicy(ag.PermissionPolicy),
-		CredentialsInSandbox: ag.CredentialsInSandbox == 1, Login: login,
+		CredentialsInSandbox: ag.CredentialsInSandbox == 1, Login: login, IsTemplate: ag.IsTemplate == 1,
 		CreatedAt: ts(ag.CreatedAt), UpdatedAt: ts(ag.UpdatedAt),
+	}
+	if ag.ClonedFrom != "" && role == authz.Owner {
+		result.ClonedFrom = &ag.ClonedFrom
 	}
 	info := nodeByID(infos, sb.NodeID)
 	result.NodeId, result.NodeName = &info.ID, &info.Name
@@ -112,7 +116,7 @@ func (a *API) validateSettings(s *agentSettings) error {
 }
 
 // ListAgents implements gen.StrictServerInterface.
-func (a *API) ListAgents(ctx context.Context, _ gen.ListAgentsRequestObject) (gen.ListAgentsResponseObject, error) {
+func (a *API) ListAgents(ctx context.Context, req gen.ListAgentsRequestObject) (gen.ListAgentsResponseObject, error) {
 	u := me(ctx)
 	rows, err := a.Store.ListUserAgents(ctx, u.ID)
 	if err != nil {
@@ -122,8 +126,21 @@ func (a *API) ListAgents(ctx context.Context, _ gen.ListAgentsRequestObject) (ge
 	if err != nil {
 		return nil, err
 	}
+	want := gen.False
+	if req.Params.Template != nil {
+		want = *req.Params.Template
+	}
+	if !want.Valid() {
+		return nil, badRequest("template must be true, false or all")
+	}
 	out := gen.ListAgents200JSONResponse{}
 	for _, r := range rows {
+		// Machines that are not templates, unless templates were asked for.
+		switch t := r.Agent.IsTemplate == 1; {
+		case want == gen.All:
+		case want == gen.True && !t, want == gen.False && t:
+			continue
+		}
 		role := authz.RoleOf(u.ID, r.Agent.OwnerID, true) // listed: owned or shared
 		ag, err := a.apiAgent(ctx, r.Agent, r.Sandbox, role, infos)
 		if err != nil {
@@ -249,21 +266,66 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	if err := a.validateSettings(&s); err != nil {
 		return nil, err
 	}
-	if err := a.Store.UpdateAgent(ctx, db.UpdateAgentParams{
-		Name: s.name, Image: ag.Image, Cpus: s.cpus, MemoryMb: s.memoryMB, IdleMinutes: s.idleMinutes,
-		UpdatedAt: a.Now().Unix(), ID: ag.ID,
+	// Everything is validated before anything changes: the template change
+	// has preconditions of its own, and stopping the machine is the only step
+	// with an effect outside the transaction below.
+	toTemplate := b.IsTemplate != nil && *b.IsTemplate && ag.IsTemplate == 0
+	toAgent := b.IsTemplate != nil && !*b.IsTemplate && ag.IsTemplate == 1
+	if toTemplate || toAgent {
+		if err := a.checkTemplateChange(acc.Row, toTemplate); err != nil {
+			return nil, err
+		}
+	}
+	if toTemplate && sandbox.Phase(acc.Row.Sandbox.State) != sandbox.PhaseSleeping {
+		if err := a.Sandboxes.Stop(ctx, ag.ID); err != nil {
+			return nil, err
+		}
+	}
+	harnessChanged := s.harness != ag.Harness || s.model != ag.Model
+	now := a.Now().Unix()
+	if err := a.Store.Tx(ctx, func(q *db.Queries) error {
+		if err := q.UpdateAgent(ctx, db.UpdateAgentParams{
+			Name: s.name, Image: ag.Image, Cpus: s.cpus, MemoryMb: s.memoryMB, IdleMinutes: s.idleMinutes,
+			UpdatedAt: now, ID: ag.ID,
+		}); err != nil {
+			return err
+		}
+		if err := q.SetPermissionPolicy(ctx, db.SetPermissionPolicyParams{PermissionPolicy: s.policy, UpdatedAt: now, ID: ag.ID}); err != nil {
+			return err
+		}
+		if harnessChanged {
+			if err := q.SetAgentHarness(ctx, db.SetAgentHarnessParams{Harness: s.harness, Model: s.model, UpdatedAt: now, ID: ag.ID}); err != nil {
+				return err
+			}
+		}
+		if toTemplate || toAgent {
+			if err := q.SetAgentTemplate(ctx, db.SetAgentTemplateParams{IsTemplate: b2i(toTemplate), UpdatedAt: now, ID: ag.ID}); err != nil {
+				return err
+			}
+		}
+		if toTemplate {
+			// A template is never prompted: its triggers would only fail. They
+			// stay off when it becomes an agent again; the owner turns on what
+			// still makes sense.
+			if err := q.DisableAgentSchedules(ctx, db.DisableAgentSchedulesParams{UpdatedAt: now, AgentID: ag.ID}); err != nil {
+				return err
+			}
+			return q.DisableAgentWebhooks(ctx, db.DisableAgentWebhooksParams{UpdatedAt: now, AgentID: ag.ID})
+		}
+		return nil
 	}); err != nil {
 		return nil, err
 	}
-	if err := a.Store.SetPermissionPolicy(ctx, db.SetPermissionPolicyParams{PermissionPolicy: s.policy, UpdatedAt: a.Now().Unix(), ID: ag.ID}); err != nil {
-		return nil, err
-	}
-	if s.harness != ag.Harness || s.model != ag.Model {
-		if err := a.Store.SetAgentHarness(ctx, db.SetAgentHarnessParams{Harness: s.harness, Model: s.model, UpdatedAt: a.Now().Unix(), ID: ag.ID}); err != nil {
-			return nil, err
-		}
+	if harnessChanged {
 		a.Sessions.Disconnect(ag.ID) // the next prompt starts the new harness
 		a.Egress.Invalidate()        // and the proxy injects that harness's login
+	}
+	if toTemplate || toAgent {
+		convertedTo := "agent"
+		if toTemplate {
+			convertedTo = "template"
+		}
+		a.record(ctx, ag, audit.AgentUpdate, ag.Name, map[string]any{"convertedTo": convertedTo})
 	}
 	g, err := a.reloadAgent(ctx, ag.ID, acc.Role)
 	if err != nil {
@@ -369,4 +431,170 @@ func (a *API) startChecked(ctx context.Context, agentID string) error {
 		return err
 	}
 	return a.Sandboxes.Start(ctx, agentID)
+}
+
+// checkTemplateChange says whether a machine may be converted now. Only
+// machines at rest are: a turn in progress would be killed, a machine being
+// created or copied is busy.
+func (a *API) checkTemplateChange(row db.GetAgentWithSandboxRow, toTemplate bool) error {
+	phase := sandbox.Phase(row.Sandbox.State)
+	if !toTemplate {
+		if phase == sandbox.PhaseStopping || phase == sandbox.PhaseCreating {
+			// A clone of it may be copying its disks, or it is still being created.
+			return errStatus(http.StatusConflict, "the template is busy; try again in a moment")
+		}
+		return nil
+	}
+	if a.Sessions.AgentBusy(row.Agent.ID) {
+		return errStatus(http.StatusConflict, "the machine is working on a prompt; wait for it to finish before making it a template, because it is stopped first")
+	}
+	switch phase {
+	case sandbox.PhaseSleeping:
+	case sandbox.PhaseRunning, sandbox.PhaseError:
+		if row.Sandbox.DriverID == "" {
+			return errStatus(http.StatusConflict, "the machine has no sandbox to make a template of")
+		}
+	default:
+		return errStatus(http.StatusConflict, "the machine is busy; try again when it is running or asleep")
+	}
+	return nil
+}
+
+// CloneAgent implements gen.StrictServerInterface.
+func (a *API) CloneAgent(ctx context.Context, req gen.CloneAgentRequestObject) (gen.CloneAgentResponseObject, error) {
+	u := me(ctx)
+	acc, err := a.authz.Agent(ctx, u.ID, req.AgentId, authz.AgentClone)
+	if err != nil {
+		return nil, err
+	}
+	src := acc.Row.Agent
+	name, err := validName(req.Body.Name)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.Sandboxes.Reachable(ctx, src.ID); err != nil {
+		return nil, err
+	}
+	if a.Sessions.AgentBusy(src.ID) {
+		return nil, errStatus(http.StatusConflict, "the machine is working on a prompt; wait for it to finish or stop it first, because it is stopped while it is copied")
+	}
+	if err := a.Sandboxes.CheckCloneable(ctx, src.ID); err != nil {
+		return nil, err
+	}
+	// A clone lives on its source's node and has its resources. Like
+	// placement, which only considers nodes that can report their capacity,
+	// do not start a copy on a node that cannot.
+	if err := a.nodeCanHost(ctx, src.ID); err != nil {
+		return nil, err
+	}
+	// Cloning a template that failed to create has nothing to copy: ProvisionClone says so.
+	asTemplate := req.Body.AsTemplate != nil && *req.Body.AsTemplate
+	// Only the owner clones, so the clone's account logins are the owner's.
+	loginUser := ""
+	if src.LoginUserID == u.ID {
+		loginUser = u.ID
+	}
+	now := a.Now().Unix()
+	dstID := id.New("ag")
+	var provision func()
+	err = a.Store.Tx(ctx, func(q *db.Queries) error {
+		if err := q.CreateClonedAgent(ctx, db.CreateClonedAgentParams{
+			ID: dstID, OwnerID: u.ID, Name: name, Image: src.Image, Harness: src.Harness, Model: src.Model,
+			Cpus: src.Cpus, MemoryMb: src.MemoryMb, IdleMinutes: src.IdleMinutes, PermissionPolicy: src.PermissionPolicy,
+			// The home disk is copied, so a login completed inside the sandbox goes with it.
+			CredentialsInSandbox: src.CredentialsInSandbox, LoginUserID: loginUser,
+			IsTemplate: b2i(asTemplate), ClonedFrom: src.ID, CreatedAt: now, UpdatedAt: now,
+		}); err != nil {
+			return err
+		}
+		if err := copyAttachments(ctx, q, src.ID, dstID, now); err != nil {
+			return err
+		}
+		var err error
+		provision, err = a.Sandboxes.ProvisionClone(ctx, q, src.ID, dstID)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	a.Egress.Invalidate() // the clone's secrets are proxied like its source's
+	provision()
+	row, err := a.Store.GetAgentWithSandbox(ctx, dstID)
+	if err != nil {
+		return nil, err
+	}
+	a.record(ctx, src, audit.AgentClone, row.Agent.Name, map[string]any{"cloneId": dstID, "asTemplate": asTemplate})
+	a.record(ctx, row.Agent, audit.AgentCreate, row.Agent.Name, map[string]any{"harness": row.Agent.Harness, "clonedFrom": src.ID})
+	infos, err := a.nodeInfos(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out, err := a.apiAgent(ctx, row.Agent, row.Sandbox, authz.Owner, infos)
+	if err != nil {
+		return nil, err
+	}
+	return gen.CloneAgent201JSONResponse(out), nil
+}
+
+// copyAttachments gives dst the library MCP servers, skills and secrets
+// attached to src (attachments only: the secrets stay the owner's) and its
+// own MCP servers.
+func copyAttachments(ctx context.Context, q *db.Queries, src, dst string, now int64) error {
+	secrets, err := q.ListAgentSecrets(ctx, src)
+	if err != nil {
+		return err
+	}
+	for _, s := range secrets {
+		if err := q.AttachSecret(ctx, db.AttachSecretParams{AgentID: dst, SecretID: s.Secret.ID, EnvVar: s.EnvVar, CreatedAt: now}); err != nil {
+			return err
+		}
+	}
+	servers, err := q.ListAgentMCPServers(ctx, src)
+	if err != nil {
+		return err
+	}
+	for _, s := range servers {
+		if s.AgentID == "" {
+			if err := q.AttachMCPServer(ctx, db.AttachMCPServerParams{AgentID: dst, ServerID: s.ID}); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := q.CreateMCPServer(ctx, db.CreateMCPServerParams{
+			ID: id.New("mcp"), OwnerID: s.OwnerID, AgentID: dst, Name: s.Name, Transport: s.Transport, Command: s.Command,
+			Args: s.Args, Env: s.Env, Url: s.Url, Headers: s.Headers, CreatedAt: now, UpdatedAt: now,
+		}); err != nil {
+			return err
+		}
+	}
+	skills, err := q.ListAgentSkills(ctx, src)
+	if err != nil {
+		return err
+	}
+	for _, s := range skills {
+		if err := q.AttachSkill(ctx, db.AttachSkillParams{AgentID: dst, SkillID: s.ID}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// nodeCanHost applies to a clone what placement applies to a new agent: its
+// node has to answer a capacity query.
+func (a *API) nodeCanHost(ctx context.Context, agentID string) error {
+	var err error
+	if n, ok := a.Node.(interface {
+		AgentCapacity(context.Context, string) (node.Capacity, error)
+	}); ok {
+		_, err = n.AgentCapacity(ctx, agentID)
+	} else {
+		_, err = a.Node.Capacity(ctx)
+	}
+	if errors.Is(err, sandbox.ErrUnreachable) {
+		return err
+	}
+	if err != nil {
+		return fmt.Errorf("%w: its node could not report its capacity: %w", sandbox.ErrNoCapacity, err)
+	}
+	return nil
 }

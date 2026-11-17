@@ -148,6 +148,34 @@ func (q *Queries) DeleteWebhook(ctx context.Context, id string) error {
 	return err
 }
 
+const disableAgentSchedules = `-- name: DisableAgentSchedules :exec
+UPDATE schedules SET enabled = 0, updated_at = ? WHERE agent_id = ? AND enabled = 1
+`
+
+type DisableAgentSchedulesParams struct {
+	UpdatedAt int64
+	AgentID   string
+}
+
+func (q *Queries) DisableAgentSchedules(ctx context.Context, arg DisableAgentSchedulesParams) error {
+	_, err := q.db.ExecContext(ctx, disableAgentSchedules, arg.UpdatedAt, arg.AgentID)
+	return err
+}
+
+const disableAgentWebhooks = `-- name: DisableAgentWebhooks :exec
+UPDATE webhooks SET enabled = 0, updated_at = ? WHERE agent_id = ? AND enabled = 1
+`
+
+type DisableAgentWebhooksParams struct {
+	UpdatedAt int64
+	AgentID   string
+}
+
+func (q *Queries) DisableAgentWebhooks(ctx context.Context, arg DisableAgentWebhooksParams) error {
+	_, err := q.db.ExecContext(ctx, disableAgentWebhooks, arg.UpdatedAt, arg.AgentID)
+	return err
+}
+
 const dueSchedules = `-- name: DueSchedules :many
 SELECT id, agent_id, session_id, name, cron, timezone, prompt, enabled, created_by, created_at, updated_at, next_run_at, last_run_at, last_error FROM schedules WHERE enabled = 1 AND next_run_at <= ? ORDER BY next_run_at
 `

@@ -46,6 +46,10 @@ type GuestBoot struct {
 	// wins over the image's /etc/agenthold/image.env). The ServerPlaceholder
 	// "{{server}}" in values is replaced by the gateway address.
 	Env map[string]string `json:"env,omitempty"`
+	// ResetIdentity tells the first boot of a cloned disk to clear the machine
+	// identity it inherited (see EnsureIdentity), whatever the system disk
+	// records about its origin.
+	ResetIdentity bool `json:"resetIdentity,omitempty"`
 	// Files are written into the guest's root (through the overlay) before
 	// sandboxd starts, mode 0644, parent directories 0755. Paths are absolute.
 	Files map[string][]byte `json:"files,omitempty"`

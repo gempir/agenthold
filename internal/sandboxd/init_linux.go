@@ -139,6 +139,20 @@ func (in *initState) setup() error {
 		return fmt.Errorf("chown %s: %w", AgentHome, err)
 	}
 
+	// A disk copied from another agent's sandbox must not be that machine.
+	if reset, err := EnsureIdentity("/", boot.AgentID, boot.ResetIdentity); err != nil {
+		in.log.Warn("machine identity", "err", err)
+	} else if reset {
+		in.log.Info("system disk was cloned: machine identity reset")
+		if _, err := os.Stat("/usr/sbin/sshd"); err == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if out, err := exec.CommandContext(ctx, "ssh-keygen", "-A").CombinedOutput(); err != nil {
+				in.log.Warn("regenerate ssh host keys", "err", err, "output", string(out))
+			}
+		}
+	}
+
 	hostname := boot.Hostname
 	if hostname == "" {
 		hostname = "agent"
@@ -396,26 +410,6 @@ func initNetwork(ipc IPConfig) error {
 		return writeFileAtomic("/etc/resolv.conf", fmt.Appendf(nil, "# managed by agenthold\nnameserver %s\noptions ndots:0\n", ns), 0o644)
 	}
 	return nil
-}
-
-func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".agenthold-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
 }
 
 // loop starts the daemon and supervises it until shutdown.

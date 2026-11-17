@@ -58,3 +58,9 @@ DELETE FROM webhooks WHERE id = $1;
 
 -- name: RecordWebhookDelivery :exec
 UPDATE webhooks SET last_delivery_at = $1, last_error = $2 WHERE id = $3;
+
+-- name: DisableAgentSchedules :exec
+UPDATE schedules SET enabled = 0, updated_at = $1 WHERE agent_id = $2 AND enabled = 1;
+
+-- name: DisableAgentWebhooks :exec
+UPDATE webhooks SET enabled = 0, updated_at = $1 WHERE agent_id = $2 AND enabled = 1;

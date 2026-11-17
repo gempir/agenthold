@@ -31,6 +31,7 @@ const agent = (over: Partial<Agent> = {}): Agent => ({
   stateError: '',
   stateChangedAt: '2030-01-01T00:00:00Z',
   needsRebuild: false,
+  isTemplate: false,
   role: 'shared',
   createdAt: '2030-01-01T00:00:00Z',
   updatedAt: '2030-01-01T00:00:00Z',
@@ -44,6 +45,7 @@ it('renders agent list with state badges', async () => {
       agent({ id: 'a1', name: 'one', state: 'running' }),
       agent({ id: 'a2', name: 'two', state: 'error', needsRebuild: true }),
     ],
+    'GET /agents?template=true': [],
   });
   renderApp('/settings/agents');
   const main = await screen.findByRole('main');

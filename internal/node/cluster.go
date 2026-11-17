@@ -548,6 +548,11 @@ func (c *Cluster) Stop(ctx context.Context, sid sandbox.ID) error {
 // Destroy implements Node.
 func (c *Cluster) Destroy(ctx context.Context, sid sandbox.ID, o sandbox.DestroyOpts) error {
 	n, err := c.forSandbox(ctx, sid)
+	if errors.Is(err, sandbox.ErrNotFound) {
+		// No sandbox is recorded under this id. The manager asks by agent id to
+		// clear what a failed creation or clone left on the agent's node.
+		n, err = c.forAgent(ctx, string(sid))
+	}
 	if err != nil {
 		return err
 	}
@@ -572,6 +577,16 @@ func (c *Cluster) Rebuild(ctx context.Context, sid sandbox.ID, s sandbox.Spec) e
 		return err
 	}
 	return n.Rebuild(ctx, sid, s)
+}
+
+// Clone implements Node on the node that hosts the source: disks never leave
+// their node, so a clone is placed with its source.
+func (c *Cluster) Clone(ctx context.Context, src sandbox.ID, s sandbox.Spec) (sandbox.ID, error) {
+	n, err := c.forSandbox(ctx, src)
+	if err != nil {
+		return "", err
+	}
+	return n.Clone(ctx, src, s)
 }
 
 // Attach implements Node.
@@ -690,6 +705,18 @@ func (c *Cluster) CACertificate(ctx context.Context) ([]byte, error) {
 		return c.cfg.Local.CACertificate(ctx)
 	}
 	return nil, errors.New("egress CA unavailable")
+}
+
+// AgentCapacity reports the capacity of the node that hosts the agent's
+// sandbox, as placement sees it. It fails if that node is offline or cannot say.
+func (c *Cluster) AgentCapacity(ctx context.Context, agentID string) (Capacity, error) {
+	n, err := c.forAgent(ctx, agentID)
+	if err != nil {
+		return Capacity{}, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return n.Capacity(cctx)
 }
 
 // Capacity implements Node as the sum over connected nodes.

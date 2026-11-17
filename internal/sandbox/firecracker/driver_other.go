@@ -58,3 +58,8 @@ func TapName(id sandbox.ID) string {
 	s := sha256.Sum256([]byte(id))
 	return "ah" + hex.EncodeToString(s[:6])
 }
+
+// Clone implements sandbox.Driver.
+func (*Driver) Clone(context.Context, sandbox.ID, sandbox.Spec) (sandbox.ID, error) {
+	return "", ErrUnsupported
+}

@@ -48,7 +48,7 @@ test-kvm:
 		runner=; if [ "$$(id -u)" -ne 0 ]; then runner=sudo; fi; \
 		$$runner env "PATH=$$PATH" CGO_ENABLED=1 GOFLAGS=-buildvcs=false AGENTHOLD_REQUIRE_KVM=1 AGENTHOLD_KVM_BASE="$$work/base.ext4" AGENTHOLD_KVM_KERNEL="$$work/kernel" AGENTHOLD_KVM_FIRECRACKER="$$work/firecracker" AGENTHOLD_KVM_JAILER="$$work/jailer" $(GO) test -v -tags kvm -count=1 ./... >"$$work/test.log" 2>&1 || { cat "$$work/test.log"; exit 1; }; \
 		cat "$$work/test.log"; \
-		for test in TestJailedLifecycle TestGuestFirewallIsolation; do grep -q "^--- PASS: $$test " "$$work/test.log" || { echo "KVM test did not pass: $$test" >&2; exit 1; }; done; \
+		for test in TestJailedLifecycle TestGuestFirewallIsolation TestJailedClone; do grep -q "^--- PASS: $$test " "$$work/test.log" || { echo "KVM test did not pass: $$test" >&2; exit 1; }; done; \
 	fi
 
 lint: lint-go lint-web

@@ -53,3 +53,14 @@ UPDATE sandboxes SET driver_id = ?, applied_spec = ? WHERE agent_id = ?;
 
 -- name: SetBootToken :exec
 UPDATE sandboxes SET boot_token_hash = ? WHERE agent_id = ?;
+
+-- name: CreateClonedAgent :exec
+-- A clone keeps the settings of its source, including whether its disks hold harness credentials.
+INSERT INTO agents (id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, permission_policy, credentials_in_sandbox, login_user_id, is_template, cloned_from, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: SetAgentTemplate :exec
+UPDATE agents SET is_template = ?, updated_at = ? WHERE id = ?;
+
+-- name: SetSandboxResume :exec
+UPDATE sandboxes SET resume = ? WHERE agent_id = ?;

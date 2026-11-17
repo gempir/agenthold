@@ -50,6 +50,9 @@ type Status struct {
 	GatewayIP string
 	// Subnet is the sandbox's network, used to attribute its traffic.
 	Subnet netip.Prefix
+	// BaseStale reports that the system disk sits on an older base image than
+	// the one new sandboxes get. Resetting the system moves it to the current one.
+	BaseStale bool
 }
 
 // Boot is the per-boot configuration for sandboxd. The driver knows how the
@@ -95,6 +98,13 @@ type Driver interface {
 	// Rebuild resets the system disk using spec and the current base image,
 	// keeping the id and home disk. The sandbox ends up stopped.
 	Rebuild(ctx context.Context, id ID, spec Spec) error
+	// Clone provisions a new, stopped sandbox for spec.AgentID whose system
+	// and home disks are copies of src's. src must not be running (the manager
+	// guarantees it; drivers refuse with ErrRunning). The clone has its own
+	// network allocation and boots as its own machine. A clone that fails or is
+	// cancelled leaves nothing behind. Cloning onto an existing sandbox of
+	// spec.AgentID returns it unchanged.
+	Clone(ctx context.Context, src ID, spec Spec) (ID, error)
 }
 
 // Attacher is implemented by drivers that must reconnect the server to a
@@ -105,6 +115,9 @@ type Attacher interface {
 
 // ErrNotFound is returned by Start and Stop for unknown sandboxes.
 var ErrNotFound = errors.New("sandbox not found")
+
+// ErrRunning is returned by Clone when the source sandbox is running.
+var ErrRunning = errors.New("sandbox is running")
 
 // ErrUnreachable is returned when the node that hosts a sandbox is not
 // connected. The sandbox's persisted state is kept until the node returns.

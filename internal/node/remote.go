@@ -381,6 +381,8 @@ func serveWire(parent context.Context, stream *yamux.Stream, backend Node, opts 
 		out.Status, err = backend.Status(ctx, req.ID)
 	case "rebuild":
 		err = backend.Rebuild(ctx, req.ID, req.Spec)
+	case "clone":
+		out.ID, err = backend.Clone(ctx, req.ID, req.Spec)
 	case "attach":
 		err = backend.Attach(ctx, req.ID)
 	case "wait":
@@ -536,6 +538,13 @@ func (r *Remote) Status(ctx context.Context, id sandbox.ID) (sandbox.Status, err
 func (r *Remote) Rebuild(ctx context.Context, id sandbox.ID, s sandbox.Spec) error {
 	_, _, e := r.call(ctx, wireRequest{Method: "rebuild", ID: id, Spec: s}, false)
 	return e
+}
+
+// Clone implements Node. The request carries the source id and the spec of
+// the new sandbox.
+func (r *Remote) Clone(ctx context.Context, src sandbox.ID, s sandbox.Spec) (sandbox.ID, error) {
+	v, _, e := r.call(ctx, wireRequest{Method: "clone", ID: src, Spec: s}, false)
+	return v.ID, e
 }
 
 // Attach implements Node.

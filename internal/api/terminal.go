@@ -31,6 +31,11 @@ func (a *API) Wake(ctx context.Context, agentID string, status func(string)) (*t
 	if err := a.Sandboxes.Reachable(ctx, agentID); err != nil {
 		return nil, err
 	}
+	// Its VM may still be connected while it is being stopped (also for a copy
+	// of its disks): work started now would be killed.
+	if sandbox.Phase(row.State) == sandbox.PhaseStopping {
+		return nil, errStatus(http.StatusConflict, "the agent is being stopped or copied; try again in a moment")
+	}
 	if ok, err := a.Node.Connected(ctx, agentID); err != nil {
 		return nil, err
 	} else if ok {

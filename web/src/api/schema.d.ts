@@ -196,7 +196,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Agents you own and agents shared with you. */
+        /** @description Agents you own and agents shared with you. Templates are left out unless asked for. */
         get: operations["listAgents"];
         put?: never;
         /** @description Create an agent. You become its owner. */
@@ -276,6 +276,33 @@ export interface paths {
         put?: never;
         /** @description Owner only. */
         post: operations["rebuildAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Clone the machine: a new agent with a copy of its system and home disks and of its settings,
+         *     attached MCP servers, skills and secrets (not its shares, sessions, schedules or webhooks).
+         *     A running machine is stopped for the copy and started again afterwards (409 while it works on a
+         *     prompt). 409 also when its system needs a reset first: it is on an older base image than the current
+         *     one, or has pending changes, and a clone would inherit that. The clone is placed on
+         *     the same node and provisioned in the background. A template is cloned the same way ("new agent
+         *     from template"). Owner only: the home disk can hold harness credentials.
+         */
+        post: operations["cloneAgent"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1261,6 +1288,10 @@ export interface components {
             permissionPolicy: "auto-approve" | "ask";
             /** @description A harness login was completed inside the sandbox; the agent can read its own credentials. */
             credentialsInSandbox: boolean;
+            /** @description The machine is a template. It cannot be started, chatted with or scheduled; clone it for a new machine. */
+            isTemplate: boolean;
+            /** @description Id of the agent this one was cloned from, shown to the owner only. The source may no longer exist. */
+            clonedFrom?: string;
             login: components["schemas"]["AgentLogin"];
             /**
              * Format: date-time
@@ -1290,7 +1321,18 @@ export interface components {
             /** @enum {string} */
             permissionPolicy?: "auto-approve" | "ask";
         };
+        CloneInput: {
+            name: string;
+            /** @description Create the clone as a template instead of a machine. */
+            asTemplate?: boolean;
+        };
         AgentPatch: {
+            /**
+             * @description Convert the machine to a template or back to a normal machine. It is stopped first (409 while it
+             *     works on a prompt). Converting to a template disables its schedules and webhooks; they stay
+             *     disabled when it is converted back, and cannot be enabled while it is a template.
+             */
+            isTemplate?: boolean;
             name?: string;
             cpus?: number;
             /** Format: int64 */
@@ -1959,7 +2001,10 @@ export interface operations {
     };
     listAgents: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description `false` (default) lists the machines that are not templates, `true` only templates, `all` both. */
+                template?: "true" | "false" | "all";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2150,6 +2195,37 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+        };
+    };
+    cloneAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloneInput"];
+            };
+        };
+        responses: {
+            /** @description Created. The disks are copied in the background; the new agent is `creating` until then. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     openTerminal: {

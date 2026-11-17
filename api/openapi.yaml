@@ -198,7 +198,13 @@ paths:
     get:
       operationId: listAgents
       tags: [agents]
-      description: Agents you own and agents shared with you.
+      description: Agents you own and agents shared with you. Templates are left out unless asked for.
+      parameters:
+        - name: template
+          in: query
+          required: false
+          description: '`false` (default) lists the machines that are not templates, `true` only templates, `all` both.'
+          schema: { type: string, enum: ["true", "false", "all"], default: "false" }
       responses:
         "200":
           description: Agents.
@@ -313,6 +319,37 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/clone:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: cloneAgent
+      tags: [agents]
+      description: |
+        Clone the machine: a new agent with a copy of its system and home disks and of its settings,
+        attached MCP servers, skills and secrets (not its shares, sessions, schedules or webhooks).
+        A running machine is stopped for the copy and started again afterwards (409 while it works on a
+        prompt). 409 also when its system needs a reset first: it is on an older base image than the current
+        one, or has pending changes, and a clone would inherit that. The clone is placed on
+        the same node and provisioned in the background. A template is cloned the same way ("new agent
+        from template"). Owner only: the home disk can hold harness credentials.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CloneInput" }
+      responses:
+        "201":
+          description: Created. The disks are copied in the background; the new agent is `creating` until then.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
 
   /agents/{agentId}/terminal:
     parameters:
@@ -1560,7 +1597,7 @@ components:
 
     Agent:
       type: object
-      required: [id, name, owner, harness, model, permissionPolicy, credentialsInSandbox, login, cpus, memoryMb, idleMinutes, state, stateError, stateChangedAt, needsRebuild, role, createdAt, updatedAt]
+      required: [id, name, owner, harness, model, permissionPolicy, credentialsInSandbox, login, cpus, memoryMb, idleMinutes, state, stateError, stateChangedAt, needsRebuild, isTemplate, role, createdAt, updatedAt]
       properties:
         id: { type: string }
         name: { type: string }
@@ -1582,6 +1619,12 @@ components:
         credentialsInSandbox:
           type: boolean
           description: A harness login was completed inside the sandbox; the agent can read its own credentials.
+        isTemplate:
+          type: boolean
+          description: The machine is a template. It cannot be started, chatted with or scheduled; clone it for a new machine.
+        clonedFrom:
+          type: string
+          description: Id of the agent this one was cloned from, shown to the owner only. The source may no longer exist.
         login: { $ref: "#/components/schemas/AgentLogin" }
         lastActivityAt:
           type: string
@@ -1608,9 +1651,22 @@ components:
         model: { type: string }
         permissionPolicy: { type: string, enum: [auto-approve, ask] }
 
+    CloneInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        asTemplate: { type: boolean, description: Create the clone as a template instead of a machine. }
+
     AgentPatch:
       type: object
       properties:
+        isTemplate:
+          type: boolean
+          description: |
+            Convert the machine to a template or back to a normal machine. It is stopped first (409 while it
+            works on a prompt). Converting to a template disables its schedules and webhooks; they stay
+            disabled when it is converted back, and cannot be enabled while it is a template.
         name: { type: string, minLength: 1, maxLength: 100 }
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }

@@ -21,6 +21,17 @@ import (
 // ErrConflict is returned when an operation is not allowed in the current phase.
 var ErrConflict = errors.New("operation not allowed in the current state")
 
+// ErrTemplate is returned when a template would be started, chatted with or
+// scheduled. Templates are stopped machines that only exist to be cloned.
+var ErrTemplate = errors.New("this machine is a template: it cannot be started, chatted with or scheduled. Clone it to get a machine, or convert it back to an agent")
+
+// ErrCloneFailed is returned when a machine whose clone never finished is started.
+var ErrCloneFailed = errors.New("this machine's clone did not finish: delete it and clone again")
+
+// ErrNeedsReset is returned when a machine cannot be cloned because its
+// system disk is not on the current base image or has pending changes.
+var ErrNeedsReset = errors.New("reset the system first: this machine's system disk is older than the current base image or has pending changes, and a clone would inherit that. Use Reset system (your home files are kept), then clone it")
+
 // SpecFunc builds the sandbox spec for an agent.
 type SpecFunc func(a db.Agent) Spec
 
@@ -54,6 +65,7 @@ type Backend interface {
 	Destroy(context.Context, ID, DestroyOpts) error
 	Status(context.Context, ID) (Status, error)
 	Rebuild(context.Context, ID, Spec) error
+	Clone(context.Context, ID, Spec) (ID, error)
 	Attach(context.Context, ID) error
 	WaitConnected(context.Context, string) error
 	Disconnect(context.Context, string) error
@@ -115,6 +127,23 @@ type Manager struct {
 
 	mu        sync.Mutex
 	listeners []func(agentID string, phase Phase)
+	pending   map[string]bool // "op/agent" -> queued or running (backgroundOnce)
+	busy      func(agentID string) bool
+}
+
+// SetBusy sets how the manager asks whether an agent is working on a prompt.
+// A clone refuses to stop a machine that is.
+func (m *Manager) SetBusy(fn func(agentID string) bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.busy = fn
+}
+
+func (m *Manager) isBusy(agentID string) bool {
+	m.mu.Lock()
+	fn := m.busy
+	m.mu.Unlock()
+	return fn != nil && fn(agentID)
 }
 
 // NewManager returns a manager. Call Close to wait for background operations.
@@ -220,10 +249,12 @@ func (m *Manager) notify(agentID string, p Phase) {
 	}
 }
 
-// Close cancels nothing that is running but waits for it to finish.
+// Close cancels running operations and waits for them to return. An
+// interrupted operation keeps its transient phase (see background); Reconcile
+// resumes it, or fails it with a reason, at the next start.
 func (m *Manager) Close() {
-	m.wg.Wait()
 	m.cancel()
+	m.wg.Wait()
 }
 
 // Wait blocks until all background operations have finished (tests).
@@ -275,6 +306,11 @@ func (m *Manager) background(agentID, op string, fn func(ctx context.Context) er
 		ctx, cancel := context.WithTimeout(m.ctx, 15*time.Minute)
 		defer cancel()
 		if err := fn(ctx); err != nil {
+			if m.ctx.Err() != nil {
+				// The server is shutting down: not the sandbox's fault either.
+				m.log.Warn("sandbox operation interrupted by shutdown", "agent", agentID, "op", op, "err", err)
+				return
+			}
 			if errors.Is(err, ErrUnreachable) {
 				// Not the sandbox's fault: keep the transient phase, which
 				// ReconcileNode resolves when the node reconnects.
@@ -285,6 +321,31 @@ func (m *Manager) background(agentID, op string, fn func(ctx context.Context) er
 			m.set(agentID, PhaseError, fmt.Sprintf("%s failed: %v", op, err))
 		}
 	}()
+}
+
+// backgroundOnce is background unless the same operation for the agent is
+// already queued or running: two reconciles (for example two connects of the
+// same edge node) must not queue two jobs for one clone.
+func (m *Manager) backgroundOnce(agentID, op string, fn func(ctx context.Context) error) {
+	key := op + "/" + agentID
+	m.mu.Lock()
+	if m.pending[key] {
+		m.mu.Unlock()
+		return
+	}
+	if m.pending == nil {
+		m.pending = map[string]bool{}
+	}
+	m.pending[key] = true
+	m.mu.Unlock()
+	m.background(agentID, op, func(ctx context.Context) error {
+		defer func() {
+			m.mu.Lock()
+			delete(m.pending, key)
+			m.mu.Unlock()
+		}()
+		return fn(ctx)
+	})
 }
 
 // SpecJSON is the canonical form of a spec, stored to detect pending rebuilds.
@@ -325,6 +386,17 @@ func (m *Manager) Provision(ctx context.Context, q *db.Queries, agentID string) 
 
 func (m *Manager) create(agentID string) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
+		// The job may have been queued from a stale snapshot (Reconcile): only
+		// a sandbox that is still waiting for its first creation is created.
+		sb, err := m.store.GetSandbox(ctx, agentID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		if Phase(sb.State) != PhaseCreating || sb.DriverID != "" {
+			return nil
+		}
 		a, err := m.store.GetAgent(ctx, agentID)
 		if err != nil {
 			return err
@@ -339,6 +411,230 @@ func (m *Manager) create(agentID string) func(ctx context.Context) error {
 		}
 		m.set(agentID, PhaseStarting, "")
 		return m.boot(ctx, agentID, id)
+	}
+}
+
+// ProvisionClone creates the sandbox row of a clone of srcID (inside the
+// caller's transaction q, which also inserts the clone's agent row with
+// cloned_from = srcID) and returns a function that starts the clone; call it
+// after the transaction commits.
+//
+// The source is moved to stopping, which keeps every other operation off it
+// while its disks are copied, and remembers whether to boot it again. A clone
+// lives on the node of its source: disks never leave their node.
+//
+// The caller checks Reachable(srcID) first: it queries the store, which must
+// not be done from inside the transaction.
+func (m *Manager) ProvisionClone(ctx context.Context, q *db.Queries, srcID, dstID string) (start func(), err error) {
+	src, err := q.GetSandbox(ctx, srcID)
+	if err != nil {
+		return nil, notFound(err)
+	}
+	if src.DriverID == "" {
+		return nil, ErrConflict
+	}
+	// Each guarded update is atomic, so the phase we left is the one we saw.
+	moved, wasRunning := false, false
+	for _, from := range []Phase{PhaseRunning, PhaseSleeping} {
+		n, err := q.TransitionSandbox(ctx, db.TransitionSandboxParams{
+			ToState: string(PhaseStopping), Now: m.now().Unix(), AgentID: srcID, FromStates: phases([]Phase{from}),
+		})
+		if err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			moved, wasRunning = true, from == PhaseRunning
+			break
+		}
+	}
+	if !moved {
+		return nil, ErrConflict
+	}
+	resume := int64(0)
+	if wasRunning {
+		resume = 1
+	}
+	if err := q.SetSandboxResume(ctx, db.SetSandboxResumeParams{Resume: resume, AgentID: srcID}); err != nil {
+		return nil, err
+	}
+	if err := q.CreateSandbox(ctx, db.CreateSandboxParams{
+		AgentID: dstID, NodeID: src.NodeID, Driver: src.Driver, State: string(PhaseCreating), StateChangedAt: m.now().Unix(),
+	}); err != nil {
+		return nil, err
+	}
+	return func() {
+		m.notify(srcID, PhaseStopping)
+		m.backgroundOnce(dstID, "clone", m.clone(dstID, srcID))
+	}, nil
+}
+
+// CheckCloneable refuses to clone a machine whose system disk a clone must not
+// inherit: one on an older base image than the current one (its guest may not
+// know how to give a clone its own identity), or with changes pending.
+func (m *Manager) CheckCloneable(ctx context.Context, agentID string) error {
+	sb, err := m.store.GetSandbox(ctx, agentID)
+	if err != nil {
+		return notFound(err)
+	}
+	a, err := m.store.GetAgent(ctx, agentID)
+	if err != nil {
+		return notFound(err)
+	}
+	if m.NeedsRebuild(a, sb) {
+		return ErrNeedsReset
+	}
+	if sb.DriverID == "" {
+		return ErrConflict
+	}
+	st, err := m.driver.Status(ctx, ID(sb.DriverID))
+	if err != nil {
+		return err
+	}
+	if st.BaseStale {
+		return ErrNeedsReset
+	}
+	return nil
+}
+
+// holdEnd says in what state a clone job leaves its source.
+type holdEnd int
+
+const (
+	holdUntouched holdEnd = iota // the job never stopped it
+	holdStopped                  // stopped for the copy
+	holdStuck                    // could not be stopped
+)
+
+// clone copies the disks of the clone's source into the new sandbox. It is
+// resumable and idempotent: Reconcile runs it again after a restart, and two
+// queued jobs for one clone are harmless, because everything is decided from
+// the rows as they are once the job holds the locks.
+func (m *Manager) clone(dstID, srcID string) func(ctx context.Context) error {
+	return func(ctx context.Context) (err error) {
+		unlock := m.lock(srcID)
+		defer unlock()
+		dsb, err := m.store.GetSandbox(ctx, dstID)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			m.abandonSource(ctx, srcID) // deleted before the copy began
+			return nil
+		case err != nil:
+			return err
+		case Phase(dsb.State) == PhaseDestroying:
+			m.abandonSource(ctx, srcID)
+			return nil
+		case Phase(dsb.State) != PhaseCreating || dsb.DriverID != "":
+			return nil // done by an earlier job
+		}
+		dst, err := m.store.GetAgent(ctx, dstID)
+		if err != nil {
+			return err
+		}
+		src, err := m.store.GetSandbox(ctx, srcID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("the source machine was deleted")
+		} else if err != nil {
+			return err
+		}
+		if Phase(src.State) != PhaseStopping {
+			// Not held for this copy any more: do not touch it.
+			return errors.New("the source machine changed while the clone was waiting; delete this clone and clone again")
+		}
+		end := holdUntouched
+		defer func() {
+			if errors.Is(err, ErrUnreachable) || m.ctx.Err() != nil {
+				return // the node or the server returns, and Reconcile runs the clone again
+			}
+			m.releaseSource(srcID, ID(src.DriverID), end)
+		}()
+		if src.DriverID == "" {
+			return errors.New("the source machine has no sandbox to clone")
+		}
+		// A turn that began between the API's check and the source leaving
+		// running would be killed by the stop below.
+		if m.isBusy(srcID) {
+			return errors.New("the source machine started working on a prompt; clone it again when it is idle")
+		}
+		// Normally stopped already; not when the server restarted mid-clone.
+		end = holdStuck
+		if err = m.driver.Stop(ctx, ID(src.DriverID)); err != nil {
+			return fmt.Errorf("stop the source: %w", err)
+		}
+		end = holdStopped
+		m.disconnect(srcID)
+		spec := m.spec(dst)
+		id, err := m.driver.Clone(ctx, ID(src.DriverID), spec)
+		if err != nil {
+			return err
+		}
+		// The overlay and base of the clone are the source's, so is what it
+		// was built from: needsRebuild stays truthful.
+		applied := src.AppliedSpec
+		if applied == "" {
+			applied = SpecJSON(spec)
+		}
+		if err = m.store.SetSandboxBuilt(ctx, db.SetSandboxBuiltParams{DriverID: string(id), AppliedSpec: applied, AgentID: dstID}); err != nil {
+			// Nothing refers to the copy: remove it rather than leak its disks.
+			cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+			defer cancel()
+			if derr := m.driver.Destroy(cctx, id, DestroyOpts{}); derr != nil {
+				m.log.Warn("remove unrecorded clone", "agent", dstID, "err", derr)
+			}
+			return err
+		}
+		// Not m.set: a destroy that arrived meanwhile wins.
+		if err = m.transition(ctx, dstID, []Phase{PhaseCreating}, PhaseSleeping); errors.Is(err, ErrConflict) {
+			err = nil
+		}
+		return err
+	}
+}
+
+// abandonSource ends the hold of a clone that will never run (its destination
+// is gone). The caller holds the source's lock.
+func (m *Manager) abandonSource(ctx context.Context, srcID string) {
+	sb, err := m.store.GetSandbox(ctx, srcID)
+	if err != nil || Phase(sb.State) != PhaseStopping || sb.DriverID == "" {
+		return
+	}
+	end := holdStuck
+	// It may still be running (the server died before the job stopped it).
+	if m.driver.Stop(ctx, ID(sb.DriverID)) == nil {
+		end = holdStopped
+		m.disconnect(srcID)
+	}
+	m.releaseSource(srcID, ID(sb.DriverID), end)
+}
+
+// releaseSource ends the hold a clone has on its source: it is booted again if
+// it was running before, otherwise it goes back to sleep. A source that could
+// not be stopped is an error, not asleep. One the job never touched is simply
+// running again.
+func (m *Manager) releaseSource(srcID string, driverID ID, end holdEnd) {
+	ctx, cancel := context.WithTimeout(m.ctx, 5*time.Minute)
+	defer cancel()
+	sb, err := m.store.GetSandbox(ctx, srcID)
+	if err != nil || Phase(sb.State) != PhaseStopping {
+		return // deleted, or resolved by someone else
+	}
+	if err := m.store.SetSandboxResume(ctx, db.SetSandboxResumeParams{AgentID: srcID}); err != nil {
+		m.log.Error("clear resume", "agent", srcID, "err", err)
+	}
+	switch {
+	case end == holdStuck:
+		m.set(srcID, PhaseError, "could not stop the machine to clone it")
+	case sb.Resume == 0:
+		_ = m.transition(ctx, srcID, []Phase{PhaseStopping}, PhaseSleeping)
+	case end == holdUntouched:
+		_ = m.transition(ctx, srcID, []Phase{PhaseStopping}, PhaseRunning)
+	default:
+		if err := m.transition(ctx, srcID, []Phase{PhaseStopping}, PhaseStarting); err != nil {
+			return
+		}
+		if err := m.boot(ctx, srcID, driverID); err != nil && !errors.Is(err, ErrUnreachable) {
+			m.log.Warn("start after clone failed", "agent", srcID, "err", err)
+			m.set(srcID, PhaseError, fmt.Sprintf("start failed after cloning: %v", err))
+		}
 	}
 }
 
@@ -370,6 +666,16 @@ func (m *Manager) Start(ctx context.Context, agentID string) error {
 	}
 	if err := m.Reachable(ctx, agentID); err != nil {
 		return err
+	}
+	a, err := m.store.GetAgent(ctx, agentID)
+	if err != nil {
+		return notFound(err)
+	}
+	if a.IsTemplate == 1 {
+		return ErrTemplate
+	}
+	if sb.State == string(PhaseError) && sb.DriverID == "" && a.ClonedFrom != "" {
+		return ErrCloneFailed
 	}
 	if sb.State == string(PhaseError) && sb.DriverID == "" {
 		// Creation failed before the driver produced a sandbox: retry it.
@@ -487,6 +793,11 @@ func (m *Manager) destroy(agentID string) func(ctx context.Context) error {
 			if err := m.driver.Destroy(ctx, ID(sb.DriverID), DestroyOpts{}); err != nil {
 				return err
 			}
+		} else if err := m.driver.Destroy(ctx, ID(agentID), DestroyOpts{}); err != nil && !errors.Is(err, ErrNotFound) {
+			// No sandbox was recorded, but an interrupted clone or creation
+			// may have left disks under the agent's id (drivers name their
+			// sandbox after the agent).
+			return err
 		}
 		m.disconnect(agentID)
 		if err := m.store.DeleteAgent(ctx, agentID); err != nil {
@@ -517,13 +828,48 @@ func (m *Manager) ReconcileNode(ctx context.Context, nodeID string) error {
 	return m.reconcile(ctx, sbs)
 }
 
+// pendingClones finds the clones a restart interrupted before their disks
+// existed, and the sources they hold (by id).
+func (m *Manager) pendingClones(ctx context.Context, sbs []db.Sandbox) (clones map[string]string, held map[string]bool, err error) {
+	clones, held = map[string]string{}, map[string]bool{}
+	for _, sb := range sbs {
+		if Phase(sb.State) != PhaseCreating || sb.DriverID != "" {
+			continue
+		}
+		a, err := m.store.GetAgent(ctx, sb.AgentID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if a.ClonedFrom != "" {
+			clones[sb.AgentID], held[a.ClonedFrom] = a.ClonedFrom, true
+		}
+	}
+	return clones, held, nil
+}
+
 func (m *Manager) reconcile(ctx context.Context, sbs []db.Sandbox) error {
+	clones, held, err := m.pendingClones(ctx, sbs)
+	if err != nil {
+		return err
+	}
 	for _, sb := range sbs {
 		if err := m.Reachable(ctx, sb.AgentID); err != nil {
 			// Reconciled by ReconcileNode once the node connects.
 			continue
 		}
+		if held[sb.AgentID] {
+			continue // the clone job started below releases its source
+		}
 		phase := Phase(sb.State)
+		// The intent to boot again belongs to one stopped-for-clone episode:
+		// it is consumed here, on every path, and never fires later on an
+		// unrelated interrupted stop.
+		resume := sb.Resume == 1
+		if resume {
+			if err := m.store.SetSandboxResume(ctx, db.SetSandboxResumeParams{AgentID: sb.AgentID}); err != nil {
+				return err
+			}
+		}
 		if phase == PhaseRunning || phase == PhaseStarting {
 			if err := m.driver.SetTunnelToken(ctx, sb.AgentID, sb.BootTokenHash); err != nil {
 				return err
@@ -534,8 +880,11 @@ func (m *Manager) reconcile(ctx context.Context, sbs []db.Sandbox) error {
 			m.background(sb.AgentID, "destroy", m.destroy(sb.AgentID))
 			continue
 		case sb.DriverID == "":
-			if phase == PhaseCreating {
-				m.background(sb.AgentID, "create", m.create(sb.AgentID))
+			switch {
+			case clones[sb.AgentID] != "":
+				m.backgroundOnce(sb.AgentID, "clone", m.clone(sb.AgentID, clones[sb.AgentID]))
+			case phase == PhaseCreating:
+				m.backgroundOnce(sb.AgentID, "create", m.create(sb.AgentID))
 			}
 			continue
 		}
@@ -566,6 +915,12 @@ func (m *Manager) reconcile(ctx context.Context, sbs []db.Sandbox) error {
 		}
 		m.log.Info("reconcile", "agent", sb.AgentID, "persisted", phase, "actual", actual)
 		m.set(sb.AgentID, actual, msg)
+		if resume && phase == PhaseStopping && actual == PhaseSleeping {
+			// It was stopped for a clone that has finished (or is gone): boot it again.
+			if err := m.Start(ctx, sb.AgentID); err != nil {
+				m.log.Warn("reconcile: start after clone", "agent", sb.AgentID, "err", err)
+			}
+		}
 	}
 	return nil
 }

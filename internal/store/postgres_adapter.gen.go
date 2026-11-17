@@ -61,6 +61,10 @@ func (p postgresQueries) CreateAgentSession(ctx context.Context, arg db.CreateAg
 	return p.q.CreateAgentSession(ctx, postgres.CreateAgentSessionParams(arg))
 }
 
+func (p postgresQueries) CreateClonedAgent(ctx context.Context, arg db.CreateClonedAgentParams) error {
+	return p.q.CreateClonedAgent(ctx, postgres.CreateClonedAgentParams(arg))
+}
+
 func (p postgresQueries) CreateExposure(ctx context.Context, arg db.CreateExposureParams) error {
 	return p.q.CreateExposure(ctx, postgres.CreateExposureParams(arg))
 }
@@ -225,6 +229,14 @@ func (p postgresQueries) DetachSecret(ctx context.Context, arg db.DetachSecretPa
 func (p postgresQueries) DetachSkill(ctx context.Context, arg db.DetachSkillParams) (int64, error) {
 	value, err := p.q.DetachSkill(ctx, postgres.DetachSkillParams(arg))
 	return value, err
+}
+
+func (p postgresQueries) DisableAgentSchedules(ctx context.Context, arg db.DisableAgentSchedulesParams) error {
+	return p.q.DisableAgentSchedules(ctx, postgres.DisableAgentSchedulesParams(arg))
+}
+
+func (p postgresQueries) DisableAgentWebhooks(ctx context.Context, arg db.DisableAgentWebhooksParams) error {
+	return p.q.DisableAgentWebhooks(ctx, postgres.DisableAgentWebhooksParams(arg))
 }
 
 func (p postgresQueries) DueSchedules(ctx context.Context, nextRunAt int64) ([]db.Schedule, error) {
@@ -756,6 +768,10 @@ func (p postgresQueries) SetAgentLoginUser(ctx context.Context, arg db.SetAgentL
 	return p.q.SetAgentLoginUser(ctx, postgres.SetAgentLoginUserParams(arg))
 }
 
+func (p postgresQueries) SetAgentTemplate(ctx context.Context, arg db.SetAgentTemplateParams) error {
+	return p.q.SetAgentTemplate(ctx, postgres.SetAgentTemplateParams(arg))
+}
+
 func (p postgresQueries) SetBootToken(ctx context.Context, arg db.SetBootTokenParams) error {
 	return p.q.SetBootToken(ctx, postgres.SetBootTokenParams(arg))
 }
@@ -782,6 +798,10 @@ func (p postgresQueries) SetRemoteNodesOffline(ctx context.Context) error {
 
 func (p postgresQueries) SetSandboxBuilt(ctx context.Context, arg db.SetSandboxBuiltParams) error {
 	return p.q.SetSandboxBuilt(ctx, postgres.SetSandboxBuiltParams(arg))
+}
+
+func (p postgresQueries) SetSandboxResume(ctx context.Context, arg db.SetSandboxResumeParams) error {
+	return p.q.SetSandboxResume(ctx, postgres.SetSandboxResumeParams(arg))
 }
 
 func (p postgresQueries) SetSandboxState(ctx context.Context, arg db.SetSandboxStateParams) error {

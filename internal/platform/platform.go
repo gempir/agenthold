@@ -189,8 +189,8 @@ func (p *Service) reachable(ctx context.Context, caller db.Agent) ([]db.ListUser
 	chk := authz.Checker{Q: p.Store.Queries}
 	var out []db.ListUserAgentsRow
 	for _, r := range rows {
-		if r.Agent.ID == caller.ID {
-			continue
+		if r.Agent.ID == caller.ID || r.Agent.IsTemplate == 1 {
+			continue // templates are never running: nothing to message
 		}
 		if ok, err := chk.CanDelegate(ctx, caller.OwnerID, r.Agent); err != nil {
 			return nil, err

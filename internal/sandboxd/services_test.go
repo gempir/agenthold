@@ -390,3 +390,36 @@ func TestExec(t *testing.T) {
 		t.Fatalf("truncated: %d %+v %v", len(r.Output), r.Truncated, err)
 	}
 }
+
+// Concurrent changes must not deadlock the supervisor (apply takes the
+// supervisor's lock, then a service's; launch must not take them the other
+// way round).
+func TestServiceConcurrentApplies(t *testing.T) {
+	fastServices(t)
+	s, _ := setupWith(t, nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var wg sync.WaitGroup
+		for g := range 8 {
+			wg.Go(func() {
+				for i := range 15 {
+					spec := tunnel.ServiceSpec{Name: "x", Command: "exec sleep 30" + strconv.Itoa((g+i)%3), Enabled: (g+i)%4 != 0}
+					other := tunnel.ServiceSpec{Name: "y", Command: "exec sleep 300", Enabled: i%2 == 0}
+					_, _ = s.Services(t.Context(), tunnel.ServiceRequest{Action: tunnel.ServiceApply, Specs: []tunnel.ServiceSpec{spec, other}})
+					_, _ = s.Services(t.Context(), tunnel.ServiceRequest{Action: tunnel.ServiceRestart, Name: "y"})
+					_, _ = s.Services(t.Context(), tunnel.ServiceRequest{Action: tunnel.ServiceStatus})
+				}
+			})
+		}
+		wg.Wait()
+	}()
+	select {
+	case <-done:
+	case <-time.After(60 * time.Second):
+		t.Fatal("concurrent applies deadlocked the supervisor")
+	}
+	if _, err := s.Services(t.Context(), tunnel.ServiceRequest{Action: tunnel.ServiceStatus}); err != nil {
+		t.Fatal(err)
+	}
+}

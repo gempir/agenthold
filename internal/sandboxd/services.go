@@ -83,6 +83,12 @@ type supervisor struct {
 	// persist is the file the desired set is written to ("" for none).
 	persist string
 
+	// Lock order: ops, then mu, then a service's mu. Nothing that holds a
+	// service's mu takes mu or ops, and nothing that holds mu takes ops.
+	// ops serializes changes (apply, start, stop, restart), so their effects
+	// on the processes never interleave; mu guards the map and ctx; a
+	// service's mu guards its spec and state.
+	ops  sync.Mutex
 	mu   sync.Mutex
 	ctx  context.Context
 	svcs map[string]*service
@@ -115,6 +121,8 @@ func newSupervisor(d *Daemon, persist string) *supervisor {
 // start begins supervising specs. Services launched later need ctx alive;
 // the daemon calls stopAll when it ends.
 func (s *supervisor) start(ctx context.Context, specs []tunnel.ServiceSpec) {
+	s.ops.Lock()
+	defer s.ops.Unlock()
 	s.mu.Lock()
 	s.ctx = ctx
 	s.mu.Unlock()
@@ -126,6 +134,8 @@ func (s *supervisor) start(ctx context.Context, specs []tunnel.ServiceSpec) {
 }
 
 func (s *supervisor) stopAll() {
+	s.ops.Lock()
+	defer s.ops.Unlock()
 	s.mu.Lock()
 	svcs := make([]*service, 0, len(s.svcs))
 	for _, sv := range s.svcs {
@@ -300,16 +310,17 @@ func (sv *service) looping() bool {
 	return sv.stop != nil
 }
 
-// launch starts the supervision loop unless it runs.
+// launch starts the supervision loop unless it runs. It reads the
+// supervisor's context before taking the service's lock (see the lock order).
 func (sv *service) launch() {
+	sv.sup.mu.Lock()
+	ctx := sv.sup.ctx
+	sv.sup.mu.Unlock()
 	sv.mu.Lock()
 	defer sv.mu.Unlock()
 	if sv.stop != nil {
 		return
 	}
-	sv.sup.mu.Lock()
-	ctx := sv.sup.ctx
-	sv.sup.mu.Unlock()
 	if ctx == nil || ctx.Err() != nil {
 		return
 	}
@@ -531,10 +542,15 @@ func (d *Daemon) service(ctx context.Context, st net.Conn, o tunnel.Open) error 
 	s := d.services
 	switch req.Action {
 	case tunnel.ServiceApply:
-		if err := s.apply(req.Specs, true); err != nil {
+		s.ops.Lock()
+		err := s.apply(req.Specs, true)
+		s.ops.Unlock()
+		if err != nil {
 			return err
 		}
 	case tunnel.ServiceStart, tunnel.ServiceStop, tunnel.ServiceRestart:
+		s.ops.Lock()
+		defer s.ops.Unlock()
 		sv, err := s.get(req.Name)
 		if err != nil {
 			return err

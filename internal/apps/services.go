@@ -57,14 +57,18 @@ type InvalidError struct{ Msg string }
 
 func (e *InvalidError) Error() string { return e.Msg }
 
-func invalid(format string, args ...any) error { return &InvalidError{Msg: fmt.Sprintf(format, args...)} }
+func invalid(format string, args ...any) error {
+	return &InvalidError{Msg: fmt.Sprintf(format, args...)}
+}
 
 // ApplyError is a change that was stored but could not be applied to the
 // running machine (for example an old sandboxd). The machine gets it at its
 // next start.
 type ApplyError struct{ Err error }
 
-func (e *ApplyError) Error() string { return "saved, but the running machine did not take it: " + e.Err.Error() }
+func (e *ApplyError) Error() string {
+	return "saved, but the running machine did not take it: " + e.Err.Error()
+}
 func (e *ApplyError) Unwrap() error { return e.Err }
 
 func (m *Manager) pushStored(ctx context.Context, agentID string) ([]tunnel.ServiceState, error) {

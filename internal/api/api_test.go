@@ -21,6 +21,7 @@ import (
 
 	"github.com/gempir/agenthold/internal/api"
 	"github.com/gempir/agenthold/internal/api/gen"
+	"github.com/gempir/agenthold/internal/apps"
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/auth/authtest"
@@ -70,6 +71,7 @@ type env struct {
 	preview  *preview.Service
 	identity *preview.Signer
 	platform *platform.Service
+	apps     *apps.Manager
 }
 
 type slogDiscard struct{}
@@ -167,7 +169,9 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	} else {
 		localNode.SetCA(ca)
 	}
-	e.sandboxes = sandbox.NewManagerWithNode(st, n, egress.SpecFunc(st, 15002), sandbox.Options{TunnelPort: port, ConnectTimeout: 10 * time.Second}, nil)
+	e.apps = &apps.Manager{Store: st, Node: n, Audit: &audit.Log{Store: st}, Limits: cfg.Apps}
+	e.sandboxes = sandbox.NewManagerWithNode(st, n, egress.SpecFunc(st, 15002), sandbox.Options{TunnelPort: port, ConnectTimeout: 10 * time.Second, BootFiles: e.apps.BootFiles}, nil)
+	e.apps.Sandboxes = e.sandboxes
 	t.Cleanup(func() {
 		// Stop in-process sandboxd goroutines.
 		rows, _ := st.ListSandboxes(context.Background())
@@ -188,7 +192,8 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	if e.identity, err = preview.LoadOrCreateSigner(filepath.Join(t.TempDir(), "identity.key")); err != nil {
 		t.Fatal(err)
 	}
-	platformSvc := &platform.Service{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}, Preview: e.preview}
+	e.apps.Preview = e.preview
+	platformSvc := &platform.Service{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}, Preview: e.preview, Apps: e.apps}
 	e.platform = platformSvc
 	go func() {
 		for {
@@ -209,9 +214,10 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Node: n, Nodes: nodes, Limits: cfg.Sandbox,
 		Box: box, Egress: e.directory, Sessions: e.sessions, Idle: e.sleeper, Audit: &audit.Log{Store: st}, ShowTestHarness: true,
 		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins,
-		Preview: e.preview, Identity: e.identity,
+		Preview: e.preview, Identity: e.identity, Apps: e.apps,
 	})
 	e.sessions.SetWaker(a.Wake)
+	e.apps.Wake = a.Wake
 	e.scheduler.Runner = a.Triggers
 	e.sandboxes.OnChange(func(agentID string, p sandbox.Phase) {
 		if p == sandbox.PhaseStopping || p == sandbox.PhaseDestroying {

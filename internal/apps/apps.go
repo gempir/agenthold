@@ -321,15 +321,31 @@ func (m *Manager) ensureExposure(ctx context.Context, p DeployParams) (db.Exposu
 	})
 }
 
-// waitPort waits until something accepts connections on the app's port.
+// waitPort waits until something accepts connections on the app's port. It
+// gives up early when the service keeps exiting (it crashed twice since the
+// wait began).
 func (m *Manager) waitPort(ctx context.Context, app *tunnel.Session, port int, timeout time.Duration) bool {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	base := -1
 	for {
 		c, err := app.Dial(ctx, port)
 		if err == nil {
 			_ = c.Close()
 			return true
+		}
+		if sts, err := app.Services(ctx, tunnel.ServiceRequest{Action: tunnel.ServiceStatus}); err == nil {
+			for _, st := range sts {
+				if st.Name != AppService {
+					continue
+				}
+				if base < 0 {
+					base = st.Restarts
+				}
+				if st.Restarts-base >= 2 && st.State != tunnel.ServiceRunning {
+					return false
+				}
+			}
 		}
 		select {
 		case <-ctx.Done():

@@ -5,6 +5,7 @@ import {
   Globe,
   KeyRound,
   Plug,
+  Server,
   Settings2,
   Share2,
   SquareTerminal,
@@ -18,6 +19,7 @@ export type AgentSection =
   | 'files'
   | 'terminal'
   | 'preview'
+  | 'services'
   | 'secrets'
   | 'tools'
   | 'triggers'
@@ -70,6 +72,13 @@ export const AGENT_SECTIONS: {
     label: 'Preview',
     hint: 'Ports of the machine at preview URLs',
     icon: Globe,
+    show: () => true,
+  },
+  {
+    id: 'services',
+    label: 'Services',
+    hint: 'Commands kept running in the machine (dev servers, workers)',
+    icon: Server,
     show: () => true,
   },
   {

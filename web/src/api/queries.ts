@@ -35,11 +35,13 @@ export const RUNNING_POLL_MS = 10_000;
 
 /** refetchInterval for a single agent: fast while transient, slow while
  * running (to refresh sleepsAt and notice it falling asleep). */
-export const agentPollInterval = (a: Agent | undefined) =>
+export const agentPollInterval = (a: { state: SandboxState } | undefined) =>
   a && isTransient(a.state) ? POLL_MS : a ? RUNNING_POLL_MS : false;
 
 /** refetchInterval for an agent list: poll while any agent is transient. */
-export const agentsPollInterval = (list: Agent[] | undefined) =>
+export const agentsPollInterval = (
+  list: { state: SandboxState }[] | undefined,
+) =>
   list?.some((a) => isTransient(a.state))
     ? POLL_MS
     : list?.length
@@ -140,5 +142,41 @@ export const exposuresQuery = (agentId: string) =>
           params: { path: { agentId } },
         }),
       ),
+    retry: false,
+  });
+
+export type Service = components['schemas']['Service'];
+export type ServiceStatus = components['schemas']['ServiceStatus'];
+
+/** Services supervised in a machine (agent or app). */
+export const servicesQuery = (agentId: string) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'services'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/services', {
+          params: { path: { agentId } },
+        }),
+      ),
+    refetchInterval: 5000,
+    retry: false,
+  });
+
+export type App = components['schemas']['App'];
+
+/** Apps you own and apps shared with you. */
+export const appsQuery = queryOptions({
+  queryKey: ['apps'],
+  queryFn: () => unwrap(api.GET('/apps')),
+  refetchInterval: (q) => agentsPollInterval(q.state.data),
+  retry: false,
+});
+
+export const appQuery = (appId: string) =>
+  queryOptions({
+    queryKey: ['apps', appId],
+    queryFn: () =>
+      unwrap(api.GET('/apps/{appId}', { params: { path: { appId } } })),
+    refetchInterval: (q) => agentPollInterval(q.state.data),
     retry: false,
   });

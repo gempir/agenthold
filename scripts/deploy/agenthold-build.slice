@@ -1,0 +1,12 @@
+[Unit]
+Description=agenthold release builds on the demo host (bounded so the live service keeps its share)
+
+[Slice]
+# The live controller and its microVMs run in system.slice. A build may use most of the CPU when
+# the box is idle, but yields to the service, and is reclaimed/killed before it can starve it.
+CPUWeight=20
+IOWeight=20
+MemoryHigh=3G
+MemoryMax=4G
+MemorySwapMax=0
+TasksMax=4096

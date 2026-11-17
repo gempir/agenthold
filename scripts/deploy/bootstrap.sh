@@ -3,11 +3,13 @@
 #
 #   sudo scripts/deploy/bootstrap.sh RELEASE_DIR
 #
-# RELEASE_DIR holds the files of one sha-<commit> build, from scripts/release/build.sh
-# (build/release/arm64) or from the release assets: agenthold-linux-arm64,
-# runtime-linux-arm64.manifest.json, base-arm64.ext4.zst and SHA256SUMS (or SHA256SUMS-arm64).
-# It creates the layout pull.sh expects, unpacks and verifies the base into the content-addressed
-# cache and installs pull.sh and the systemd units. It does not write /etc/agenthold, start or
+# RELEASE_DIR holds the files of one sha-<commit> build: scripts/release/build.sh's output
+# (build/release/arm64), a version directory of a release store (/srv/agenthold/releases/sha-<commit>)
+# or the files downloaded from a /dl/ root: agenthold-linux-arm64, runtime-linux-arm64.manifest.json,
+# base-arm64.ext4.zst and SHA256SUMS (or SHA256SUMS-arm64).
+# It creates the layout pull.sh expects, keeps the verified compressed base and unpacks it into the
+# content-addressed cache (<data_dir>/base/<sha256>.ext4 and .ext4.zst, which /dl/ serves), and
+# installs pull.sh, build-local.sh and the systemd units. It does not write /etc/agenthold, start or
 # enable anything.
 set -euo pipefail
 umask 022
@@ -17,6 +19,7 @@ DATA_DIR="${AGENTHOLD_DEPLOY_DATA_DIR:-/var/lib/agenthold}"
 LIB_DIR="${AGENTHOLD_DEPLOY_LIB_DIR:-/usr/local/lib/agenthold}"
 UNIT_DIR="${AGENTHOLD_DEPLOY_UNIT_DIR:-/etc/systemd/system}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+UNITS="agenthold.service agenthold-pull.service agenthold-pull.timer agenthold-cloudflared.service agenthold-build.service agenthold-build.timer agenthold-build.slice"
 [[ $# -eq 1 && -d "$1" ]] || { echo 'usage: bootstrap.sh RELEASE_DIR' >&2; exit 2; }
 SRC="$(cd "$1" && pwd)"
 [[ "$ROOT" == /* && "$DATA_DIR" == /* && "$LIB_DIR" == /* && "$UNIT_DIR" == /* ]] || { echo 'paths must be absolute' >&2; exit 2; }
@@ -35,6 +38,7 @@ manifest="$SRC/runtime-linux-arm64.manifest.json"
 commit="$(jq -er 'select(.format == 1 and .arch == "arm64") | .version | select(type == "string" and test("^sha-[0-9a-f]{40}$")) | ltrimstr("sha-")' "$manifest")" ||
   { echo 'only sha-<full commit> builds can be installed (VERSION=sha-<commit> scripts/release/build.sh)' >&2; exit 1; }
 base_sha="$(jq -er '.base.sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))' "$manifest")"
+compressed_size="$(jq -er '.base.compressed.size | select(type == "number" and . > 0 and . <= 2000000000)' "$manifest")"
 base_size="$(jq -er '.base.size | select(type == "number" and . > 0 and . <= 34359738368)' "$manifest")"
 compressed_sha="$(jq -er '.base.compressed.sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))' "$manifest")"
 [[ "$(wc -c < "$SRC/base-arm64.ext4.zst")" -gt 0 ]] && echo "$compressed_sha  $SRC/base-arm64.ext4.zst" | sha256sum --check --status ||
@@ -48,9 +52,20 @@ if [[ -e "$ROOT/current" || -L "$ROOT/current" ]]; then echo "$ROOT/current alre
 install -d -m 0755 "$ROOT" "$ROOT/releases"
 install -d -m 0700 "$DATA_DIR" "$DATA_DIR/base"
 base="$DATA_DIR/base/$base_sha.ext4"
+available="$(df -PB1 "$DATA_DIR/base" | awk 'END {print $4}')"
+(( available >= base_size + compressed_size + 536870912 )) || { echo 'not enough free space for the base image' >&2; exit 1; }
+zst="$DATA_DIR/base/$base_sha.ext4.zst"
+if [[ ! -f "$zst" ]]; then
+  tmpz="$(mktemp "$DATA_DIR/base/.download.XXXXXXXX")"
+  trap 'rm -f -- "$tmpz"' EXIT
+  cp -- "$SRC/base-arm64.ext4.zst" "$tmpz"
+  echo "$compressed_sha  $tmpz" | sha256sum --check --status || { echo 'compressed base copy verification failed' >&2; exit 1; }
+  if [[ $EUID -eq 0 ]]; then chown root:root "$tmpz"; fi
+  chmod 0644 "$tmpz"
+  mv -f "$tmpz" "$zst"
+  trap - EXIT
+fi
 if [[ ! -f "$base" ]]; then
-  available="$(df -PB1 "$DATA_DIR/base" | awk 'END {print $4}')"
-  (( available >= base_size + 536870912 )) || { echo 'not enough free space for the base image' >&2; exit 1; }
   tmp="$(mktemp "$DATA_DIR/base/.unpack.XXXXXXXX")"
   trap 'rm -f -- "$tmp"' EXIT
   (ulimit -f $(((base_size + 1023) / 1024)); zstd -d -q -f --long=27 --sparse "$SRC/base-arm64.ext4.zst" -o "$tmp")
@@ -74,8 +89,10 @@ mv -Tf "$ROOT/current.new" "$ROOT/current"
 
 install -d -m 0755 "$LIB_DIR" "$UNIT_DIR"
 install -m 0755 "$HERE/pull.sh" "$LIB_DIR/pull.sh"
-for unit in agenthold.service agenthold-pull.service agenthold-pull.timer agenthold-cloudflared.service; do
+install -m 0755 "$HERE/build-local.sh" "$LIB_DIR/build-local.sh"
+for unit in $UNITS; do
   install -m 0644 "$HERE/$unit" "$UNIT_DIR/$unit"
 done
 echo "installed sha-$commit under $ROOT (base $base_sha cached in $DATA_DIR/base)"
 echo 'Next: write /etc/agenthold/agenthold.yaml, then: systemctl daemon-reload && systemctl enable --now agenthold'
+echo 'Releases: build-local.sh publishes into /srv/agenthold/releases, pull.sh deploys from the source in /etc/agenthold/pull.conf'

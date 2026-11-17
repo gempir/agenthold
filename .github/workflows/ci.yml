@@ -16,6 +16,8 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# KVM tests, release builds and publication run on the demo host itself
+# (scripts/deploy/build-local.sh): GitHub keeps only what needs neither KVM nor hosting.
 jobs:
   go:
     runs-on: ubuntu-latest
@@ -138,34 +140,3 @@ jobs:
           path: bin/
           if-no-files-found: error
 
-  kvm:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-      - name: Verify KVM
-        run: test -c /dev/kvm
-      - uses: actions/cache@v5
-        id: kernel-cache
-        with:
-          path: |
-            ~/.cache/agenthold-kernel
-            /var/tmp/agenthold-kernel-amd64-*
-            build/guest/amd64/vmlinux*
-          key: guest-kernel-amd64-${{ hashFiles('scripts/guest/build-kernel.sh', 'scripts/guest/kernel/**') }}
-      - name: Refresh package index
-        run: sudo apt-get update
-      - name: Build guest kernel
-        if: steps.kernel-cache.outputs.cache-hit != 'true'
-        run: make guest-kernel
-      - name: Build guest base and prepare Firecracker
-        run: make guest-base runtime
-      - name: KVM and guest firewall tests
-        run: make test-kvm
-      - name: Deployment pull and rollback tests
-        run: bash scripts/deploy/pull_test.sh
-      - name: Deployment bootstrap tests
-        run: bash scripts/deploy/bootstrap_test.sh

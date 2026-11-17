@@ -1,0 +1,14 @@
+[Unit]
+Description=Build, KVM-test and publish the agenthold main head on this host
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Slice=agenthold-build.slice
+ExecStart=/usr/local/lib/agenthold/build-local.sh
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=3h
+TimeoutStopSec=2min

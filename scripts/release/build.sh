@@ -92,11 +92,12 @@ if [[ ! -f "$BASE.zst" || "$(jq -r '.zstd.sha256 // empty' "$BASE_MANIFEST")" ==
   mv "$WORK/base.manifest.json" "$BASE_MANIFEST"
 fi
 echo "$(jq -er .zstd.sha256 "$BASE_MANIFEST")  $BASE.zst" | sha256sum --check --status
-[[ "$(stat -c %s "$BASE.zst")" -le 2000000000 ]] || { echo 'compressed base exceeds the 2 GB release-asset budget' >&2; exit 1; }
+[[ "$(stat -c %s "$BASE.zst")" -le 2000000000 ]] || { echo 'compressed base exceeds the 2 GB download budget' >&2; exit 1; }
 
 cp "$RUNTIME/firecracker" "$RUNTIME/jailer" "$STAGE/"
 cp "$KERNEL" "$STAGE/kernel"
-BASE_URL="${BASE_URL-https://github.com/gempir/agenthold/releases/download/$VERSION/base-$ARCH.ext4.zst}" # empty: the base comes from the controller's /dl/
+# Default empty: the base comes from a controller's /dl/ (or sandbox.firecracker.base_url); set BASE_URL to pin a mirror.
+BASE_URL="${BASE_URL-}"
 jq -n --arg version "$VERSION" --arg arch "$ARCH" --arg url "$BASE_URL" --slurpfile base "$BASE_MANIFEST" \
   --arg fc "$(sha256sum "$STAGE/firecracker" | cut -d' ' -f1)" --argjson fcsize "$(stat -c %s "$STAGE/firecracker")" \
   --arg jailer "$(sha256sum "$STAGE/jailer" | cut -d' ' -f1)" --argjson jailersize "$(stat -c %s "$STAGE/jailer")" \

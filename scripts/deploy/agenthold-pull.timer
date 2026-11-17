@@ -1,5 +1,5 @@
 [Unit]
-Description=Periodically check for a tested agenthold demo release
+Description=Periodically deploy a new tested agenthold release
 
 [Timer]
 OnBootSec=5min

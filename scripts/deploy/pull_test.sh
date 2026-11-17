@@ -205,9 +205,9 @@ grep -q "prune: removed $work/data/base/$anc1.ext4.zst" "$work/run.log" || fail 
 # Newest three releases stay (new, previous, newest old); the rest go.
 [[ -d "$work/opt/releases/$new" && -d "$work/opt/releases/$old" && -d "$work/opt/releases/$(rel 6)" ]] || fail 'kept releases'
 [[ ! -e "$work/opt/releases/$(rel 3)" && ! -e "$work/opt/releases/$(rel 4)" && ! -e "$work/opt/releases/$(rel 5)" ]] || fail 'old releases'
-# The store keeps the newest three versions plus the deployed and previous ones.
-[[ -d "$work/src/$v" && -d "$work/src/sha-$old" && -d "$work/src/sha-$(rel 6)" && -d "$work/src/sha-$(rel 5)" ]] || fail 'kept store versions'
-[[ ! -e "$work/src/sha-$(rel 3)" && ! -e "$work/src/sha-$(rel 4)" ]] || fail 'old store versions'
+# The store keeps the newest two versions plus the deployed and previous ones.
+[[ -d "$work/src/$v" && -d "$work/src/sha-$old" && -d "$work/src/sha-$(rel 6)" ]] || fail 'kept store versions'
+[[ ! -e "$work/src/sha-$(rel 3)" && ! -e "$work/src/sha-$(rel 4)" && ! -e "$work/src/sha-$(rel 5)" ]] || fail 'old store versions'
 # /dl/ serves the deployed version only; operator files that are not versions stay.
 [[ -d "$work/data/dl/$v" && ! -e "$work/data/dl/sha-$(rel 5)" && -d "$work/data/dl/operator-notes" ]] || fail 'dl prune'
 # An https source is never pruned.

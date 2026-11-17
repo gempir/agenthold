@@ -28,7 +28,9 @@ var (
 	ErrNotFound          = errors.New("session not found")
 	ErrNoTurn            = errors.New("no turn is running")
 	ErrUnknownPermission = errors.New("permission request not found or already answered")
-	errShuttingDown      = errors.New("the server is shutting down")
+	// ErrNoHarness: the machine is an app, which runs no harness.
+	ErrNoHarness    = errors.New("this machine is an app: it has no harness to talk to")
+	errShuttingDown = errors.New("the server is shutting down")
 )
 
 var errLoginNeeded = errors.New("the harness is not signed in: connect it under Settings → Provider logins and let the agent use your logins (Overview tab), or attach an API key secret and rebuild")
@@ -261,6 +263,9 @@ func (m *Manager) Wait() { m.wg.Wait() }
 
 // Create starts a new, empty session.
 func (m *Manager) Create(ctx context.Context, agentID, userID, title string) (db.AgentSession, error) {
+	if ag, err := m.store.GetAgent(ctx, agentID); err == nil && ag.Kind == "app" {
+		return db.AgentSession{}, ErrNoHarness
+	}
 	now := time.Now().Unix()
 	s := db.AgentSession{ID: id.New("ses"), AgentID: agentID, Title: title, Status: "idle", CreatedBy: userID, CreatedAt: now, UpdatedAt: now}
 	if s.Title == "" {
@@ -910,6 +915,9 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 	agent, err := m.store.GetAgent(ctx, agentID)
 	if err != nil {
 		return nil, err
+	}
+	if agent.Kind == "app" {
+		return nil, ErrNoHarness
 	}
 	ad, ok := harness.Get(agent.Harness)
 	if !ok {

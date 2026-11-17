@@ -127,6 +127,8 @@ type FileInfo struct {
 	IsDir   bool   `json:"isDir"`
 	IsLink  bool   `json:"isLink"`
 	ModTime int64  `json:"modTime"`
+	// Target is where a symlink points.
+	Target string `json:"target,omitempty"`
 }
 
 // ListReply answers fs.list.

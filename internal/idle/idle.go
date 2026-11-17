@@ -1,4 +1,5 @@
-// Package idle puts agents to sleep when nobody uses them. An agent is idle
+// Package idle puts agents to sleep when nobody uses them. A machine whose
+// idle timeout is 0 (apps by default) never sleeps for idleness. An agent is idle
 // when it has no running turn, no open terminal and no activity (prompts,
 // terminal or file use, CPU used by processes in its sandbox) for its idle
 // timeout. Sleeping stops the sandbox; the disk and conversations survive and
@@ -152,6 +153,13 @@ func (s *Sleeper) Tick(ctx context.Context) error {
 			continue
 		}
 		id := sb.AgentID
+		a, err := s.Store.GetAgent(ctx, id)
+		if err != nil {
+			continue
+		}
+		if a.IdleMinutes <= 0 {
+			continue // always on (apps by default)
+		}
 		if s.Busy != nil && s.Busy(id) || s.Tracker.Terminals(id) > 0 || s.cpuBusy(ctx, id, now) {
 			s.Tracker.Touch(id)
 			continue
@@ -160,10 +168,6 @@ func (s *Sleeper) Tick(ctx context.Context) error {
 		if last.IsZero() {
 			// Unknown (for example after a server restart): start counting now.
 			s.Tracker.Touch(id)
-			continue
-		}
-		a, err := s.Store.GetAgent(ctx, id)
-		if err != nil {
 			continue
 		}
 		timeout := time.Duration(a.IdleMinutes) * time.Minute
@@ -208,9 +212,10 @@ func (s *Sleeper) cpuBusy(ctx context.Context, agentID string, now time.Time) bo
 }
 
 // SleepsAt estimates when an agent will sleep if nothing happens, for the UI.
-// It returns zero while the agent is busy or not running.
+// It returns zero while the agent is busy or not running, and for machines
+// that never sleep (idleMinutes 0).
 func (s *Sleeper) SleepsAt(agentID string, idleMinutes int64) time.Time {
-	if s.Busy != nil && s.Busy(agentID) || s.Tracker.Terminals(agentID) > 0 {
+	if idleMinutes <= 0 || s.Busy != nil && s.Busy(agentID) || s.Tracker.Terminals(agentID) > 0 {
 		return time.Time{}
 	}
 	last := s.Tracker.Last(agentID)

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gempir/agenthold/internal/api/gen"
+	"github.com/gempir/agenthold/internal/apps"
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/config"
@@ -124,6 +125,9 @@ func (a *API) ListAgents(ctx context.Context, _ gen.ListAgentsRequestObject) (ge
 	}
 	out := gen.ListAgents200JSONResponse{}
 	for _, r := range rows {
+		if r.Agent.Kind == apps.KindApp {
+			continue // listed at /apps
+		}
 		role := authz.RoleOf(u.ID, r.Agent.OwnerID, true) // listed: owned or shared
 		ag, err := a.apiAgent(ctx, r.Agent, r.Sandbox, role, infos)
 		if err != nil {
@@ -294,11 +298,7 @@ func (a *API) DeleteAgent(ctx context.Context, req gen.DeleteAgentRequestObject)
 	if err != nil {
 		return nil, err
 	}
-	if err := a.Sandboxes.Destroy(ctx, req.AgentId); err != nil {
-		return nil, err
-	}
-	// Its preview URLs stop now; their names stay reserved for the owner.
-	if err := a.Preview.DeleteAgent(ctx, acc.Row.Agent); err != nil {
+	if err := a.deleteMachine(ctx, acc.Row.Agent); err != nil {
 		return nil, err
 	}
 	a.record(ctx, acc.Row.Agent, audit.AgentDelete, acc.Row.Agent.Name, nil)

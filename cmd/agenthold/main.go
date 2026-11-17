@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/gempir/agenthold/internal/api"
+	"github.com/gempir/agenthold/internal/apps"
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/config"
@@ -203,9 +204,12 @@ func run() error {
 			return s
 		}
 	}
+	// Services reach every machine in its boot files.
+	appsMgr := &apps.Manager{Store: st, Node: cluster, Audit: auditLog, Limits: cfg.Apps, Log: logger}
 	sandboxes := sandbox.NewManagerWithNode(st, cluster, specForAgent, sandbox.Options{
-		TunnelPort: tunnelPort,
+		TunnelPort: tunnelPort, BootFiles: appsMgr.BootFiles,
 	}, logger)
+	appsMgr.Sandboxes = sandboxes
 	sandboxes.OnChange(func(string, sandbox.Phase) { directory.Invalidate() })
 	defer sandboxes.Close()
 	cluster.OnConnect(func(ctx context.Context, nodeID string) {
@@ -268,7 +272,8 @@ func run() error {
 		}
 		go previewSvc.Run(ctx, 10*time.Minute, logger)
 	}
-	platformSvc := &platform.Service{Store: st, Sessions: sessions, Audit: auditLog, Log: logger, Preview: previewSvc}
+	appsMgr.Preview = previewSvc
+	platformSvc := &platform.Service{Store: st, Sessions: sessions, Audit: auditLog, Log: logger, Preview: previewSvc, Apps: appsMgr}
 	go func() {
 		for {
 			info, stream, err := cluster.NextIncoming(ctx)
@@ -300,10 +305,11 @@ func run() error {
 	apiSrv := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Node: cluster, Nodes: cluster, Limits: cfg.Sandbox,
 		Box: box, Egress: directory, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc,
-		Preview: previewSvc, Identity: identity,
+		Preview: previewSvc, Identity: identity, Apps: appsMgr,
 		ShowTestHarness: cfg.TestHarness || driverName == "fake",
 	})
 	sessions.SetWaker(apiSrv.Wake)
+	appsMgr.Wake = apiSrv.Wake
 
 	srvCfg := server.Config{Web: web.Dist(), Logger: logger, API: apiSrv.Mount, DL: downloads}
 	if cfg.DevProxy != "" {

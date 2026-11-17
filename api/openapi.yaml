@@ -5,6 +5,20 @@ info:
   description: |
     REST API of the agenthold server. Browser clients authenticate with the
     session cookie set by the login flow. All paths are under /api/v1.
+
+    **Machines: agents and apps.** Every machine (one microVM) has a kind:
+    `agent` runs a harness, `app` runs only services and is reached through
+    exposures. Both kinds share one id space. The rule:
+
+    - `/agents` and `/agents/{agentId}` itself (get, update, delete, start,
+      stop, rebuild) are for agents; for an app id they answer 404. Apps have
+      the same operations under `/apps` and `/apps/{appId}`, and `/apps/{appId}`
+      answers 404 for an agent id. `GET /agents` never lists apps.
+    - Harness-bound sub-resources (harness, sessions, schedules, webhooks,
+      account logins, attached MCP servers and skills) answer 409 for an app.
+    - Machine sub-resources work for both kinds and are addressed under
+      `/agents/{agentId}/...` with the machine's id: services, exposures, files,
+      terminal, shares, secrets and audit. An App lists them in `links`.
 servers:
   - url: /api/v1
 tags:
@@ -27,6 +41,10 @@ tags:
   - name: egress
   - name: exposure
     description: Preview URLs for ports of a machine.
+  - name: services
+    description: Long-running commands supervised inside a machine (agents and apps).
+  - name: apps
+    description: Machines without a harness that run services.
   - name: streams
     description: WebSocket endpoints. Not generated as JSON handlers.
   - name: meta
@@ -310,6 +328,158 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Agent" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /apps:
+    get:
+      operationId: listApps
+      tags: [apps]
+      description: Apps you own and apps shared with you.
+      responses:
+        "200":
+          description: Apps.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/App" }
+    post:
+      operationId: createApp
+      tags: [apps]
+      description: Create an app (a machine without a harness). You become its owner.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AppInput" }
+      responses:
+        "201":
+          description: Created. The machine is provisioned in the background.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /apps/{appId}:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    get:
+      operationId: getApp
+      tags: [apps]
+      responses:
+        "200":
+          description: The app.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateApp
+      tags: [apps]
+      description: Owner only. Resource changes take effect after a system reset (see `needsRebuild`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AppPatch" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteApp
+      tags: [apps]
+      description: Owner only. Destroys the machine and its disks. Runs in the background.
+      responses:
+        "202": { description: Destruction started. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /apps/{appId}/start:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    post:
+      operationId: startApp
+      tags: [apps]
+      responses:
+        "202":
+          description: Starting. Its services start with it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /apps/{appId}/stop:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    post:
+      operationId: stopApp
+      tags: [apps]
+      responses:
+        "202":
+          description: Stopping. Its services stop; the disks are kept.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /apps/{appId}/rebuild:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    post:
+      operationId: rebuildApp
+      description: Owner only. Resets the system disk; the home disk (with the deployed releases) is kept.
+      tags: [apps]
+      responses:
+        "202":
+          description: Resetting.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /apps/{appId}/deploy:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    post:
+      operationId: deployApp
+      tags: [apps]
+      description: |
+        Owner only. Copy a directory of a source machine (one you may open a
+        terminal in) into a new release of the app (`~/app/releases/<n>`),
+        point `~/app/current` at it, define the service `app` (the command
+        runs in `~/app/current` with `PORT`), (re)start it, expose the port and
+        wait up to 60 s for it to accept connections. A copy that fails
+        leaves the previous release serving; a release whose port does not
+        come up is rolled back (`ready` false, `rolledBack` true, `logs` set).
+        Sleeping machines are woken. The last 3 releases are kept.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeployInput" }
+      responses:
+        "200":
+          description: Deployed (see `ready`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeployResult" }
+        "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
@@ -901,6 +1071,167 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 
+  /agents/{agentId}/services:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listServices
+      tags: [services]
+      description: |
+        The machine's services (owner or shared user), with their live status
+        while the machine runs (`running` false: the machine is not connected
+        and every service is down; enabled services start with it).
+      responses:
+        "200":
+          description: Services.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServiceList" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/services/{serviceName}:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+      - $ref: "#/components/parameters/ServiceName"
+    get:
+      operationId: getService
+      tags: [services]
+      responses:
+        "200":
+          description: The service.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Service" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      operationId: putService
+      tags: [services]
+      description: |
+        Create or replace a service (owner only) and apply it to the running
+        machine: a new or changed service (re)starts, an unchanged one keeps
+        running. The command runs with `sh -lc` as the agent account in
+        `workdir` (relative to the home). Secrets reach services through
+        attached secrets' placeholders, never through `env`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ServiceInput" }
+      responses:
+        "200":
+          description: Saved.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Service" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteService
+      tags: [services]
+      description: Stop and remove a service (owner only).
+      responses:
+        "204": { description: Removed. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/services/{serviceName}/start:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+      - $ref: "#/components/parameters/ServiceName"
+    post:
+      operationId: startService
+      tags: [services]
+      description: Enable the service and start it if the machine runs (owner only).
+      responses:
+        "200":
+          description: Started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Service" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/services/{serviceName}/stop:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+      - $ref: "#/components/parameters/ServiceName"
+    post:
+      operationId: stopService
+      tags: [services]
+      description: Disable the service and stop it with everything it started (owner only).
+      responses:
+        "200":
+          description: Stopped.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Service" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/services/{serviceName}/restart:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+      - $ref: "#/components/parameters/ServiceName"
+    post:
+      operationId: restartService
+      tags: [services]
+      description: Restart the service now, resetting its backoff (owner only; the machine must run).
+      responses:
+        "200":
+          description: Restarted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Service" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/services/{serviceName}/logs:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+      - $ref: "#/components/parameters/ServiceName"
+    get:
+      operationId: getServiceLogs
+      tags: [services]
+      description: |
+        The last `lines` lines (default 200, at most 10000) of the service's
+        output, as plain text (owner or shared user; the machine must run).
+        Lines starting with `agenthold:` are written by the supervisor
+        (starts, exits, restarts).
+      parameters:
+        - { name: lines, in: query, schema: { type: integer, minimum: 1, maximum: 10000 } }
+      responses:
+        "200":
+          description: Log output.
+          content:
+            text/plain:
+              schema: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/services/{serviceName}/logs/stream:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+      - $ref: "#/components/parameters/ServiceName"
+    get:
+      operationId: streamServiceLogs
+      tags: [streams]
+      description: |
+        WebSocket. The server sends the last `lines` lines, then new output
+        as it is written, as text messages of raw log text. It sends
+        `{"type":"error","message":"..."}` as a text message starting with
+        `{` only when following fails, then closes.
+      parameters:
+        - { name: lines, in: query, schema: { type: integer } }
+      responses:
+        "101": { description: Switching to WebSocket. }
+        "404": { $ref: "#/components/responses/Error" }
+
   /preview/authorize:
     get:
       operationId: authorizePreview
@@ -1468,6 +1799,17 @@ components:
       name: agentId
       in: path
       required: true
+      description: The machine id (an agent's or, for machine sub-resources, an app's).
+      schema: { type: string }
+    AppId:
+      name: appId
+      in: path
+      required: true
+      schema: { type: string }
+    ServiceName:
+      name: serviceName
+      in: path
+      required: true
       schema: { type: string }
   responses:
     Error:
@@ -1945,6 +2287,143 @@ components:
         name: { type: string }
         access: { $ref: "#/components/schemas/ExposureAccess" }
         wakeOnRequest: { type: boolean }
+
+    ServiceInput:
+      type: object
+      required: [command]
+      properties:
+        command: { type: string, minLength: 1, maxLength: 8192, description: Run with `sh -lc` as the agent account. }
+        workdir: { type: string, description: Relative to the home (default the home). }
+        env:
+          type: object
+          additionalProperties: { type: string }
+        enabled: { type: boolean, description: Default true. }
+
+    ServiceStatus:
+      type: object
+      required: [state, restarts]
+      properties:
+        state: { type: string, enum: [running, backoff, stopped, failed] }
+        pid: { type: integer }
+        restarts: { type: integer }
+        exitCode: { type: integer, description: Exit code of the last run (absent when a signal ended it). }
+        signal: { type: string, description: Signal that ended the last run. }
+        error: { type: string, description: Why it could not be started (state failed). }
+        startedAt: { type: string, format: date-time }
+
+    Service:
+      type: object
+      required: [name, command, workdir, env, enabled, createdAt, updatedAt]
+      properties:
+        name: { type: string }
+        command: { type: string }
+        workdir: { type: string }
+        env:
+          type: object
+          additionalProperties: { type: string }
+        enabled: { type: boolean }
+        status:
+          $ref: "#/components/schemas/ServiceStatus"
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ServiceList:
+      type: object
+      required: [running, services]
+      properties:
+        running: { type: boolean, description: Whether the machine is connected (its services can run). }
+        error: { type: string, description: Why the live status is missing although the machine runs. }
+        services:
+          type: array
+          items: { $ref: "#/components/schemas/Service" }
+
+    App:
+      type: object
+      required: [id, name, owner, cpus, memoryMb, idleMinutes, state, stateError, stateChangedAt, needsRebuild, role, links, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        owner: { $ref: "#/components/schemas/User" }
+        nodeId: { type: string }
+        nodeName: { type: string }
+        cpus: { type: number }
+        memoryMb: { type: integer, format: int64 }
+        idleMinutes: { type: integer, description: 0 means always on (never sleeps for idleness). }
+        state: { $ref: "#/components/schemas/SandboxState" }
+        stateError: { type: string }
+        stateChangedAt: { type: string, format: date-time }
+        needsRebuild: { type: boolean }
+        role: { $ref: "#/components/schemas/AgentRole" }
+        createdByAgent:
+          type: object
+          description: The agent that created the app with deploy_app (it may since have been deleted).
+          required: [id, name]
+          properties:
+            id: { type: string }
+            name: { type: string, description: Empty when the agent was deleted. }
+        url: { type: string, description: The app's primary preview URL, if one is exposed. }
+        lastActivityAt: { type: string, format: date-time }
+        sleepsAt: { type: string, format: date-time }
+        links:
+          type: object
+          description: Where the machine sub-resources of this app are.
+          required: [services, exposures, files, terminal, shares, secrets, audit]
+          properties:
+            services: { type: string }
+            exposures: { type: string }
+            files: { type: string }
+            terminal: { type: string }
+            shares: { type: string }
+            secrets: { type: string }
+            audit: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    AppInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        cpus: { type: number }
+        memoryMb: { type: integer, format: int64 }
+        idleMinutes: { type: integer, minimum: 0, maximum: 10080, description: Default 0 (always on). }
+
+    AppPatch:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        cpus: { type: number }
+        memoryMb: { type: integer, format: int64 }
+        idleMinutes: { type: integer, minimum: 0, maximum: 10080 }
+
+    DeployInput:
+      type: object
+      required: [sourceAgentId, sourceDir, command, port]
+      properties:
+        sourceAgentId: { type: string, description: The machine to copy from. }
+        sourceDir: { type: string, description: Directory in the source machine, relative to its home or absolute. }
+        command: { type: string, description: Runs in `~/app/current` with `PORT` set. }
+        port: { type: integer, minimum: 1, maximum: 65535 }
+        env:
+          type: object
+          additionalProperties: { type: string }
+        access: { $ref: "#/components/schemas/ExposureAccess" }
+        exclude:
+          type: array
+          description: Names (any depth) or relative paths left out. Default [".git"].
+          items: { type: string }
+
+    DeployResult:
+      type: object
+      required: [release, ready, rolledBack, logs]
+      properties:
+        release: { type: integer }
+        ready: { type: boolean, description: The port accepted connections. }
+        rolledBack: { type: boolean, description: The new release did not come up and the previous one serves again. }
+        logs: { type: string, description: The service's last log lines when it did not come up. }
+        url: { type: string }
+        exposure: { $ref: "#/components/schemas/Exposure" }
+        service: { $ref: "#/components/schemas/ServiceStatus" }
 
     MCPServerInput:
       type: object

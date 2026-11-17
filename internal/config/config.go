@@ -45,6 +45,22 @@ type Config struct {
 	Node Node `yaml:"node"`
 	// Preview configures preview URLs for ports exposed by machines.
 	Preview Preview `yaml:"preview"`
+	// Apps limits the apps agents create with deploy_app.
+	Apps Apps `yaml:"apps"`
+}
+
+// Apps limits apps created by agents (users creating apps get the sandbox limits).
+type Apps struct {
+	// MaxPerAgent is how many apps one agent may have created. Default 3.
+	MaxPerAgent int `yaml:"max_per_agent"`
+	// Resources of an app an agent creates unless it asks for others, and the
+	// most it may ask for. Defaults 1 vCPU / 1024 MB and 2 vCPUs / 2048 MB.
+	DefaultCPUs     float64 `yaml:"default_cpus"`
+	DefaultMemoryMB int64   `yaml:"default_memory_mb"`
+	MaxCPUs         float64 `yaml:"max_cpus"`
+	MaxMemoryMB     int64   `yaml:"max_memory_mb"`
+	// DeployMaxBytes bounds the directory a deploy copies. Default 2 GiB.
+	DeployMaxBytes int64 `yaml:"deploy_max_bytes"`
 }
 
 // Preview configures exposure (preview URLs).
@@ -378,6 +394,26 @@ func ApplyDefaults(cfg *Config) {
 		cfg.Database.URL = "sqlite:" + filepath.Join(cfg.DataDir, "agenthold.db")
 	}
 
+	ap := &cfg.Apps
+	if ap.MaxPerAgent == 0 {
+		ap.MaxPerAgent = 3
+	}
+	if ap.DefaultCPUs == 0 {
+		ap.DefaultCPUs = 1
+	}
+	if ap.DefaultMemoryMB == 0 {
+		ap.DefaultMemoryMB = MinMemoryMB
+	}
+	if ap.MaxCPUs == 0 {
+		ap.MaxCPUs = 2
+	}
+	if ap.MaxMemoryMB == 0 {
+		ap.MaxMemoryMB = 2048
+	}
+	if ap.DeployMaxBytes == 0 {
+		ap.DeployMaxBytes = 2 << 30
+	}
+
 	sb := &cfg.Sandbox
 	if sb.Driver == "" {
 		sb.Driver = "auto"
@@ -502,6 +538,13 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("sandbox.default_cpus and max_cpus: must be at least 1"))
 	} else if sb.DefaultCPUs > sb.MaxCPUs {
 		errs = append(errs, errors.New("sandbox.default_cpus: must not exceed max_cpus"))
+	}
+	if ap := c.Apps; ap.MaxPerAgent < 0 || ap.DeployMaxBytes < 0 {
+		errs = append(errs, errors.New("apps.max_per_agent and apps.deploy_max_bytes: must not be negative"))
+	} else if ap.DefaultMemoryMB < MinMemoryMB || ap.DefaultMemoryMB > ap.MaxMemoryMB || ap.MaxMemoryMB > sb.MaxMemoryMB {
+		errs = append(errs, fmt.Errorf("apps.default_memory_mb and max_memory_mb: want %d <= default <= max <= sandbox.max_memory_mb", MinMemoryMB))
+	} else if ap.DefaultCPUs < 1 || ap.DefaultCPUs > ap.MaxCPUs || ap.MaxCPUs > sb.MaxCPUs {
+		errs = append(errs, errors.New("apps.default_cpus and max_cpus: want 1 <= default <= max <= sandbox.max_cpus"))
 	}
 	databaseURL, parseErr := url.Parse(c.Database.URL)
 	if parseErr != nil {

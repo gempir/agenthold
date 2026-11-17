@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gempir/agenthold/internal/apps"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/tunnel"
@@ -34,7 +35,11 @@ func badRequest(msg string) error { return errStatus(http.StatusBadRequest, msg)
 func toHTTP(err error) (int, string) {
 	var e *Error
 	var re *tunnel.RemoteError
+	var inv *apps.InvalidError
+	var applyErr *apps.ApplyError
 	switch {
+	case errors.As(err, &applyErr):
+		return http.StatusConflict, applyErr.Error()
 	case errors.As(err, &re):
 		if strings.Contains(re.Msg, "no such file or directory") {
 			return http.StatusNotFound, re.Msg
@@ -45,7 +50,14 @@ func toHTTP(err error) (int, string) {
 	case errors.Is(err, sandbox.ErrNoCapacity):
 		return http.StatusServiceUnavailable, err.Error()
 	case errors.Is(err, tunnel.ErrNotConnected):
-		return http.StatusConflict, "the agent is not running; start it first"
+		return http.StatusConflict, "the machine is not running; start it first"
+	case errors.Is(err, tunnel.ErrTooOld), errors.Is(err, apps.ErrTooMany), errors.Is(err, apps.ErrNotRunning),
+		errors.Is(err, apps.ErrDeployBusy):
+		return http.StatusConflict, err.Error()
+	case errors.Is(err, apps.ErrNotFound):
+		return http.StatusNotFound, err.Error()
+	case errors.As(err, &inv):
+		return http.StatusBadRequest, inv.Msg
 	case errors.As(err, &e):
 		return e.Status, e.Msg
 	case errors.Is(err, authz.ErrNotFound):

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gempir/agenthold/internal/api/gen"
 	"github.com/gempir/agenthold/internal/sandbox"
@@ -563,4 +564,70 @@ func TestTemplateConversionIsAllOrNothingAndSilencesTriggers(t *testing.T) {
 		t.Fatal("a schedule came back on by itself")
 	}
 	expect(t, "enable schedule again", alice.do("PUT", "/schedules/"+sched.Id, in, nil), 200)
+}
+
+// Exposures belong to a machine: a clone starts without any, and a template
+// keeps its own but they are inert (they answer like a machine that cannot be woken).
+func TestExposuresAndCloneTemplates(t *testing.T) {
+	tm := newTeam(t)
+	e, alice := tm.e, tm.alice
+	app := startUpstream(t)
+	ex := e.expose(alice, tm.agent.Id, app.port, "public")
+
+	dst := e.cloneOf(alice, tm.agent, "copy", false)
+	var list gen.ExposureList
+	expect(t, "clone exposures", alice.do("GET", "/agents/"+dst.Id+"/exposures", nil, &list), 200)
+	if len(list.Exposures) != 0 {
+		t.Fatalf("a clone inherited exposures: %+v", list.Exposures)
+	}
+	expect(t, "source exposures", alice.do("GET", "/agents/"+tm.agent.Id+"/exposures", nil, &list), 200)
+	if len(list.Exposures) != 1 || list.Exposures[0].Id != ex.Id {
+		t.Fatalf("source exposures after the clone: %+v", list.Exposures)
+	}
+	anon := e.browser(e.anon(), false)
+	if r := get(t, anon, ex.Url, nil); r.status != 200 {
+		t.Fatalf("the source serves again after the clone: %d %s", r.status, r.body)
+	}
+	app.last(t)
+
+	// Converting to a template leaves the exposure in place, inert.
+	expect(t, "template", alice.do("PATCH", "/agents/"+tm.agent.Id, gen.AgentPatch{IsTemplate: ptr(true)}, nil), 200)
+	e.sandboxes.Wait()
+	expect(t, "exposures kept", alice.do("GET", "/agents/"+tm.agent.Id+"/exposures", nil, &list), 200)
+	if len(list.Exposures) != 1 {
+		t.Fatalf("exposures of a template: %+v", list.Exposures)
+	}
+	before := e.tracker.Last(tm.agent.Id)
+	e.clock.Advance(time.Hour)
+	var tok gen.CreatedAPIToken
+	expect(t, "token", alice.do("POST", "/me/tokens", map[string]string{"name": "script"}, &tok), 201)
+	for name, headers := range map[string]map[string]string{
+		"visitor": nil,
+		"owner":   {"Authorization": "Bearer " + tok.Token},
+	} {
+		r := get(t, anon, ex.Url, headers)
+		if r.status != 503 || !strings.Contains(r.body, "template") {
+			t.Fatalf("%s on a template: %d %s", name, r.status, r.body)
+		}
+	}
+	if s := alice.agent(tm.agent.Id).State; s != gen.SandboxStateSleeping {
+		t.Fatalf("a request woke the template: %s", s)
+	}
+	if !e.tracker.Last(tm.agent.Id).Equal(before) {
+		t.Fatal("a request to a template counted as activity")
+	}
+	// Back to an agent: served again (the owner wakes it).
+	expect(t, "agent", alice.do("PATCH", "/agents/"+tm.agent.Id, gen.AgentPatch{IsTemplate: ptr(false)}, nil), 200)
+	if r := get(t, anon, ex.Url, map[string]string{"Authorization": "Bearer " + tok.Token}); r.status != 200 {
+		t.Fatalf("after converting back: %d %s", r.status, r.body)
+	}
+
+	// Deleting the clone deletes its exposures only.
+	expect(t, "exposure on the clone", alice.do("POST", "/agents/"+dst.Id+"/exposures", gen.ExposureInput{Port: app.port}, nil), 201)
+	expect(t, "delete clone", alice.do("DELETE", "/agents/"+dst.Id, nil, nil), 202)
+	e.sandboxes.Wait()
+	expect(t, "source exposures", alice.do("GET", "/agents/"+tm.agent.Id+"/exposures", nil, &list), 200)
+	if len(list.Exposures) != 1 {
+		t.Fatalf("deleting the clone removed the source's exposures: %+v", list.Exposures)
+	}
 }

@@ -257,6 +257,22 @@ func TestJailedClone(t *testing.T) {
 		t.Log("base image predates the machine identity stamp: identity reset not checked")
 	}
 
+	// The tunnel's dial op (preview URLs) works in a clone as in any machine.
+	run(dst, "echo dial-works > /tmp/index.html; cd /tmp && (setsid python3 -m http.server 18081 --bind 127.0.0.1 >/tmp/http.log 2>&1 </dev/null &) ; for i in $(seq 1 50); do curl -fsS http://127.0.0.1:18081/index.html >/dev/null 2>&1 && exit 0; sleep 0.1; done; exit 1")
+	conn, err := dst.Dial(ctx, 18081)
+	if err != nil {
+		t.Fatalf("dial into the clone: %v", err)
+	}
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	if _, err = io.WriteString(conn, "GET /index.html HTTP/1.0\r\nHost: x\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	reply, _ := io.ReadAll(conn)
+	_ = conn.Close()
+	if !strings.Contains(string(reply), "dial-works") {
+		t.Fatalf("dialed reply: %q", reply)
+	}
+
 	// Stop both; the source must be cloneable again after having run.
 	if err = d.Stop(ctx, dstID); err != nil {
 		t.Fatal(err)

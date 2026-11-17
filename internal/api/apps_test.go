@@ -3,7 +3,9 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,7 +76,7 @@ func TestServicesCRUDAndLogs(t *testing.T) {
 		res := bob.raw("GET", "/agents/"+ag+"/services/web/logs?lines=5", nil)
 		body := readAll(t, res.Body)
 		_ = res.Body.Close()
-		return res.StatusCode == 200 && strings.Contains(body, "hello svc")
+		return res.StatusCode == http.StatusOK && strings.Contains(body, "hello svc")
 	})
 	if _, err := os.Stat(filepath.Join(e.home(ag), ".agenthold/services/web/log")); err != nil {
 		t.Fatal("no log file on the home disk")
@@ -131,9 +133,7 @@ func TestServicesCRUDAndLogs(t *testing.T) {
 	}
 }
 
-func readAll(t *testing.T, res interface {
-	Read([]byte) (int, error)
-}) string {
+func readAll(t *testing.T, res io.Reader) string {
 	t.Helper()
 	var b strings.Builder
 	buf := make([]byte, 4096)
@@ -180,8 +180,14 @@ func TestAppsCRUDAndAgentOnlyOperations(t *testing.T) {
 		expect(t, "agent op on app "+p, alice.do(m, "/agents/"+app.Id+p, nil, nil), 404)
 	}
 	for _, c := range []struct{ method, path string }{
-		{"GET", "/sessions"}, {"POST", "/sessions"}, {"GET", "/harness"}, {"GET", "/schedules"},
-		{"POST", "/schedules"}, {"GET", "/webhooks"}, {"GET", "/mcp-servers"}, {"GET", "/skills"},
+		{"GET", "/sessions"},
+		{"POST", "/sessions"},
+		{"GET", "/harness"},
+		{"GET", "/schedules"},
+		{"POST", "/schedules"},
+		{"GET", "/webhooks"},
+		{"GET", "/mcp-servers"},
+		{"GET", "/skills"},
 	} {
 		body := any(nil)
 		if c.method == "POST" {

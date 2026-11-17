@@ -250,7 +250,7 @@ func (a *API) streamServiceLogs(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	defer ws.CloseNow()
+	defer func() { _ = ws.CloseNow() }()
 	ctx := ws.CloseRead(r.Context())
 	err = a.Apps.Logs(ctx, agentID, name, lines, true, wsText{ctx: ctx, ws: ws})
 	if err != nil && ctx.Err() == nil {

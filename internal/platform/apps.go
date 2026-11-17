@@ -263,8 +263,19 @@ func (p *Service) serviceLogs(ctx context.Context, machineID, name string, lines
 	if buf.Len() == 0 {
 		return "(no output yet)", nil
 	}
+	// The reply is one tunnel frame back to the guest: keep the end.
+	if b := buf.Bytes(); len(b) > maxToolLog {
+		b = b[len(b)-maxToolLog:]
+		if i := bytes.IndexByte(b, '\n'); i >= 0 {
+			b = b[i+1:]
+		}
+		return "(earlier output cut)\n" + string(b), nil
+	}
 	return buf.String(), nil
 }
+
+// maxToolLog bounds the log text a tool returns.
+const maxToolLog = 128 << 10
 
 var appNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
 

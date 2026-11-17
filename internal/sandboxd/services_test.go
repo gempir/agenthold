@@ -67,7 +67,7 @@ func TestServicesStartFromBootConfig(t *testing.T) {
 		return bytes.Contains(b, []byte("hello from env"))
 	})
 	var buf bytes.Buffer
-	if err := s.ServiceLogs(t.Context(), "web", 1, false, &buf); err != nil {
+	if err := s.ServiceLogs(t.Context(), "web", 1, false, &buf, 0); err != nil {
 		t.Fatal(err)
 	}
 	if strings.TrimSpace(buf.String()) != "hello from env" {
@@ -93,7 +93,7 @@ func TestServiceRestartsWithBackoff(t *testing.T) {
 		t.Fatalf("ran %d times", n)
 	}
 	var logs bytes.Buffer
-	_ = s.ServiceLogs(t.Context(), "crash", 50, false, &logs)
+	_ = s.ServiceLogs(t.Context(), "crash", 50, false, &logs, 0)
 	if !strings.Contains(logs.String(), "exited (code 3); restarting in") {
 		t.Fatalf("logs do not explain the restarts:\n%s", logs.String())
 	}
@@ -233,7 +233,7 @@ func TestServiceLogRotationAndFollow(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	w := &lineCounter{}
 	done := make(chan error, 1)
-	go func() { done <- s.ServiceLogs(ctx, "chatty", 2, true, w) }()
+	go func() { done <- s.ServiceLogs(ctx, "chatty", 2, true, w, 0) }()
 	waitFor(t, "followed lines", func() bool { return w.lines() > 20 })
 	cancel()
 	if err := <-done; err != nil {
@@ -469,7 +469,7 @@ func TestRootWritesStayInHome(t *testing.T) {
 	var logs bytes.Buffer
 	waitFor(t, "output in the in-memory tail", func() bool {
 		logs.Reset()
-		_ = s.ServiceLogs(t.Context(), "web", 5, false, &logs)
+		_ = s.ServiceLogs(t.Context(), "web", 5, false, &logs, 0)
 		return strings.Contains(logs.String(), "leak")
 	})
 	if b, _ := os.ReadFile(victim); len(b) != 0 {

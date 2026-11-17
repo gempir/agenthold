@@ -208,7 +208,7 @@ func (m *Manager) Deploy(ctx context.Context, p DeployParams) (DeployResult, err
 	res.Ready = m.waitPort(ctx, app, p.Port, timeout)
 	if !res.Ready {
 		var logs bytes.Buffer
-		_ = app.ServiceLogs(ctx, AppService, 40, false, &logs)
+		_ = app.ServiceLogs(ctx, AppService, 40, false, &logs, 64<<10)
 		res.Logs = logs.String()
 		if current > 0 {
 			res.RolledBack = m.rollback(ctx, app, p.App.ID, current, prevSpec, prevErr == nil)

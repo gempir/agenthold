@@ -205,7 +205,7 @@ func TestAppServicesKVM(t *testing.T) {
 			}
 			if time.Now().After(deadline) {
 				var logs strings.Builder
-				_ = app.ServiceLogs(ctx, "app", 50, false, &logs)
+				_ = app.ServiceLogs(ctx, "app", 50, false, &logs, 0)
 				t.Fatalf("%s: app unreachable through dial: %v\nservice log:\n%s", what, err, logs.String())
 			}
 			time.Sleep(300 * time.Millisecond)

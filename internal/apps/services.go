@@ -337,8 +337,13 @@ func (m *Manager) Status(ctx context.Context, agentID string) (map[string]tunnel
 	return out, true, nil
 }
 
+// MaxLogBytes bounds what the controller reads of a service log it keeps in
+// memory (a hostile guest decides how much it sends).
+const MaxLogBytes = 1 << 20
+
 // Logs copies the last lines of a service's log (and with follow, new
-// output until ctx ends) to w.
+// output until ctx ends) to w. Without follow at most MaxLogBytes are read;
+// a follow streams to w without keeping anything.
 func (m *Manager) Logs(ctx context.Context, agentID, name string, lines int, follow bool, w io.Writer) error {
 	if _, err := m.Get(ctx, agentID, name); err != nil {
 		return err
@@ -350,7 +355,11 @@ func (m *Manager) Logs(ctx context.Context, agentID, name string, lines int, fol
 	if !ok {
 		return ErrNotRunning
 	}
-	return s.ServiceLogs(ctx, name, lines, follow, w)
+	limit := int64(MaxLogBytes)
+	if follow {
+		limit = 0
+	}
+	return s.ServiceLogs(ctx, name, lines, follow, w, limit)
 }
 
 func b2i(b bool) int64 {

@@ -37,8 +37,10 @@ func (s *Session) Services(ctx context.Context, req ServiceRequest) ([]ServiceSt
 }
 
 // ServiceLogs copies the last lines of a service's log to w and, with
-// follow, everything it writes afterwards until ctx ends.
-func (s *Session) ServiceLogs(ctx context.Context, name string, lines int, follow bool, w io.Writer) error {
+// follow, everything it writes afterwards until ctx ends. maxBytes > 0 stops
+// reading once that much was copied (the rest is dropped, not an error): a
+// guest decides how much it sends, so callers that buffer must set it.
+func (s *Session) ServiceLogs(ctx context.Context, name string, lines int, follow bool, w io.Writer, maxBytes int64) error {
 	c, err := s.Open(ctx, Open{Op: OpService, Service: &ServiceRequest{Action: ServiceLogs, Name: name, Lines: lines, Follow: follow}})
 	if err != nil {
 		return err
@@ -49,11 +51,43 @@ func (s *Session) ServiceLogs(ctx context.Context, name string, lines int, follo
 	if err := ReadJSON(c, &ok); err != nil {
 		return unsupported(err)
 	}
+	if maxBytes > 0 {
+		w = &CappedWriter{W: w, Max: maxBytes}
+	}
 	_, err = CopyData(w, c, nil)
-	if ctx.Err() != nil {
+	if ctx.Err() != nil || errors.Is(err, ErrCapped) {
 		return nil
 	}
 	return err
+}
+
+// ErrCapped is returned by a CappedWriter once its limit is reached.
+var ErrCapped = errors.New("output limit reached")
+
+// CappedWriter passes at most Max bytes to W and then fails with ErrCapped,
+// which makes a copy from the guest stop reading.
+type CappedWriter struct {
+	W   io.Writer
+	Max int64
+	n   int64
+}
+
+func (c *CappedWriter) Write(p []byte) (int, error) {
+	room := c.Max - c.n
+	if room <= 0 {
+		return 0, ErrCapped
+	}
+	if int64(len(p)) > room {
+		n, err := c.W.Write(p[:room])
+		c.n += int64(n)
+		if err == nil {
+			err = ErrCapped
+		}
+		return n, err
+	}
+	n, err := c.W.Write(p)
+	c.n += int64(n)
+	return n, err
 }
 
 // Tar streams the directory path out of the sandbox as a tar archive into w.

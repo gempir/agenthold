@@ -351,7 +351,7 @@ func TestExtractTarRefusesEscapes(t *testing.T) {
 			}
 			_ = tw.Close()
 			dir := filepath.Join(t.TempDir(), "x")
-			if err := sandboxd.ExtractTar(&buf, dir, 0, func(string) {}); err == nil {
+			if err := sandboxd.ExtractTar(&buf, dir, 0, func(*os.Root, string) {}); err == nil {
 				t.Fatal("extracted")
 			}
 		})
@@ -363,7 +363,7 @@ func TestExtractTarRefusesEscapes(t *testing.T) {
 	_, _ = tw.Write([]byte("x"))
 	_ = tw.Close()
 	dir := filepath.Join(t.TempDir(), "x")
-	if err := sandboxd.ExtractTar(&buf, dir, 0, func(string) {}); err != nil {
+	if err := sandboxd.ExtractTar(&buf, dir, 0, func(*os.Root, string) {}); err != nil {
 		t.Fatal(err)
 	}
 	if fi, _ := os.Stat(filepath.Join(dir, "s")); fi.Mode()&os.ModeSetuid != 0 {
@@ -421,5 +421,70 @@ func TestServiceConcurrentApplies(t *testing.T) {
 	}
 	if _, err := s.Services(t.Context(), tunnel.ServiceRequest{Action: tunnel.ServiceStatus}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// sandboxd writes as root: symlinks the agent places in its home must not
+// redirect untar, the symlink swap or service logs outside the home.
+func TestRootWritesStayInHome(t *testing.T) {
+	fastServices(t)
+	outside := t.TempDir()
+	s, home := setupWith(t, func(c *sandboxd.Config) {
+		c.Services = nil
+	})
+	if err := os.Symlink(outside, filepath.Join(home, "app")); err != nil {
+		t.Fatal(err)
+	}
+	var archive bytes.Buffer
+	tw := tar.NewWriter(&archive)
+	_ = tw.WriteHeader(&tar.Header{Name: "f", Typeflag: tar.TypeReg, Mode: 0o644, Size: 1})
+	_, _ = tw.Write([]byte("x"))
+	_ = tw.Close()
+	if err := s.Untar(t.Context(), "app/releases/1", 0, bytes.NewReader(archive.Bytes())); err == nil {
+		t.Fatal("untar followed a symlink out of the home")
+	}
+	if err := s.Untar(t.Context(), "/tmp/elsewhere", 0, bytes.NewReader(archive.Bytes())); err == nil {
+		t.Fatal("untar outside the home")
+	}
+	if err := s.Symlink(t.Context(), "app/current", "releases/1"); err == nil {
+		t.Fatal("symlink swap followed a symlink out of the home")
+	}
+	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+		t.Fatalf("wrote outside the home: %v", entries)
+	}
+
+	// A log path that is a symlink out of the home is not written.
+	victim := filepath.Join(outside, "victim")
+	if err := os.WriteFile(victim, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	logDir := filepath.Join(home, sandboxd.ServiceLogDir, "web")
+	_ = os.MkdirAll(logDir, 0o755)
+	if err := os.Symlink(victim, filepath.Join(logDir, "log")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Services(t.Context(), tunnel.ServiceRequest{Action: tunnel.ServiceApply, Specs: []tunnel.ServiceSpec{{Name: "web", Command: "echo leak; exec sleep 300", Enabled: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	waitFor(t, "output in the in-memory tail", func() bool {
+		logs.Reset()
+		_ = s.ServiceLogs(t.Context(), "web", 5, false, &logs)
+		return strings.Contains(logs.String(), "leak")
+	})
+	if b, _ := os.ReadFile(victim); len(b) != 0 {
+		t.Fatalf("the log followed a symlink out of the home: %q", b)
+	}
+}
+
+func TestExecOutputFitsAFrame(t *testing.T) {
+	s, _ := setup(t)
+	// Control characters escape to six bytes each in JSON.
+	r, err := s.Exec(t.Context(), []string{"/bin/sh", "-c", "head -c 2000000 /dev/zero"}, "", nil, 10, 4<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Truncated || len(r.Output) >= tunnel.MaxFrame/6 {
+		t.Fatalf("output %d bytes, truncated %v", len(r.Output), r.Truncated)
 	}
 }

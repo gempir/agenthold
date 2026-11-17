@@ -28,13 +28,15 @@ const (
 	// OK, then data frames of log output, then (without Follow) an EOF frame.
 	OpService = "service"
 	// OpFSTar streams a directory out of the sandbox as a tar archive (data
-	// frames, then EOF), read as the agent account. OpFSUntar extracts the tar
-	// archive in the data frames that follow into a directory, as the agent
-	// account, and answers OK after the EOF frame.
+	// frames, then EOF). OpFSUntar extracts the tar archive in the data frames
+	// that follow into a new directory inside the home and answers OK after
+	// the EOF frame. sandboxd does both as root through an os.Root (it never
+	// follows a symlink out of the directory) and gives extracted entries to
+	// the agent account.
 	OpFSTar   = "fs.tar"
 	OpFSUntar = "fs.untar"
-	// OpFSSymlink points the symlink Path at Target, replacing what is there
-	// atomically.
+	// OpFSSymlink points the symlink Path (inside the home) at Target,
+	// replacing what is there atomically.
 	OpFSSymlink = "fs.symlink"
 	// OpExec runs Cmd as the agent account and answers with an ExecReply.
 	OpExec = "exec"

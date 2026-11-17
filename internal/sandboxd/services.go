@@ -220,14 +220,16 @@ func sameSpec(a, b tunnel.ServiceSpec) bool {
 }
 
 func (s *supervisor) newService(sp tunnel.ServiceSpec) *service {
-	logPath := ""
-	dir := filepath.Join(s.d.acct.home, ServiceLogDir, sp.Name)
-	if err := s.d.mkdirAll(dir); err == nil {
-		logPath = filepath.Join(dir, "log")
-	} else {
-		s.log.Warn("service log directory", "service", sp.Name, "err", err)
+	home, rel := "", filepath.Join(ServiceLogDir, sp.Name, "log")
+	if root, err := os.OpenRoot(s.d.acct.home); err == nil {
+		if err := s.d.mkdirAllIn(root, filepath.Dir(rel)); err == nil {
+			home = s.d.acct.home
+		} else {
+			s.log.Warn("service log directory", "service", sp.Name, "err", err)
+		}
+		_ = root.Close()
 	}
-	return &service{sup: s, name: sp.Name, spec: sp, state: tunnel.ServiceStopped, out: newLogSink(logPath, s.d.own)}
+	return &service{sup: s, name: sp.Name, spec: sp, state: tunnel.ServiceStopped, out: newLogSink(home, rel, s.d.ownIn)}
 }
 
 // save writes the desired set where the next daemon start finds it.

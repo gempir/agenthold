@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -17,18 +18,27 @@ var (
 
 // logSink receives a service's output: it appends to a size-capped rotating
 // file, keeps an in-memory tail and fans out to followers.
+// The file is opened and rotated through an os.Root of the home (sandboxd
+// writes it as root; the agent controls the home, so a symlink it puts at
+// the log path must not redirect the writes elsewhere).
 type logSink struct {
 	mu   sync.Mutex
-	path string
-	own  func(string)
+	home string // the agent's home ("" for no file)
+	rel  string // the log file, relative to home
+	path string // home/rel, for reading
+	own  func(root *os.Root, name string)
 	f    *os.File
 	size int64
 	tail []byte
 	subs map[chan []byte]struct{}
 }
 
-func newLogSink(path string, own func(string)) *logSink {
-	return &logSink{path: path, own: own, subs: map[chan []byte]struct{}{}}
+func newLogSink(home, rel string, own func(*os.Root, string)) *logSink {
+	l := &logSink{home: home, rel: rel, own: own, subs: map[chan []byte]struct{}{}}
+	if home != "" {
+		l.path = filepath.Join(home, rel)
+	}
+	return l
 }
 
 // Write never fails: output that cannot be stored is still followed.
@@ -50,23 +60,36 @@ func (l *logSink) Write(p []byte) (int, error) {
 }
 
 func (l *logSink) writeFile(p []byte) {
-	if l.path == "" {
+	if l.home == "" {
 		return
 	}
-	if l.f != nil && l.size+int64(len(p)) > serviceLogMax {
+	rotate := l.f != nil && l.size+int64(len(p)) > serviceLogMax
+	if rotate {
 		_ = l.f.Close()
 		l.f = nil
-		_ = os.Rename(l.path, l.path+".1")
 	}
 	if l.f == nil {
-		f, err := os.OpenFile(l.path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+		root, err := os.OpenRoot(l.home)
 		if err != nil {
 			return
 		}
-		if fi, err := f.Stat(); err == nil {
-			l.size = fi.Size()
+		if rotate {
+			_ = root.Rename(l.rel, l.rel+".1")
 		}
-		l.own(l.path)
+		f, err := root.OpenFile(l.rel, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+		if err == nil {
+			l.own(root, l.rel)
+		}
+		_ = root.Close()
+		if err != nil {
+			return
+		}
+		if fi, err := f.Stat(); err == nil && fi.Mode().IsRegular() {
+			l.size = fi.Size()
+		} else {
+			_ = f.Close()
+			return
+		}
 		l.f = f
 	}
 	n, _ := l.f.Write(p)
@@ -87,17 +110,21 @@ func (l *logSink) subscribe() (chan []byte, func()) {
 }
 
 // lastLines returns the last n lines of the log: from the files when they
-// exist, else from the in-memory tail.
+// exist (read through the home's root, regular files only), else from the
+// in-memory tail.
 func (l *logSink) lastLines(n int) []byte {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.path != "" {
-		cur := readTail(l.path, 1<<20)
-		if cur != nil {
-			if bytes.Count(cur, []byte{'\n'}) < n {
-				cur = append(readTail(l.path+".1", 1<<20), cur...)
+	if l.home != "" && l.f != nil {
+		if root, err := os.OpenRoot(l.home); err == nil {
+			cur := readTail(root, l.rel, 1<<20)
+			if cur != nil && bytes.Count(cur, []byte{'\n'}) < n {
+				cur = append(readTail(root, l.rel+".1", 1<<20), cur...)
 			}
-			return lastLines(cur, n)
+			_ = root.Close()
+			if cur != nil {
+				return lastLines(cur, n)
+			}
 		}
 	}
 	return lastLines(l.tail, n)
@@ -112,15 +139,19 @@ func (l *logSink) close() {
 	}
 }
 
-// readTail reads up to limit bytes from the end of a file (nil if it is missing).
-func readTail(path string, limit int64) []byte {
-	f, err := os.Open(path)
+// readTail reads up to limit bytes from the end of a regular file inside
+// root (nil if it is missing or not a regular file).
+func readTail(root *os.Root, name string, limit int64) []byte {
+	if fi, err := root.Lstat(name); err != nil || !fi.Mode().IsRegular() {
+		return nil
+	}
+	f, err := root.Open(name)
 	if err != nil {
 		return nil
 	}
 	defer f.Close()
 	fi, err := f.Stat()
-	if err != nil {
+	if err != nil || !fi.Mode().IsRegular() {
 		return nil
 	}
 	off := max(fi.Size()-limit, 0)

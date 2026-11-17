@@ -19,7 +19,9 @@ const (
 	execDefaultTimeout = 60
 	execMaxTimeout     = 600
 	execDefaultOutput  = 64 << 10
-	execMaxOutput      = 4 << 20
+	// execMaxOutput keeps the reply in one frame: JSON escaping can grow
+	// output up to six times (\u00XX), and a frame is tunnel.MaxFrame.
+	execMaxOutput = tunnel.MaxFrame/8 - 1024
 )
 
 // cappedBuffer keeps the first max bytes written and counts the rest.

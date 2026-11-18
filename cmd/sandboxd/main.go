@@ -62,8 +62,10 @@ func run(logger *slog.Logger) error {
 	}
 	cfg := sandboxd.Config{Boot: boot, Version: version.Version, Logger: logger}
 	if sandboxd.InInitChild() {
-		// Started by init mode: a shutdown request powers the VM off.
+		// Started by init mode: a shutdown request powers the VM off, and
+		// the host delivers the machine's services in the boot files.
 		_ = os.Unsetenv(sandboxd.EnvInitChild)
+		cfg.ServicesFile = sandboxd.ServicesFile
 		cfg.OnShutdown = func() {
 			if err := sandboxd.RequestShutdown(); err != nil {
 				logger.Error("shutdown", "err", err)

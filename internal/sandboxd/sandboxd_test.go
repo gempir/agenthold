@@ -17,6 +17,16 @@ import (
 
 func setup(t *testing.T, onShutdown ...func()) (*tunnel.Session, string) {
 	t.Helper()
+	var shutdown func()
+	if len(onShutdown) > 0 {
+		shutdown = onShutdown[0]
+	}
+	return setupWith(t, func(c *sandboxd.Config) { c.OnShutdown = shutdown })
+}
+
+// setupWith starts a daemon whose configuration configure may change.
+func setupWith(t *testing.T, configure func(*sandboxd.Config)) (*tunnel.Session, string) {
+	t.Helper()
 	hub := tunnel.NewHub(func(_ context.Context, agentID, token string) error {
 		if agentID != "ag_1" || token != "secret" {
 			return errors.New("bad token")
@@ -27,15 +37,14 @@ func setup(t *testing.T, onShutdown ...func()) (*tunnel.Session, string) {
 	t.Cleanup(srv.Close)
 
 	home := t.TempDir()
-	var shutdown func()
-	if len(onShutdown) > 0 {
-		shutdown = onShutdown[0]
+	cfg := sandboxd.Config{
+		Boot: sandboxd.Boot{AgentID: "ag_1", Token: "secret", TunnelURL: "ws" + strings.TrimPrefix(srv.URL, "http")},
+		Home: home, Version: "test",
 	}
-	d, err := sandboxd.New(sandboxd.Config{
-		OnShutdown: shutdown,
-		Boot:       sandboxd.Boot{AgentID: "ag_1", Token: "secret", TunnelURL: "ws" + strings.TrimPrefix(srv.URL, "http")},
-		Home:       home, Version: "test",
-	})
+	if configure != nil {
+		configure(&cfg)
+	}
+	d, err := sandboxd.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

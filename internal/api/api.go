@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/gempir/agenthold/internal/api/gen"
+	"github.com/gempir/agenthold/internal/apps"
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/authz"
@@ -43,6 +44,8 @@ type Deps struct {
 	Audit    *audit.Log
 	Triggers *trigger.Runner
 	Logins   *logins.Service
+	// Apps manages services and apps.
+	Apps *apps.Manager
 	// Preview serves exposures; it is never nil (disabled without a host suffix).
 	Preview *preview.Service
 	// Identity signs X-Agenthold-Identity tokens; nil when previews are off.
@@ -101,9 +104,10 @@ func (a *API) mountAuthenticated(r chi.Router) {
 		r.Get("/preview/authorize", a.authorizePreview)
 		r.Post("/preview/authorize", a.authorizePreview)
 		r.Get("/agents/{agentId}/terminal", a.terminal)
+		r.Get("/agents/{agentId}/services/{serviceName}/logs/stream", a.streamServiceLogs)
 		r.Get("/sessions/{sessionId}/stream", a.stream)
 
-		strict := gen.NewStrictHandlerWithOptions(a, []gen.StrictMiddlewareFunc{requireUser}, gen.StrictHTTPServerOptions{
+		strict := gen.NewStrictHandlerWithOptions(a, []gen.StrictMiddlewareFunc{a.machineKinds, requireUser}, gen.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 				writeError(w, r, badRequest(err.Error()))
 			},

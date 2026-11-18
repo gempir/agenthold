@@ -290,6 +290,30 @@ func (e SandboxState) Valid() bool {
 	}
 }
 
+// Defines values for ServiceStatusState.
+const (
+	ServiceStatusStateBackoff ServiceStatusState = "backoff"
+	ServiceStatusStateFailed  ServiceStatusState = "failed"
+	ServiceStatusStateRunning ServiceStatusState = "running"
+	ServiceStatusStateStopped ServiceStatusState = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the ServiceStatusState enum.
+func (e ServiceStatusState) Valid() bool {
+	switch e {
+	case ServiceStatusStateBackoff:
+		return true
+	case ServiceStatusStateFailed:
+		return true
+	case ServiceStatusStateRunning:
+		return true
+	case ServiceStatusStateStopped:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SessionEventType.
 const (
 	SessionEventTypeError              SessionEventType = "error"
@@ -480,6 +504,80 @@ type AgentPatchPermissionPolicy string
 // AgentRole owner: full control. shared: use the agent (chat, terminal, files), not configure it.
 type AgentRole string
 
+// App defines model for App.
+type App struct {
+	Cpus      float32   `json:"cpus"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	// CreatedByAgent The agent that created the app with deploy_app and manages it (it may since have
+	// been deleted). Absent once the owner took the app over.
+	CreatedByAgent *struct {
+		Id string `json:"id"`
+
+		// Name Empty when the agent was deleted.
+		Name string `json:"name"`
+	} `json:"createdByAgent,omitempty"`
+	Id string `json:"id"`
+
+	// IdleMinutes 0 means always on (never sleeps for idleness).
+	IdleMinutes int `json:"idleMinutes"`
+
+	// IsTemplate The app is a template: it is never started; clone it (POST /agents/{id}/clone).
+	IsTemplate     bool       `json:"isTemplate"`
+	LastActivityAt *time.Time `json:"lastActivityAt,omitempty"`
+
+	// Links Where the machine sub-resources of this app are.
+	Links struct {
+		Audit     string `json:"audit"`
+		Exposures string `json:"exposures"`
+		Files     string `json:"files"`
+		Secrets   string `json:"secrets"`
+		Services  string `json:"services"`
+		Shares    string `json:"shares"`
+		Terminal  string `json:"terminal"`
+	} `json:"links"`
+	MemoryMb     int64   `json:"memoryMb"`
+	Name         string  `json:"name"`
+	NeedsRebuild bool    `json:"needsRebuild"`
+	NodeId       *string `json:"nodeId,omitempty"`
+	NodeName     *string `json:"nodeName,omitempty"`
+	Owner        User    `json:"owner"`
+
+	// Role owner: full control. shared: use the agent (chat, terminal, files), not configure it.
+	Role           AgentRole    `json:"role"`
+	SleepsAt       *time.Time   `json:"sleepsAt,omitempty"`
+	State          SandboxState `json:"state"`
+	StateChangedAt time.Time    `json:"stateChangedAt"`
+	StateError     string       `json:"stateError"`
+	UpdatedAt      time.Time    `json:"updatedAt"`
+
+	// Url The app's primary preview URL
+	Url *string `json:"url,omitempty"`
+}
+
+// AppInput defines model for AppInput.
+type AppInput struct {
+	Cpus *float32 `json:"cpus,omitempty"`
+
+	// IdleMinutes Default 0 (always on).
+	IdleMinutes *int   `json:"idleMinutes,omitempty"`
+	MemoryMb    *int64 `json:"memoryMb,omitempty"`
+
+	// Name A DNS label: lowercase letters, digits and hyphens, unique among your apps.
+	Name string `json:"name"`
+}
+
+// AppPatch defines model for AppPatch.
+type AppPatch struct {
+	Cpus        *float32 `json:"cpus,omitempty"`
+	IdleMinutes *int     `json:"idleMinutes,omitempty"`
+
+	// IsTemplate Convert to a template (it is stopped first) or back
+	IsTemplate *bool   `json:"isTemplate,omitempty"`
+	MemoryMb   *int64  `json:"memoryMb,omitempty"`
+	Name       *string `json:"name,omitempty"`
+}
+
 // AttachedSecret defines model for AttachedSecret.
 type AttachedSecret struct {
 	EnvVar string `json:"envVar"`
@@ -562,6 +660,45 @@ type CreatedWebhook struct {
 
 	// Url The secret delivery URL. Shown once.
 	Url string `json:"url"`
+}
+
+// DeployInput defines model for DeployInput.
+type DeployInput struct {
+	// Access Who may open an exposure: `private` (the owner and users the machine
+	// is shared with), `authenticated` (anyone signed in to this agenthold)
+	// or `public` (anyone).
+	Access *ExposureAccess `json:"access,omitempty"`
+
+	// Command Runs in `~/app/current` with `PORT` set.
+	Command string             `json:"command"`
+	Env     *map[string]string `json:"env,omitempty"`
+
+	// Exclude Names (any depth) or relative paths left out. Default [".git"].
+	Exclude *[]string `json:"exclude,omitempty"`
+	Port    int       `json:"port"`
+
+	// SourceAgentId The machine to copy from.
+	SourceAgentId string `json:"sourceAgentId"`
+
+	// SourceDir Directory in the source machine
+	SourceDir string `json:"sourceDir"`
+}
+
+// DeployResult defines model for DeployResult.
+type DeployResult struct {
+	Exposure *Exposure `json:"exposure,omitempty"`
+
+	// Logs The service's last log lines when it did not come up.
+	Logs string `json:"logs"`
+
+	// Ready The port accepted connections.
+	Ready   bool `json:"ready"`
+	Release int  `json:"release"`
+
+	// RolledBack The new release did not come up and the previous one serves again.
+	RolledBack bool           `json:"rolledBack"`
+	Service    *ServiceStatus `json:"service,omitempty"`
+	Url        *string        `json:"url,omitempty"`
 }
 
 // DirListing defines model for DirListing.
@@ -919,6 +1056,60 @@ type SecretRule struct {
 	Template string `json:"template"`
 }
 
+// Service defines model for Service.
+type Service struct {
+	Command   string            `json:"command"`
+	CreatedAt time.Time         `json:"createdAt"`
+	Enabled   bool              `json:"enabled"`
+	Env       map[string]string `json:"env"`
+	Name      string            `json:"name"`
+	Status    *ServiceStatus    `json:"status,omitempty"`
+	UpdatedAt time.Time         `json:"updatedAt"`
+	Workdir   string            `json:"workdir"`
+}
+
+// ServiceInput defines model for ServiceInput.
+type ServiceInput struct {
+	// Command Run with `sh -lc` as the agent account.
+	Command string `json:"command"`
+
+	// Enabled Default true.
+	Enabled *bool              `json:"enabled,omitempty"`
+	Env     *map[string]string `json:"env,omitempty"`
+
+	// Workdir Relative to the home (default the home).
+	Workdir *string `json:"workdir,omitempty"`
+}
+
+// ServiceList defines model for ServiceList.
+type ServiceList struct {
+	// Error Why the live status is missing although the machine runs.
+	Error *string `json:"error,omitempty"`
+
+	// Running Whether the machine is connected (its services can run).
+	Running  bool      `json:"running"`
+	Services []Service `json:"services"`
+}
+
+// ServiceStatus defines model for ServiceStatus.
+type ServiceStatus struct {
+	// Error Why it could not be started (state failed).
+	Error *string `json:"error,omitempty"`
+
+	// ExitCode Exit code of the last run (absent when a signal ended it).
+	ExitCode *int `json:"exitCode,omitempty"`
+	Pid      *int `json:"pid,omitempty"`
+	Restarts int  `json:"restarts"`
+
+	// Signal Signal that ended the last run.
+	Signal    *string            `json:"signal,omitempty"`
+	StartedAt *time.Time         `json:"startedAt,omitempty"`
+	State     ServiceStatusState `json:"state"`
+}
+
+// ServiceStatusState defines model for ServiceStatus.State.
+type ServiceStatusState string
+
 // Session defines model for Session.
 type Session struct {
 	AgentId   string    `json:"agentId"`
@@ -1049,6 +1240,12 @@ type WebhookInput struct {
 // AgentId defines model for AgentId.
 type AgentId = string
 
+// AppId defines model for AppId.
+type AppId = string
+
+// ServiceName defines model for ServiceName.
+type ServiceName = string
+
 // SessionId defines model for SessionId.
 type SessionId = string
 
@@ -1102,6 +1299,11 @@ type GetHarnessParams struct {
 type AttachSecretJSONBody struct {
 	// EnvVar Variable that holds the placeholder in the sandbox.
 	EnvVar *string `json:"envVar,omitempty"`
+}
+
+// GetServiceLogsParams defines parameters for GetServiceLogs.
+type GetServiceLogsParams struct {
+	Lines *int `form:"lines,omitempty" json:"lines,omitempty"`
 }
 
 // CreateSessionJSONBody defines parameters for CreateSession.
@@ -1168,6 +1370,9 @@ type CreateScheduleJSONRequestBody = ScheduleInput
 // AttachSecretJSONRequestBody defines body for AttachSecret for application/json ContentType.
 type AttachSecretJSONRequestBody AttachSecretJSONBody
 
+// PutServiceJSONRequestBody defines body for PutService for application/json ContentType.
+type PutServiceJSONRequestBody = ServiceInput
+
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody CreateSessionJSONBody
 
@@ -1176,6 +1381,15 @@ type ShareAgentJSONRequestBody = ShareInput
 
 // CreateWebhookJSONRequestBody defines body for CreateWebhook for application/json ContentType.
 type CreateWebhookJSONRequestBody = WebhookInput
+
+// CreateAppJSONRequestBody defines body for CreateApp for application/json ContentType.
+type CreateAppJSONRequestBody = AppInput
+
+// UpdateAppJSONRequestBody defines body for UpdateApp for application/json ContentType.
+type UpdateAppJSONRequestBody = AppPatch
+
+// DeployAppJSONRequestBody defines body for DeployApp for application/json ContentType.
+type DeployAppJSONRequestBody = DeployInput
 
 // CreateMCPServerJSONRequestBody defines body for CreateMCPServer for application/json ContentType.
 type CreateMCPServerJSONRequestBody = MCPServerInput
@@ -1309,6 +1523,30 @@ type ServerInterface interface {
 	// (PUT /agents/{agentId}/secrets/{secretId})
 	AttachSecret(w http.ResponseWriter, r *http.Request, agentId AgentId, secretId string)
 
+	// (GET /agents/{agentId}/services)
+	ListServices(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (DELETE /agents/{agentId}/services/{serviceName})
+	DeleteService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName)
+
+	// (GET /agents/{agentId}/services/{serviceName})
+	GetService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName)
+
+	// (PUT /agents/{agentId}/services/{serviceName})
+	PutService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName)
+
+	// (GET /agents/{agentId}/services/{serviceName}/logs)
+	GetServiceLogs(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName, params GetServiceLogsParams)
+
+	// (POST /agents/{agentId}/services/{serviceName}/restart)
+	RestartService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName)
+
+	// (POST /agents/{agentId}/services/{serviceName}/start)
+	StartService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName)
+
+	// (POST /agents/{agentId}/services/{serviceName}/stop)
+	StopService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName)
+
 	// (GET /agents/{agentId}/sessions)
 	ListSessions(w http.ResponseWriter, r *http.Request, agentId AgentId)
 
@@ -1344,6 +1582,36 @@ type ServerInterface interface {
 
 	// (POST /agents/{agentId}/webhooks)
 	CreateWebhook(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (GET /apps)
+	ListApps(w http.ResponseWriter, r *http.Request)
+
+	// (POST /apps)
+	CreateApp(w http.ResponseWriter, r *http.Request)
+
+	// (DELETE /apps/{appId})
+	DeleteApp(w http.ResponseWriter, r *http.Request, appId AppId)
+
+	// (GET /apps/{appId})
+	GetApp(w http.ResponseWriter, r *http.Request, appId AppId)
+
+	// (PATCH /apps/{appId})
+	UpdateApp(w http.ResponseWriter, r *http.Request, appId AppId)
+
+	// (POST /apps/{appId}/deploy)
+	DeployApp(w http.ResponseWriter, r *http.Request, appId AppId)
+
+	// (POST /apps/{appId}/rebuild)
+	RebuildApp(w http.ResponseWriter, r *http.Request, appId AppId)
+
+	// (POST /apps/{appId}/start)
+	StartApp(w http.ResponseWriter, r *http.Request, appId AppId)
+
+	// (POST /apps/{appId}/stop)
+	StopApp(w http.ResponseWriter, r *http.Request, appId AppId)
+
+	// (POST /apps/{appId}/take-over)
+	TakeOverApp(w http.ResponseWriter, r *http.Request, appId AppId)
 
 	// (GET /auth/providers)
 	ListAuthProviders(w http.ResponseWriter, r *http.Request)
@@ -1615,6 +1883,46 @@ func (_ Unimplemented) AttachSecret(w http.ResponseWriter, r *http.Request, agen
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (GET /agents/{agentId}/services)
+func (_ Unimplemented) ListServices(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /agents/{agentId}/services/{serviceName})
+func (_ Unimplemented) DeleteService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /agents/{agentId}/services/{serviceName})
+func (_ Unimplemented) GetService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /agents/{agentId}/services/{serviceName})
+func (_ Unimplemented) PutService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /agents/{agentId}/services/{serviceName}/logs)
+func (_ Unimplemented) GetServiceLogs(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName, params GetServiceLogsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /agents/{agentId}/services/{serviceName}/restart)
+func (_ Unimplemented) RestartService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /agents/{agentId}/services/{serviceName}/start)
+func (_ Unimplemented) StartService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /agents/{agentId}/services/{serviceName}/stop)
+func (_ Unimplemented) StopService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (GET /agents/{agentId}/sessions)
 func (_ Unimplemented) ListSessions(w http.ResponseWriter, r *http.Request, agentId AgentId) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -1672,6 +1980,56 @@ func (_ Unimplemented) ListWebhooks(w http.ResponseWriter, r *http.Request, agen
 
 // (POST /agents/{agentId}/webhooks)
 func (_ Unimplemented) CreateWebhook(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /apps)
+func (_ Unimplemented) ListApps(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /apps)
+func (_ Unimplemented) CreateApp(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /apps/{appId})
+func (_ Unimplemented) DeleteApp(w http.ResponseWriter, r *http.Request, appId AppId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /apps/{appId})
+func (_ Unimplemented) GetApp(w http.ResponseWriter, r *http.Request, appId AppId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PATCH /apps/{appId})
+func (_ Unimplemented) UpdateApp(w http.ResponseWriter, r *http.Request, appId AppId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /apps/{appId}/deploy)
+func (_ Unimplemented) DeployApp(w http.ResponseWriter, r *http.Request, appId AppId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /apps/{appId}/rebuild)
+func (_ Unimplemented) RebuildApp(w http.ResponseWriter, r *http.Request, appId AppId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /apps/{appId}/start)
+func (_ Unimplemented) StartApp(w http.ResponseWriter, r *http.Request, appId AppId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /apps/{appId}/stop)
+func (_ Unimplemented) StopApp(w http.ResponseWriter, r *http.Request, appId AppId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /apps/{appId}/take-over)
+func (_ Unimplemented) TakeOverApp(w http.ResponseWriter, r *http.Request, appId AppId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2809,6 +3167,293 @@ func (siw *ServerInterfaceWrapper) AttachSecret(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ListServices operation middleware
+func (siw *ServerInterfaceWrapper) ListServices(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListServices(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteService operation middleware
+func (siw *ServerInterfaceWrapper) DeleteService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "serviceName" -------------
+	var serviceName ServiceName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serviceName", chi.URLParam(r, "serviceName"), &serviceName, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serviceName", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteService(w, r, agentId, serviceName)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetService operation middleware
+func (siw *ServerInterfaceWrapper) GetService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "serviceName" -------------
+	var serviceName ServiceName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serviceName", chi.URLParam(r, "serviceName"), &serviceName, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serviceName", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetService(w, r, agentId, serviceName)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutService operation middleware
+func (siw *ServerInterfaceWrapper) PutService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "serviceName" -------------
+	var serviceName ServiceName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serviceName", chi.URLParam(r, "serviceName"), &serviceName, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serviceName", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutService(w, r, agentId, serviceName)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetServiceLogs operation middleware
+func (siw *ServerInterfaceWrapper) GetServiceLogs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "serviceName" -------------
+	var serviceName ServiceName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serviceName", chi.URLParam(r, "serviceName"), &serviceName, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serviceName", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetServiceLogsParams
+
+	// ------------- Optional query parameter "lines" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "lines", r.URL.Query(), &params.Lines, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "lines"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "lines", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetServiceLogs(w, r, agentId, serviceName, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RestartService operation middleware
+func (siw *ServerInterfaceWrapper) RestartService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "serviceName" -------------
+	var serviceName ServiceName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serviceName", chi.URLParam(r, "serviceName"), &serviceName, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serviceName", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestartService(w, r, agentId, serviceName)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartService operation middleware
+func (siw *ServerInterfaceWrapper) StartService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "serviceName" -------------
+	var serviceName ServiceName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serviceName", chi.URLParam(r, "serviceName"), &serviceName, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serviceName", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartService(w, r, agentId, serviceName)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StopService operation middleware
+func (siw *ServerInterfaceWrapper) StopService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "serviceName" -------------
+	var serviceName ServiceName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serviceName", chi.URLParam(r, "serviceName"), &serviceName, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serviceName", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StopService(w, r, agentId, serviceName)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSessions operation middleware
 func (siw *ServerInterfaceWrapper) ListSessions(w http.ResponseWriter, r *http.Request) {
 
@@ -3139,6 +3784,242 @@ func (siw *ServerInterfaceWrapper) CreateWebhook(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateWebhook(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListApps operation middleware
+func (siw *ServerInterfaceWrapper) ListApps(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListApps(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateApp operation middleware
+func (siw *ServerInterfaceWrapper) CreateApp(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateApp(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteApp operation middleware
+func (siw *ServerInterfaceWrapper) DeleteApp(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "appId" -------------
+	var appId AppId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appId", chi.URLParam(r, "appId"), &appId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteApp(w, r, appId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetApp operation middleware
+func (siw *ServerInterfaceWrapper) GetApp(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "appId" -------------
+	var appId AppId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appId", chi.URLParam(r, "appId"), &appId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetApp(w, r, appId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateApp operation middleware
+func (siw *ServerInterfaceWrapper) UpdateApp(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "appId" -------------
+	var appId AppId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appId", chi.URLParam(r, "appId"), &appId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateApp(w, r, appId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeployApp operation middleware
+func (siw *ServerInterfaceWrapper) DeployApp(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "appId" -------------
+	var appId AppId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appId", chi.URLParam(r, "appId"), &appId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeployApp(w, r, appId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RebuildApp operation middleware
+func (siw *ServerInterfaceWrapper) RebuildApp(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "appId" -------------
+	var appId AppId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appId", chi.URLParam(r, "appId"), &appId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RebuildApp(w, r, appId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartApp operation middleware
+func (siw *ServerInterfaceWrapper) StartApp(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "appId" -------------
+	var appId AppId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appId", chi.URLParam(r, "appId"), &appId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartApp(w, r, appId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StopApp operation middleware
+func (siw *ServerInterfaceWrapper) StopApp(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "appId" -------------
+	var appId AppId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appId", chi.URLParam(r, "appId"), &appId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StopApp(w, r, appId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// TakeOverApp operation middleware
+func (siw *ServerInterfaceWrapper) TakeOverApp(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "appId" -------------
+	var appId AppId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appId", chi.URLParam(r, "appId"), &appId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TakeOverApp(w, r, appId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4188,6 +5069,36 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/agents/{agentId}/clone", wrapper.CloneAgent)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/apps", wrapper.ListApps)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/apps", wrapper.CreateApp)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/apps/{appId}", wrapper.DeleteApp)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/apps/{appId}", wrapper.GetApp)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/apps/{appId}", wrapper.UpdateApp)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/apps/{appId}/start", wrapper.StartApp)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/apps/{appId}/stop", wrapper.StopApp)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/apps/{appId}/rebuild", wrapper.RebuildApp)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/apps/{appId}/take-over", wrapper.TakeOverApp)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/apps/{appId}/deploy", wrapper.DeployApp)
+	})
+	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/agents/{agentId}/files", wrapper.DeleteFile)
 	})
 	r.Group(func(r chi.Router) {
@@ -4285,6 +5196,30 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/agents/{agentId}/exposures/{exposureId}", wrapper.UpdateExposure)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/agents/{agentId}/services", wrapper.ListServices)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/agents/{agentId}/services/{serviceName}", wrapper.DeleteService)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/agents/{agentId}/services/{serviceName}", wrapper.GetService)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/agents/{agentId}/services/{serviceName}", wrapper.PutService)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/agents/{agentId}/services/{serviceName}/start", wrapper.StartService)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/agents/{agentId}/services/{serviceName}/stop", wrapper.StopService)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/agents/{agentId}/services/{serviceName}/restart", wrapper.RestartService)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/agents/{agentId}/services/{serviceName}/logs", wrapper.GetServiceLogs)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/agents/{agentId}/mcp-servers", wrapper.ListAgentMCPServers)
@@ -6013,6 +6948,462 @@ func (response AttachSecret404JSONResponse) VisitAttachSecretResponse(w http.Res
 	return err
 }
 
+type ListServicesRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+}
+
+type ListServicesResponseObject interface {
+	VisitListServicesResponse(w http.ResponseWriter) error
+}
+
+type ListServices200JSONResponse ServiceList
+
+func (response ListServices200JSONResponse) VisitListServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServices404JSONResponse struct{ ErrorJSONResponse }
+
+func (response ListServices404JSONResponse) VisitListServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteServiceRequestObject struct {
+	AgentId     AgentId     `json:"agentId"`
+	ServiceName ServiceName `json:"serviceName"`
+}
+
+type DeleteServiceResponseObject interface {
+	VisitDeleteServiceResponse(w http.ResponseWriter) error
+}
+
+type DeleteService204Response struct {
+}
+
+func (response DeleteService204Response) VisitDeleteServiceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteService403JSONResponse struct{ ErrorJSONResponse }
+
+func (response DeleteService403JSONResponse) VisitDeleteServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteService404JSONResponse Error
+
+func (response DeleteService404JSONResponse) VisitDeleteServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteService409JSONResponse Error
+
+func (response DeleteService409JSONResponse) VisitDeleteServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetServiceRequestObject struct {
+	AgentId     AgentId     `json:"agentId"`
+	ServiceName ServiceName `json:"serviceName"`
+}
+
+type GetServiceResponseObject interface {
+	VisitGetServiceResponse(w http.ResponseWriter) error
+}
+
+type GetService200JSONResponse Service
+
+func (response GetService200JSONResponse) VisitGetServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetService404JSONResponse struct{ ErrorJSONResponse }
+
+func (response GetService404JSONResponse) VisitGetServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutServiceRequestObject struct {
+	AgentId     AgentId     `json:"agentId"`
+	ServiceName ServiceName `json:"serviceName"`
+	Body        *PutServiceJSONRequestBody
+}
+
+type PutServiceResponseObject interface {
+	VisitPutServiceResponse(w http.ResponseWriter) error
+}
+
+type PutService200JSONResponse Service
+
+func (response PutService200JSONResponse) VisitPutServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutService400JSONResponse struct{ ErrorJSONResponse }
+
+func (response PutService400JSONResponse) VisitPutServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutService403JSONResponse Error
+
+func (response PutService403JSONResponse) VisitPutServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutService404JSONResponse Error
+
+func (response PutService404JSONResponse) VisitPutServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutService409JSONResponse Error
+
+func (response PutService409JSONResponse) VisitPutServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetServiceLogsRequestObject struct {
+	AgentId     AgentId     `json:"agentId"`
+	ServiceName ServiceName `json:"serviceName"`
+	Params      GetServiceLogsParams
+}
+
+type GetServiceLogsResponseObject interface {
+	VisitGetServiceLogsResponse(w http.ResponseWriter) error
+}
+
+type GetServiceLogs200TextResponse string
+
+func (response GetServiceLogs200TextResponse) VisitGetServiceLogsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(200)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type GetServiceLogs404JSONResponse struct{ ErrorJSONResponse }
+
+func (response GetServiceLogs404JSONResponse) VisitGetServiceLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetServiceLogs409JSONResponse Error
+
+func (response GetServiceLogs409JSONResponse) VisitGetServiceLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartServiceRequestObject struct {
+	AgentId     AgentId     `json:"agentId"`
+	ServiceName ServiceName `json:"serviceName"`
+}
+
+type RestartServiceResponseObject interface {
+	VisitRestartServiceResponse(w http.ResponseWriter) error
+}
+
+type RestartService200JSONResponse Service
+
+func (response RestartService200JSONResponse) VisitRestartServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartService403JSONResponse struct{ ErrorJSONResponse }
+
+func (response RestartService403JSONResponse) VisitRestartServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartService404JSONResponse Error
+
+func (response RestartService404JSONResponse) VisitRestartServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartService409JSONResponse Error
+
+func (response RestartService409JSONResponse) VisitRestartServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartServiceRequestObject struct {
+	AgentId     AgentId     `json:"agentId"`
+	ServiceName ServiceName `json:"serviceName"`
+}
+
+type StartServiceResponseObject interface {
+	VisitStartServiceResponse(w http.ResponseWriter) error
+}
+
+type StartService200JSONResponse Service
+
+func (response StartService200JSONResponse) VisitStartServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartService403JSONResponse struct{ ErrorJSONResponse }
+
+func (response StartService403JSONResponse) VisitStartServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartService404JSONResponse Error
+
+func (response StartService404JSONResponse) VisitStartServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartService409JSONResponse Error
+
+func (response StartService409JSONResponse) VisitStartServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopServiceRequestObject struct {
+	AgentId     AgentId     `json:"agentId"`
+	ServiceName ServiceName `json:"serviceName"`
+}
+
+type StopServiceResponseObject interface {
+	VisitStopServiceResponse(w http.ResponseWriter) error
+}
+
+type StopService200JSONResponse Service
+
+func (response StopService200JSONResponse) VisitStopServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopService403JSONResponse struct{ ErrorJSONResponse }
+
+func (response StopService403JSONResponse) VisitStopServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopService404JSONResponse Error
+
+func (response StopService404JSONResponse) VisitStopServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopService409JSONResponse Error
+
+func (response StopService409JSONResponse) VisitStopServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSessionsRequestObject struct {
 	AgentId AgentId `json:"agentId"`
 }
@@ -6604,6 +7995,557 @@ func (response CreateWebhook403JSONResponse) VisitCreateWebhookResponse(w http.R
 type CreateWebhook404JSONResponse Error
 
 func (response CreateWebhook404JSONResponse) VisitCreateWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAppsRequestObject struct {
+}
+
+type ListAppsResponseObject interface {
+	VisitListAppsResponse(w http.ResponseWriter) error
+}
+
+type ListApps200JSONResponse []App
+
+func (response ListApps200JSONResponse) VisitListAppsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAppRequestObject struct {
+	Body *CreateAppJSONRequestBody
+}
+
+type CreateAppResponseObject interface {
+	VisitCreateAppResponse(w http.ResponseWriter) error
+}
+
+type CreateApp201JSONResponse App
+
+func (response CreateApp201JSONResponse) VisitCreateAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApp400JSONResponse struct{ ErrorJSONResponse }
+
+func (response CreateApp400JSONResponse) VisitCreateAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApp409JSONResponse Error
+
+func (response CreateApp409JSONResponse) VisitCreateAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAppRequestObject struct {
+	AppId AppId `json:"appId"`
+}
+
+type DeleteAppResponseObject interface {
+	VisitDeleteAppResponse(w http.ResponseWriter) error
+}
+
+type DeleteApp202Response struct {
+}
+
+func (response DeleteApp202Response) VisitDeleteAppResponse(w http.ResponseWriter) error {
+	w.WriteHeader(202)
+	return nil
+}
+
+type DeleteApp403JSONResponse struct{ ErrorJSONResponse }
+
+func (response DeleteApp403JSONResponse) VisitDeleteAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteApp404JSONResponse Error
+
+func (response DeleteApp404JSONResponse) VisitDeleteAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteApp409JSONResponse Error
+
+func (response DeleteApp409JSONResponse) VisitDeleteAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAppRequestObject struct {
+	AppId AppId `json:"appId"`
+}
+
+type GetAppResponseObject interface {
+	VisitGetAppResponse(w http.ResponseWriter) error
+}
+
+type GetApp200JSONResponse App
+
+func (response GetApp200JSONResponse) VisitGetAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApp404JSONResponse struct{ ErrorJSONResponse }
+
+func (response GetApp404JSONResponse) VisitGetAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAppRequestObject struct {
+	AppId AppId `json:"appId"`
+	Body  *UpdateAppJSONRequestBody
+}
+
+type UpdateAppResponseObject interface {
+	VisitUpdateAppResponse(w http.ResponseWriter) error
+}
+
+type UpdateApp200JSONResponse App
+
+func (response UpdateApp200JSONResponse) VisitUpdateAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateApp400JSONResponse struct{ ErrorJSONResponse }
+
+func (response UpdateApp400JSONResponse) VisitUpdateAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateApp403JSONResponse Error
+
+func (response UpdateApp403JSONResponse) VisitUpdateAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateApp404JSONResponse Error
+
+func (response UpdateApp404JSONResponse) VisitUpdateAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeployAppRequestObject struct {
+	AppId AppId `json:"appId"`
+	Body  *DeployAppJSONRequestBody
+}
+
+type DeployAppResponseObject interface {
+	VisitDeployAppResponse(w http.ResponseWriter) error
+}
+
+type DeployApp200JSONResponse DeployResult
+
+func (response DeployApp200JSONResponse) VisitDeployAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeployApp400JSONResponse struct{ ErrorJSONResponse }
+
+func (response DeployApp400JSONResponse) VisitDeployAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeployApp403JSONResponse Error
+
+func (response DeployApp403JSONResponse) VisitDeployAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeployApp404JSONResponse Error
+
+func (response DeployApp404JSONResponse) VisitDeployAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeployApp409JSONResponse Error
+
+func (response DeployApp409JSONResponse) VisitDeployAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RebuildAppRequestObject struct {
+	AppId AppId `json:"appId"`
+}
+
+type RebuildAppResponseObject interface {
+	VisitRebuildAppResponse(w http.ResponseWriter) error
+}
+
+type RebuildApp202JSONResponse App
+
+func (response RebuildApp202JSONResponse) VisitRebuildAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RebuildApp403JSONResponse struct{ ErrorJSONResponse }
+
+func (response RebuildApp403JSONResponse) VisitRebuildAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RebuildApp404JSONResponse Error
+
+func (response RebuildApp404JSONResponse) VisitRebuildAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RebuildApp409JSONResponse Error
+
+func (response RebuildApp409JSONResponse) VisitRebuildAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartAppRequestObject struct {
+	AppId AppId `json:"appId"`
+}
+
+type StartAppResponseObject interface {
+	VisitStartAppResponse(w http.ResponseWriter) error
+}
+
+type StartApp202JSONResponse App
+
+func (response StartApp202JSONResponse) VisitStartAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartApp403JSONResponse struct{ ErrorJSONResponse }
+
+func (response StartApp403JSONResponse) VisitStartAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartApp404JSONResponse Error
+
+func (response StartApp404JSONResponse) VisitStartAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartApp409JSONResponse Error
+
+func (response StartApp409JSONResponse) VisitStartAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopAppRequestObject struct {
+	AppId AppId `json:"appId"`
+}
+
+type StopAppResponseObject interface {
+	VisitStopAppResponse(w http.ResponseWriter) error
+}
+
+type StopApp202JSONResponse App
+
+func (response StopApp202JSONResponse) VisitStopAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopApp403JSONResponse struct{ ErrorJSONResponse }
+
+func (response StopApp403JSONResponse) VisitStopAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopApp404JSONResponse Error
+
+func (response StopApp404JSONResponse) VisitStopAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopApp409JSONResponse Error
+
+func (response StopApp409JSONResponse) VisitStopAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TakeOverAppRequestObject struct {
+	AppId AppId `json:"appId"`
+}
+
+type TakeOverAppResponseObject interface {
+	VisitTakeOverAppResponse(w http.ResponseWriter) error
+}
+
+type TakeOverApp200JSONResponse App
+
+func (response TakeOverApp200JSONResponse) VisitTakeOverAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TakeOverApp403JSONResponse struct{ ErrorJSONResponse }
+
+func (response TakeOverApp403JSONResponse) VisitTakeOverAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TakeOverApp404JSONResponse Error
+
+func (response TakeOverApp404JSONResponse) VisitTakeOverAppResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -8464,6 +10406,30 @@ type StrictServerInterface interface {
 	// (PUT /agents/{agentId}/secrets/{secretId})
 	AttachSecret(ctx context.Context, request AttachSecretRequestObject) (AttachSecretResponseObject, error)
 
+	// (GET /agents/{agentId}/services)
+	ListServices(ctx context.Context, request ListServicesRequestObject) (ListServicesResponseObject, error)
+
+	// (DELETE /agents/{agentId}/services/{serviceName})
+	DeleteService(ctx context.Context, request DeleteServiceRequestObject) (DeleteServiceResponseObject, error)
+
+	// (GET /agents/{agentId}/services/{serviceName})
+	GetService(ctx context.Context, request GetServiceRequestObject) (GetServiceResponseObject, error)
+
+	// (PUT /agents/{agentId}/services/{serviceName})
+	PutService(ctx context.Context, request PutServiceRequestObject) (PutServiceResponseObject, error)
+
+	// (GET /agents/{agentId}/services/{serviceName}/logs)
+	GetServiceLogs(ctx context.Context, request GetServiceLogsRequestObject) (GetServiceLogsResponseObject, error)
+
+	// (POST /agents/{agentId}/services/{serviceName}/restart)
+	RestartService(ctx context.Context, request RestartServiceRequestObject) (RestartServiceResponseObject, error)
+
+	// (POST /agents/{agentId}/services/{serviceName}/start)
+	StartService(ctx context.Context, request StartServiceRequestObject) (StartServiceResponseObject, error)
+
+	// (POST /agents/{agentId}/services/{serviceName}/stop)
+	StopService(ctx context.Context, request StopServiceRequestObject) (StopServiceResponseObject, error)
+
 	// (GET /agents/{agentId}/sessions)
 	ListSessions(ctx context.Context, request ListSessionsRequestObject) (ListSessionsResponseObject, error)
 
@@ -8499,6 +10465,36 @@ type StrictServerInterface interface {
 
 	// (POST /agents/{agentId}/webhooks)
 	CreateWebhook(ctx context.Context, request CreateWebhookRequestObject) (CreateWebhookResponseObject, error)
+
+	// (GET /apps)
+	ListApps(ctx context.Context, request ListAppsRequestObject) (ListAppsResponseObject, error)
+
+	// (POST /apps)
+	CreateApp(ctx context.Context, request CreateAppRequestObject) (CreateAppResponseObject, error)
+
+	// (DELETE /apps/{appId})
+	DeleteApp(ctx context.Context, request DeleteAppRequestObject) (DeleteAppResponseObject, error)
+
+	// (GET /apps/{appId})
+	GetApp(ctx context.Context, request GetAppRequestObject) (GetAppResponseObject, error)
+
+	// (PATCH /apps/{appId})
+	UpdateApp(ctx context.Context, request UpdateAppRequestObject) (UpdateAppResponseObject, error)
+
+	// (POST /apps/{appId}/deploy)
+	DeployApp(ctx context.Context, request DeployAppRequestObject) (DeployAppResponseObject, error)
+
+	// (POST /apps/{appId}/rebuild)
+	RebuildApp(ctx context.Context, request RebuildAppRequestObject) (RebuildAppResponseObject, error)
+
+	// (POST /apps/{appId}/start)
+	StartApp(ctx context.Context, request StartAppRequestObject) (StartAppResponseObject, error)
+
+	// (POST /apps/{appId}/stop)
+	StopApp(ctx context.Context, request StopAppRequestObject) (StopAppResponseObject, error)
+
+	// (POST /apps/{appId}/take-over)
+	TakeOverApp(ctx context.Context, request TakeOverAppRequestObject) (TakeOverAppResponseObject, error)
 
 	// (GET /auth/providers)
 	ListAuthProviders(ctx context.Context, request ListAuthProvidersRequestObject) (ListAuthProvidersResponseObject, error)
@@ -9489,6 +11485,229 @@ func (sh *strictHandler) AttachSecret(w http.ResponseWriter, r *http.Request, ag
 	}
 }
 
+// ListServices operation middleware
+func (sh *strictHandler) ListServices(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	var request ListServicesRequestObject
+
+	request.AgentId = agentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListServices(ctx, request.(ListServicesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListServices")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListServicesResponseObject); ok {
+		if err := validResponse.VisitListServicesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteService operation middleware
+func (sh *strictHandler) DeleteService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName) {
+	var request DeleteServiceRequestObject
+
+	request.AgentId = agentId
+	request.ServiceName = serviceName
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteService(ctx, request.(DeleteServiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteService")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteServiceResponseObject); ok {
+		if err := validResponse.VisitDeleteServiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetService operation middleware
+func (sh *strictHandler) GetService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName) {
+	var request GetServiceRequestObject
+
+	request.AgentId = agentId
+	request.ServiceName = serviceName
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetService(ctx, request.(GetServiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetService")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetServiceResponseObject); ok {
+		if err := validResponse.VisitGetServiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutService operation middleware
+func (sh *strictHandler) PutService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName) {
+	var request PutServiceRequestObject
+
+	request.AgentId = agentId
+	request.ServiceName = serviceName
+
+	var body PutServiceJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutService(ctx, request.(PutServiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutService")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutServiceResponseObject); ok {
+		if err := validResponse.VisitPutServiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetServiceLogs operation middleware
+func (sh *strictHandler) GetServiceLogs(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName, params GetServiceLogsParams) {
+	var request GetServiceLogsRequestObject
+
+	request.AgentId = agentId
+	request.ServiceName = serviceName
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetServiceLogs(ctx, request.(GetServiceLogsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetServiceLogs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetServiceLogsResponseObject); ok {
+		if err := validResponse.VisitGetServiceLogsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestartService operation middleware
+func (sh *strictHandler) RestartService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName) {
+	var request RestartServiceRequestObject
+
+	request.AgentId = agentId
+	request.ServiceName = serviceName
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestartService(ctx, request.(RestartServiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestartService")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestartServiceResponseObject); ok {
+		if err := validResponse.VisitRestartServiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartService operation middleware
+func (sh *strictHandler) StartService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName) {
+	var request StartServiceRequestObject
+
+	request.AgentId = agentId
+	request.ServiceName = serviceName
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartService(ctx, request.(StartServiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartService")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartServiceResponseObject); ok {
+		if err := validResponse.VisitStartServiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StopService operation middleware
+func (sh *strictHandler) StopService(w http.ResponseWriter, r *http.Request, agentId AgentId, serviceName ServiceName) {
+	var request StopServiceRequestObject
+
+	request.AgentId = agentId
+	request.ServiceName = serviceName
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StopService(ctx, request.(StopServiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StopService")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StopServiceResponseObject); ok {
+		if err := validResponse.VisitStopServiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListSessions operation middleware
 func (sh *strictHandler) ListSessions(w http.ResponseWriter, r *http.Request, agentId AgentId) {
 	var request ListSessionsRequestObject
@@ -9821,6 +12040,283 @@ func (sh *strictHandler) CreateWebhook(w http.ResponseWriter, r *http.Request, a
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateWebhookResponseObject); ok {
 		if err := validResponse.VisitCreateWebhookResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListApps operation middleware
+func (sh *strictHandler) ListApps(w http.ResponseWriter, r *http.Request) {
+	var request ListAppsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListApps(ctx, request.(ListAppsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListApps")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAppsResponseObject); ok {
+		if err := validResponse.VisitListAppsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateApp operation middleware
+func (sh *strictHandler) CreateApp(w http.ResponseWriter, r *http.Request) {
+	var request CreateAppRequestObject
+
+	var body CreateAppJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateApp(ctx, request.(CreateAppRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateApp")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateAppResponseObject); ok {
+		if err := validResponse.VisitCreateAppResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteApp operation middleware
+func (sh *strictHandler) DeleteApp(w http.ResponseWriter, r *http.Request, appId AppId) {
+	var request DeleteAppRequestObject
+
+	request.AppId = appId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteApp(ctx, request.(DeleteAppRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteApp")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteAppResponseObject); ok {
+		if err := validResponse.VisitDeleteAppResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetApp operation middleware
+func (sh *strictHandler) GetApp(w http.ResponseWriter, r *http.Request, appId AppId) {
+	var request GetAppRequestObject
+
+	request.AppId = appId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetApp(ctx, request.(GetAppRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetApp")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAppResponseObject); ok {
+		if err := validResponse.VisitGetAppResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateApp operation middleware
+func (sh *strictHandler) UpdateApp(w http.ResponseWriter, r *http.Request, appId AppId) {
+	var request UpdateAppRequestObject
+
+	request.AppId = appId
+
+	var body UpdateAppJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateApp(ctx, request.(UpdateAppRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateApp")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateAppResponseObject); ok {
+		if err := validResponse.VisitUpdateAppResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeployApp operation middleware
+func (sh *strictHandler) DeployApp(w http.ResponseWriter, r *http.Request, appId AppId) {
+	var request DeployAppRequestObject
+
+	request.AppId = appId
+
+	var body DeployAppJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeployApp(ctx, request.(DeployAppRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeployApp")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeployAppResponseObject); ok {
+		if err := validResponse.VisitDeployAppResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RebuildApp operation middleware
+func (sh *strictHandler) RebuildApp(w http.ResponseWriter, r *http.Request, appId AppId) {
+	var request RebuildAppRequestObject
+
+	request.AppId = appId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RebuildApp(ctx, request.(RebuildAppRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RebuildApp")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RebuildAppResponseObject); ok {
+		if err := validResponse.VisitRebuildAppResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartApp operation middleware
+func (sh *strictHandler) StartApp(w http.ResponseWriter, r *http.Request, appId AppId) {
+	var request StartAppRequestObject
+
+	request.AppId = appId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartApp(ctx, request.(StartAppRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartApp")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartAppResponseObject); ok {
+		if err := validResponse.VisitStartAppResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StopApp operation middleware
+func (sh *strictHandler) StopApp(w http.ResponseWriter, r *http.Request, appId AppId) {
+	var request StopAppRequestObject
+
+	request.AppId = appId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StopApp(ctx, request.(StopAppRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StopApp")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StopAppResponseObject); ok {
+		if err := validResponse.VisitStopAppResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// TakeOverApp operation middleware
+func (sh *strictHandler) TakeOverApp(w http.ResponseWriter, r *http.Request, appId AppId) {
+	var request TakeOverAppRequestObject
+
+	request.AppId = appId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.TakeOverApp(ctx, request.(TakeOverAppRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "TakeOverApp")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(TakeOverAppResponseObject); ok {
+		if err := validResponse.VisitTakeOverAppResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -10938,170 +13434,219 @@ func (sh *strictHandler) UpdateWebhook(w http.ResponseWriter, r *http.Request, w
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"eJDRcGiAjGz+/sv9/wsAAP//",
+	"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",
+	"//8=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

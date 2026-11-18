@@ -227,6 +227,23 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (db.Exposure, erro
 	}
 }
 
+// SetPort moves an exposure to another port of its machine in one update:
+// its name, URL and access stay.
+func (s *Service) SetPort(ctx context.Context, e db.Exposure, port int) (db.Exposure, error) {
+	if port < 1 || port > 65535 {
+		return db.Exposure{}, Invalid("port must be between 1 and 65535")
+	}
+	if err := s.Store.SetExposurePort(ctx, db.SetExposurePortParams{Port: int64(port), ID: e.ID}); err != nil {
+		if store.IsUniqueViolation(err) {
+			return db.Exposure{}, ErrPortTaken
+		}
+		return db.Exposure{}, err
+	}
+	s.Invalidate()
+	e.Port = int64(port)
+	return e, nil
+}
+
 // Patch changes an exposure; nil fields stay.
 type Patch struct {
 	Name          string // "" keeps the name

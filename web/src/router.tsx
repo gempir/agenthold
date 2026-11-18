@@ -17,6 +17,7 @@ import { isAgentSection, type AgentSection } from '@/components/agent/sections';
 import { AccountSettings } from '@/pages/AccountSettings';
 import { AgentPage } from '@/pages/AgentPage';
 import { AgentSettingsPage } from '@/pages/AgentSettingsPage';
+import { AppPage, isAppSection, type AppSection } from '@/pages/AppPage';
 import { HomePage } from '@/pages/HomePage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NewChatPage } from '@/pages/NewChatPage';
@@ -110,6 +111,19 @@ const agentSettingsRoute = createRoute({
   },
 });
 
+const appPageRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/apps/$appId',
+  validateSearch: (s: Record<string, unknown>): { tab?: AppSection } => ({
+    ...(isAppSection(s.tab) && { tab: s.tab }),
+  }),
+  component: function AppRoute() {
+    const { appId } = appPageRoute.useParams();
+    const { tab } = appPageRoute.useSearch();
+    return <AppPage key={appId} appId={appId} tab={tab} />;
+  },
+});
+
 // Account settings: /settings/<page>, framed by AccountSettings' nav.
 const settingsRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -168,6 +182,7 @@ const routeTree = rootRoute.addChildren([
     newChatRoute,
     agentRoute,
     agentSettingsRoute,
+    appPageRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
       agentsSettingsRoute,

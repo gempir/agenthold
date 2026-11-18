@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gempir/agenthold/internal/api/gen"
+	"github.com/gempir/agenthold/internal/apps"
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/config"
@@ -17,6 +18,7 @@ import (
 	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/session"
+	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
 )
 
@@ -135,6 +137,9 @@ func (a *API) ListAgents(ctx context.Context, req gen.ListAgentsRequestObject) (
 	}
 	out := gen.ListAgents200JSONResponse{}
 	for _, r := range rows {
+		if r.Agent.Kind == apps.KindApp {
+			continue // listed at /apps
+		}
 		// Machines that are not templates, unless templates were asked for.
 		switch t := r.Agent.IsTemplate == 1; {
 		case want == gen.All:
@@ -356,11 +361,7 @@ func (a *API) DeleteAgent(ctx context.Context, req gen.DeleteAgentRequestObject)
 	if err != nil {
 		return nil, err
 	}
-	if err := a.Sandboxes.Destroy(ctx, req.AgentId); err != nil {
-		return nil, err
-	}
-	// Its preview URLs stop now; their names stay reserved for the owner.
-	if err := a.Preview.DeleteAgent(ctx, acc.Row.Agent); err != nil {
+	if err := a.deleteMachine(ctx, acc.Row.Agent); err != nil {
 		return nil, err
 	}
 	a.record(ctx, acc.Row.Agent, audit.AgentDelete, acc.Row.Agent.Name, nil)
@@ -472,6 +473,14 @@ func (a *API) CloneAgent(ctx context.Context, req gen.CloneAgentRequestObject) (
 	if err != nil {
 		return nil, err
 	}
+	// Cloning is machine-level: an app's clone is an app (see the spec).
+	isApp := src.Kind == apps.KindApp
+	if isApp {
+		if !apps.ValidAppName(name) {
+			return nil, badRequest("an app name is 1 to 40 lowercase letters, digits and hyphens, starting and ending with a letter or digit")
+		}
+		defer a.Apps.OwnerLock(u.ID)()
+	}
 	if err := a.Sandboxes.Reachable(ctx, src.ID); err != nil {
 		return nil, err
 	}
@@ -498,6 +507,11 @@ func (a *API) CloneAgent(ctx context.Context, req gen.CloneAgentRequestObject) (
 	dstID := id.New("ag")
 	var provision func()
 	err = a.Store.Tx(ctx, func(q *db.Queries) error {
+		if isApp {
+			if err := a.Apps.CheckOwnerLimit(ctx, q, u.ID); err != nil {
+				return err
+			}
+		}
 		if err := q.CreateClonedAgent(ctx, db.CreateClonedAgentParams{
 			ID: dstID, OwnerID: u.ID, Name: name, Image: src.Image, Harness: src.Harness, Model: src.Model,
 			Cpus: src.Cpus, MemoryMb: src.MemoryMb, IdleMinutes: src.IdleMinutes, PermissionPolicy: src.PermissionPolicy,
@@ -507,7 +521,20 @@ func (a *API) CloneAgent(ctx context.Context, req gen.CloneAgentRequestObject) (
 		}); err != nil {
 			return err
 		}
+		if isApp {
+			if err := q.MakeAppClone(ctx, dstID); err != nil {
+				if store.IsUniqueViolation(err) {
+					return apps.ErrNameTaken
+				}
+				return err
+			}
+		}
 		if err := copyAttachments(ctx, q, src.ID, dstID, now); err != nil {
+			return err
+		}
+		// Its services come along (they act on the copied disks); its
+		// exposures do not: URLs are not cloned.
+		if err := q.CopyServices(ctx, db.CopyServicesParams{DstID: dstID, Now: now, SrcID: src.ID}); err != nil {
 			return err
 		}
 		var err error

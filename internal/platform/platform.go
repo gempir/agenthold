@@ -1,7 +1,9 @@
 // Package platform serves the agenthold MCP tools that agents use from inside
 // their sandboxes: list the agents they may talk to, send them messages, ask
-// them for an answer, and expose ports of their own machine. An agent may talk to the agents its owner owns or
-// that are shared with its owner. Calls arrive over the caller's tunnel, so the server
+// them for an answer, expose ports and run services on their own machine,
+// and deploy and manage apps. An agent may talk to the agents its owner owns or
+// that are shared with its owner, and manage its owner's apps (change and
+// delete only the ones it created). Calls arrive over the caller's tunnel, so the server
 // knows which agent is calling; it never trusts the sandbox for that.
 package platform
 
@@ -15,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gempir/agenthold/internal/apps"
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/preview"
@@ -40,6 +43,8 @@ type Service struct {
 	AskTimeout time.Duration
 	// Preview serves exposures; the exposure tools are listed when it is enabled.
 	Preview *preview.Service
+	// Apps runs services and apps; their tools are listed when it is set.
+	Apps *apps.Manager
 }
 
 // Tools are the platform tools in MCP form.
@@ -110,10 +115,14 @@ var exposureTools = []map[string]any{
 
 // tools lists the tools offered to agents.
 func (p *Service) tools() []map[string]any {
-	if !p.Preview.Enabled() {
-		return Tools
+	out := append([]map[string]any{}, Tools...)
+	if p.Preview.Enabled() {
+		out = append(out, exposureTools...)
 	}
-	return append(append([]map[string]any{}, Tools...), exposureTools...)
+	if p.Apps != nil {
+		out = append(append(out, serviceTools...), appTools...)
+	}
+	return out
 }
 
 // Handle serves one call from the agent behind s.
@@ -142,13 +151,11 @@ func (p *Service) Call(ctx context.Context, callerID, sessionID, tool string, ar
 	if err != nil {
 		return nil, err
 	}
-	var in struct {
-		Agent  string `json:"agent"`
-		Text   string `json:"text"`
-		Port   int    `json:"port"`
-		Name   string `json:"name"`
-		Access string `json:"access"`
+	if caller.Kind == apps.KindApp {
+		// Only agents act on the platform; an app's processes get nothing.
+		return nil, errors.New("platform tools are for agents, not apps")
 	}
+	var in toolArgs
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, errors.New("invalid arguments")
@@ -168,6 +175,39 @@ func (p *Service) Call(ctx context.Context, callerID, sessionID, tool string, ar
 		return p.listExposures(ctx, caller)
 	case "unexpose":
 		return p.unexpose(ctx, caller, in.Port)
+	}
+	if p.Apps == nil {
+		return nil, fmt.Errorf("unknown tool %q", tool)
+	}
+	switch tool {
+	case "start_service":
+		return p.startService(ctx, caller, in)
+	case "stop_service":
+		return p.stopService(ctx, caller, in.Name)
+	case "list_services":
+		return p.listServices(ctx, caller)
+	case "service_logs":
+		return p.serviceLogs(ctx, caller.ID, in.Name, in.Lines)
+	case "deploy_app":
+		dctx, cancel := context.WithTimeout(ctx, apps.DeployTimeout+time.Minute)
+		defer cancel()
+		return p.deployApp(dctx, caller, in)
+	case "list_apps":
+		return p.listApps(ctx, caller)
+	case "app_logs":
+		app, err := p.findApp(ctx, caller, in.Name)
+		if err != nil {
+			return nil, err
+		}
+		return p.serviceLogs(ctx, app.ID, apps.AppService, in.Lines)
+	case "app_exec":
+		return p.appExec(ctx, caller, in)
+	case "restart_app":
+		return p.restartApp(ctx, caller, in.Name)
+	case "stop_app":
+		return p.stopApp(ctx, caller, in.Name)
+	case "delete_app":
+		return p.deleteApp(ctx, caller, in.Name)
 	}
 	return nil, fmt.Errorf("unknown tool %q", tool)
 }
@@ -189,8 +229,8 @@ func (p *Service) reachable(ctx context.Context, caller db.Agent) ([]db.ListUser
 	chk := authz.Checker{Q: p.Store.Queries}
 	var out []db.ListUserAgentsRow
 	for _, r := range rows {
-		if r.Agent.ID == caller.ID || r.Agent.IsTemplate == 1 {
-			continue // templates are never running: nothing to message
+		if r.Agent.ID == caller.ID || r.Agent.Kind == apps.KindApp || r.Agent.IsTemplate == 1 {
+			continue // apps run no harness; templates are never running: nothing to message
 		}
 		if ok, err := chk.CanDelegate(ctx, caller.OwnerID, r.Agent); err != nil {
 			return nil, err

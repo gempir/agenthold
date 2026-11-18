@@ -12,7 +12,19 @@ import (
 
 // Config is what an adapter may use from the agent's settings.
 type Config struct {
+	// Model is the agent's default model ('' = the harness's own default).
+	// The harness gets it when it starts; a running harness is switched
+	// through ACP session config options instead.
 	Model string
+}
+
+// Model is one entry of an adapter's fallback model list.
+type Model struct {
+	ID          string
+	Name        string
+	Description string
+	// Group is the heading in the picker (a provider, a family).
+	Group string
 }
 
 // Adapter describes one harness. Adapter packages register one from init.
@@ -45,6 +57,14 @@ type Adapter struct {
 	// TerminalLogins maps login methods to the command that runs them in a
 	// terminal, for harnesses that advertise a method without saying so.
 	TerminalLogins map[string][]string
+	// FallbackModels is shown by the model picker until the harness has
+	// reported its own list (session config options), for example before
+	// the agent ever ran. Keep it small: what the harness accepts whatever
+	// the account (aliases, not dated ids).
+	FallbackModels []Model
+	// CustomModels: the harness accepts model ids it does not list (OpenCode's
+	// "provider/model" for providers configured in its own config).
+	CustomModels bool
 	// Hidden keeps the adapter out of listings (the test fake).
 	Hidden bool
 	// Login is set when the harness's provider login can live on the user's

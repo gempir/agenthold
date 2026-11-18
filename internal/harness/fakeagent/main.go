@@ -5,6 +5,7 @@
 //	slow <n>                 stream n chunks, 200ms apart (cancellable)
 //	think <text>             a thought, then an answer
 //	whoami                   the account login it was given (env and file)
+//	model                    the session's model, effort and fast mode (see models.go)
 //	anything else            echo it back
 //
 // Failures, for tests of everything around a harness:
@@ -79,6 +80,7 @@ type agent struct {
 	cancels map[string]context.CancelFunc
 	mcp     map[string][]string // session -> MCP servers it was given
 	servers map[string][]acp.McpServer
+	configs map[string]sessionConfig // session -> model choice
 }
 
 func (a *agent) platformServer(sid acp.SessionId) *acp.McpServerStdio {
@@ -131,7 +133,7 @@ func main() {
 		fmt.Fprintln(f, os.Getpid())
 		_ = f.Close()
 	}
-	a := &agent{dir: dir, out: &lockedWriter{w: os.Stdout}, cancels: map[string]context.CancelFunc{}, mcp: map[string][]string{}, servers: map[string][]acp.McpServer{}}
+	a := &agent{dir: dir, out: &lockedWriter{w: os.Stdout}, cancels: map[string]context.CancelFunc{}, mcp: map[string][]string{}, servers: map[string][]acp.McpServer{}, configs: map[string]sessionConfig{}}
 	if action, arg, ok := a.scripted("start"); ok {
 		_ = a.fail("start", action, arg)
 	}
@@ -320,7 +322,7 @@ func (a *agent) NewSession(_ context.Context, p acp.NewSessionRequest) (acp.NewS
 	a.mcp[id] = mcpNames(p.McpServers)
 	a.servers[id] = p.McpServers
 	a.mu.Unlock()
-	return acp.NewSessionResponse{SessionId: acp.SessionId(id)}, nil
+	return acp.NewSessionResponse{SessionId: acp.SessionId(id), ConfigOptions: a.configOptions(id)}, nil
 }
 
 func (a *agent) LoadSession(ctx context.Context, p acp.LoadSessionRequest) (acp.LoadSessionResponse, error) {
@@ -341,7 +343,7 @@ func (a *agent) LoadSession(ctx context.Context, p acp.LoadSessionRequest) (acp.
 		}
 		_ = a.conn.SessionUpdate(ctx, acp.SessionNotification{SessionId: p.SessionId, Update: u})
 	}
-	return acp.LoadSessionResponse{}, nil
+	return acp.LoadSessionResponse{ConfigOptions: a.configOptions(string(p.SessionId))}, nil
 }
 
 func (a *agent) Cancel(_ context.Context, p acp.CancelNotification) error {
@@ -470,6 +472,8 @@ func (a *agent) Prompt(_ context.Context, p acp.PromptRequest) (acp.PromptRespon
 			}
 		}
 		answer = "mcp=[" + strings.Join(servers, " | ") + "] skills=[" + strings.Join(skills, ",") + "]"
+	case len(fields) == 1 && fields[0] == "model":
+		answer = a.describeConfig(string(sid))
 	case len(fields) == 1 && fields[0] == "whoami":
 		account, _ := os.ReadFile(filepath.Join(a.dir, "account.json"))
 		answer = "token=" + os.Getenv("FAKEAGENT_TOKEN") + " account=" + strings.TrimSpace(string(account))
@@ -494,10 +498,6 @@ func (a *agent) ListSessions(context.Context, acp.ListSessionsRequest) (acp.List
 
 func (a *agent) ResumeSession(context.Context, acp.ResumeSessionRequest) (acp.ResumeSessionResponse, error) {
 	return acp.ResumeSessionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionResume)
-}
-
-func (a *agent) SetSessionConfigOption(context.Context, acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
-	return acp.SetSessionConfigOptionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionSetConfigOption)
 }
 
 func (a *agent) SetSessionMode(context.Context, acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {

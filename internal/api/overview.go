@@ -235,8 +235,8 @@ func ptr64(v uint64) *int64 {
 // machineStats reads stats through the node's tunnel to the guest, unless the
 // deployment replaced that (tests).
 func (a *API) machineStats(ctx context.Context, agentID string) (tunnel.Stats, error) {
-	if a.Deps.Stats != nil {
-		return a.Deps.Stats(ctx, agentID)
+	if a.Stats != nil {
+		return a.Stats(ctx, agentID)
 	}
 	return node.Client(a.Node, agentID).Stats(ctx)
 }

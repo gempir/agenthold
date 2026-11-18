@@ -12,6 +12,8 @@ import (
 	"os"
 	"os/user"
 	"strconv"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gempir/agenthold/internal/tunnel"
@@ -63,6 +65,13 @@ type Config struct {
 	// neither).
 	Services     []tunnel.ServiceSpec
 	ServicesFile string
+	// BootPath is the file Boot was read from. A resume from a memory
+	// snapshot rewrites it with the new token, so a restarted daemon dials
+	// with that one ("" for no rewrite).
+	BootPath string
+	// ResumePort is the vsock port the host announces a resume from a memory
+	// snapshot on (0: no listener; only the microVM init child listens).
+	ResumePort uint32
 }
 
 // Daemon is a running sandboxd.
@@ -72,6 +81,14 @@ type Daemon struct {
 	acct     account
 	opener   opener
 	services *supervisor
+
+	// bootMu guards boot (its token changes when the VM is resumed from a
+	// snapshot) and redial, which ends the current tunnel connection.
+	bootMu sync.Mutex
+	boot   Boot
+	redial context.CancelFunc
+	// kick wakes the reconnect loop from its backoff after a resume.
+	kick chan struct{}
 }
 
 type account struct {
@@ -93,7 +110,7 @@ func New(cfg Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Daemon{cfg: cfg, log: cfg.Logger, acct: acct}
+	d := &Daemon{cfg: cfg, log: cfg.Logger, acct: acct, boot: cfg.Boot, kick: make(chan struct{}, 1)}
 	d.services = newSupervisor(d, cfg.ServicesFile)
 	d.prepareHome()
 	d.installCA()
@@ -151,23 +168,58 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.services.start(ctx, specs)
 	defer d.services.stopAll()
 	go d.servePlatform(ctx)
+	if d.cfg.ResumePort != 0 {
+		go d.serveResume(ctx, d.cfg.ResumePort)
+	}
 	backoff := 250 * time.Millisecond
 	for {
 		start := time.Now()
-		err := tunnel.Dial(ctx, d.cfg.Boot.TunnelURL, d.cfg.Boot.AgentID, d.cfg.Boot.Token, d.handle, d.onConnect)
+		dctx, cancel := context.WithCancel(ctx)
+		d.bootMu.Lock()
+		b := d.boot
+		d.redial = cancel
+		d.bootMu.Unlock()
+		err := tunnel.Dial(dctx, b.TunnelURL, b.AgentID, b.Token, d.handle, d.onConnect)
+		cancel()
 		if ctx.Err() != nil {
 			return nil
 		}
 		if time.Since(start) > 30*time.Second {
 			backoff = 250 * time.Millisecond
 		}
+		select {
+		case <-d.kick: // resumed: the old connection is dead, dial right away
+			d.log.Info("tunnel redial after resume")
+			backoff = 250 * time.Millisecond
+			continue
+		default:
+		}
 		d.log.Warn("tunnel ended, reconnecting", "err", err, "in", backoff)
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-d.kick:
+			backoff = 250 * time.Millisecond
+			continue
 		case <-time.After(backoff):
 		}
 		backoff = min(backoff*2, 10*time.Second)
+	}
+}
+
+// setToken replaces the tunnel token and ends the current connection, so
+// the reconnect loop dials again at once with the new one.
+func (d *Daemon) setToken(token string) {
+	d.bootMu.Lock()
+	d.boot.Token = token
+	redial := d.redial
+	d.bootMu.Unlock()
+	select {
+	case d.kick <- struct{}{}:
+	default:
+	}
+	if redial != nil {
+		redial()
 	}
 }
 
@@ -194,6 +246,12 @@ func (d *Daemon) handle(ctx context.Context, st net.Conn, o tunnel.Open) {
 		if err = tunnel.WriteJSON(st, tunnel.OK{OK: true}); err == nil {
 			go d.cfg.OnShutdown()
 		}
+	case tunnel.OpSuspend:
+		// The host pauses and snapshots the VM next: what the guest wrote
+		// must be on its disks, which the snapshot keeps as they are.
+		d.log.Info("suspend requested by the server")
+		syscall.Sync()
+		err = tunnel.WriteJSON(st, tunnel.OK{OK: true})
 	case tunnel.OpStats:
 		err = tunnel.WriteJSON(st, stats())
 	case tunnel.OpPTY:

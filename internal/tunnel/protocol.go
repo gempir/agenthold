@@ -40,6 +40,11 @@ const (
 	OpFSSymlink = "fs.symlink"
 	// OpExec runs Cmd as the agent account and answers with an ExecReply.
 	OpExec = "exec"
+	// OpSuspend tells sandboxd that the VM is about to be paused and snapshot
+	// (sleep with memory kept): it flushes the guest's filesystems and answers
+	// OK. A sandboxd that answers with an error (older ones do not know the
+	// op) does not support resuming from a snapshot.
+	OpSuspend = "suspend"
 )
 
 // Open is the first frame on every stream.

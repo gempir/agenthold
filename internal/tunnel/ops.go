@@ -259,3 +259,9 @@ func (s *Session) Shutdown(ctx context.Context) error {
 	var ok OK
 	return ReadJSON(c, &ok)
 }
+
+// Suspend prepares sandboxd for a memory snapshot (see OpSuspend). It returns
+// once sandboxd has flushed the guest's filesystems.
+func (s *Session) Suspend(ctx context.Context) error {
+	return s.simple(ctx, Open{Op: OpSuspend})
+}

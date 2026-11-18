@@ -286,8 +286,10 @@ func (m *Manager) Deploy(ctx context.Context, p DeployParams) (DeployResult, err
 		res.Exposure, res.URL = &e, m.Preview.URL(e)
 	}
 	if !res.Ready {
-		if e, err := m.Preview.ByPort(ctx, p.App.ID, p.Port); err == nil && m.Preview.Enabled() {
-			res.URL = m.Preview.URL(e)
+		if m.Preview.Enabled() {
+			if e, err := m.Preview.ByPort(ctx, p.App.ID, p.Port); err == nil {
+				res.URL = m.Preview.URL(e)
+			}
 		}
 		var logs bytes.Buffer
 		_ = app.ServiceLogs(ctx, AppService, 40, false, &logs, 64<<10)

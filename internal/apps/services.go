@@ -24,7 +24,6 @@ import (
 
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/config"
-	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandboxd"
@@ -79,10 +78,17 @@ func (m *Manager) pushStored(ctx context.Context, agentID string) ([]tunnel.Serv
 	return st, nil
 }
 
+// Machines is what the manager needs of the node layer (node.Node has it):
+// whether a machine's sandboxd is connected, and streams to it.
+type Machines interface {
+	Connected(ctx context.Context, agentID string) (bool, error)
+	OpenStream(ctx context.Context, agentID string, open tunnel.Open) (io.ReadWriteCloser, error)
+}
+
 // Manager implements services and apps.
 type Manager struct {
 	Store     *store.Store
-	Node      node.Node
+	Node      Machines
 	Sandboxes *sandbox.Manager
 	Preview   *preview.Service
 	Audit     *audit.Log
@@ -191,7 +197,9 @@ func (m *Manager) connected(ctx context.Context, agentID string) (*tunnel.Sessio
 	if err != nil || !ok {
 		return nil, false, err
 	}
-	return node.Client(m.Node, agentID), true, nil
+	return tunnel.NewClient(agentID, func(ctx context.Context, o tunnel.Open) (io.ReadWriteCloser, error) {
+		return m.Node.OpenStream(ctx, agentID, o)
+	}), true, nil
 }
 
 // Push sends the desired services to a running machine and returns their

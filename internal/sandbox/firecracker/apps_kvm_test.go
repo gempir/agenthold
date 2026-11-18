@@ -22,11 +22,32 @@ import (
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 
+	"github.com/gempir/agenthold/internal/apps"
+	"github.com/gempir/agenthold/internal/audit"
+	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/egress"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandboxd"
+	"github.com/gempir/agenthold/internal/store"
+	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/tunnel"
 )
+
+// hubMachines gives apps.Manager the hub's sessions.
+type hubMachines struct{ hub *tunnel.Hub }
+
+func (h hubMachines) Connected(_ context.Context, id string) (bool, error) {
+	s, ok := h.hub.Session(id)
+	return ok && !s.Closed(), nil
+}
+
+func (h hubMachines) OpenStream(ctx context.Context, id string, o tunnel.Open) (io.ReadWriteCloser, error) {
+	s, ok := h.hub.Session(id)
+	if !ok {
+		return nil, tunnel.ErrNotConnected
+	}
+	return s.Open(ctx, o)
+}
 
 // TestAppServicesKVM boots an agent VM and an app VM, deploys a small Python
 // web app from one to the other the way deploy_app does (tar through the
@@ -186,10 +207,10 @@ func TestAppServicesKVM(t *testing.T) {
 	if _, err := app.Services(ctx, tunnel.ServiceRequest{Action: tunnel.ServiceApply, Specs: specs}); err != nil {
 		t.Fatal(err)
 	}
-	fetch := func(what string) {
+	fetchFrom := func(what string, port int, want string) {
 		t.Helper()
 		client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{DisableKeepAlives: true, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return app.Dial(ctx, appPort)
+			return app.Dial(ctx, port)
 		}}}
 		deadline := time.Now().Add(90 * time.Second)
 		for {
@@ -198,7 +219,7 @@ func TestAppServicesKVM(t *testing.T) {
 			if err == nil {
 				body, _ := io.ReadAll(res.Body)
 				_ = res.Body.Close()
-				if strings.TrimSpace(string(body)) == "kvm-app-v1" {
+				if strings.TrimSpace(string(body)) == want {
 					return
 				}
 				err = errors.New("unexpected body " + string(body))
@@ -211,6 +232,7 @@ func TestAppServicesKVM(t *testing.T) {
 			time.Sleep(300 * time.Millisecond)
 		}
 	}
+	fetch := func(what string) { t.Helper(); fetchFrom(what, appPort, "kvm-app-v1") }
 	fetch("after deploy")
 	if r := execIn(app, "test -e ~/app/current/.git && echo leaked || echo clean"); strings.TrimSpace(r.Output) != "clean" {
 		t.Fatalf(".git deployed: %q", r.Output)
@@ -239,8 +261,11 @@ func TestAppServicesKVM(t *testing.T) {
 	}
 	waitGone := time.Now().Add(30 * time.Second)
 	for {
-		if _, ok := hub.Session(appBoot.AgentID); !ok || time.Now().After(waitGone) {
+		if _, ok := hub.Session(appBoot.AgentID); !ok {
 			break
+		}
+		if time.Now().After(waitGone) {
+			t.Fatal("the stopped app VM's tunnel session did not go away within 30 s")
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -266,5 +291,57 @@ func TestAppServicesKVM(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 	}
 	fetch("after the process was killed")
-	t.Log("deploy across VMs, dial, boot-config services and supervisor restart passed")
+
+	// The controller's deploy itself (apps.Manager) against the two VMs: a
+	// new release on a new port, then a broken one that is rolled back.
+	st0, err := store.Open(ctx, "sqlite::memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st0.Close()
+	now := time.Now().Unix()
+	if err := st0.CreateUser(ctx, db.CreateUserParams{ID: "usr_kvm", Name: "kvm", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st0.CreateApp(ctx, db.CreateAppParams{ID: appBoot.AgentID, OwnerID: "usr_kvm", Name: "kvm", Image: "base", Cpus: 1, MemoryMb: 512, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	appRow, err := st0.GetAgent(ctx, appBoot.AgentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	three := 3
+	mgr := &apps.Manager{
+		Store: st0, Node: hubMachines{hub}, Audit: &audit.Log{Store: st0},
+		Limits: config.Apps{DeployMaxBytes: 64 << 20, MaxPerAgent: &three, MaxPerOwner: &three},
+		Wake: func(_ context.Context, id string, _ func(string)) (*tunnel.Session, error) {
+			s, ok := hub.Session(id)
+			if !ok {
+				return nil, tunnel.ErrNotConnected
+			}
+			return s, nil
+		},
+	}
+	if r := execIn(agent, "echo kvm-app-v2 > ~/site/index.html"); r.ExitCode != 0 {
+		t.Fatalf("write v2: %+v", r)
+	}
+	const port2 = 18091
+	good := apps.DeployParams{App: appRow, SourceID: agentBoot.AgentID, SourceDir: "site", Command: "exec python3 -u -m http.server $PORT --bind 127.0.0.1", Port: port2}
+	res, err := mgr.Deploy(ctx, good)
+	if err != nil || !res.Ready || res.Release != 2 {
+		t.Fatalf("manager deploy: %+v %v", res, err)
+	}
+	fetchFrom("after the manager's deploy", port2, "kvm-app-v2")
+	bad := good
+	bad.Command = "echo broken-release >&2; exit 1"
+	res, err = mgr.Deploy(ctx, bad)
+	if err != nil || res.Ready || !res.RolledBack || !strings.Contains(res.Logs, "broken-release") {
+		t.Fatalf("failing redeploy: %+v %v", res, err)
+	}
+	fetchFrom("after the rollback", port2, "kvm-app-v2")
+	if r := execIn(app, "readlink ~/app/current"); strings.TrimSpace(r.Output) != "releases/2" {
+		t.Fatalf("current after rollback: %q", r.Output)
+	}
+	t.Log("deploy across VMs, dial, boot-config services, supervisor restart, manager deploy and rollback passed")
+
 }

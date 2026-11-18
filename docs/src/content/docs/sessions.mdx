@@ -167,6 +167,33 @@ Signing in:
 - **OpenCode** has no account logins: it supports many providers with its own login file, which does not fit one
   login per harness. Use secrets or its terminal login.
 
+## Choosing models
+
+The model button in the composer ("Opus 5.5 · Medium") picks the model of one conversation; the agent's
+settings (Harness → Default model) pick the default for every conversation without its own choice. The picker lists
+the models the harness offers, grouped by provider, with the highlighted model's reasoning effort and fast mode on the
+right. Keys: arrows to move, Enter to pick, Escape to close, Alt+1…9 for the n-th model, ←/→ to change the effort.
+
+The list comes from the harness itself: its ACP session config options (a `model` option, a `thought_level` option
+for effort, a fast mode toggle) reported with every `session/new` and `session/load`. agenthold stores the last report
+per agent, so the picker works while the machine sleeps, and says when it was reported. A harness describes the effort
+levels of its current model only, so a model's options appear once a conversation has used it. Before an agent first
+runs, the picker shows a small built-in list per harness instead.
+
+A choice applies from the next message, with `session/set_config_option`, without restarting the harness. A model the
+harness does not list or refuses (for example one the account's plan does not include) leaves the turn on the
+current model, with a notice saying so; the conversation keeps working.
+
+| Harness | Models depend on | Effort | Fast mode | Built-in list |
+| --- | --- | --- | --- | --- |
+| Claude Code | the account (subscription or API key) and Claude Code's settings | per model (low to max) | on models that support it, not on every plan | `default`, `opus`, `sonnet`, `haiku` (aliases) |
+| Codex | the login (ChatGPT plan or API key) | per model | on models that support it | none: start a conversation to load the list |
+| OpenCode | the providers configured in the sandbox (secrets, `opencode auth login`, config) | per model variant | no | none, but any `provider/model` id can be typed |
+
+The default model also reaches the harness when it starts (`ANTHROPIC_MODEL` for Claude Code, the `model` setting for
+OpenCode), so new conversations start on it. A model id from an old setting that the harness no longer lists stays
+and is shown as "custom" until it is changed.
+
 ## Base image
 
 `images/base` (`make guest-base`) is Debian trixie with Node.js 24, the Claude Code and Codex ACP adapters, OpenCode, git, Python 3,

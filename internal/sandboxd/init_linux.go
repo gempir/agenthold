@@ -39,7 +39,10 @@ type initState struct {
 	log  *slog.Logger
 	self string
 
-	layout     Layout
+	layout Layout
+	// delivered is the sandboxd the host delivered in the initramfs (nil
+	// when the kernel started sandboxd from the base image directly).
+	delivered  *os.File
 	env        []string
 	childPid   int
 	restarts   int
@@ -80,6 +83,11 @@ func (in *initState) setup() error {
 	// Ctrl+Alt+Del (Firecracker's SendCtrlAltDel on x86) becomes SIGINT to us.
 	_ = unix.Reboot(unix.LINUX_REBOOT_CMD_CAD_OFF)
 
+	if fromInitramfs() {
+		if err := in.switchToBase(); err != nil {
+			return err
+		}
+	}
 	if err := runSteps(EarlyMounts()); err != nil {
 		return err
 	}
@@ -123,6 +131,11 @@ func (in *initState) setup() error {
 	}
 	for link, target := range DevLinks {
 		_ = os.Symlink(target, link)
+	}
+	if in.delivered != nil {
+		if err := in.bindDelivered(); err != nil {
+			return err
+		}
 	}
 	enableControllers()
 

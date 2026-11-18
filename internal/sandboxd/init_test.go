@@ -112,6 +112,12 @@ func TestParseCmdline(t *testing.T) {
 	if l != (sandboxd.Layout{Overlay: "/dev/vdb", Home: "/dev/vde", Config: "/dev/vdd"}) {
 		t.Fatalf("layout %+v", l)
 	}
+	if d := sandboxd.BaseDevice(args); d != "/dev/vda" {
+		t.Fatalf("base device %s", d)
+	}
+	if d := sandboxd.BaseDevice(map[string]string{"agenthold.base": "/dev/vdx"}); d != "/dev/vdx" {
+		t.Fatalf("base device override %s", d)
+	}
 }
 
 func TestParseIP(t *testing.T) {

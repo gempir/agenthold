@@ -78,6 +78,15 @@ func LayoutFromCmdline(args map[string]string) Layout {
 	return l
 }
 
+// BaseDevice is the read-only base image device: /dev/vda unless
+// agenthold.base= says otherwise.
+func BaseDevice(args map[string]string) string {
+	if v := args["agenthold.base"]; v != "" {
+		return v
+	}
+	return DefaultBaseDevice
+}
+
 // ParseIP parses the value of the kernel ip= argument. Only static
 // configuration with a gateway is supported (that is what the driver passes).
 func ParseIP(v string) (IPConfig, error) {

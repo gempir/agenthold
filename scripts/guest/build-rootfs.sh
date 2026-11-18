@@ -172,15 +172,17 @@ dumpe2fs "$IMG.part" 2>/dev/null | awk -v sde="$SOURCE_DATE_EPOCH" '
     for (i = 1; i <= k; i++) if (r[i] != "") { split(r[i], ab, "-"); hi = (ab[2] == "" ? ab[1] : ab[2]); for (j = ab[1]; j <= hi; j++) free[j] = 1 }
   }
   END { for (i = 1; i <= n; i++) if (!(i in free)) printf "sif <%d> atime @%d\nsif <%d> ctime @%d\n", i, sde, i, sde }' >"$WORK/pin-times"
-debugfs -w -f "$WORK/pin-times" "$IMG.part" >/dev/null 2>&1
+E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" debugfs -w -f "$WORK/pin-times" "$IMG.part" >/dev/null 2>&1
 E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" e2fsck -fy "$IMG.part" >/dev/null 2>&1 || [[ $? -le 1 ]]
 blocks=$(dumpe2fs -h "$IMG.part" 2>/dev/null | awk -F: '/^Block count/ {gsub(/ /,"",$2); print $2}')
 bsize=$(dumpe2fs -h "$IMG.part" 2>/dev/null | awk -F: '/^Block size/ {gsub(/ /,"",$2); print $2}')
 truncate -s $(( blocks * bsize )) "$IMG.part"
-# Last-mount/check times are part of the superblock; pin them as well.
-debugfs -w -R "ssv mtime $SOURCE_DATE_EPOCH" "$IMG.part" >/dev/null 2>&1 || true
-debugfs -w -R "ssv lastcheck $SOURCE_DATE_EPOCH" "$IMG.part" >/dev/null 2>&1 || true
-debugfs -w -R "ssv wtime $SOURCE_DATE_EPOCH" "$IMG.part" >/dev/null 2>&1 || true
+# Last-mount/check/write times and the lifetime write counter are part of the superblock; pin them
+# in one session (debugfs parses a bare number as a date, hence @; closing the file system stamps
+# the write time unless the time is faked, and only adds to a nonzero write counter).
+printf 'ssv mtime @%s\nssv lastcheck @%s\nssv wtime @%s\nssv kbytes_written 0\n' \
+  "$SOURCE_DATE_EPOCH" "$SOURCE_DATE_EPOCH" "$SOURCE_DATE_EPOCH" >"$WORK/pin-super"
+E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" debugfs -w -f "$WORK/pin-super" "$IMG.part" >/dev/null 2>&1
 mv "$IMG.part" "$IMG"
 
 size=$(stat -c %s "$IMG")

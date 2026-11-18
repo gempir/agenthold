@@ -29,15 +29,15 @@ import (
 // TestJailedClone clones a stopped microVM and boots clone and source side by
 // side. Same environment as TestJailedLifecycle (root, KVM, extracted pinned
 // artifacts), in a disposable network namespace:
-// AGENTHOLD_KVM_BASE=... AGENTHOLD_KVM_KERNEL=... AGENTHOLD_KVM_FIRECRACKER=... AGENTHOLD_KVM_JAILER=...
+// AGENTHOLD_KVM_BASE=... AGENTHOLD_KVM_KERNEL=... AGENTHOLD_KVM_FIRECRACKER=... AGENTHOLD_KVM_JAILER=... AGENTHOLD_KVM_SANDBOXD=...
 // sudo -E go test -tags=kvm ./internal/sandbox/firecracker -run TestJailedClone -v
 func TestJailedClone(t *testing.T) {
-	for _, key := range []string{"BASE", "KERNEL", "FIRECRACKER", "JAILER"} {
+	for _, key := range []string{"BASE", "KERNEL", "FIRECRACKER", "JAILER", "SANDBOXD"} {
 		if os.Getenv("AGENTHOLD_KVM_"+key) == "" {
 			if os.Getenv("AGENTHOLD_REQUIRE_KVM") == "1" {
 				t.Fatal("required jailed VM artifact environment is missing: AGENTHOLD_KVM_" + key)
 			}
-			t.Skip("set AGENTHOLD_KVM_BASE/KERNEL/FIRECRACKER/JAILER to run the jailed VM test")
+			t.Skip("set AGENTHOLD_KVM_BASE/KERNEL/FIRECRACKER/JAILER/SANDBOXD to run the jailed VM test")
 		}
 	}
 	if os.Geteuid() != 0 {
@@ -76,7 +76,7 @@ func TestJailedClone(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	cfg := Config{DataDir: dir, JailDir: filepath.Join(dir, "j"), BaseImagePath: os.Getenv("AGENTHOLD_KVM_BASE"), KernelPath: os.Getenv("AGENTHOLD_KVM_KERNEL"), FirecrackerPath: os.Getenv("AGENTHOLD_KVM_FIRECRACKER"), JailerPath: os.Getenv("AGENTHOLD_KVM_JAILER"), NetworkPool: netip.MustParsePrefix("10.215.0.0/24"), OverlaySizeBytes: 256 << 20, HomeSizeBytes: 256 << 20, StopTimeout: 8 * time.Second}
+	cfg := Config{DataDir: dir, JailDir: filepath.Join(dir, "j"), BaseImagePath: os.Getenv("AGENTHOLD_KVM_BASE"), KernelPath: os.Getenv("AGENTHOLD_KVM_KERNEL"), FirecrackerPath: os.Getenv("AGENTHOLD_KVM_FIRECRACKER"), JailerPath: os.Getenv("AGENTHOLD_KVM_JAILER"), SandboxdPath: os.Getenv("AGENTHOLD_KVM_SANDBOXD"), NetworkPool: netip.MustParsePrefix("10.215.0.0/24"), OverlaySizeBytes: 256 << 20, HomeSizeBytes: 256 << 20, StopTimeout: 8 * time.Second}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 	const token = "kvm-clone-config-disk-only-token"

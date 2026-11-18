@@ -27,6 +27,8 @@ import (
 // unrelated processes after PID reuse. No boot token is stored in a manifest.
 type Driver struct {
 	cfg Config
+	// initrd is the initramfs carrying cfg.SandboxdPath (see initrd_linux.go).
+	initrd string
 	// disk is an internal provisioning seam for unprivileged unit tests.
 	disk func(string, int64, uint32, uint32) error
 	// chown hands cloned disks to the clone's VMM user (nil: os.Chown).
@@ -107,6 +109,9 @@ func New(ctx context.Context, cfg Config) (*Driver, error) {
 		return nil, err
 	}
 	defer unlock()
+	if d.initrd, err = writeInitrd(cfg.DataDir, cfg.SandboxdPath); err != nil {
+		return nil, fmt.Errorf("sandboxd initramfs: %w", err)
+	}
 	// Fail closed on corrupt/foreign manifests: never reuse a potentially live
 	// VM's addresses or uid. New performs no destructive reconciliation.
 	if _, err = d.manifests(); err != nil {

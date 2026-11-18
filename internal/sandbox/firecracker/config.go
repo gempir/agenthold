@@ -20,9 +20,9 @@ import (
 var ErrUnsupported = errors.New("firecracker requires Linux, root, and /dev/kvm")
 
 // Config contains extracted runtime paths, independent of application config.
-// The base image must contain sandboxd at /opt/agenthold/sandboxd (the N2 image
-// contract). Updating a host sandboxd binary alone does not update a guest image.
-// Runtime files and DataDir must be in trusted, administrator-owned directories.
+// SandboxdPath is the host's sandboxd binary: every boot delivers it to the
+// guest as an initramfs, so a guest always runs the sandboxd of the node that
+// booted it, whatever base image its overlay sits on. Runtime files and DataDir must be in trusted, administrator-owned directories.
 // Callbacks must honor their contexts.
 type Config struct {
 	DataDir         string
@@ -30,6 +30,7 @@ type Config struct {
 	KernelPath      string
 	FirecrackerPath string
 	JailerPath      string
+	SandboxdPath    string
 	// JailDir defaults to DataDir/jailer. Keep it short: Linux Unix socket paths
 	// are limited to 107 bytes. All configured paths must be absolute.
 	JailDir     string
@@ -59,7 +60,7 @@ type Config struct {
 }
 
 func (c Config) normalized() (Config, error) {
-	for name, p := range map[string]string{"data directory": c.DataDir, "base image": c.BaseImagePath, "kernel": c.KernelPath, "firecracker": c.FirecrackerPath, "jailer": c.JailerPath} {
+	for name, p := range map[string]string{"data directory": c.DataDir, "base image": c.BaseImagePath, "kernel": c.KernelPath, "firecracker": c.FirecrackerPath, "jailer": c.JailerPath, "sandboxd": c.SandboxdPath} {
 		if p == "" || !filepath.IsAbs(p) {
 			return c, fmt.Errorf("%s path must be absolute", name)
 		}

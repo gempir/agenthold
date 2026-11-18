@@ -152,7 +152,7 @@ func newDriver(ctx context.Context, cfg *config.Config, name string, fw *egress.
 		}
 		return firecracker.New(ctx, firecracker.Config{
 			DataDir: dataDir, BaseImagePath: fc.BaseImage, KernelPath: fc.Kernel,
-			FirecrackerPath: fc.Binary, JailerPath: fc.Jailer,
+			FirecrackerPath: fc.Binary, JailerPath: fc.Jailer, SandboxdPath: cfg.Sandbox.SandboxdPath,
 			NetworkPool:      netip.MustParsePrefix(cfg.Sandbox.NetworkPool),
 			OverlaySizeBytes: fc.OverlayGB << 30, HomeSizeBytes: fc.HomeGB << 30,
 			Shutdown: shutdown, RegisterNetwork: fw.Register, UnregisterNetwork: fw.Unregister,

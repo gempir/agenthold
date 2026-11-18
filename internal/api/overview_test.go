@@ -266,6 +266,9 @@ func TestOverviewOfflineNode(t *testing.T) {
 	if d := time.Since(start); d > time.Second {
 		t.Fatalf("overview of an offline node took %s", d)
 	}
+	if o.Nodes[0].Version == nil || o.Nodes[0].MemoryTotalBytes == nil || o.Nodes[0].Cpus == nil {
+		t.Fatalf("an offline node lost what it reported: %+v", o.Nodes[0])
+	}
 	if o.Nodes[0].Online || o.Nodes[0].Allocated.Machines != 1 || o.Nodes[0].Running.Machines != 0 || o.Nodes[0].LastSeen == nil {
 		t.Fatalf("offline node = %+v", o.Nodes[0])
 	}

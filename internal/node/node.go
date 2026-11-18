@@ -299,6 +299,9 @@ type Capacity struct {
 	// MemoryTotalBytes is the host's installed memory (zero when the node does
 	// not report it, as nodes of earlier releases do not).
 	MemoryTotalBytes uint64 `json:",omitempty"`
+	// DiskAllocatedBytes is the disk the machines' files on the node occupy
+	// (zero when the driver does not account for it).
+	DiskAllocatedBytes uint64 `json:",omitempty"`
 }
 
 // SetTunnelPort sets the port of this node's tunnel endpoint, used in every
@@ -324,5 +327,13 @@ func (n *Local) Capacity(ctx context.Context) (Capacity, error) {
 	if dir == "" {
 		return Capacity{}, errors.New("node data directory is not configured")
 	}
-	return hostCapacity(ctx, dir)
+	c, err := hostCapacity(ctx, dir)
+	if err != nil {
+		return c, err
+	}
+	if a, ok := n.driver.(sandbox.DiskAccounter); ok {
+		// Best effort: a failure leaves the figure unreported.
+		c.DiskAllocatedBytes, _ = a.AllocatedDiskBytes(ctx)
+	}
+	return c, nil
 }

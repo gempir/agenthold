@@ -40,6 +40,8 @@ const overview = {
       version: 'v1.2.3',
       cpus: 8,
       memoryTotalBytes: 16 * 1024 ** 3,
+      diskAllocatedBytes: 3 * 1024 ** 3,
+      freeDiskBytes: 100 * 1024 ** 3,
       allocated: { machines: 3, cpus: 5, memoryMb: 10240 },
       running: { machines: 2, cpus: 3, memoryMb: 6144 },
     },
@@ -129,6 +131,8 @@ it('shows totals, nodes and machines for an admin', async () => {
   expect(
     within(main).getByRole('progressbar', { name: 'main vCPU allocation' }),
   ).toHaveAttribute('aria-valuenow', '38');
+  expect(within(main).getByText('3.0 GiB used')).toBeVisible();
+  expect(within(main).getByText('100 GiB free')).toBeVisible();
   expect(within(edge).getByRole('img', { name: 'Offline' })).toBeVisible();
 
   const rows = within(screen.getByRole('region', { name: 'Machines' }))

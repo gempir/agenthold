@@ -1619,13 +1619,14 @@ export interface components {
              */
             memoryMb: number;
         };
+        /** @description A node. `allocated` sums the configured size of every machine placed on it, whatever its state; `running` only of those running now. */
         OverviewNode: {
             id: string;
             name: string;
             online: boolean;
             /** @description The controller's built-in node. */
             local: boolean;
-            /** @description The agenthold release the node runs */
+            /** @description The agenthold release the node runs, if known. */
             version?: string;
             /** Format: date-time */
             lastSeen?: string;
@@ -1633,7 +1634,7 @@ export interface components {
             cpus?: number;
             /**
              * Format: int64
-             * @description Installed memory
+             * @description Installed memory at the last report, if the node reports it.
              */
             memoryTotalBytes?: number;
             /**
@@ -1646,9 +1647,12 @@ export interface components {
              * @description Free data filesystem space at the last report.
              */
             freeDiskBytes?: number;
-            /** @description Every machine placed on the node */
+            /**
+             * Format: int64
+             * @description Space the machines' disk files occupy on the node (blocks actually allocated, not their sparse size), at the last report. Absent when the node does not report it.
+             */
+            diskAllocatedBytes?: number;
             allocated: components["schemas"]["OverviewAllocation"];
-            /** @description Only the machines that are running now. */
             running: components["schemas"]["OverviewAllocation"];
         };
         /** @description Usage measured inside a running machine. */

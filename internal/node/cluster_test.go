@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gempir/agenthold/internal/egress"
+	"github.com/gempir/agenthold/internal/node/enrollment"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
 	"github.com/gempir/agenthold/internal/secrets"
@@ -24,7 +25,7 @@ type sizedNode struct {
 }
 
 func (n *sizedNode) Capacity(context.Context) (Capacity, error) {
-	return Capacity{CPUs: 4, MemoryBytes: n.memory, DiskBytes: 1 << 30}, nil
+	return Capacity{CPUs: 4, MemoryBytes: n.memory, DiskBytes: 1 << 30, MemoryTotalBytes: 8 << 30, DiskAllocatedBytes: 5 << 20}, nil
 }
 
 type edge struct {
@@ -39,6 +40,8 @@ type clusterFixture struct {
 	st      *store.Store
 	c       *Cluster
 	connect chan string
+	// version is what edges announce when they connect.
+	version string
 }
 
 func newClusterFixture(t *testing.T, local Node) *clusterFixture {
@@ -79,7 +82,10 @@ func (f *clusterFixture) reconnect(e *edge) {
 	a, b := net.Pipe()
 	e.cancel, e.served = cancel, make(chan struct{})
 	go func() { _ = ServeRemote(ctx, b, e.backend, ServeOptions{}) }()
-	go func() { defer close(e.served); f.c.Serve(ctx, e.id, a) }()
+	go func() {
+		defer close(e.served)
+		f.c.ServePeer(ctx, enrollment.Peer{ID: e.id, Name: e.id, Version: f.version}, a)
+	}()
 	f.t.Cleanup(func() { cancel(); <-e.served })
 	select {
 	case id := <-f.connect:
@@ -338,5 +344,48 @@ func TestConnectAndImmediateCloseChangesNothing(t *testing.T) {
 	case id := <-f.connect:
 		t.Fatalf("hang-up triggered the on-connect hooks for %s", id)
 	default:
+	}
+}
+
+// What a node reported is kept, so an offline node (and a restarted
+// controller) still shows its version, memory and disk.
+func TestNodeInfoIsPersisted(t *testing.T) {
+	f := newClusterFixture(t, nil)
+	f.version = "v1.2.3"
+	e := f.addEdge("node_e", 1<<30)
+	check := func(when string) {
+		t.Helper()
+		infos, err := f.c.Nodes(t.Context())
+		if err != nil || len(infos) != 1 {
+			t.Fatalf("%s: %+v %v", when, infos, err)
+		}
+		n := infos[0]
+		if n.Version != "v1.2.3" || n.Capacity.MemoryTotalBytes != 8<<30 || n.Capacity.DiskAllocatedBytes != 5<<20 || n.Capacity.CPUs != 4 {
+			t.Fatalf("%s: %+v", when, n)
+		}
+	}
+	check("online")
+	f.disconnect(e)
+	for range 100 {
+		if infos, _ := f.c.Nodes(t.Context()); len(infos) == 1 && !infos[0].Connected {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	check("offline")
+	// A restarted controller reads it from the database.
+	c2, err := NewCluster(t.Context(), ClusterConfig{Store: f.st, Endpoint: "127.0.0.1:1", Fingerprint: "f"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	infos, err := c2.Nodes(t.Context())
+	if err != nil || len(infos) != 1 || infos[0].Connected || infos[0].Version != "v1.2.3" || infos[0].Capacity.MemoryTotalBytes != 8<<30 {
+		t.Fatalf("after restart: %+v %v", infos, err)
+	}
+	// A node of an earlier release does not announce a version: it is forgotten.
+	f.version = ""
+	f.reconnect(e)
+	if infos, _ := f.c.Nodes(t.Context()); infos[0].Version != "" {
+		t.Fatalf("stale version kept: %+v", infos[0])
 	}
 }

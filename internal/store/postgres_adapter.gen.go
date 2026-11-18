@@ -856,6 +856,10 @@ func (p postgresQueries) SetNodeState(ctx context.Context, arg db.SetNodeStatePa
 	return p.q.SetNodeState(ctx, postgres.SetNodeStateParams(arg))
 }
 
+func (p postgresQueries) SetNodeVersion(ctx context.Context, arg db.SetNodeVersionParams) error {
+	return p.q.SetNodeVersion(ctx, postgres.SetNodeVersionParams(arg))
+}
+
 func (p postgresQueries) SetPermissionPolicy(ctx context.Context, arg db.SetPermissionPolicyParams) error {
 	return p.q.SetPermissionPolicy(ctx, postgres.SetPermissionPolicyParams(arg))
 }

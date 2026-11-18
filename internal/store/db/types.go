@@ -104,6 +104,7 @@ type SetBootTokenParams = sqlite.SetBootTokenParams
 type SetExposurePortParams = sqlite.SetExposurePortParams
 type SetNodeCapacityParams = sqlite.SetNodeCapacityParams
 type SetNodeStateParams = sqlite.SetNodeStateParams
+type SetNodeVersionParams = sqlite.SetNodeVersionParams
 type SetPermissionPolicyParams = sqlite.SetPermissionPolicyParams
 type SetProviderLoginStatusParams = sqlite.SetProviderLoginStatusParams
 type SetSandboxBuiltParams = sqlite.SetSandboxBuiltParams

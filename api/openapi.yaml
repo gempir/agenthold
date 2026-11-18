@@ -1974,20 +1974,24 @@ components:
 
     OverviewNode:
       type: object
+      description: >-
+        A node. `allocated` sums the configured size of every machine placed on it, whatever its state;
+        `running` only of those running now.
       required: [id, name, online, local, allocated, running]
       properties:
         id: { type: string }
         name: { type: string }
         online: { type: boolean }
         local: { type: boolean, description: The controller's built-in node. }
-        version: { type: string, description: The agenthold release the node runs, if known. }
+        version: { type: string, description: "The agenthold release the node runs, if known." }
         lastSeen: { type: string, format: date-time }
         cpus: { type: integer, description: Logical CPUs (the last report if the node is offline). }
-        memoryTotalBytes: { type: integer, format: int64, description: Installed memory, if the node reported it since the controller started. }
+        memoryTotalBytes: { type: integer, format: int64, description: "Installed memory at the last report, if the node reports it." }
         availableMemoryBytes: { type: integer, format: int64, description: Available host memory at the last report. }
         freeDiskBytes: { type: integer, format: int64, description: Free data filesystem space at the last report. }
-        allocated: { $ref: "#/components/schemas/OverviewAllocation", description: Every machine placed on the node, whatever its state. }
-        running: { $ref: "#/components/schemas/OverviewAllocation", description: Only the machines that are running now. }
+        diskAllocatedBytes: { type: integer, format: int64, description: "Space the machines' disk files occupy on the node (blocks actually allocated, not their sparse size), at the last report. Absent when the node does not report it." }
+        allocated: { $ref: "#/components/schemas/OverviewAllocation" }
+        running: { $ref: "#/components/schemas/OverviewAllocation" }
 
     OverviewUsage:
       type: object

@@ -236,7 +236,7 @@ function NodesTable({ nodes, now }: { nodes: OverviewNode[]; now: number }) {
             No nodes yet. Machines can only run once a node is connected.
           </p>
         ) : (
-          <table className="w-full min-w-[40rem] border-collapse text-sm">
+          <table className="w-full min-w-[48rem] border-collapse text-sm">
             <thead className="border-b">
               <tr>
                 <th className={th}>Node</th>
@@ -244,6 +244,7 @@ function NodesTable({ nodes, now }: { nodes: OverviewNode[]; now: number }) {
                 <th className={th}>Machines</th>
                 <th className={th}>vCPU</th>
                 <th className={th}>Memory</th>
+                <th className={th}>Disk</th>
                 <th className={th}>Last seen</th>
               </tr>
             </thead>
@@ -317,6 +318,16 @@ function NodeRow({ node: n, now }: { node: OverviewNode; now: number }) {
           value={percent(memRunning, n.memoryTotalBytes)}
           label={`${n.name} memory allocation`}
         />
+      </td>
+      <td className={cn(td, 'whitespace-nowrap tabular-nums')}>
+        {n.diskAllocatedBytes !== undefined
+          ? `${bytes(n.diskAllocatedBytes)} used`
+          : '—'}
+        {n.freeDiskBytes !== undefined && (
+          <div className="text-xs text-muted-foreground">
+            {bytes(n.freeDiskBytes)} free
+          </div>
+        )}
       </td>
       <td
         className={cn(td, 'whitespace-nowrap text-muted-foreground')}

@@ -143,6 +143,7 @@ type Querier interface {
 	SetExposurePort(ctx context.Context, arg SetExposurePortParams) error
 	SetNodeCapacity(ctx context.Context, arg SetNodeCapacityParams) error
 	SetNodeState(ctx context.Context, arg SetNodeStateParams) error
+	SetNodeVersion(ctx context.Context, arg SetNodeVersionParams) error
 	SetPermissionPolicy(ctx context.Context, arg SetPermissionPolicyParams) error
 	SetProviderLoginStatus(ctx context.Context, arg SetProviderLoginStatusParams) error
 	SetRemoteNodesOffline(ctx context.Context) error

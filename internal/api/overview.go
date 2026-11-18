@@ -282,8 +282,11 @@ func (a *API) GetAdminOverview(ctx context.Context, _ gen.GetAdminOverviewReques
 			cpus := info.Capacity.CPUs
 			n.Cpus, n.AvailableMemoryBytes, n.FreeDiskBytes = &cpus, ptr64(info.Capacity.MemoryBytes), ptr64(info.Capacity.DiskBytes)
 		}
-		if info.MemoryTotalBytes > 0 {
-			n.MemoryTotalBytes = ptr64(info.MemoryTotalBytes)
+		if info.Capacity.MemoryTotalBytes > 0 {
+			n.MemoryTotalBytes = ptr64(info.Capacity.MemoryTotalBytes)
+		}
+		if info.Capacity.DiskAllocatedBytes > 0 {
+			n.DiskAllocatedBytes = ptr64(info.Capacity.DiskAllocatedBytes)
 		}
 		out.Nodes = append(out.Nodes, n)
 		nodeIdx[info.ID] = i

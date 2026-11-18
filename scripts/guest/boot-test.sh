@@ -29,11 +29,13 @@ fi
 
 KERNEL_KIND=agenthold
 DOCKER=0
+DOCKER_ONLY=0
 QUIET=1
 while (($#)); do
   case "$1" in
     --kernel) KERNEL_KIND="$2"; shift 2 ;;
     --docker) DOCKER=1; shift ;;
+    --docker-only) DOCKER=1; DOCKER_ONLY=1; shift ;; # skip boots 1-4, run only the Docker boot
     --verbose-kernel) QUIET=0; shift ;; # kernel messages on the serial console (about 2 s slower)
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -71,7 +73,7 @@ if [[ $EUID -ne 0 ]]; then
     log "Building the base image (inputs changed or image missing)"
     bash "$SCRIPTS/build-rootfs.sh" --no-zstd
   fi
-  exec sudo -E env "PATH=$PATH" bash "${BASH_SOURCE[0]}" --kernel "$KERNEL_KIND" $( ((DOCKER)) && echo --docker) $( ((QUIET)) || echo --verbose-kernel)
+  exec sudo -E env "PATH=$PATH" bash "${BASH_SOURCE[0]}" --kernel "$KERNEL_KIND" $( ((DOCKER_ONLY)) && echo --docker-only || { ((DOCKER)) && echo --docker; }) $( ((QUIET)) || echo --verbose-kernel)
 fi
 
 # --- as root from here -----------------------------------------------------------------------------------
@@ -235,6 +237,7 @@ check_exit() { # name
 MKDEB='set -e; d=$(mktemp -d); mkdir -p $d/DEBIAN $d/usr/local/share/boottest; echo pkg-NONCE > $d/usr/local/share/boottest/pkg.txt; printf "Package: agenthold-boottest\nVersion: 1.0\nArchitecture: all\nMaintainer: agenthold <noreply@example.com>\nDescription: boot test\n" > $d/DEBIAN/control; dpkg-deb --build $d /tmp/boottest.deb >/dev/null; sudo dpkg -i /tmp/boottest.deb >/dev/null; dpkg-query -W -f="\${Status}" agenthold-boottest'
 MKDEB="${MKDEB//NONCE/$NONCE}"
 
+if ((!DOCKER_ONLY)); then
 # --- boot 1: first boot on blank disks ---------------------------------------------------------------------
 log "Boot 1: blank overlay and home disks"
 boot boot1 1024 \
@@ -287,6 +290,7 @@ grep -q 'power off' "$RUN/boot4.serial" || fail "boot4: no clean power off in th
 for d in "$OVERLAY" "$HOME_DISK"; do
   if e2fsck -fn "$d" >/dev/null 2>&1; then pass "$(basename "$d"): e2fsck clean after power off"; else fail "$(basename "$d"): e2fsck reports problems"; fi
 done
+fi
 
 # --- docker -------------------------------------------------------------------------------------------------------
 if ((DOCKER)); then
@@ -302,7 +306,7 @@ table ip agenthold_boottest {
 NFT
   boot docker 2048 -dns "$HOST_IP:53" -cmd-timeout 15m \
     -run 'sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker.io >/tmp/apt.log 2>&1; echo apt=$?; tail -3 /tmp/apt.log; docker --version' \
-    -run 'sudo sh -c "echo \$\$ >/sys/fs/cgroup/cgroup.procs; setsid dockerd --debug >/var/log/dockerd.log 2>&1 </dev/null &"; for i in $(seq 1 120); do sudo docker version --format "{{.Server.Version}}" >/dev/null 2>&1 && break; sleep 0.5; done; sudo docker version --format "{{.Server.Version}}" || { sudo tail -80 /var/log/dockerd.log; exit 1; }; sudo docker info --format "server={{.ServerVersion}} storage={{.Driver}} cgroup={{.CgroupDriver}}/v{{.CgroupVersion}}"' \
+    -run 'echo "cgroup: $(cat /proc/self/cgroup)"; sudo sh -c "setsid dockerd --debug >/var/log/dockerd.log 2>&1 </dev/null &"; for i in $(seq 1 120); do sudo docker version --format "{{.Server.Version}}" >/dev/null 2>&1 && break; sleep 0.5; done; sudo docker version --format "{{.Server.Version}}" || { sudo tail -60 /var/log/dockerd.log; echo --- containerd; sudo tail -40 /run/docker/containerd/containerd.log; echo --- cgroups; cat /proc/self/cgroup; sudo cat /sys/fs/cgroup/cgroup.subtree_control; ls -la /run/docker /run/containerd; exit 1; }; sudo docker info --format "server={{.ServerVersion}} storage={{.Driver}} cgroup={{.CgroupDriver}}/v{{.CgroupVersion}}"' \
     -run 'sudo docker run --rm hello-world 2>&1 | grep -m1 "Hello from Docker"' \
     -run 'sudo docker run --rm busybox sh -c "nslookup deb.debian.org >/dev/null && wget -qO /tmp/Release http://deb.debian.org/debian/dists/trixie/Release && head -3 /tmp/Release"' \
     -run 'sudo grep -iE "level=(warn|error)" /var/log/dockerd.log | cut -c1-300 | head -20; true' \

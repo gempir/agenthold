@@ -124,13 +124,10 @@ func TestCloneCopiesDisksAndGetsItsOwnIdentity(t *testing.T) {
 	if err != nil || st.State != sandbox.StateCreated || st.GatewayIP == "" {
 		t.Fatalf("status %+v %v", st, err)
 	}
-	// Its first boot is told to reset the identity of the copied disks, and it
-	// reports the (older) base image its overlay was built on.
-	if !m.Fresh || !st.BaseStale {
-		t.Fatalf("fresh=%v baseStale=%v", m.Fresh, st.BaseStale)
-	}
-	if cur, err := d.Status(ctx, "ag_src"); err != nil || !cur.BaseStale {
-		t.Fatalf("source on an older base: %+v %v", cur, err)
+	// Its first boot is told to reset the identity of the copied disks; it
+	// stays on the (older) base its source's overlay was built on (above).
+	if !m.Fresh {
+		t.Fatal("clone is not marked fresh")
 	}
 	// Cloning again onto the same id returns the existing sandbox untouched.
 	if again, err := d.Clone(ctx, "ag_src", spec); err != nil || again != "ag_dst" {
@@ -273,17 +270,6 @@ func TestSourceIsProtectedWhileItIsCloned(t *testing.T) {
 	d.endClone("ag_src")
 	if err := d.Destroy(ctx, "ag_src", sandbox.DestroyOpts{}); err != nil {
 		t.Fatalf("destroy after the clone: %v", err)
-	}
-}
-
-func TestBaseIsStaleOnlyWhenOlder(t *testing.T) {
-	d := cloneDriver(t)
-	ctx := context.Background()
-	if _, err := d.Create(ctx, sandbox.Spec{AgentID: "ag_new", Resources: sandbox.Resources{DiskGB: 1}}); err != nil {
-		t.Fatal(err)
-	}
-	if st, err := d.Status(ctx, "ag_new"); err != nil || st.BaseStale {
-		t.Fatalf("fresh sandbox: %+v %v", st, err)
 	}
 }
 

@@ -439,27 +439,6 @@ func jsonBody(t *testing.T, v any) io.Reader {
 	return bytes.NewReader(b)
 }
 
-func TestCloneNeedsACurrentSystem(t *testing.T) {
-	tm := newTeam(t)
-	e, alice := tm.e, tm.alice
-	ag := tm.agent.Id
-	// Its system disk sits on an older base image: a clone would inherit it
-	// (and a guest that predates machine identity resets cannot tell it is a copy).
-	e.driver.MarkStaleBase(sandbox.ID("fake-" + ag))
-	res := alice.raw("POST", "/agents/"+ag+"/clone", jsonBody(t, gen.CloneInput{Name: "x"}))
-	msg, _ := io.ReadAll(res.Body)
-	_ = res.Body.Close()
-	if res.StatusCode != http.StatusConflict || !strings.Contains(string(msg), "reset the system first") {
-		t.Fatalf("clone from an older base: %d %s", res.StatusCode, msg)
-	}
-	if s := alice.agent(ag); s.State != gen.SandboxStateRunning {
-		t.Fatalf("a refused clone disturbed the source: %s", s.State)
-	}
-	expect(t, "reset", alice.do("POST", "/agents/"+ag+"/rebuild", nil, nil), 202)
-	e.sandboxes.Wait()
-	e.cloneOf(alice, tm.agent, "after the reset", false)
-}
-
 func TestClonedFromIsForTheOwner(t *testing.T) {
 	tm := newTeam(t)
 	dst := tm.e.cloneOf(tm.alice, tm.agent, "copy", false)

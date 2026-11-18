@@ -418,15 +418,7 @@ func TestCloneableChecks(t *testing.T) {
 	ctx := t.Context()
 	f.createAgent("ag_src", "img")
 	must(t, f.m.CheckCloneable(ctx, "ag_src"))
-	f.driver.MarkStaleBase("fake-ag_src")
-	if err := f.m.CheckCloneable(ctx, "ag_src"); !errors.Is(err, sandbox.ErrNeedsReset) {
-		t.Fatalf("stale base: %v", err)
-	}
-	// A reset moves it to the current base.
-	must(t, f.m.Rebuild(ctx, "ag_src"))
-	f.m.Wait()
-	must(t, f.m.CheckCloneable(ctx, "ag_src"))
-	// Pending changes are inherited too.
+	// Pending changes would be inherited unapplied.
 	must(t, f.st.UpdateAgent(ctx, db.UpdateAgentParams{ID: "ag_src", Name: "ag_src", Image: "img", Cpus: 1, MemoryMb: 4096, IdleMinutes: 15}))
 	if err := f.m.CheckCloneable(ctx, "ag_src"); !errors.Is(err, sandbox.ErrNeedsReset) {
 		t.Fatalf("pending change: %v", err)

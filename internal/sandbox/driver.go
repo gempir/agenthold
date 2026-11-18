@@ -50,9 +50,6 @@ type Status struct {
 	GatewayIP string
 	// Subnet is the sandbox's network, used to attribute its traffic.
 	Subnet netip.Prefix
-	// BaseStale reports that the system disk sits on an older base image than
-	// the one new sandboxes get. Resetting the system moves it to the current one.
-	BaseStale bool
 }
 
 // Boot is the per-boot configuration for sandboxd. The driver knows how the

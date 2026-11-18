@@ -385,7 +385,7 @@ func (d *Driver) Status(ctx context.Context, id sandbox.ID) (sandbox.Status, err
 	if running {
 		state = sandbox.StateRunning
 	}
-	return sandbox.Status{State: state, Subnet: m.Subnet, GatewayIP: m.Subnet.Addr().Next().String(), BaseStale: m.BaseImagePath != d.cfg.BaseImagePath}, nil
+	return sandbox.Status{State: state, Subnet: m.Subnet, GatewayIP: m.Subnet.Addr().Next().String()}, nil
 }
 
 // Attach implements sandbox.Attacher.

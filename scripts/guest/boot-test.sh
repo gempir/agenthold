@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # N2 proof: boots the real base image and guest kernel in Firecracker by hand, with sandboxd as
-# PID 1, against a host-side test tunnel endpoint (scripts/guest/testhost, the real tunnel Hub).
+# PID 1 (delivered as the initramfs, as the driver does), against a host-side test tunnel endpoint (scripts/guest/testhost, the real tunnel Hub).
 #
 #   scripts/guest/boot-test.sh [--kernel agenthold|ci] [--docker] [--verbose-kernel]
 #
@@ -64,11 +64,12 @@ if [[ $EUID -ne 0 ]]; then
   (cd "$REPO_ROOT" && CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -trimpath \
     -ldflags "-s -w -X github.com/gempir/agenthold/internal/version.Version=$version" -o "$ART/bin/sandboxd" ./cmd/sandboxd &&
     CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o "$ART/bin/testhost" ./scripts/guest/testhost)
-  want="$(sha256sum "$ART/bin/sandboxd" | cut -d' ' -f1)"
-  have="$(jq -r '.inputs.sandboxdSha256 // empty' "$ART/base-$ARCH.manifest.json" 2>/dev/null || true)"
+  "$ART/bin/testhost" -write-initrd "$ART/bin/initrd.cpio" -sandboxd "$ART/bin/sandboxd"
+  want="$(bash "$SCRIPTS/base-key.sh")"
+  have="$(jq -r '.inputs.baseKey // empty' "$ART/base-$ARCH.manifest.json" 2>/dev/null || true)"
   if [[ ! -f "$ART/base-$ARCH.ext4" || "$want" != "$have" ]]; then
-    log "Building the base image (sandboxd changed or image missing)"
-    bash "$SCRIPTS/build-rootfs.sh" --sandboxd "$ART/bin/sandboxd" --no-zstd
+    log "Building the base image (inputs changed or image missing)"
+    bash "$SCRIPTS/build-rootfs.sh" --no-zstd
   fi
   exec sudo -E env "PATH=$PATH" bash "${BASH_SOURCE[0]}" --kernel "$KERNEL_KIND" $( ((DOCKER)) && echo --docker) $( ((QUIET)) || echo --verbose-kernel)
 fi
@@ -155,7 +156,8 @@ printf 'boot file %s\n' "$NONCE" >"$RUN/bootfile.txt"
   -hostname boottest -file "/etc/agenthold/boottest.txt=$RUN/bootfile.txt" -env 'BOOTTEST_SERVER={{server}}'
 echo "config drive: $(stat -c %s "$RUN/config.img") bytes"
 
-BOOT_ARGS="console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda ro rootfstype=ext4 init=/opt/agenthold/sandboxd"
+INITRD="$ART/bin/initrd.cpio"
+BOOT_ARGS="console=ttyS0 reboot=k panic=1 pci=off"
 BOOT_ARGS+=" ip=$GUEST_IP::$HOST_IP:255.255.255.252::eth0:off"
 ((QUIET)) && BOOT_ARGS+=" quiet"
 
@@ -180,8 +182,8 @@ boot() {
     [[ "$code" == 2* ]] || { echo "firecracker PUT $1 -> $code $(cat "$RUN/api.out")" >&2; return 1; }
   }
   fcapi /machine-config "{\"vcpu_count\": 2, \"mem_size_mib\": $mem}"
-  fcapi /boot-source "{\"kernel_image_path\": \"$KERNEL\", \"boot_args\": \"$BOOT_ARGS\"}"
-  fcapi /drives/base "{\"drive_id\": \"base\", \"path_on_host\": \"$BASE\", \"is_root_device\": true, \"is_read_only\": true}"
+  fcapi /boot-source "{\"kernel_image_path\": \"$KERNEL\", \"initrd_path\": \"$INITRD\", \"boot_args\": \"$BOOT_ARGS\"}"
+  fcapi /drives/base "{\"drive_id\": \"base\", \"path_on_host\": \"$BASE\", \"is_root_device\": false, \"is_read_only\": true}"
   fcapi /drives/overlay "{\"drive_id\": \"overlay\", \"path_on_host\": \"$OVERLAY\", \"is_root_device\": false, \"is_read_only\": false}"
   fcapi /drives/home "{\"drive_id\": \"home\", \"path_on_host\": \"$HOME_DISK\", \"is_root_device\": false, \"is_read_only\": false}"
   fcapi /drives/config "{\"drive_id\": \"config\", \"path_on_host\": \"$RUN/config.img\", \"is_root_device\": false, \"is_read_only\": true}"

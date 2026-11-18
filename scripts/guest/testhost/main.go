@@ -7,6 +7,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -69,9 +70,26 @@ func main() {
 	var files, env cmdList
 	flag.Var(&files, "file", "with -write-config: GUESTPATH=LOCALPATH to write into the guest, repeatable")
 	flag.Var(&env, "env", "with -write-config: KEY=VALUE for the guest environment, repeatable")
+	writeInitrd := flag.String("write-initrd", "", "only write the initramfs that delivers -sandboxd to this path and exit")
+	sandboxdBin := flag.String("sandboxd", "", "with -write-initrd: the sandboxd binary")
 	flag.Parse()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil)).With("component", "testhost")
 
+	if *writeInitrd != "" {
+		bin, err := os.ReadFile(*sandboxdBin)
+		var buf bytes.Buffer
+		if err == nil {
+			err = sandboxd.WriteInitramfs(&buf, bytes.NewReader(bin), int64(len(bin)))
+		}
+		if err == nil {
+			err = os.WriteFile(*writeInitrd, buf.Bytes(), 0o644)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *writeConfig != "" {
 		b := sandboxd.GuestBoot{
 			AgentID: *agent, Token: *token, TunnelPort: *port, Hostname: *hostname,

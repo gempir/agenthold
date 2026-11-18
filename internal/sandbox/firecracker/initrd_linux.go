@@ -9,15 +9,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/gempir/agenthold/internal/sandboxd"
 )
 
 // writeInitrd builds the initramfs that delivers sandboxd to every guest
-// (dataDir/initrd/<sha256>.cpio, content-addressed by the archive) and removes
-// older archives. A running VM keeps the archive it booted with through the
-// bind mount in its jail, so removing the file never affects it.
+// (dataDir/initrd/<sha256>.cpio, content-addressed by the archive) and keeps
+// it and the newest older archive (the previous release's), removing the
+// rest. A running VM keeps the archive it booted with through the bind mount
+// in its jail, so removing the file never affects it.
 func writeInitrd(dataDir, sandboxdPath string) (string, error) {
 	bin, err := os.ReadFile(sandboxdPath)
 	if err != nil {
@@ -47,9 +50,23 @@ func writeInitrd(dataDir, sandboxdPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	type old struct {
+		path string
+		mod  time.Time
+	}
+	var older []old
 	for _, e := range entries {
-		if e.Name() != name && strings.HasSuffix(e.Name(), ".cpio") && e.Type().IsRegular() {
-			_ = os.Remove(filepath.Join(dir, e.Name()))
+		if e.Name() == name || !strings.HasSuffix(e.Name(), ".cpio") || !e.Type().IsRegular() {
+			continue
+		}
+		if fi, err := e.Info(); err == nil {
+			older = append(older, old{filepath.Join(dir, e.Name()), fi.ModTime()})
+		}
+	}
+	slices.SortFunc(older, func(a, b old) int { return b.mod.Compare(a.mod) })
+	for i, o := range older {
+		if i >= 1 { // the current archive and the newest older one stay
+			_ = os.Remove(o.path)
 		}
 	}
 	if fi, err := os.Stat(path); err != nil || fi.Size() != int64(buf.Len()) {

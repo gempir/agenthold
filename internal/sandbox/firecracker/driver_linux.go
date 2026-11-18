@@ -83,20 +83,8 @@ func New(ctx context.Context, cfg Config) (*Driver, error) {
 	if err := CheckHost(ctx); err != nil {
 		return nil, err
 	}
-	for name, p := range map[string]string{"base image": cfg.BaseImagePath, "kernel": cfg.KernelPath, "firecracker": cfg.FirecrackerPath, "jailer": cfg.JailerPath} {
-		st, e := os.Stat(p)
-		if e != nil {
-			return nil, fmt.Errorf("%s: %w", name, e)
-		}
-		if !st.Mode().IsRegular() {
-			return nil, fmt.Errorf("%s must be a regular file", name)
-		}
-		if (name == "jailer" || name == "firecracker") && st.Mode()&0o111 == 0 {
-			return nil, fmt.Errorf("%s is not executable", name)
-		}
-		if (name == "base image" || name == "kernel") && st.Mode()&0o004 == 0 {
-			return nil, fmt.Errorf("%s must be readable by jailed VMM users", name)
-		}
+	if err := checkRuntimeFiles(cfg); err != nil {
+		return nil, err
 	}
 	for _, dir := range []string{cfg.DataDir, filepath.Join(cfg.DataDir, "agents"), cfg.JailDir} {
 		if err = os.MkdirAll(dir, 0o700); err != nil {
@@ -118,6 +106,32 @@ func New(ctx context.Context, cfg Config) (*Driver, error) {
 		return nil, err
 	}
 	return d, nil
+}
+
+// checkRuntimeFiles checks the runtime artifacts New is given: regular files,
+// the VMM binaries executable, what jailed VMM users read readable, and the
+// sandboxd every guest boots as PID 1 not writable by group or others.
+func checkRuntimeFiles(cfg Config) error {
+	for name, p := range map[string]string{"base image": cfg.BaseImagePath, "kernel": cfg.KernelPath, "firecracker": cfg.FirecrackerPath, "jailer": cfg.JailerPath, "sandboxd": cfg.SandboxdPath} {
+		st, e := os.Stat(p)
+		if e != nil {
+			return fmt.Errorf("%s: %w", name, e)
+		}
+		if !st.Mode().IsRegular() {
+			return fmt.Errorf("%s must be a regular file", name)
+		}
+		if (name == "jailer" || name == "firecracker") && st.Mode()&0o111 == 0 {
+			return fmt.Errorf("%s is not executable", name)
+		}
+		if (name == "base image" || name == "kernel") && st.Mode()&0o004 == 0 {
+			return fmt.Errorf("%s must be readable by jailed VMM users", name)
+		}
+		// Every guest boots it as PID 1: nobody but its owner may change it.
+		if name == "sandboxd" && st.Mode()&0o022 != 0 {
+			return fmt.Errorf("%s must not be writable by group or others", name)
+		}
+	}
+	return nil
 }
 
 // Name implements sandbox.Driver.

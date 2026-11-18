@@ -240,8 +240,6 @@ if [[ ! -f "$base_cache/base-arm64.ext4.zst" ]]; then
   rm -rf -- "$base_cache"
   mv -T -- "$tmpb" "$base_cache"
 fi
-# One cached base: older keys are only reachable through the store, which pull.sh prunes.
-find "$CACHE/root/base" -mindepth 1 -maxdepth 1 -type d ! -name "$base_key" -exec rm -rf -- {} +
 phase kvm root make test-kvm
 
 # --- publish ----------------------------------------------------------------------------------
@@ -288,6 +286,9 @@ chmod 0644 "$STORE/.channel.json.tmp"
 mv -f -- "$STORE/.channel.json.tmp" "$STORE/channel.json"
 rm -f -- "$FAILED/$commit.log"
 echo "==> published $version to $STORE"
+# One cached base, cleaned only after a successful publish: older keys stay reachable through the
+# store (hard links), which pull.sh prunes.
+find "$CACHE/root/base" -mindepth 1 -maxdepth 1 -type d ! -name "$base_key" -exec rm -rf -- {} +
 cat "$phases"
 # Deploy right away instead of waiting for the next pull timer run.
 if systemctl is-enabled --quiet agenthold-pull.timer 2>/dev/null; then

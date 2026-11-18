@@ -105,7 +105,9 @@ it('sets an idle timeout instead of always on', async () => {
 });
 
 it('lets the owner take the app over', async () => {
-  let current: typeof app & { createdByAgent?: unknown } = app;
+  let current: Omit<typeof app, 'createdByAgent'> & {
+    createdByAgent?: unknown;
+  } = app;
   const { calls } = mocks({
     'GET /apps/ap1': () => ({ body: current }),
     'POST /apps/ap1/take-over': () => {

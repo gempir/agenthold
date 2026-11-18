@@ -210,6 +210,17 @@ grep -q "prune: removed $work/data/base/$anc1.ext4.zst" "$work/run.log" || fail 
 [[ ! -e "$work/src/sha-$(rel 3)" && ! -e "$work/src/sha-$(rel 4)" && ! -e "$work/src/sha-$(rel 5)" ]] || fail 'old store versions'
 # /dl/ serves the deployed version only; operator files that are not versions stay.
 [[ -d "$work/data/dl/$v" && ! -e "$work/data/dl/sha-$(rel 5)" && -d "$work/data/dl/operator-notes" ]] || fail 'dl prune'
+# Releases N and N-1 on one base (the normal case since the base holds no sandboxd): that base and
+# its compressed file stay, shared with the store by hard link; a base nothing names any more goes.
+seed_prune
+jq -n --arg b "$base_sha" '{base:{sha256:$b}}' > "$work/opt/releases/$old/runtime.manifest.json"
+ln -f "$work/src/$v/base-arm64.ext4.zst" "$work/src/sha-$old/base-arm64.ext4.zst"
+run success || fail 'shared base deploy'
+[[ -f "$work/data/base/$base_sha.ext4" && -f "$work/data/base/$base_sha.ext4.zst" ]] || fail 'shared base pruned'
+! grep -q "prune: removed $work/data/base/$base_sha" "$work/run.log" || fail 'shared base removal logged'
+[[ "$(stat -c %i "$work/data/base/$base_sha.ext4.zst")" == "$(stat -c %i "$work/src/$v/base-arm64.ext4.zst")" ]] || fail 'compressed base not shared with the store'
+[[ ! -e "$work/data/base/$oldbase.ext4" && ! -e "$work/data/base/$oldbase.ext4.zst" && -f "$work/data/base/$pinned.ext4" ]] || fail 'unnamed base kept or pinned base pruned'
+[[ -f "$work/src/sha-$old/base-arm64.ext4.zst" ]] || fail 'previous store version pruned'
 # An https source is never pruned.
 seed_prune
 AGENTHOLD_DEPLOY_SOURCE=https://dl.example/dl/ run success || fail 'https prune deploy'

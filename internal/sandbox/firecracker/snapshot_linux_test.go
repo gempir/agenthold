@@ -80,7 +80,7 @@ func TestSnapshotCompatibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	info := snapshotInfo{Format: snapshotFormat, Firecracker: "fc", Kernel: "k", HostCPU: "cpu", HostKernel: "6.8", ResumeVersion: sandboxd.ResumeVersion,
-		BaseImagePath: m.BaseImagePath, VCPUs: 1, MemoryMiB: 256}
+		Sandboxd: "abc.cpio", BaseImagePath: m.BaseImagePath, VCPUs: 1, MemoryMiB: 256}
 	if err := d.finalizeSnapshot(id, &info); err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +97,7 @@ func TestSnapshotCompatibility(t *testing.T) {
 		"cpu":         func(s *snapshotInfo, _ *manifest) { s.HostCPU = "other" },
 		"host kernel": func(s *snapshotInfo, _ *manifest) { s.HostKernel = "5.10" },
 		"protocol":    func(s *snapshotInfo, _ *manifest) { s.ResumeVersion++ },
+		"sandboxd":    func(s *snapshotInfo, _ *manifest) { s.Sandboxd = "def.cpio" },
 		"base":        func(_ *snapshotInfo, m *manifest) { m.BaseImagePath = "/other.ext4" },
 		"size":        func(_ *snapshotInfo, m *manifest) { m.Spec.Resources.MemoryMB = 512 },
 		"devices":     func(_ *snapshotInfo, m *manifest) { m.Resumable = false },

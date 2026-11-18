@@ -10,7 +10,7 @@ package firecracker
 // and memory file) into <dir>/snapshot through the jail's /snap bind mount,
 // and the VMM is killed. snapshot.json, written last, makes the snapshot
 // valid: it records what a resume must find unchanged (Firecracker, kernel,
-// host CPU and kernel, VM shape, base image, disk sizes and mtimes).
+// sandboxd, host CPU and kernel, VM shape, base image, disk sizes and mtimes).
 //
 // Wake (Start): a valid, compatible snapshot is consumed (snapshot.json is
 // removed before anything runs, so it is never resumed twice and never
@@ -217,6 +217,10 @@ func (d *Driver) compatible(id sandbox.ID, m *manifest, s *snapshotInfo) error {
 		return errors.New("host CPU model changed since the snapshot")
 	case s.HostKernel != d.host.hostKernel:
 		return fmt.Errorf("host kernel changed since the snapshot (%s, now %s)", s.HostKernel, d.host.hostKernel)
+	case s.Sandboxd != filepath.Base(d.initrd):
+		// The guest would keep running the old sandboxd, and a machine that
+		// only ever sleeps and wakes would never get a new one.
+		return errors.New("sandboxd changed since the snapshot")
 	case s.ResumeVersion != sandboxd.ResumeVersion:
 		return fmt.Errorf("resume protocol %d, want %d", s.ResumeVersion, sandboxd.ResumeVersion)
 	case s.BaseImagePath != m.BaseImagePath:

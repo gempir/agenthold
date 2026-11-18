@@ -283,9 +283,13 @@ func TestSnapshotResumeKVM(t *testing.T) {
 		balloon, coldBoot.Round(time.Millisecond), took.Round(time.Millisecond), info.MemoryBytes>>20, allocated(snapFile("memory"))>>20, info.BalloonMiB, info.VMStateBytes>>10)
 	time.Sleep(3 * time.Second) // the guest clock must not lose this
 	s, wake := start()
+	firstByte := time.Now()
 	if got := count(s); got != 4 {
 		t.Fatalf("counter after resume = %d, want 4 (state lost)", got)
 	}
+	// What a preview request to a sleeping machine waits for, minus the
+	// controller's routing: wake, tunnel, dial, the service's answer.
+	t.Logf("MEASURE balloon=%v wake-to-first-byte=%s", balloon, (wake + time.Since(firstByte)).Round(time.Millisecond))
 	if got := servicePid(s); got != pid {
 		t.Fatalf("service pid after resume = %d, want %d", got, pid)
 	}

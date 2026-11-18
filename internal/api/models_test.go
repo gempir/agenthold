@@ -1,6 +1,9 @@
 package api_test
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gempir/agenthold/internal/api/gen"
@@ -38,6 +41,7 @@ func TestModelPickerFlow(t *testing.T) {
 	var sess gen.Session
 	expect(t, "session", alice.do("POST", "/agents/"+ag.Id+"/sessions", map[string]string{}, &sess), 201)
 	expect(t, "bad id", alice.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "a b"}, nil), 400)
+	expect(t, "options before a report", alice.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "swift-1", Options: &map[string]string{"effort": "high"}}, nil), 400)
 
 	if got, _ := e.turnText(alice, sess.Id, "model"); got != "model=swift-1 effort=medium fast=off" {
 		t.Fatalf("first turn %q", got)
@@ -57,7 +61,9 @@ func TestModelPickerFlow(t *testing.T) {
 	}
 
 	// Validation against the reported list.
-	expect(t, "unknown model", alice.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "gone-0"}, nil), 400)
+	// The owner may use ids the harness does not list (it decides).
+	expect(t, "unlisted model", alice.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "gone-0"}, nil), 200)
+	expect(t, "mode is not a model option", alice.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "", Options: &map[string]string{"mode": "bypass"}}, nil), 400)
 	expect(t, "bad effort", alice.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "swift-1", Options: &map[string]string{"effort": "max"}}, nil), 400)
 	expect(t, "no such option", alice.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "swift-1", Options: &map[string]string{"turbo": "on"}}, nil), 400)
 
@@ -135,7 +141,52 @@ func TestModelAccess(t *testing.T) {
 	var sess gen.Session
 	expect(t, "session", tm.bob.do("POST", "/agents/"+tm.agent.Id+"/sessions", map[string]string{}, &sess), 201)
 	expect(t, "shared user reads models", tm.bob.do("GET", "/agents/"+tm.agent.Id+"/models", nil, nil), 200)
-	expect(t, "shared user picks the session's model", tm.bob.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "swift-1"}, nil), 200)
+	// Before the harness reported its models, only the owner picks one.
+	expect(t, "unreported model", tm.bob.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "swift-1"}, nil), 403)
+	if got, _ := tm.e.turnText(tm.bob, sess.Id, "model"); got != "model=swift-1 effort=medium fast=off" {
+		t.Fatalf("first turn %q", got)
+	}
+	expect(t, "reported model", tm.bob.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "deep-1"}, nil), 200)
+	expect(t, "unlisted model", tm.bob.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "gone-0"}, nil), 403)
+	// The bypass attempt: a session mode through the model options.
+	expect(t, "mode", tm.bob.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "swift-1", Options: &map[string]string{"mode": "bypass"}}, nil), 400)
+	if got, _ := tm.e.turnText(tm.bob, sess.Id, "mode"); got != "mode=default" {
+		t.Fatalf("mode %q", got)
+	}
 	expect(t, "shared user cannot set the default", tm.bob.do("PATCH", "/agents/"+tm.agent.Id, gen.AgentPatch{Model: ptr("deep-1")}, nil), 403)
 	expect(t, "outsider", tm.carol.do("GET", "/agents/"+tm.agent.Id+"/models", nil, nil), 404)
+}
+
+func TestDefaultModelWithoutConfigOptions(t *testing.T) {
+	e := newEnv(t)
+	alice := e.login("alice", "Alice", "a@example.com")
+	ag := e.fakeAgent(alice, "")
+	dir := filepath.Join(e.home(ag.Id), ".fakeagent")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "script"), []byte("no-config\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var sess gen.Session
+	expect(t, "session", alice.do("POST", "/agents/"+ag.Id+"/sessions", map[string]string{}, &sess), 201)
+	if got, _ := e.turnText(alice, sess.Id, "model"); !strings.HasPrefix(got, "model=swift-1 ") {
+		t.Fatalf("first turn %q", got)
+	}
+	var cat gen.ModelCatalog
+	expect(t, "models", alice.do("GET", "/agents/"+ag.Id+"/models", nil, &cat), 200)
+	if cat.Switchable || cat.SeenAt == nil {
+		t.Fatalf("catalog %+v", cat)
+	}
+	// The harness only reads its model when it starts: the new default
+	// restarts it, and the next turn runs on it.
+	expect(t, "default", alice.do("PATCH", "/agents/"+ag.Id, gen.AgentPatch{Model: ptr("deep-1")}, nil), 200)
+	if got, _ := e.turnText(alice, sess.Id, "model"); !strings.HasPrefix(got, "model=deep-1 ") {
+		t.Fatalf("after the new default %q", got)
+	}
+	// Clearing it restarts it again, on the harness's own default.
+	expect(t, "clear", alice.do("PATCH", "/agents/"+ag.Id, gen.AgentPatch{Model: ptr("")}, nil), 200)
+	if got, _ := e.turnText(alice, sess.Id, "model"); !strings.HasPrefix(got, "model=swift-1 ") {
+		t.Fatalf("after clearing %q", got)
+	}
 }

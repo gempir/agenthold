@@ -60,6 +60,7 @@ export function HarnessMeta({
     : (draft ?? { model: '', options: {} });
   const defaultLabel = `Agent default (${choiceLabel(models.data, agentDefault, 'harness default')})`;
   const switchable = models.data?.switchable ?? true;
+  const isOwner = agent.role === 'owner';
   return (
     <div className="flex min-w-0 items-center gap-0.5">
       <Link
@@ -80,7 +81,13 @@ export function HarnessMeta({
         value={value}
         defaultLabel={defaultLabel}
         defaultDescription="The model in the agent's settings"
-        disabled={!canUse || (!switchable && !!session)}
+        // Shared users choose among the models the harness reported.
+        disabled={
+          !canUse ||
+          (!switchable && !!session) ||
+          (!isOwner && models.data?.source !== 'harness')
+        }
+        allowCustom={isOwner}
         label="Model for this conversation"
         note={
           switchable

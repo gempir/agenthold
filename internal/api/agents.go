@@ -283,13 +283,13 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	choice := session.Choice{Model: s.model, Options: options}
 	modelChanged := harnessChanged || s.model != ag.Model || session.EncodeOptions(options) != session.EncodeOptions(session.ParseOptions(ag.ModelOptions))
 	if modelChanged && !harnessChanged {
-		if err := a.validateChoice(ctx, ag, choice, session.AgentChoice(ag)); err != nil {
+		if err := a.validateChoice(ctx, ag, choice, session.AgentChoice(ag), true); err != nil {
 			return nil, err
 		}
 	} else if harnessChanged && s.model != "" {
 		target := ag
 		target.Harness = s.harness
-		if err := a.validateChoice(ctx, target, choice, session.Choice{}); err != nil {
+		if err := a.validateChoice(ctx, target, choice, session.Choice{}, true); err != nil {
 			return nil, err
 		}
 	}
@@ -310,14 +310,7 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	}
 	// A running harness switches its sessions to a new default at their next
 	// turn; one that offers no model choice only reads it when it starts.
-	restart := false
-	if modelChanged && !harnessChanged {
-		cat, err := a.catalog(ctx, ag)
-		if err != nil {
-			return nil, err
-		}
-		restart = !cat.api.Switchable
-	}
+	restart := modelChanged && !harnessChanged && !a.Sessions.LiveSwitchable(ag.ID)
 	now := a.Now().Unix()
 	if err := a.Store.Tx(ctx, func(q *db.Queries) error {
 		if err := q.UpdateAgent(ctx, db.UpdateAgentParams{

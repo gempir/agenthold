@@ -212,3 +212,20 @@ it('offers a typed id when the harness takes custom models', async () => {
     options: {},
   });
 });
+
+it('offers no typed id to users who may not set custom models', async () => {
+  render(
+    <ModelPicker
+      catalog={{ ...catalog, customModels: true }}
+      value={{ model: '', options: {} }}
+      defaultLabel="Agent default"
+      allowCustom={false}
+      onChange={() => {}}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: /Model:/ }));
+  await user.type(screen.getByRole('combobox'), 'acme/model-9');
+  expect(screen.queryByRole('option', { name: /Use/ })).not.toBeInTheDocument();
+  expect(screen.getByText('No model matches.')).toBeVisible();
+});

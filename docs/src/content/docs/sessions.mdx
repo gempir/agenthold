@@ -180,9 +180,17 @@ per agent, so the picker works while the machine sleeps, and says when it was re
 levels of its current model only, so a model's options appear once a conversation has used it. Before an agent first
 runs, the picker shows a small built-in list per harness instead.
 
-A choice applies from the next message, with `session/set_config_option`, without restarting the harness. A model the
-harness does not list or refuses (for example one the account's plan does not include) leaves the turn on the
-current model, with a notice saying so; the conversation keeps working.
+A choice applies from the next message, with `session/set_config_option`, without restarting the harness. Only the
+model, its reasoning effort and on/off toggles such as fast mode are ever set this way: other config options a harness
+reports (its session mode, which can change how it asks for permissions) are not model settings and cannot be chosen.
+What a choice leaves out returns to what a fresh session starts with, so clearing a choice reverts it. A model the
+harness refuses (for example one the account's plan does not include), or a switch it does not answer within 20
+seconds, leaves the turn on the current model with a notice; the switch is not tried again until the harness restarts.
+
+Who chooses: the owner sets the agent default and may use any model id, also one the harness does not list (an alias,
+or an OpenCode `provider/model` of a provider configured in the sandbox); the harness decides at the next message.
+Users the agent is shared with choose a conversation's model among the models the harness reported, with their
+reported options, and cannot type ids; before the agent's first conversation they keep the default.
 
 | Harness | Models depend on | Effort | Fast mode | Built-in list |
 | --- | --- | --- | --- | --- |

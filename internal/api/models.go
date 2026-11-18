@@ -133,7 +133,8 @@ func (a *API) SetSessionModel(ctx context.Context, req gen.SetSessionModelReques
 		return nil, err
 	}
 	choice := choiceFrom(*req.Body)
-	if err := a.validateChoice(ctx, agent, choice, session.OwnChoice(s)); err != nil {
+	_, cerr := a.authz.Agent(ctx, me(ctx).ID, s.AgentID, authz.AgentConfigure)
+	if err := a.validateChoice(ctx, agent, choice, session.OwnChoice(s), cerr == nil); err != nil {
 		return nil, err
 	}
 	if err := a.Sessions.SetSessionChoice(ctx, s.ID, choice); err != nil {
@@ -174,10 +175,14 @@ func validModelID(id string) bool {
 	return len(id) <= 200 && !strings.ContainsAny(id, " \t\r\n")
 }
 
-// validateChoice checks a model choice against the harness's catalog when
-// the harness reported one. What is unchanged from prev is not checked again:
-// an old setting the harness no longer lists stays until it is changed.
-func (a *API) validateChoice(ctx context.Context, agent db.Agent, c, prev session.Choice) error {
+// validateChoice checks a model choice. Options must be effort or toggle
+// options the harness reported (never mode or other options: a session mode
+// can change the harness's permission handling). A model id is only checked
+// for its shape when configure is set (the owner may use ids the harness
+// does not list, such as aliases; the harness decides at the next turn);
+// others choose among the models the harness reported. What is unchanged
+// from prev is not checked again: an old setting stays until it is changed.
+func (a *API) validateChoice(ctx context.Context, agent db.Agent, c, prev session.Choice, configure bool) error {
 	if !validModelID(c.Model) {
 		return badRequest("invalid model id")
 	}
@@ -193,33 +198,40 @@ func (a *API) validateChoice(ctx context.Context, agent db.Agent, c, prev sessio
 	if err != nil {
 		return err
 	}
-	if !cat.reported {
-		return nil // nothing to check against: the harness says so at the next turn
-	}
-	if c.Model != "" && c.Model != prev.Model {
-		if _, ok := cat.model(c.Model); !ok && !cat.api.CustomModels {
-			return badRequest(fmt.Sprintf("the harness does not offer the model %q", c.Model))
+	if c.Model != "" && c.Model != prev.Model && !configure {
+		if _, listed := cat.model(c.Model); !cat.reported || !listed {
+			return errStatus(http.StatusForbidden, "only the agent's owner can choose a model the harness has not reported")
 		}
 	}
 	known, ok := cat.options[c.Model]
-	if c.Model == "" || !ok {
-		return nil // the options of the model are not known yet
+	exact := c.Model != "" && ok
+	if !exact {
+		// The model's options are not known yet: any effort or toggle option
+		// the harness reported for one of its models, with any value (the
+		// harness decides at the next turn).
+		known = nil
+		for _, opts := range cat.options {
+			known = append(known, opts...)
+		}
 	}
 	for k, v := range c.Options {
 		if prev.Options[k] == v && prev.Model == c.Model {
 			continue
 		}
-		var found *session.ConfigOption
-		for i := range known {
-			if known[i].ID == k {
-				found = &known[i]
+		valid, found := false, false
+		for _, o := range known {
+			if o.ID == k && o.Picker() {
+				found = true
+				valid = valid || !exact || o.Has(v)
 			}
 		}
-		if found == nil {
-			return badRequest(fmt.Sprintf("the model %q has no option %q", c.Model, k))
-		}
-		if !found.Has(v) {
-			return badRequest(fmt.Sprintf("%s cannot be %q for the model %q", found.Name, v, c.Model))
+		switch {
+		case !found && !cat.reported:
+			return badRequest("model options can be chosen once the harness has reported them (after the agent's first conversation)")
+		case !found:
+			return badRequest(fmt.Sprintf("%q is not a model option of this harness", k))
+		case !valid:
+			return badRequest(fmt.Sprintf("option %q cannot be %q for this model", k, v))
 		}
 	}
 	return nil

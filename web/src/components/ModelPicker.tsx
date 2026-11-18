@@ -35,6 +35,7 @@ export function ModelPicker({
   defaultLabel,
   defaultDescription,
   disabled,
+  allowCustom = true,
   side = 'top',
   label = 'Model',
   note,
@@ -47,6 +48,8 @@ export function ModelPicker({
   defaultLabel: string;
   defaultDescription?: string;
   disabled?: boolean;
+  /** Offer typed model ids (harnesses that take them); owners only. */
+  allowCustom?: boolean;
   side?: 'top' | 'bottom';
   /** Accessible name of the trigger. */
   label?: string;
@@ -97,6 +100,7 @@ export function ModelPicker({
           onClose={close}
           defaultLabel={defaultLabel}
           defaultDescription={defaultDescription}
+          allowCustom={allowCustom}
           side={side}
           label={label}
           note={note}
@@ -113,6 +117,7 @@ function PickerPanel({
   onClose,
   defaultLabel,
   defaultDescription,
+  allowCustom,
   side,
   label,
   note,
@@ -123,6 +128,7 @@ function PickerPanel({
   onClose: () => void;
   defaultLabel: string;
   defaultDescription?: string;
+  allowCustom: boolean;
   side: 'top' | 'bottom';
   label: string;
   note?: string;
@@ -152,6 +158,7 @@ function PickerPanel({
     }
   }
   const custom =
+    allowCustom &&
     !!catalog?.customModels &&
     !!q &&
     !/\s/.test(q) &&
@@ -335,7 +342,7 @@ function PickerPanel({
             }}
             onKeyDown={onKeyDown}
             placeholder={
-              catalog?.customModels
+              allowCustom && catalog?.customModels
                 ? 'Search or type provider/model'
                 : 'Search models'
             }

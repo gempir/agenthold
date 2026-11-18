@@ -298,7 +298,7 @@ func (d *Driver) finish(ctx context.Context, id sandbox.ID, m *manifest) error {
 	errs = append(errs, d.deleteTap(id))
 	// Unmount before RemoveAll: removing through a live bind could delete data.
 	clean := true
-	for _, name := range []string{"config.img", "home.ext4", "overlay.ext4", "base.ext4", "kernel"} {
+	for _, name := range []string{"config.img", "home.ext4", "overlay.ext4", "base.ext4", "initrd", "kernel"} {
 		err = unix.Unmount(filepath.Join(d.jailRoot(id), name), 0)
 		if err != nil && !errors.Is(err, unix.EINVAL) && !errors.Is(err, unix.ENOENT) {
 			errs = append(errs, err)

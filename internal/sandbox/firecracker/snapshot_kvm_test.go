@@ -267,6 +267,9 @@ func TestSnapshotResumeKVM(t *testing.T) {
 		}
 	}
 	pid := servicePid(s)
+	// Dirty memory the guest then frees (Linux does not zero freed pages):
+	// what the balloon is for.
+	execIn(s, `python3 -c "b = b'\x01' * (400 << 20)"`)
 
 	// Sleep with the memory kept, and wake.
 	took := sleep()

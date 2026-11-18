@@ -67,20 +67,31 @@ then wakes for its owner and shared users, and for other visitors if the exposur
 4. The tool returns the URL, for example `https://todo.apps.example.com`, behind the agenthold sign-in.
 
 If the release does not come up, the tool returns its last log lines and the previous release serves again; the
-agent fixes its app and deploys again.
+agent fixes its app and deploys again. The URL is created (or moved to a new port) only once a release serves;
+a failed deploy leaves it exactly as it was.
 
 | Tool | What it does |
 |---|---|
 | `deploy_app(name, source_dir, command, port, env?, access?, memory_mb?, cpus?)` | create or update an app and deploy a directory to it |
-| `list_apps` | the owner's apps with state, URL and whether the calling agent created them |
+| `list_apps` | the owner's apps: name, state, URL and whether the calling agent created them |
 | `app_logs(name, lines?)` | the app's output |
 | `app_exec(name, command, timeout?)` | run a command in the app (in its current release), for migrations or checks |
 | `restart_app(name)`, `stop_app(name)` | restart its service, stop its machine |
-| `delete_app(name)` | delete an app the calling agent created |
+| `delete_app(name)` | delete the app |
 
-An agent manages its owner's apps: it may read, run commands in, restart and stop any of them, but update
-(`deploy_app`) and delete only the apps it created. Apps do not appear in `list_agents` and cannot be messaged.
-Deleting the agent keeps its apps; they show "created by a deleted agent".
+### Managed by an agent
+
+An agent manages only the apps it created: every tool but `list_apps` refuses any other app, including apps of
+its owner that a user or another agent created. The app page says so while it lasts: **Managed by &lt;agent&gt;: it
+can deploy to, run commands in, and read logs of this app, including with secrets attached here.** That last part
+matters: a secret the owner attaches to an app reaches the app's processes as a placeholder that the egress proxy
+swaps for the real value, and the managing agent controls those processes, so it can use the secret.
+
+The owner can **Take over** an app (on its page, or `POST /api/v1/apps/{id}/take-over`). After that no agent
+manages it. This cannot be undone; an agent can only deploy a new app under another name. Deleting the agent keeps
+its apps, managed by nobody ("a deleted agent").
+
+Apps do not appear in `list_agents` and cannot be messaged, and an app's own processes get no platform tools.
 
 ### How a deploy works
 
@@ -95,6 +106,15 @@ exposure of `port` is created (or its access updated).
   would leave the release directory are refused.
 - A copy that fails changes nothing. A release whose port does not come up in time (or whose command keeps crashing)
   is rolled back to the previous one.
+- The exposure is touched only after the release serves: a new one is created, or the one deploy made for another
+  port is moved to the new port in place (same name, URL and access).
+- Access is set only when the exposure is created (default `private`); after that only the owner changes it, and a
+  later `access` given to `deploy_app` is ignored.
+- A deploy takes at most 15 minutes, and the copy stops when nothing moved for 60 seconds or the archive is larger
+  than `apps.deploy_max_bytes` (plus tar overhead), or has more than 200,000 entries.
+- If the server or the app machine stops right after `~/app/current` was switched but before the service was
+  updated, the app runs the **new files with the old command** (and port) until the next deploy. Deploy again to
+  finish it.
 
 Owners can deploy from the API too: `POST /api/v1/apps/{id}/deploy` with a source machine they can open a terminal in.
 
@@ -110,12 +130,21 @@ knows who is using it without implementing a login.
 
 | Setting | Default | |
 |---|---|---|
-| `apps.max_per_agent` | 3 | apps one agent may have created |
+| `apps.max_per_agent` | 3 | apps one agent may have created; `0` means agents cannot create apps |
+| `apps.max_per_owner` | 10 | apps one user may own, however they were created (UI, API, agents, clones) |
 | `apps.default_cpus`, `apps.default_memory_mb` | 1, 1024 | size of an app an agent creates (and of one created in the UI) |
 | `apps.max_cpus`, `apps.max_memory_mb` | 2, 2048 | the most an agent may ask for (users get the `sandbox.*` limits) |
 | `apps.deploy_max_bytes` | 2 GiB | the largest directory a deploy copies |
 
-A machine has at most 20 services. Apps count against node capacity like agents.
+A machine has at most 20 services. Apps count against node capacity like agents. App names are DNS labels (they
+name the URL), unique among one owner's apps.
+
+## Clones and templates
+
+Cloning works for apps as for agents (`POST /api/v1/agents/{id}/clone` with the app's id): the clone is a new app of
+yours, managed by no agent, with a copy of the disks (all releases), the services and the attached secrets, but no
+URLs: expose it yourself. Its name follows the app name rules and `apps.max_per_owner` applies. An app can be made a
+template (`isTemplate` in its settings); a template is never started and is cloned into new apps.
 
 ## The API rule
 

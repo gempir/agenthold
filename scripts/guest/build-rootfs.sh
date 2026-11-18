@@ -159,6 +159,9 @@ truncate -s "${size_mb}M" "$IMG.part"
 E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" mkfs.ext4 -q -F -L agenthold-base -U "$FS_UUID" \
   -E "hash_seed=$FS_UUID,lazy_itable_init=0,nodiscard" -O ^has_journal -m 0 -N "$inodes" \
   -T default -d "$TREE" "$IMG.part"
+# The lifetime write counter only grows while it is nonzero; zero it before e2fsck and resize2fs
+# rewrite the backup superblocks (debugfs below only writes the primary one).
+E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" debugfs -w -R "ssv kbytes_written 0" "$IMG.part" >/dev/null 2>&1
 E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" e2fsck -fy "$IMG.part" >/dev/null 2>&1 || [[ $? -le 1 ]]
 E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" resize2fs -M "$IMG.part" >/dev/null 2>&1
 E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" e2fsck -fy "$IMG.part" >/dev/null 2>&1 || [[ $? -le 1 ]]

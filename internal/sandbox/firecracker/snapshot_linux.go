@@ -41,6 +41,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,6 +96,17 @@ type diskStamp struct {
 	ModNano int64 `json:"modNano"`
 }
 
+// slow lets requests of this instance take up to t (snapshots write the
+// whole guest memory).
+func (a *api) slow(t time.Duration) *api {
+	a.client.Timeout = t
+	return a
+}
+
+func (a *api) patch(ctx context.Context, path string, b any) error {
+	return a.request(ctx, http.MethodPatch, path, b, nil)
+}
+
 // hostIdentity is what a snapshot depends on besides its own files.
 type hostIdentity struct {
 	firecracker, kernel, cpu, hostKernel string
@@ -145,8 +157,10 @@ func hostCPU() (string, error) {
 		return "", err
 	}
 	defer f.Close()
-	keep := map[string]bool{"vendor_id": true, "cpu family": true, "model": true, "model name": true, "stepping": true, "flags": true,
-		"CPU implementer": true, "CPU architecture": true, "CPU variant": true, "CPU part": true, "CPU revision": true, "Features": true}
+	keep := map[string]bool{
+		"vendor_id": true, "cpu family": true, "model": true, "model name": true, "stepping": true, "flags": true,
+		"CPU implementer": true, "CPU architecture": true, "CPU variant": true, "CPU part": true, "CPU revision": true, "Features": true,
+	}
 	h := sha256.New()
 	seen := map[string]bool{}
 	sc := bufio.NewScanner(f)
@@ -210,7 +224,7 @@ func (d *Driver) compatible(id sandbox.ID, m *manifest, s *snapshotInfo) error {
 	case s.Format != snapshotFormat:
 		return fmt.Errorf("snapshot format %d", s.Format)
 	case s.Firecracker != d.host.firecracker:
-		return errors.New("Firecracker changed since the snapshot")
+		return errors.New("the Firecracker binary changed since the snapshot")
 	case s.Kernel != d.host.kernel:
 		return errors.New("guest kernel changed since the snapshot")
 	case s.HostCPU != d.host.cpu:
@@ -404,9 +418,11 @@ func (d *Driver) suspend(ctx context.Context, id sandbox.ID, m *manifest) (err e
 	if err = d.waitExit(context.WithoutCancel(ctx), m); err != nil {
 		return err
 	}
-	info := snapshotInfo{Format: snapshotFormat, Created: time.Now().UTC(), Firecracker: d.host.firecracker, Kernel: d.host.kernel,
+	info := snapshotInfo{
+		Format: snapshotFormat, Created: time.Now().UTC(), Firecracker: d.host.firecracker, Kernel: d.host.kernel,
 		Sandboxd: filepath.Base(d.initrd), ResumeVersion: sandboxd.ResumeVersion, HostCPU: d.host.cpu, HostKernel: d.host.hostKernel,
-		BaseImagePath: m.BaseImagePath, VCPUs: vcpus, MemoryMiB: mem, Balloon: m.Balloon, BalloonMiB: balloon}
+		BaseImagePath: m.BaseImagePath, VCPUs: vcpus, MemoryMiB: mem, Balloon: m.Balloon, BalloonMiB: balloon,
+	}
 	// From here a failure must not resume the VM (it is gone): the caller's
 	// cold stop finds it stopped and finish removes the partial files.
 	if err = d.finalizeSnapshot(id, &info); err != nil {

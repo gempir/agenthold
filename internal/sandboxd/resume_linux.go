@@ -74,3 +74,6 @@ func setClock(t time.Time) error {
 	tv := unix.NsecToTimeval(t.UnixNano())
 	return unix.Settimeofday(&tv)
 }
+
+// syncAll flushes every filesystem to its disk.
+func syncAll() { unix.Sync() }

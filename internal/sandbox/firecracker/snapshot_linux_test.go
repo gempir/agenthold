@@ -79,8 +79,10 @@ func TestSnapshotCompatibility(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(d.dir(id), "config.img"), []byte("cfg"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	info := snapshotInfo{Format: snapshotFormat, Firecracker: "fc", Kernel: "k", HostCPU: "cpu", HostKernel: "6.8", ResumeVersion: sandboxd.ResumeVersion,
-		Sandboxd: "abc.cpio", BaseImagePath: m.BaseImagePath, VCPUs: 1, MemoryMiB: 256}
+	info := snapshotInfo{
+		Format: snapshotFormat, Firecracker: "fc", Kernel: "k", HostCPU: "cpu", HostKernel: "6.8", ResumeVersion: sandboxd.ResumeVersion,
+		Sandboxd: "abc.cpio", BaseImagePath: m.BaseImagePath, VCPUs: 1, MemoryMiB: 256,
+	}
 	if err := d.finalizeSnapshot(id, &info); err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +103,11 @@ func TestSnapshotCompatibility(t *testing.T) {
 		"base":        func(_ *snapshotInfo, m *manifest) { m.BaseImagePath = "/other.ext4" },
 		"size":        func(_ *snapshotInfo, m *manifest) { m.Spec.Resources.MemoryMB = 512 },
 		"devices":     func(_ *snapshotInfo, m *manifest) { m.Resumable = false },
-		"disk":        func(s *snapshotInfo, _ *manifest) { st := s.Disks["home.ext4"]; st.ModNano++; s.Disks["home.ext4"] = st },
+		"disk": func(s *snapshotInfo, _ *manifest) {
+			st := s.Disks["home.ext4"]
+			st.ModNano++
+			s.Disks["home.ext4"] = st
+		},
 		"memory size": func(s *snapshotInfo, _ *manifest) { s.MemoryBytes++ },
 	} {
 		var sc snapshotInfo

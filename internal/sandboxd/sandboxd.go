@@ -13,7 +13,6 @@ import (
 	"os/user"
 	"strconv"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/gempir/agenthold/internal/tunnel"
@@ -250,7 +249,7 @@ func (d *Daemon) handle(ctx context.Context, st net.Conn, o tunnel.Open) {
 		// The host pauses and snapshots the VM next: what the guest wrote
 		// must be on its disks, which the snapshot keeps as they are.
 		d.log.Info("suspend requested by the server")
-		syscall.Sync()
+		syncAll()
 		err = tunnel.WriteJSON(st, tunnel.OK{OK: true})
 	case tunnel.OpStats:
 		err = tunnel.WriteJSON(st, stats())

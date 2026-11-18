@@ -333,7 +333,7 @@ func TestSnapshotResumeKVM(t *testing.T) {
 		execIn(s, "echo kept > /dev/shm/marker")
 	}
 	breakSnapshot := []struct {
-		what  string
+		what   string
 		break_ func()
 	}{
 		{"recorded Firecracker version changed", func() {

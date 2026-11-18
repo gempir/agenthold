@@ -476,6 +476,7 @@ func (m *Manager) run(t *turn, sess db.AgentSession, text string, status func(st
 	// harness with stopReason "cancelled".
 	res, err := conn.acp.Prompt(t.prompt, acp.PromptRequest{SessionId: acp.SessionId(acpID), Prompt: []acp.ContentBlock{acp.TextBlock(text)}})
 	if err != nil {
+		conn.drainUpdates()
 		var se *stoppedError
 		if cause := context.Cause(t.prompt); t.prompt.Err() != nil && errors.As(cause, &se) {
 			conn.forget(acpID) // the harness may still be busy with it

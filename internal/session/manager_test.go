@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/gempir/agenthold/internal/harness/fake"
@@ -870,4 +871,22 @@ func TestSetupTimeoutWhileOthersRun(t *testing.T) {
 	other.wait(busy, 5*time.Second)
 	e.waitDead(e.pids()[0])
 	e.ok("again")
+}
+
+func TestUpdateCounter(t *testing.T) {
+	var seen atomic.Int64
+	stream := `{"jsonrpc":"2.0","method":"session/update","params":{"x":1}}` + "\n" +
+		`{"jsonrpc":"2.0","id":1,"method":"session/update","params":{}}` + "\n" + // a request, not a notification
+		`{"jsonrpc":"2.0","method":"session/update","params":{"text":"session/update"}}` + "\n" +
+		`{"jsonrpc":"2.0","method":"other","params":{"text":"session/update"}}` + "\n" +
+		`{"jsonrpc":"2.0","params":{},"method": "session/update"}` + "\n" +
+		`{"jsonrpc":"2.0","method":"session/update"` // unfinished: not counted
+	// One byte per read, so every line straddles reads.
+	u := &updateCounter{r: iotest.OneByteReader(strings.NewReader(stream)), seen: &seen}
+	if _, err := io.Copy(io.Discard, u); err != nil {
+		t.Fatal(err)
+	}
+	if got := seen.Load(); got != 3 {
+		t.Fatalf("counted %d session/update notifications, want 3", got)
+	}
 }

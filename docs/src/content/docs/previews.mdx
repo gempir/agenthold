@@ -183,5 +183,5 @@ authenticated GET requests to each other. Keep untrusted apps on a separate doma
 ## Security notes
 
 - The tunnel only connects to the machine's loopback interface.
-- Machines whose guest image predates preview URLs answer with an error until they restart on a current base
-  image.
+- A machine that has been running since before its node got preview URLs still runs the sandboxd it booted
+  with and answers with an error that says so; restarting it (no reset) delivers the node's current sandboxd.

@@ -15,7 +15,9 @@ make dev                            # build web, run native server with live rel
 
 The first guest builds can take substantial time and disk space. `make dev` serves the built web app at
 http://localhost:8080 and restarts the Go server when its source changes. Run `make web` again for UI changes;
-rebuild the base with `make guest-base` when changing sandboxd or guest contents. The development-only local
+rebuild the base with `make guest-base` when changing guest contents (`images/base`). sandboxd is not in the base:
+the driver delivers the configured `sandbox.sandboxd_path` binary at every boot, so a restarted machine runs a
+rebuilt sandboxd. The development-only local
 administrator is `admin` / `admin` in `deploy/dev/agenthold.yaml`; do not use those credentials elsewhere.
 
 The VM mounts only the checkout it was created from (`make dev-vm` creates it, and it keeps that path). Guest

@@ -698,6 +698,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agentId}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description The models the agent's harness offers and their options (reasoning effort, fast mode), as the harness last
+         *     reported them, or agenthold's small fallback list for the harness when it never did. Does not wake the agent.
+         */
+        get: operations["listModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agentId}/sessions": {
         parameters: {
             query?: never;
@@ -733,6 +756,28 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["renameSession"];
+        trace?: never;
+    };
+    "/sessions/{sessionId}/model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * @description The session's own model and options. An empty model with no options returns the session to the agent's
+         *     default. It applies from the next message on (a running turn keeps its model).
+         */
+        put: operations["setSessionModel"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/sessions/{sessionId}/prompt": {
@@ -1624,7 +1669,12 @@ export interface components {
             stateChangedAt: string;
             /** @description Resources or environment changed since the sandbox was built. */
             needsRebuild: boolean;
+            /** @description The default model ('' is the harness's own default). */
             model: string;
+            /** @description Default model options, by harness config option id (see ModelCatalog). */
+            modelOptions: {
+                [key: string]: string;
+            };
             /** @enum {string} */
             permissionPolicy: "auto-approve" | "ask";
             /** @description A harness login was completed inside the sandbox; the agent can read its own credentials. */
@@ -1681,9 +1731,70 @@ export interface components {
             idleMinutes?: number;
             /** @description Harness id (see /harnesses). Default claude-code. */
             harness?: string;
+            /** @description The default model. Changing the harness without a model resets it. */
             model?: string;
+            /** @description Default model options, by harness config option id. Changing the harness resets them. */
+            modelOptions?: {
+                [key: string]: string;
+            };
             /** @enum {string} */
             permissionPolicy?: "auto-approve" | "ask";
+        };
+        ModelChoice: {
+            /** @description Model id ('' keeps the default). */
+            model: string;
+            /** @description Values by option id (ModelOption.id). */
+            options?: {
+                [key: string]: string;
+            };
+        };
+        ModelCatalog: {
+            harness: string;
+            /**
+             * @description harness: what the harness reported the last time it ran (seenAt). fallback: agenthold's list for the
+             *     harness, shown until the harness has reported its own; it may not match what the account can use.
+             * @enum {string}
+             */
+            source: "harness" | "fallback";
+            /**
+             * Format: date-time
+             * @description When the harness reported the list (source harness).
+             */
+            seenAt?: string;
+            /**
+             * @description The harness switches models within a conversation, from the next message on. Otherwise a new default
+             *     applies when the harness restarts, and conversations cannot choose their own.
+             */
+            switchable: boolean;
+            /** @description The harness accepts model ids it does not list (OpenCode's provider/model). */
+            customModels: boolean;
+            models: components["schemas"]["CatalogModel"][];
+        };
+        CatalogModel: {
+            id: string;
+            name: string;
+            description?: string;
+            /** @description Heading in the picker (provider or family). */
+            group?: string;
+            /** @description The model's options; absent while unknown (the harness describes a model's options once it was used). */
+            options?: components["schemas"]["ModelOption"][];
+        };
+        ModelOption: {
+            /** @description The harness's config option id. */
+            id: string;
+            name: string;
+            description?: string;
+            /**
+             * @description effort: reasoning effort levels. toggle: on/off (fast mode); its values are off then on.
+             * @enum {string}
+             */
+            kind: "effort" | "toggle";
+            values: components["schemas"]["ModelOptionValue"][];
+        };
+        ModelOptionValue: {
+            value: string;
+            name: string;
+            description?: string;
         };
         SandboxLimits: {
             driver: string;
@@ -1855,6 +1966,8 @@ export interface components {
             };
             title: string;
             running: boolean;
+            /** @description The session's own model choice; absent when it uses the agent's default. */
+            model?: components["schemas"]["ModelChoice"];
             createdBy: components["schemas"]["User"];
             /** Format: date-time */
             createdAt: string;
@@ -3409,6 +3522,31 @@ export interface operations {
             409: components["responses"]["Error"];
         };
     };
+    listModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The model catalog. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCatalog"];
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
     listSessions: {
         parameters: {
             query?: never;
@@ -3536,6 +3674,35 @@ export interface operations {
                     "application/json": components["schemas"]["Session"];
                 };
             };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    setSessionModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelChoice"];
+            };
+        };
+        responses: {
+            /** @description Set. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };

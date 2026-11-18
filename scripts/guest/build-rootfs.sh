@@ -162,6 +162,18 @@ E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" mkfs.ext4 -q -F -L agenthold-base -U "$
 E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" e2fsck -fy "$IMG.part" >/dev/null 2>&1 || [[ $? -le 1 ]]
 E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" resize2fs -M "$IMG.part" >/dev/null 2>&1
 E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" e2fsck -fy "$IMG.part" >/dev/null 2>&1 || [[ $? -le 1 ]]
+# mke2fs -d (1.47.0) copies each file's atime and ctime from the tree, and those are "now" for a
+# cached tree that was read or touched (ctime cannot be set at the source). Pin both on every
+# allocated inode so the same inputs give the same image, build after build.
+dumpe2fs "$IMG.part" 2>/dev/null | awk -v sde="$SOURCE_DATE_EPOCH" '
+  /^Inode count:/ {n = $3}
+  /^  Free inodes: / {
+    sub(/^  Free inodes: /, ""); k = split($0, r, ", ")
+    for (i = 1; i <= k; i++) if (r[i] != "") { split(r[i], ab, "-"); hi = (ab[2] == "" ? ab[1] : ab[2]); for (j = ab[1]; j <= hi; j++) free[j] = 1 }
+  }
+  END { for (i = 1; i <= n; i++) if (!(i in free)) printf "sif <%d> atime @%d\nsif <%d> ctime @%d\n", i, sde, i, sde }' >"$WORK/pin-times"
+debugfs -w -f "$WORK/pin-times" "$IMG.part" >/dev/null 2>&1
+E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" e2fsck -fy "$IMG.part" >/dev/null 2>&1 || [[ $? -le 1 ]]
 blocks=$(dumpe2fs -h "$IMG.part" 2>/dev/null | awk -F: '/^Block count/ {gsub(/ /,"",$2); print $2}')
 bsize=$(dumpe2fs -h "$IMG.part" 2>/dev/null | awk -F: '/^Block size/ {gsub(/ /,"",$2); print $2}')
 truncate -s $(( blocks * bsize )) "$IMG.part"

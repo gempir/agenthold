@@ -155,6 +155,16 @@ The demo host publishes one `.ext4.zst` per release plus checksums and the manif
 the compressed sha256 is `4465ad0548b77e1ddd5e27a92c9b4690b5b13f8e66454760b4ed5bf130489129`.
 The first three main boots connected in 3.6–4.9 seconds and shut down in 301–348 ms.
 
+G1 (2026-11-18, same host): the base without sandboxd is 2,584,207,360 bytes, sha256
+`251318bbab177e26a7b974fabd9e69bfef64a3a68944719670d5770c361fdb76`, compressed 815,744,837 bytes
+(`3f7a3856e6196fc83b3d3981d87cb28ce3a4784328fa62f7e188bc804546e6df`). Two release builds from a cached tree,
+the second with a sandboxd-only change, produced exactly these bytes. The initramfs is the 6.75 MB sandboxd plus
+under 1 KiB of cpio headers. On one old base, four boots each: sandboxd started at 0.82–0.90 s guest uptime from
+the base (`init=`) and at 0.90–0.92 s from the initramfs (about 45 ms for unpacking and mounting the base); the
+tunnel connected after 2.04 s and 2.14 s on average, within the run-to-run spread. The Docker boot (`--docker`)
+currently fails in the same way with both boot paths: dockerd gives up waiting for its managed containerd, while
+containerd started by hand boots in one second.
+
 The amd64 build path and pins are present; amd64 is not built or KVM-tested by the project (the demo host is arm64), so amd64 users build from source.
 
 The final five-boot run ended `BOOT TEST OK`: Docker's shutdown took 1,607 ms, all three disk

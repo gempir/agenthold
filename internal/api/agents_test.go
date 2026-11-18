@@ -144,4 +144,5 @@ func TestAgentResourceFloor(t *testing.T) {
 	expect(t, "start too small", bob.do("POST", "/agents/"+ag.Id+"/start", nil, nil), 409)
 	expect(t, "patch up", bob.do("PATCH", "/agents/"+ag.Id, gen.AgentPatch{MemoryMb: ptr(int64(2048))}, nil), 200)
 	expect(t, "start", bob.do("POST", "/agents/"+ag.Id+"/start", nil, nil), 202)
+	e.sandboxes.Wait()
 }

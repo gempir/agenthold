@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"math"
 	"net"
 	"slices"
@@ -21,6 +22,7 @@ import (
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/tunnel"
+	"github.com/gempir/agenthold/internal/version"
 )
 
 // LocalID is the node id of the controller's built-in node.
@@ -38,6 +40,13 @@ type Info struct {
 	Capacity  Capacity
 	LastSeen  time.Time
 	Agents    int
+	// Version is the agenthold release the node runs, empty when unknown (the
+	// controller learns it when a node connects, and does not keep it across
+	// its own restarts).
+	Version string
+	// MemoryTotalBytes is the node's installed memory as of its last report
+	// since this controller started; zero if unknown.
+	MemoryTotalBytes uint64
 }
 
 // JoinToken is a newly created join token. Token is shown once.
@@ -80,6 +89,8 @@ type Cluster struct {
 
 	mu         sync.Mutex
 	remotes    map[string]*Remote
+	versions   map[string]string // edge node id -> announced agenthold version
+	memTotals  map[string]uint64 // node id -> installed memory at the last report
 	onConnect  []func(ctx context.Context, nodeID string)
 	incoming   chan incomingItem
 	intercepts chan interceptItem
@@ -115,7 +126,7 @@ func NewCluster(ctx context.Context, cfg ClusterConfig) (*Cluster, error) {
 		cfg.LocalName = LocalID
 	}
 	c := &Cluster{
-		cfg: cfg, log: cfg.Log, now: time.Now, remotes: map[string]*Remote{},
+		cfg: cfg, log: cfg.Log, now: time.Now, remotes: map[string]*Remote{}, versions: map[string]string{}, memTotals: map[string]uint64{},
 		incoming: make(chan incomingItem), intercepts: make(chan interceptItem),
 	}
 	st := cfg.Store
@@ -182,6 +193,19 @@ func (c *Cluster) pump(ctx context.Context, n Node) {
 			}
 		}
 	}()
+}
+
+// ServePeer is Serve for a peer enrollment authenticated: it also records the
+// agenthold version the node announced.
+func (c *Cluster) ServePeer(ctx context.Context, p enrollment.Peer, conn net.Conn) {
+	c.mu.Lock()
+	if p.Version != "" {
+		c.versions[p.ID] = p.Version
+	} else {
+		delete(c.versions, p.ID)
+	}
+	c.mu.Unlock()
+	c.Serve(ctx, p.ID, conn)
 }
 
 // Serve runs an authenticated edge node connection until it breaks or ctx
@@ -279,6 +303,9 @@ func (c *Cluster) refresh(ctx context.Context, nodeID string, n Node) {
 		c.log.Debug("node capacity", "node", nodeID, "err", err)
 		return
 	}
+	c.mu.Lock()
+	c.memTotals[nodeID] = capacity.MemoryTotalBytes
+	c.mu.Unlock()
 	_ = c.cfg.Store.SetNodeCapacity(ctx, db.SetNodeCapacityParams{
 		Cpus: int64(capacity.CPUs), MemoryBytes: clampInt64(capacity.MemoryBytes), DiskBytes: clampInt64(capacity.DiskBytes),
 		LastSeenAt: c.now().Unix(), ID: nodeID,
@@ -397,6 +424,9 @@ func (c *Cluster) Nodes(ctx context.Context) ([]Info, error) {
 		agents[nodeID]++
 	}
 	live := c.connected()
+	c.mu.Lock()
+	versions, memTotals := maps.Clone(c.versions), maps.Clone(c.memTotals)
+	c.mu.Unlock()
 	out := make([]Info, 0, len(rows))
 	for _, r := range rows {
 		_, connected := live[r.ID]
@@ -406,6 +436,10 @@ func (c *Cluster) Nodes(ctx context.Context) ([]Info, error) {
 		}
 		if r.LastSeenAt > 0 {
 			info.LastSeen = time.Unix(r.LastSeenAt, 0).UTC()
+		}
+		info.Version, info.MemoryTotalBytes = versions[r.ID], memTotals[r.ID]
+		if info.Local {
+			info.Version = version.Version
 		}
 		out = append(out, info)
 	}

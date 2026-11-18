@@ -39,7 +39,7 @@ func (a *API) requireAdmin(ctx context.Context) error {
 		return err
 	}
 	if !ok {
-		return errStatus(http.StatusForbidden, "only admins manage nodes")
+		return errStatus(http.StatusForbidden, "this is for admins only")
 	}
 	return nil
 }

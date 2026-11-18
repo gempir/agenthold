@@ -289,12 +289,16 @@ func (n *Local) CACertificate(ctx context.Context) ([]byte, error) {
 	return append([]byte(nil), ca.CertPEM()...), nil
 }
 
-// Capacity reports logical CPUs and currently available host memory and disk.
+// Capacity reports logical CPUs, currently available host memory and disk and
+// the host's total memory.
 // DiskBytes is space available to an unprivileged user on the data filesystem.
 type Capacity struct {
 	CPUs        int
 	MemoryBytes uint64
 	DiskBytes   uint64
+	// MemoryTotalBytes is the host's installed memory (zero when the node does
+	// not report it, as nodes of earlier releases do not).
+	MemoryTotalBytes uint64 `json:",omitempty"`
 }
 
 // SetTunnelPort sets the port of this node's tunnel endpoint, used in every

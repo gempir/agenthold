@@ -75,6 +75,7 @@ type LinkedSessionsParams = sqlite.LinkedSessionsParams
 type ListAgentAuditParams = sqlite.ListAgentAuditParams
 type ListAgentSecretsRow = sqlite.ListAgentSecretsRow
 type ListAgentSharesRow = sqlite.ListAgentSharesRow
+type ListAllMachinesRow = sqlite.ListAllMachinesRow
 type ListSandboxSubnetsRow = sqlite.ListSandboxSubnetsRow
 type ListSessionEventsParams = sqlite.ListSessionEventsParams
 type ListUserAgentsRow = sqlite.ListUserAgentsRow

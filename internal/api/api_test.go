@@ -317,7 +317,7 @@ func joinEdgeNode(t *testing.T, st *store.Store, backend *node.Local, ca *egress
 	cluster.OnConnect(func(_ context.Context, id string) { connected <- id })
 	srv := &enrollment.Server{
 		Identity: identity, Registry: cluster, Version: "v-test", DownloadURL: "https://controller.example/dl/",
-		Handle: func(ctx context.Context, p enrollment.Peer, conn net.Conn) { cluster.Serve(ctx, p.ID, conn) },
+		Handle: func(ctx context.Context, p enrollment.Peer, conn net.Conn) { cluster.ServePeer(ctx, p, conn) },
 	}
 	go func() { _ = srv.Serve(ctx, ln) }()
 	jt, err := cluster.CreateJoinToken(ctx, "admin", "edge", time.Hour)

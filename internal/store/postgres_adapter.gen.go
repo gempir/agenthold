@@ -587,6 +587,18 @@ func (p postgresQueries) ListAgentsByLoginUser(ctx context.Context, loginUserID 
 	return result, nil
 }
 
+func (p postgresQueries) ListAllMachines(ctx context.Context) ([]db.ListAllMachinesRow, error) {
+	value, err := p.q.ListAllMachines(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ListAllMachinesRow, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.ListAllMachinesRow{Agent: db.Agent(row.Agent), Sandbox: db.Sandbox(row.Sandbox), User: db.User(row.User)})
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListExposures(ctx context.Context, agentID string) ([]db.Exposure, error) {
 	value, err := p.q.ListExposures(ctx, agentID)
 	if err != nil {

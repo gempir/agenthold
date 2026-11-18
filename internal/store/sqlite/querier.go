@@ -120,6 +120,8 @@ type Querier interface {
 	ListAgentSkills(ctx context.Context, agentID string) ([]Skill, error)
 	ListAgentWebhooks(ctx context.Context, agentID string) ([]Webhook, error)
 	ListAgentsByLoginUser(ctx context.Context, loginUserID string) ([]Agent, error)
+	// Every machine with its sandbox and owner (the admin overview).
+	ListAllMachines(ctx context.Context) ([]ListAllMachinesRow, error)
 	ListExposures(ctx context.Context, agentID string) ([]Exposure, error)
 	ListNodeSandboxes(ctx context.Context, nodeID string) ([]Sandbox, error)
 	ListNodes(ctx context.Context) ([]Node, error)

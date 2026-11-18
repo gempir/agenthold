@@ -56,12 +56,12 @@ func (h hubMachines) OpenStream(ctx context.Context, id string, o tunnel.Open) (
 // the boot configuration after a stop and start, and that a killed service
 // process is restarted. Same artifacts and isolation as TestJailedLifecycle.
 func TestAppServicesKVM(t *testing.T) {
-	for _, key := range []string{"BASE", "KERNEL", "FIRECRACKER", "JAILER"} {
+	for _, key := range []string{"BASE", "KERNEL", "FIRECRACKER", "JAILER", "SANDBOXD"} {
 		if os.Getenv("AGENTHOLD_KVM_"+key) == "" {
 			if os.Getenv("AGENTHOLD_REQUIRE_KVM") == "1" {
 				t.Fatal("required jailed VM artifact environment is missing: AGENTHOLD_KVM_" + key)
 			}
-			t.Skip("set AGENTHOLD_KVM_BASE/KERNEL/FIRECRACKER/JAILER to run the app services VM test")
+			t.Skip("set AGENTHOLD_KVM_BASE/KERNEL/FIRECRACKER/JAILER/SANDBOXD to run the app services VM test")
 		}
 	}
 	if os.Geteuid() != 0 {
@@ -103,7 +103,7 @@ func TestAppServicesKVM(t *testing.T) {
 	cfg := Config{
 		DataDir: dir, JailDir: filepath.Join(dir, "j"), BaseImagePath: os.Getenv("AGENTHOLD_KVM_BASE"),
 		KernelPath: os.Getenv("AGENTHOLD_KVM_KERNEL"), FirecrackerPath: os.Getenv("AGENTHOLD_KVM_FIRECRACKER"),
-		JailerPath: os.Getenv("AGENTHOLD_KVM_JAILER"), NetworkPool: netip.MustParsePrefix("10.215.0.0/24"),
+		JailerPath: os.Getenv("AGENTHOLD_KVM_JAILER"), SandboxdPath: os.Getenv("AGENTHOLD_KVM_SANDBOXD"), NetworkPool: netip.MustParsePrefix("10.215.0.0/24"),
 		OverlaySizeBytes: 256 << 20, HomeSizeBytes: 256 << 20, StopTimeout: 10 * time.Second,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)

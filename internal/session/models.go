@@ -404,20 +404,20 @@ func (m *Manager) applyChoice(ctx context.Context, conn *harnessConn, sessionID,
 		var se *stoppedError
 		return errors.As(err, &se) || conn.ended() || ctx.Err() != nil
 	}
-	set := func(o ConfigOption, value string) (bool, error) {
+	set := func(o ConfigOption, value string) error {
 		key := o.ID + "=" + value
 		if conn.gaveUpOn(key) {
-			return false, nil
+			return nil
 		}
 		err := m.setOption(ctx, conn, acpID, o, value)
 		if err == nil {
-			return true, nil
+			return nil
 		}
 		if fatal(err) {
 			if conn.ended() {
-				return false, conn.failure()
+				return conn.failure()
 			}
-			return false, err
+			return err
 		}
 		conn.giveUpOn(key)
 		what := fmt.Sprintf("the model %q", value)
@@ -431,10 +431,10 @@ func (m *Manager) applyChoice(ctx context.Context, conn *harnessConn, sessionID,
 		} else {
 			notice(fmt.Sprintf("%s refused to switch %s: %s. This turn uses %s.", conn.name, what, refusal(err), now))
 		}
-		return false, nil
+		return nil
 	}
 	if targetModel != "" && targetModel != mo.Current {
-		if _, err := set(mo, targetModel); err != nil {
+		if err := set(mo, targetModel); err != nil {
 			return err
 		}
 	}
@@ -466,7 +466,7 @@ func (m *Manager) applyChoice(ctx context.Context, conn *harnessConn, sessionID,
 		if v == o.Current {
 			continue
 		}
-		if _, err := set(o, v); err != nil {
+		if err := set(o, v); err != nil {
 			return err
 		}
 	}

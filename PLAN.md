@@ -292,8 +292,15 @@ Milestones (migration numbers are reserved so parallel work does not collide):
   that does not come up (or crash-loops) is rolled back to the previous one. Deviation: tar/untar run
   in sandboxd itself (root) with ownership set to the agent user, not re-executed as the agent user: the
   agent has passwordless sudo in its machine, so the separation would buy nothing; sandboxd's own state
-  (`/etc/agenthold`, `/run/agenthold`) is never archived. Agents read, exec in, restart and stop any of
-  their owner's apps, and deploy to or delete only the ones they created. Apps cannot call platform tools.
+  (`/etc/agenthold`, `/run/agenthold`) is never archived; every root write into the home (untar,
+  symlink swap, service logs) goes through an `os.Root`. An agent manages only apps it created (every
+  app tool but `list_apps`); the owner can take an app over for good, after which no agent manages it.
+  App names are DNS labels unique per owner; `apps.max_per_owner` (10) and `apps.max_per_agent` (3, 0 =
+  agents create none) are checked with the insert. Deploy touches the exposure only once a release
+  serves (a port change moves it in place) and sets access only at creation. Deploys have a 15 min
+  deadline, a 60 s relay idle timeout and byte/entry caps; guest output the controller buffers is capped.
+  Clone is machine-level: an app's clone is an unmanaged app with its services but no exposures, and apps
+  can be templates. Apps cannot call platform tools.
 
 - **S1. Memory snapshots.** `00005_snapshots` if needed. Sleep = pause, snapshot to disk, exit;
   wake = restore, fix the guest clock, sandboxd re-dials the tunnel. Balloon to shrink the

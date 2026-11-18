@@ -195,7 +195,7 @@ func (p *Service) Call(ctx context.Context, callerID, sessionID, tool string, ar
 	case "list_apps":
 		return p.listApps(ctx, caller)
 	case "app_logs":
-		app, err := p.findApp(ctx, caller, in.Name, true)
+		app, err := p.findApp(ctx, caller, in.Name)
 		if err != nil {
 			return nil, err
 		}

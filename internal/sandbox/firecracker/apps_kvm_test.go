@@ -343,5 +343,4 @@ func TestAppServicesKVM(t *testing.T) {
 		t.Fatalf("current after rollback: %q", r.Output)
 	}
 	t.Log("deploy across VMs, dial, boot-config services, supervisor restart, manager deploy and rollback passed")
-
 }

@@ -298,8 +298,7 @@ var ErrNoApp = errors.New("no app with that name; see list_apps")
 // caller created and still manages (the owner did not take it over). An
 // agent manages no other app: deploy, exec, logs, restart, stop and delete
 // all need this.
-func (p *Service) findApp(ctx context.Context, caller db.Agent, ref string, mine bool) (db.Agent, error) {
-	mine = true
+func (p *Service) findApp(ctx context.Context, caller db.Agent, ref string) (db.Agent, error) {
 	rows, err := p.ownerApps(ctx, caller)
 	if err != nil {
 		return db.Agent{}, err
@@ -307,7 +306,7 @@ func (p *Service) findApp(ctx context.Context, caller db.Agent, ref string, mine
 	ref = strings.TrimSpace(ref)
 	for _, r := range rows {
 		if r.Agent.ID == ref || r.Agent.Name == ref {
-			if mine && r.Agent.CreatedByAgentID != caller.ID {
+			if r.Agent.CreatedByAgentID != caller.ID {
 				return db.Agent{}, fmt.Errorf("app %s is not managed by you (another agent created it, or your owner took it over), so you cannot use it", r.Agent.Name)
 			}
 			return r.Agent, nil
@@ -341,7 +340,7 @@ func (p *Service) deployApp(ctx context.Context, caller db.Agent, in toolArgs) (
 	if mem < config.MinMemoryMB || mem > lim.MaxMemoryMB {
 		return "", fmt.Errorf("memory_mb must be between %d and %d", config.MinMemoryMB, lim.MaxMemoryMB)
 	}
-	app, err := p.findApp(ctx, caller, in.Name, true)
+	app, err := p.findApp(ctx, caller, in.Name)
 	created := false
 	switch {
 	case errors.Is(err, ErrNoApp):
@@ -431,7 +430,7 @@ func (p *Service) appExec(ctx context.Context, caller db.Agent, in toolArgs) (st
 	if strings.TrimSpace(in.Command) == "" {
 		return "", errors.New("command is required")
 	}
-	app, err := p.findApp(ctx, caller, in.Name, true)
+	app, err := p.findApp(ctx, caller, in.Name)
 	if err != nil {
 		return "", err
 	}
@@ -454,7 +453,7 @@ func (p *Service) appExec(ctx context.Context, caller db.Agent, in toolArgs) (st
 }
 
 func (p *Service) restartApp(ctx context.Context, caller db.Agent, name string) (string, error) {
-	app, err := p.findApp(ctx, caller, name, true)
+	app, err := p.findApp(ctx, caller, name)
 	if err != nil {
 		return "", err
 	}
@@ -476,7 +475,7 @@ func (p *Service) restartApp(ctx context.Context, caller db.Agent, name string) 
 }
 
 func (p *Service) stopApp(ctx context.Context, caller db.Agent, name string) (string, error) {
-	app, err := p.findApp(ctx, caller, name, true)
+	app, err := p.findApp(ctx, caller, name)
 	if err != nil {
 		return "", err
 	}
@@ -488,7 +487,7 @@ func (p *Service) stopApp(ctx context.Context, caller db.Agent, name string) (st
 }
 
 func (p *Service) deleteApp(ctx context.Context, caller db.Agent, name string) (string, error) {
-	app, err := p.findApp(ctx, caller, name, true)
+	app, err := p.findApp(ctx, caller, name)
 	if err != nil {
 		return "", err
 	}

@@ -455,8 +455,11 @@ func TestAppTools(t *testing.T) {
 		tool string
 		args map[string]any
 	}{
-		{"deploy_app", args}, {"delete_app", map[string]any{"name": "web"}}, {"app_logs", map[string]any{"name": "web"}},
-		{"app_exec", map[string]any{"name": "web", "command": "true"}}, {"restart_app", map[string]any{"name": "web"}},
+		{"deploy_app", args},
+		{"delete_app", map[string]any{"name": "web"}},
+		{"app_logs", map[string]any{"name": "web"}},
+		{"app_exec", map[string]any{"name": "web", "command": "true"}},
+		{"restart_app", map[string]any{"name": "web"}},
 		{"stop_app", map[string]any{"name": "web"}},
 	} {
 		if _, err := e.tool(other.Id, c.tool, c.args); err == nil || !strings.Contains(err.Error(), "not managed by you") {

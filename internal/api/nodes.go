@@ -11,6 +11,7 @@ import (
 
 	"github.com/gempir/agenthold/internal/api/gen"
 	"github.com/gempir/agenthold/internal/node"
+	"github.com/gempir/agenthold/internal/version"
 )
 
 // NodeAdmin manages the controller's nodes (node.Cluster).
@@ -25,7 +26,7 @@ func (a *API) nodeInfos(ctx context.Context) ([]node.Info, error) {
 		return a.Nodes.Nodes(ctx)
 	}
 	// A bare in-process node (tests, development tools) is always connected.
-	return []node.Info{{ID: node.LocalID, Name: node.LocalID, Local: true, Connected: true}}, nil
+	return []node.Info{{ID: node.LocalID, Name: node.LocalID, Local: true, Connected: true, Version: version.Version}}, nil
 }
 
 // requireAdmin allows only users who manage the installation.
@@ -39,7 +40,7 @@ func (a *API) requireAdmin(ctx context.Context) error {
 		return err
 	}
 	if !ok {
-		return errStatus(http.StatusForbidden, "only admins manage nodes")
+		return errStatus(http.StatusForbidden, "this is for admins only")
 	}
 	return nil
 }

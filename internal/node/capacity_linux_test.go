@@ -33,6 +33,19 @@ func TestParseMemAvailable(t *testing.T) {
 	}
 }
 
+func TestParseMemTotal(t *testing.T) {
+	got, err := parseMemTotal(strings.NewReader("MemTotal: 2048 kB\nMemAvailable: 12 kB\n"))
+	if err != nil || got != 2048*1024 {
+		t.Fatalf("got %d, %v", got, err)
+	}
+	if _, err := parseMemTotal(strings.NewReader("MemFree: 1 kB\n")); err == nil {
+		t.Fatal("missing MemTotal accepted")
+	}
+	if _, err := parseMemTotal(strings.NewReader("MemTotal: 1 MB\n")); err == nil {
+		t.Fatal("bad unit accepted")
+	}
+}
+
 func TestMemAvailableFallback(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "meminfo")

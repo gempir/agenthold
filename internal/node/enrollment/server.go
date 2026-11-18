@@ -22,6 +22,9 @@ var ErrDenied = errors.New("node not accepted by the controller")
 type Peer struct {
 	ID   string
 	Name string
+	// Version is the agenthold version the node announced in its handshake
+	// (empty for nodes of earlier releases).
+	Version string
 }
 
 // Registry decides which nodes are accepted. Implementations persist nodes.
@@ -115,6 +118,7 @@ func (s *Server) accept(ctx context.Context, conn *tls.Conn) (Peer, error) {
 			return Peer{}, err
 		}
 		_ = conn.SetDeadline(time.Time{})
+		p.Version = cleanVersion(h.NodeVersion)
 		return p, nil
 	}
 	if h.Version != protocolVersion {
@@ -132,6 +136,15 @@ func (s *Server) accept(ctx context.Context, conn *tls.Conn) (Peer, error) {
 	default:
 		return reply(Peer{}, errors.New("unknown handshake"))
 	}
+}
+
+// cleanVersion bounds a version string the node announced.
+func cleanVersion(s string) string {
+	s = cleanName(s)
+	if len(s) > 40 {
+		s = s[:40]
+	}
+	return s
 }
 
 // cleanName returns a printable, trimmed node name of at most 64 runes.

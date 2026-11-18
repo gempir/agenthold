@@ -27,6 +27,7 @@ tags:
   - name: auth
   - name: agents
   - name: nodes
+  - name: admin
   - name: files
   - name: sessions
   - name: sharing
@@ -168,6 +169,26 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/NodeInfo" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /admin/overview:
+    get:
+      operationId: getAdminOverview
+      tags: [admin]
+      description: >-
+        Everything running on this installation: every node, and every machine (agents and apps, of all
+        owners) with its state, owner, configured size and live usage. Admins only (the same notion as the
+        node endpoints: the local admin and users listed in auth.admins). Live usage comes from inside
+        running machines, fetched concurrently with a short timeout and cached for a few seconds; a machine
+        that does not answer keeps its row and gets a `usageReason` instead. Sleeping machines are never
+        woken. Machines of an offline node are `unreachable` and are not contacted.
+      responses:
+        "200":
+          description: The overview.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminOverview" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
 
@@ -1941,6 +1962,102 @@ components:
         availableMemoryBytes: { type: integer, format: int64, description: Available memory at the last report. }
         freeDiskBytes: { type: integer, format: int64, description: Free data filesystem space at the last report. }
         lastSeen: { type: string, format: date-time, description: Last successful node contact. }
+
+    OverviewAllocation:
+      type: object
+      required: [machines, cpus, memoryMb]
+      description: Configured size (not usage) summed over a set of machines.
+      properties:
+        machines: { type: integer }
+        cpus: { type: number, format: float, description: Sum of the machines' vCPUs. }
+        memoryMb: { type: integer, format: int64, description: Sum of the machines' memory in MiB. }
+
+    OverviewNode:
+      type: object
+      description: >-
+        A node. `allocated` sums the configured size of every machine placed on it, whatever its state;
+        `running` only of those running now.
+      required: [id, name, online, local, allocated, running]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        online: { type: boolean }
+        local: { type: boolean, description: The controller's built-in node. }
+        version: { type: string, description: "The agenthold release the node runs, if known." }
+        lastSeen: { type: string, format: date-time }
+        cpus: { type: integer, description: Logical CPUs (the last report if the node is offline). }
+        memoryTotalBytes: { type: integer, format: int64, description: "Installed memory at the last report, if the node reports it." }
+        availableMemoryBytes: { type: integer, format: int64, description: Available host memory at the last report. }
+        freeDiskBytes: { type: integer, format: int64, description: Free data filesystem space at the last report. }
+        diskAllocatedBytes: { type: integer, format: int64, description: "Space the machines' disk files occupy on the node (blocks actually allocated, not their sparse size), at the last report. Absent when the node does not report it." }
+        allocated: { $ref: "#/components/schemas/OverviewAllocation" }
+        running: { $ref: "#/components/schemas/OverviewAllocation" }
+
+    OverviewUsage:
+      type: object
+      description: Usage measured inside a running machine.
+      required: [sampledAt]
+      properties:
+        sampledAt: { type: string, format: date-time }
+        cpuPercent:
+          type: number
+          format: float
+          description: Share of the machine's vCPUs in use (0 to 100) between the two latest samples. Absent until there are two samples, and from guests that do not report it.
+        memUsedBytes: { type: integer, format: int64 }
+        memTotalBytes: { type: integer, format: int64 }
+        homeUsedBytes: { type: integer, format: int64, description: Used space on the persistent home volume. }
+        homeTotalBytes: { type: integer, format: int64, description: Size of the home volume. }
+        rootUsedBytes: { type: integer, format: int64, description: Used space on the system volume (overlay). }
+        rootTotalBytes: { type: integer, format: int64, description: Size of the system volume. }
+
+    OverviewMachine:
+      type: object
+      required: [id, name, kind, isTemplate, owner, state, stateError, stateChangedAt, cpus, memoryMb, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { type: string, enum: [agent, app] }
+        isTemplate: { type: boolean }
+        owner: { $ref: "#/components/schemas/User" }
+        nodeId: { type: string }
+        nodeName: { type: string }
+        state: { $ref: "#/components/schemas/SandboxState" }
+        stateError: { type: string }
+        stateChangedAt: { type: string, format: date-time }
+        harness: { type: string, description: Agents only. }
+        model: { type: string, description: Agents only; empty is the harness default. }
+        cpus: { type: number, format: float, description: Configured vCPUs. }
+        memoryMb: { type: integer, format: int64, description: Configured memory in MiB. }
+        idleMinutes: { type: integer, description: Minutes without activity before it sleeps; 0 means never. }
+        lastActivityAt: { type: string, format: date-time, description: Only while running. }
+        sleepsAt: { type: string, format: date-time, description: Only while running and not busy. }
+        createdAt: { type: string, format: date-time }
+        usage: { $ref: "#/components/schemas/OverviewUsage" }
+        usageReason:
+          type: string
+          enum: [node_offline, not_connected, timeout, unsupported, error]
+          description: Why a running machine has no usage.
+
+    OverviewTotals:
+      type: object
+      required: [machines, byState, allocated, running]
+      properties:
+        machines: { type: integer }
+        byState:
+          type: object
+          description: Machines per sandbox state (offline nodes' machines count as unreachable).
+          additionalProperties: { type: integer }
+        allocated: { $ref: "#/components/schemas/OverviewAllocation" }
+        running: { $ref: "#/components/schemas/OverviewAllocation" }
+
+    AdminOverview:
+      type: object
+      required: [generatedAt, nodes, machines, totals]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        nodes: { type: array, items: { $ref: "#/components/schemas/OverviewNode" } }
+        machines: { type: array, items: { $ref: "#/components/schemas/OverviewMachine" } }
+        totals: { $ref: "#/components/schemas/OverviewTotals" }
 
     CreateNodeJoinToken:
       type: object

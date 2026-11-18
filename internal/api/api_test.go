@@ -72,6 +72,17 @@ type env struct {
 	identity *preview.Signer
 	platform *platform.Service
 	apps     *apps.Manager
+
+	statsMu sync.Mutex
+	statsFn api.StatsFunc
+}
+
+// setStats replaces how the admin overview reads machine stats (nil: ask the
+// sandboxd through the node).
+func (e *env) setStats(fn api.StatsFunc) {
+	e.statsMu.Lock()
+	defer e.statsMu.Unlock()
+	e.statsFn = fn
 }
 
 type slogDiscard struct{}
@@ -211,6 +222,15 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	e.scheduler = &trigger.Scheduler{Log: slogDiscard{}, Now: e.clock.Now}
 	e.sleeper = &idle.Sleeper{Store: st, Sandboxes: e.sandboxes, Tracker: e.tracker, Busy: e.sessions.AgentBusy, Node: n, Now: e.clock.Now}
 	a := api.New(api.Deps{
+		Stats: func(ctx context.Context, agentID string) (tunnel.Stats, error) {
+			e.statsMu.Lock()
+			fn := e.statsFn
+			e.statsMu.Unlock()
+			if fn != nil {
+				return fn(ctx, agentID)
+			}
+			return node.Client(n, agentID).Stats(ctx)
+		},
 		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Node: n, Nodes: nodes, Limits: cfg.Sandbox,
 		Box: box, Egress: e.directory, Sessions: e.sessions, Idle: e.sleeper, Audit: &audit.Log{Store: st}, ShowTestHarness: true,
 		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins,
@@ -317,7 +337,7 @@ func joinEdgeNode(t *testing.T, st *store.Store, backend *node.Local, ca *egress
 	cluster.OnConnect(func(_ context.Context, id string) { connected <- id })
 	srv := &enrollment.Server{
 		Identity: identity, Registry: cluster, Version: "v-test", DownloadURL: "https://controller.example/dl/",
-		Handle: func(ctx context.Context, p enrollment.Peer, conn net.Conn) { cluster.Serve(ctx, p.ID, conn) },
+		Handle: func(ctx context.Context, p enrollment.Peer, conn net.Conn) { cluster.ServePeer(ctx, p, conn) },
 	}
 	go func() { _ = srv.Serve(ctx, ln) }()
 	jt, err := cluster.CreateJoinToken(ctx, "admin", "edge", time.Hour)

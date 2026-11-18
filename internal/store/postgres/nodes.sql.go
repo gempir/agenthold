@@ -120,7 +120,7 @@ func (q *Queries) DeleteStaleNodeJoinTokens(ctx context.Context, before int64) e
 }
 
 const getNode = `-- name: GetNode :one
-SELECT id, name, cert_fingerprint, state, cpus, memory_bytes, disk_bytes, last_seen_at, created_at FROM nodes WHERE id = $1
+SELECT id, name, cert_fingerprint, state, cpus, memory_bytes, disk_bytes, last_seen_at, created_at, version, memory_total_bytes, disk_allocated_bytes FROM nodes WHERE id = $1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -136,12 +136,15 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.DiskBytes,
 		&i.LastSeenAt,
 		&i.CreatedAt,
+		&i.Version,
+		&i.MemoryTotalBytes,
+		&i.DiskAllocatedBytes,
 	)
 	return i, err
 }
 
 const getNodeByFingerprint = `-- name: GetNodeByFingerprint :one
-SELECT id, name, cert_fingerprint, state, cpus, memory_bytes, disk_bytes, last_seen_at, created_at FROM nodes WHERE cert_fingerprint = $1 AND cert_fingerprint != ''
+SELECT id, name, cert_fingerprint, state, cpus, memory_bytes, disk_bytes, last_seen_at, created_at, version, memory_total_bytes, disk_allocated_bytes FROM nodes WHERE cert_fingerprint = $1 AND cert_fingerprint != ''
 `
 
 func (q *Queries) GetNodeByFingerprint(ctx context.Context, certFingerprint string) (Node, error) {
@@ -157,6 +160,9 @@ func (q *Queries) GetNodeByFingerprint(ctx context.Context, certFingerprint stri
 		&i.DiskBytes,
 		&i.LastSeenAt,
 		&i.CreatedAt,
+		&i.Version,
+		&i.MemoryTotalBytes,
+		&i.DiskAllocatedBytes,
 	)
 	return i, err
 }
@@ -224,7 +230,7 @@ func (q *Queries) ListNodeSandboxes(ctx context.Context, nodeID string) ([]Sandb
 }
 
 const listNodes = `-- name: ListNodes :many
-SELECT id, name, cert_fingerprint, state, cpus, memory_bytes, disk_bytes, last_seen_at, created_at FROM nodes ORDER BY name, id
+SELECT id, name, cert_fingerprint, state, cpus, memory_bytes, disk_bytes, last_seen_at, created_at, version, memory_total_bytes, disk_allocated_bytes FROM nodes ORDER BY name, id
 `
 
 func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
@@ -246,6 +252,9 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.DiskBytes,
 			&i.LastSeenAt,
 			&i.CreatedAt,
+			&i.Version,
+			&i.MemoryTotalBytes,
+			&i.DiskAllocatedBytes,
 		); err != nil {
 			return nil, err
 		}
@@ -261,16 +270,19 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 }
 
 const setNodeCapacity = `-- name: SetNodeCapacity :exec
-UPDATE nodes SET cpus = $1, memory_bytes = $2, disk_bytes = $3, last_seen_at = $4
-WHERE id = $5
+UPDATE nodes SET cpus = $1, memory_bytes = $2, disk_bytes = $3,
+    memory_total_bytes = $4, disk_allocated_bytes = $5, last_seen_at = $6
+WHERE id = $7
 `
 
 type SetNodeCapacityParams struct {
-	Cpus        int64
-	MemoryBytes int64
-	DiskBytes   int64
-	LastSeenAt  int64
-	ID          string
+	Cpus               int64
+	MemoryBytes        int64
+	DiskBytes          int64
+	MemoryTotalBytes   int64
+	DiskAllocatedBytes int64
+	LastSeenAt         int64
+	ID                 string
 }
 
 func (q *Queries) SetNodeCapacity(ctx context.Context, arg SetNodeCapacityParams) error {
@@ -278,6 +290,8 @@ func (q *Queries) SetNodeCapacity(ctx context.Context, arg SetNodeCapacityParams
 		arg.Cpus,
 		arg.MemoryBytes,
 		arg.DiskBytes,
+		arg.MemoryTotalBytes,
+		arg.DiskAllocatedBytes,
 		arg.LastSeenAt,
 		arg.ID,
 	)
@@ -296,6 +310,20 @@ type SetNodeStateParams struct {
 
 func (q *Queries) SetNodeState(ctx context.Context, arg SetNodeStateParams) error {
 	_, err := q.db.ExecContext(ctx, setNodeState, arg.State, arg.LastSeenAt, arg.ID)
+	return err
+}
+
+const setNodeVersion = `-- name: SetNodeVersion :exec
+UPDATE nodes SET version = $1 WHERE id = $2
+`
+
+type SetNodeVersionParams struct {
+	Version string
+	ID      string
+}
+
+func (q *Queries) SetNodeVersion(ctx context.Context, arg SetNodeVersionParams) error {
+	_, err := q.db.ExecContext(ctx, setNodeVersion, arg.Version, arg.ID)
 	return err
 }
 

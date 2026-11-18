@@ -18,6 +18,14 @@ WHERE agents.owner_id = sqlc.arg(user_id)
    OR agents.id IN (SELECT agent_shares.agent_id FROM agent_shares WHERE agent_shares.user_id = sqlc.arg(user_id))
 ORDER BY agents.name, agents.id;
 
+-- name: ListAllMachines :many
+-- Every machine with its sandbox and owner (the admin overview).
+SELECT sqlc.embed(agents), sqlc.embed(sandboxes), sqlc.embed(users)
+FROM agents
+JOIN sandboxes ON sandboxes.agent_id = agents.id
+JOIN users ON users.id = agents.owner_id
+ORDER BY agents.name, agents.id;
+
 -- name: SetSandboxSubnet :exec
 UPDATE sandboxes SET subnet = $1 WHERE agent_id = $2;
 

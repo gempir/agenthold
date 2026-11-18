@@ -15,7 +15,8 @@ type DialError struct {
 	Port int
 	// Refused means nothing is listening on the port.
 	Refused bool
-	// Unsupported means the guest's sandboxd predates OpDial.
+	// Unsupported means the guest's sandboxd predates OpDial (it booted under
+	// an older release; a restart delivers the node's current one).
 	Unsupported bool
 	Msg         string
 }
@@ -25,7 +26,7 @@ func (e *DialError) Error() string {
 	case e.Refused:
 		return fmt.Sprintf("nothing is listening on port %d", e.Port)
 	case e.Unsupported:
-		return "this machine's sandboxd is too old to serve previews; restart the machine"
+		return "this machine still runs the sandboxd it booted with, which cannot serve previews; restart the machine to update it"
 	}
 	return fmt.Sprintf("connect to port %d: %s", e.Port, e.Msg)
 }

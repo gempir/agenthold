@@ -173,8 +173,8 @@ func AgentChoice(a db.Agent) Choice {
 	return Choice{Model: a.Model, Options: ParseOptions(a.ModelOptions)}
 }
 
-// SessionChoice is the session's own choice (empty: the agent's default).
-func SessionChoice(s db.AgentSession) Choice {
+// OwnChoice is the session's own choice (empty: the agent's default).
+func OwnChoice(s db.AgentSession) Choice {
 	return Choice{Model: s.Model, Options: ParseOptions(s.ModelOptions)}
 }
 
@@ -276,7 +276,7 @@ func (m *Manager) applyChoice(ctx context.Context, t *turn, conn *harnessConn, s
 	if err != nil {
 		return err
 	}
-	want, own := SessionChoice(sess), true
+	want, own := OwnChoice(sess), true
 	if want.Empty() {
 		want, own = AgentChoice(agent), false
 	}

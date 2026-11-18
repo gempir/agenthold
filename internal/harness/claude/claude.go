@@ -35,6 +35,6 @@ func init() {
 			{ID: "sonnet", Name: "Sonnet", Description: "Newest Sonnet", Group: "Claude"},
 			{ID: "haiku", Name: "Haiku", Description: "Newest Haiku", Group: "Claude"},
 		},
-		Login:           logins{},
+		Login: logins{},
 	})
 }

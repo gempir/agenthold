@@ -133,7 +133,7 @@ func (a *API) SetSessionModel(ctx context.Context, req gen.SetSessionModelReques
 		return nil, err
 	}
 	choice := choiceFrom(*req.Body)
-	if err := a.validateChoice(ctx, agent, choice, session.SessionChoice(s)); err != nil {
+	if err := a.validateChoice(ctx, agent, choice, session.OwnChoice(s)); err != nil {
 		return nil, err
 	}
 	if err := a.Sessions.SetSessionChoice(ctx, s.ID, choice); err != nil {

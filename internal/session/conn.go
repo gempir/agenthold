@@ -49,10 +49,14 @@ type harnessConn struct {
 	active   map[string]bool            // ACP sessions known to this process
 	config   map[string][]ConfigOption  // ACP session id -> its current config options
 	warned   map[string]map[string]bool // ACP session id -> notices already given
-	errLines []string
-	reason   string // why the connection was closed, if the server closed it
-	done     chan struct{}
-	once     sync.Once
+	defaults map[string]string          // config option values of the first fresh session (nil: none yet)
+	gaveUp   map[string]bool            // "option=value" the harness refused or did not answer
+	// startModel is the model the harness got in its environment ('' none).
+	startModel string
+	errLines   []string
+	reason     string // why the connection was closed, if the server closed it
+	done       chan struct{}
+	once       sync.Once
 }
 
 var _ acp.Client = (*harnessConn)(nil)
@@ -61,7 +65,7 @@ func newHarnessConn(m *Manager, agentID string, ad *harness.Adapter, ts *tunnel.
 	c := &harnessConn{
 		m: m, agentID: agentID, adapter: ad, name: ad.Name, ts: ts,
 		sessions: map[string]string{}, active: map[string]bool{}, done: make(chan struct{}),
-		config: map[string][]ConfigOption{}, warned: map[string]map[string]bool{},
+		config: map[string][]ConfigOption{}, warned: map[string]map[string]bool{}, gaveUp: map[string]bool{},
 	}
 	c.alive()
 	return c
@@ -131,6 +135,38 @@ func (c *harnessConn) configFor(acpID string) []ConfigOption {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.config[acpID]
+}
+
+// defaultValues are the option values of the first fresh session (nil: none).
+func (c *harnessConn) defaultValues() map[string]string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.defaults
+}
+
+// setCurrent records a value the harness accepted without reporting options.
+func (c *harnessConn) setCurrent(acpID, id, value string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	opts := append([]ConfigOption(nil), c.config[acpID]...)
+	for i := range opts {
+		if opts[i].ID == id {
+			opts[i].Current = value
+		}
+	}
+	c.config[acpID] = opts
+}
+
+func (c *harnessConn) gaveUpOn(key string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.gaveUp[key]
+}
+
+func (c *harnessConn) giveUpOn(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.gaveUp[key] = true
 }
 
 // warnOnce reports whether the notice key was not given yet for the session
@@ -301,7 +337,7 @@ func (c *harnessConn) SessionUpdate(ctx context.Context, n acp.SessionNotificati
 	c.alive() // also for sessions being loaded: a long replay is progress
 	if u := n.Update.ConfigOptionUpdate; u != nil {
 		// Harness state, not conversation: recorded, not logged.
-		c.m.observe(c, string(n.SessionId), u.ConfigOptions)
+		c.m.observe(c, string(n.SessionId), u.ConfigOptions, false)
 		return nil
 	}
 	sessionID, ok := c.sessionFor(n.SessionId)

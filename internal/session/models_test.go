@@ -2,9 +2,12 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/gempir/agenthold/internal/store/db"
 )
@@ -104,7 +107,7 @@ func TestModelSwitchRefused(t *testing.T) {
 	if r.text != "model=swift-1 effort=medium fast=off" {
 		t.Fatalf("text %q", r.text)
 	}
-	if len(r.notices) != 1 || !strings.Contains(r.notices[0], "refused to switch to the model \"broken-1\": Broken 1 is not available on this plan") || !strings.Contains(r.notices[0], "uses Swift 1") {
+	if len(r.notices) != 1 || !strings.Contains(r.notices[0], "refused to switch the model \"broken-1\": Broken 1 is not available on this plan") || !strings.Contains(r.notices[0], "uses Swift 1") {
 		t.Fatalf("notices %q", r.notices)
 	}
 	// Said once per session, and the session keeps working.
@@ -122,7 +125,9 @@ func TestUnknownModelAndOption(t *testing.T) {
 	if r.text != "model=swift-1 effort=medium fast=on" {
 		t.Fatalf("text %q", r.text)
 	}
-	if len(r.notices) != 2 || !strings.Contains(r.notices[0], `does not offer the model "gone-0"`) || !strings.Contains(r.notices[1], `Effort: "max" is not available`) {
+	// The model is not refused in advance (aliases resolve in the harness):
+	// the harness decides.
+	if len(r.notices) != 2 || !strings.Contains(r.notices[0], `refused to switch the model "gone-0"`) || !strings.Contains(r.notices[1], `Effort: "max" is not available`) {
 		t.Fatalf("notices %q", r.notices)
 	}
 }
@@ -140,7 +145,98 @@ func TestHarnessWithoutConfigOptions(t *testing.T) {
 	if !strings.HasPrefix(r.text, "model=deep-1 ") || len(r.notices) != 1 || !strings.Contains(r.notices[0], "uses the agent's default model") {
 		t.Fatalf("text %q, notices %q", r.text, r.notices)
 	}
-	if _, ok, _ := e.m.Catalog(context.Background(), agentID); ok {
-		t.Fatal("catalog from a harness that reported nothing")
+	// Recorded as "reported, no model option": a new default needs a restart.
+	if c := e.catalog(); len(c.Options) != 0 {
+		t.Fatalf("catalog %+v", c)
+	}
+	if e.m.LiveSwitchable(agentID) {
+		t.Fatal("a harness without a model option is switchable")
+	}
+	e.setSessionChoice(Choice{})
+	e.setAgentChoice(Choice{Model: "tiny-1"})
+	e.m.Restart(agentID)
+	if r := e.ok("model"); !strings.HasPrefix(r.text, "model=tiny-1 ") {
+		t.Fatalf("after restart %q", r.text)
+	}
+}
+
+func TestChoiceNeverSetsMode(t *testing.T) {
+	e := newEnv(t)
+	// A prompt-only user must not switch the harness's permission mode
+	// through a model choice: only effort and toggles are ever set.
+	e.setSessionChoice(Choice{Model: "swift-1", Options: map[string]string{"mode": "bypass", "effort": "high"}})
+	if r := e.ok("mode"); r.text != "mode=default" {
+		t.Fatalf("text %q", r.text)
+	}
+	if r := e.ok("model"); r.text != "model=swift-1 effort=high fast=off" {
+		t.Fatalf("text %q", r.text)
+	}
+}
+
+func TestClearingRevertsToHarnessDefaults(t *testing.T) {
+	e := newEnv(t)
+	e.setSessionChoice(Choice{Model: "swift-1", Options: map[string]string{"effort": "low", "fast": "on"}})
+	if r := e.ok("model"); r.text != "model=swift-1 effort=low fast=on" {
+		t.Fatalf("text %q", r.text)
+	}
+	// Fast mode removed from the choice: off again.
+	e.setSessionChoice(Choice{Model: "swift-1", Options: map[string]string{"effort": "low"}})
+	if r := e.ok("model"); r.text != "model=swift-1 effort=low fast=off" {
+		t.Fatalf("text %q", r.text)
+	}
+	e.setSessionChoice(Choice{Model: "deep-1", Options: map[string]string{"effort": "max"}})
+	e.ok("model")
+	// Nothing chosen: the model and options a fresh session starts with.
+	e.setSessionChoice(Choice{})
+	if r := e.ok("model"); r.text != "model=swift-1 effort=medium fast=off" {
+		t.Fatalf("text %q", r.text)
+	}
+}
+
+func TestSetHangsKeepsTheTurn(t *testing.T) {
+	setTimeout(t, &setOptionTimeout, 300*time.Millisecond)
+	e := newEnv(t)
+	e.ok("hello")
+	e.script("session/set_config_option hang")
+	e.setSessionChoice(Choice{Model: "deep-1"})
+	r := e.ok("model")
+	if r.text != "model=swift-1 effort=medium fast=off" || len(r.notices) != 1 || !strings.Contains(r.notices[0], "did not answer") {
+		t.Fatalf("text %q, notices %q", r.text, r.notices)
+	}
+	// Given up for this connection: not tried (and waited for) again.
+	start := time.Now()
+	if r := e.ok("model"); r.text != "model=swift-1 effort=medium fast=off" || len(r.notices) != 0 {
+		t.Fatalf("text %q, notices %q", r.text, r.notices)
+	}
+	if time.Since(start) > 250*time.Millisecond {
+		t.Fatal("the hung switch was tried again")
+	}
+	if n := len(e.pids()); n != 1 {
+		t.Fatalf("%d harness processes: a hung switch must not restart the harness", n)
+	}
+	// A new connection tries again.
+	e.m.Disconnect(agentID)
+	if r := e.ok("model"); !strings.HasPrefix(r.text, "model=deep-1 ") {
+		t.Fatalf("after reconnect %q", r.text)
+	}
+}
+
+func TestCatalogBounded(t *testing.T) {
+	long := strings.Repeat("x", 300)
+	vals := acp.SessionConfigSelectOptionsUngrouped{}
+	for i := range 600 {
+		vals = append(vals, acp.SessionConfigSelectOption{Value: acp.SessionConfigValueId(fmt.Sprint(i)), Name: long})
+	}
+	vals = append(vals, acp.SessionConfigSelectOption{Value: acp.SessionConfigValueId(long), Name: "too long"})
+	in := []acp.SessionConfigOption{}
+	for i := range 30 {
+		in = append(in, acp.SessionConfigOption{Select: &acp.SessionConfigOptionSelect{
+			Id: acp.SessionConfigId(fmt.Sprint("o", i)), Name: long, Type: "select", CurrentValue: "0",
+			Options: acp.SessionConfigSelectOptions{Ungrouped: &vals},
+		}})
+	}
+	out := fromACP(in)
+	if len(out) != maxOptions || len(out[0].Values) != maxValues || len(out[0].Name) != maxString || len(out[0].Values[0].Name) != maxString {
+		t.Fatalf("%d options, %d values, name %d", len(out), len(out[0].Values), len(out[0].Name))
 	}
 }

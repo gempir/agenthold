@@ -464,7 +464,7 @@ func (m *Manager) run(t *turn, sess db.AgentSession, text string, status func(st
 		return nil, err
 	}
 	conn.bind(acpID, sess.ID)
-	if err := m.applyChoice(ctx, t, conn, sess.ID, acpID, notice); err != nil {
+	if err := m.applyChoice(ctx, conn, sess.ID, acpID, notice); err != nil {
 		return nil, err
 	}
 
@@ -616,7 +616,7 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 			err = errors.New("the harness cannot restore sessions")
 		}
 		if err == nil {
-			m.observe(conn, sess.AcpSessionID, config)
+			m.observe(conn, sess.AcpSessionID, config, false)
 			conn.markActive(sess.AcpSessionID)
 			return sess.AcpSessionID, nil
 		}
@@ -634,7 +634,7 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 			return err
 		})
 		if err == nil {
-			m.observe(conn, string(res.SessionId), res.ConfigOptions)
+			m.observe(conn, string(res.SessionId), res.ConfigOptions, true)
 		}
 		return res.SessionId, err
 	}
@@ -952,7 +952,15 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 		}
 		return nil, err
 	}
+	// The default model goes into the environment only while the harness is
+	// not known to switch models through its session config options: then
+	// sessions start on the harness's own default and the turn applies it.
 	cfg := harness.Config{Model: agent.Model}
+	if c, ok, _ := m.Catalog(ctx, agentID); ok && c.Harness == ad.ID {
+		if _, switches := c.ModelOption(); switches {
+			cfg.Model = ""
+		}
+	}
 	env := ad.Environment(cfg)
 	if m.logins != nil {
 		lctx, lcancel := context.WithTimeout(ctx, loginsTimeout)
@@ -971,6 +979,7 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 	}
 
 	hc := newHarnessConn(m, agentID, ad, ts)
+	hc.startModel = cfg.Model
 	proc, err := m.open(ctx, hc, ts, ad.Command, env)
 	if err != nil {
 		return nil, err

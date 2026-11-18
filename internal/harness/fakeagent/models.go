@@ -15,6 +15,10 @@ import (
 // a "fast" on/off select while the current model supports it. Script flags:
 //
 //	no-config      advertise no config options (like a harness without them)
+//	session/set_config_option <action> [arg]   fail one set request (see main.go)
+//
+// A "mode" select (category mode) stands for a harness's permission mode:
+// "bypass" would skip permission requests. The "mode" prompt reports it.
 //
 // "broken-1" is listed but refuses to be selected. FAKEAGENT_MODEL sets the
 // model new sessions start with, like ANTHROPIC_MODEL for Claude Code.
@@ -42,12 +46,12 @@ func findModel(id string) (fakeModel, bool) {
 
 // sessionConfig is a session's current choice.
 type sessionConfig struct {
-	model, effort string
-	fast          bool
+	model, effort, mode string
+	fast                bool
 }
 
 func defaultConfig() sessionConfig {
-	c := sessionConfig{model: "swift-1", effort: "medium"}
+	c := sessionConfig{model: "swift-1", effort: "medium", mode: "default"}
 	if m, ok := findModel(os.Getenv("FAKEAGENT_MODEL")); ok {
 		c.model = m.id
 		c.effort = ""
@@ -112,6 +116,13 @@ func (a *agent) configOptions(sid string) []acp.SessionConfigOption {
 			}},
 		}})
 	}
+	mode := acp.SessionConfigOptionCategoryMode
+	opts = append(opts, acp.SessionConfigOption{Select: &acp.SessionConfigOptionSelect{
+		Id: "mode", Name: "Mode", Category: &mode, Type: "select", CurrentValue: acp.SessionConfigValueId(c.mode),
+		Options: acp.SessionConfigSelectOptions{Ungrouped: &acp.SessionConfigSelectOptionsUngrouped{
+			{Value: "default", Name: "Default"}, {Value: "bypass", Name: "Bypass permissions"},
+		}},
+	}})
 	return opts
 }
 
@@ -119,6 +130,9 @@ func (a *agent) configOptions(sid string) []acp.SessionConfigOption {
 func (a *agent) SetSessionConfigOption(ctx context.Context, p acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
 	if a.flag("no-config") {
 		return acp.SetSessionConfigOptionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionSetConfigOption)
+	}
+	if err := a.failAt("session/set_config_option"); err != nil {
+		return acp.SetSessionConfigOptionResponse{}, err
 	}
 	if p.ValueId == nil {
 		return acp.SetSessionConfigOptionResponse{}, acp.NewInvalidParams("only select options")
@@ -153,6 +167,11 @@ func (a *agent) SetSessionConfigOption(ctx context.Context, p acp.SetSessionConf
 			return acp.SetSessionConfigOptionResponse{}, acp.NewInvalidParams(fmt.Sprintf("invalid effort %q", value))
 		}
 		c.effort = value
+	case "mode":
+		if value != "default" && value != "bypass" {
+			return acp.SetSessionConfigOptionResponse{}, acp.NewInvalidParams(fmt.Sprintf("invalid mode %q", value))
+		}
+		c.mode = value
 	case "fast":
 		if !m.fast || (value != "on" && value != "off") {
 			return acp.SetSessionConfigOptionResponse{}, acp.NewInvalidParams(fmt.Sprintf("invalid fast mode %q", value))

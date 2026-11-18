@@ -6,6 +6,7 @@
 //	think <text>             a thought, then an answer
 //	whoami                   the account login it was given (env and file)
 //	model                    the session's model, effort and fast mode (see models.go)
+//	mode                     the session's mode
 //	anything else            echo it back
 //
 // Failures, for tests of everything around a harness:
@@ -30,7 +31,8 @@
 // $HOME/.fakeagent/script scripts the protocol steps, one directive per line:
 //
 //	<step> <action> [arg]    fail at step, once (the line is removed when it fires)
-//	                         step: start, initialize, authenticate, session/new, session/load
+//	                         step: start, initialize, authenticate, session/new, session/load,
+//	                         session/set_config_option
 //	                         action: exit <code>, kill, hang, error, auth (session/new: needs authenticate),
 //	                         slow <seconds> (answer late, writing stderr all along),
 //	                         quiet <seconds> (answer late, silently)
@@ -474,6 +476,8 @@ func (a *agent) Prompt(_ context.Context, p acp.PromptRequest) (acp.PromptRespon
 		answer = "mcp=[" + strings.Join(servers, " | ") + "] skills=[" + strings.Join(skills, ",") + "]"
 	case len(fields) == 1 && fields[0] == "model":
 		answer = a.describeConfig(string(sid))
+	case len(fields) == 1 && fields[0] == "mode":
+		answer = "mode=" + a.config(string(sid)).mode
 	case len(fields) == 1 && fields[0] == "whoami":
 		account, _ := os.ReadFile(filepath.Join(a.dir, "account.json"))
 		answer = "token=" + os.Getenv("FAKEAGENT_TOKEN") + " account=" + strings.TrimSpace(string(account))

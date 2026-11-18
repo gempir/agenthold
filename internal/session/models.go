@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -82,9 +81,29 @@ func kindOf(o ConfigOption) string {
 
 // fromACP converts what a harness advertises. Options of unknown variants
 // are dropped.
+// Bounds of what is kept of a harness's report: what is beyond them is
+// dropped (ids and values that are too long, since shortening them would
+// change them; names and descriptions are shortened).
+const (
+	maxOptions      = 20
+	maxValues       = 500
+	maxString       = 200
+	maxCatalogModel = 500
+)
+
+func clip(s string) string {
+	if len(s) <= maxString {
+		return s
+	}
+	return strings.ToValidUTF8(s[:maxString], "")
+}
+
 func fromACP(in []acp.SessionConfigOption) []ConfigOption {
 	out := []ConfigOption{}
 	for _, o := range in {
+		if len(out) == maxOptions {
+			break
+		}
 		var c ConfigOption
 		switch {
 		case o.Select != nil:
@@ -116,6 +135,22 @@ func fromACP(in []acp.SessionConfigOption) []ConfigOption {
 		default:
 			continue
 		}
+		if len(c.ID) > maxString || len(c.Current) > maxString {
+			continue
+		}
+		c.Name, c.Description, c.Category = clip(c.Name), clip(c.Description), clip(c.Category)
+		vals := c.Values[:0]
+		for _, v := range c.Values {
+			if len(vals) == maxValues {
+				break
+			}
+			if len(v.Value) > maxString {
+				continue
+			}
+			v.Name, v.Description, v.Group = clip(v.Name), clip(v.Description), clip(v.Group)
+			vals = append(vals, v)
+		}
+		c.Values = vals
 		c.Kind = kindOf(c)
 		out = append(out, c)
 	}
@@ -137,6 +172,12 @@ func findOption(opts []ConfigOption, pred func(ConfigOption) bool) (ConfigOption
 	}
 	return ConfigOption{}, false
 }
+
+// Picker reports whether clients may set the option through a model choice:
+// effort and toggles only. Mode, agent and other options are not model
+// settings (a session mode can switch the harness's permission handling) and
+// are never set from a choice.
+func (o ConfigOption) Picker() bool { return o.Kind == KindEffort || o.Kind == KindToggle }
 
 func modelOption(opts []ConfigOption) (ConfigOption, bool) {
 	return findOption(opts, func(o ConfigOption) bool { return o.Kind == KindModel })
@@ -188,6 +229,10 @@ type Catalog struct {
 	// model was the current one: a harness describes only those of the
 	// current model.
 	ByModel map[string][]ConfigOption `json:"byModel"`
+	// Defaults are the values a fresh session started with (session/new):
+	// the harness's own default model and options, which clearing a choice
+	// returns to.
+	Defaults map[string]string `json:"defaults,omitempty"`
 }
 
 // ModelOption is the catalog's model option, if the harness has one.
@@ -211,37 +256,52 @@ func (m *Manager) Catalog(ctx context.Context, agentID string) (Catalog, bool, e
 }
 
 // observe records the config options a harness reported for a session.
-func (m *Manager) observe(conn *harnessConn, acpID string, in []acp.SessionConfigOption) {
+// fresh: the report is a session/new answer, whose values are the harness's
+// defaults. A report without options is recorded too: the harness offers no
+// model choice, so a new default needs a restart.
+func (m *Manager) observe(conn *harnessConn, acpID string, in []acp.SessionConfigOption, fresh bool) {
 	opts := fromACP(in)
 	conn.mu.Lock()
 	conn.config[acpID] = opts
-	conn.mu.Unlock()
-	if len(opts) == 0 {
-		return
+	if fresh && conn.defaults == nil {
+		conn.defaults = map[string]string{}
+		for _, o := range opts {
+			conn.defaults[o.ID] = o.Current
+		}
 	}
+	conn.mu.Unlock()
 	m.catMu.Lock()
 	defer m.catMu.Unlock()
 	ctx := context.WithoutCancel(m.ctx)
-	c, ok, err := m.Catalog(ctx, conn.agentID)
-	if err != nil {
+	row, err := m.store.GetModelCatalog(ctx, conn.agentID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		m.lg.Warn("read model catalog", "agent", conn.agentID, "err", err)
 		return
 	}
-	if !ok || c.Harness != conn.adapter.ID {
-		c = Catalog{}
+	var c Catalog
+	if err == nil && row.Harness == conn.adapter.ID {
+		_ = json.Unmarshal([]byte(row.Data), &c)
 	}
 	if c.ByModel == nil {
 		c.ByModel = map[string][]ConfigOption{}
 	}
 	c.Options = opts
+	if fresh {
+		c.Defaults = map[string]string{}
+		for _, o := range opts {
+			c.Defaults[o.ID] = o.Current
+		}
+	}
 	if mo, ok := modelOption(opts); ok && mo.Current != "" {
 		picker := []ConfigOption{}
 		for _, o := range opts {
-			if o.Kind == KindEffort || o.Kind == KindToggle {
+			if o.Picker() {
 				picker = append(picker, o)
 			}
 		}
-		c.ByModel[mo.Current] = picker
+		if _, known := c.ByModel[mo.Current]; known || len(c.ByModel) < maxCatalogModel {
+			c.ByModel[mo.Current] = picker
+		}
 		// Forget models the harness no longer lists.
 		for id := range c.ByModel {
 			if !mo.Has(id) && id != mo.Current {
@@ -250,11 +310,43 @@ func (m *Manager) observe(conn *harnessConn, acpID string, in []acp.SessionConfi
 		}
 	}
 	b, _ := json.Marshal(c)
+	now := time.Now()
+	// Unchanged: written again only to refresh "seen at" now and then.
+	if err == nil && row.Harness == conn.adapter.ID && row.Data == string(b) && now.Sub(time.Unix(row.SeenAt, 0)) < catalogRefresh {
+		return
+	}
 	if err := m.store.UpsertModelCatalog(ctx, db.UpsertModelCatalogParams{
-		AgentID: conn.agentID, Harness: conn.adapter.ID, Data: string(b), SeenAt: time.Now().Unix(),
+		AgentID: conn.agentID, Harness: conn.adapter.ID, Data: string(b), SeenAt: now.Unix(),
 	}); err != nil {
 		m.lg.Warn("store model catalog", "agent", conn.agentID, "err", err)
 	}
+}
+
+// catalogRefresh is how stale "seen at" of an unchanged catalog may get.
+const catalogRefresh = time.Hour
+
+// LiveSwitchable reports whether the agent's running harness switches models
+// within its sessions as they are (it reported a model option and did not
+// start with a model from the environment). Otherwise a new default model
+// needs the harness to restart.
+func (m *Manager) LiveSwitchable(agentID string) bool {
+	m.mu.Lock()
+	c := m.conns[agentID]
+	m.mu.Unlock()
+	if c == nil {
+		return true // nothing running: the next start reads the new default
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.startModel != "" {
+		return false // its sessions start on the old default
+	}
+	for _, opts := range c.config {
+		if _, ok := modelOption(opts); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // SetSessionChoice stores a session's model choice; the next turn applies it.
@@ -262,12 +354,21 @@ func (m *Manager) SetSessionChoice(ctx context.Context, sessionID string, c Choi
 	return m.store.SetSessionModel(ctx, db.SetSessionModelParams{Model: c.Model, ModelOptions: EncodeOptions(c.Options), ID: sessionID})
 }
 
+// setOptionTimeout bounds one session/set_config_option request. A harness that
+// does not answer it in time keeps serving the turn on its current settings.
+var setOptionTimeout = 20 * time.Second
+
 // applyChoice brings the harness session in line with the session's model
-// choice (or the agent's default) before a prompt. A choice the harness does
-// not offer or refuses leaves the session as it is and says so in a notice:
-// the turn runs on, on the model the harness reports. Only a harness that
-// stops answering ends the turn (as for any setup request).
-func (m *Manager) applyChoice(ctx context.Context, t *turn, conn *harnessConn, sessionID, acpID string, notice func(string)) error {
+// choice (or the agent's default) before a prompt. Only the model and
+// options of kind effort and toggle are ever set. What is not chosen returns
+// to the harness's defaults (what a fresh session started with), so clearing
+// a choice reverts it.
+//
+// A value the harness refuses, or a request it does not answer within
+// setOptionTimeout, leaves the session as it is with a notice, and is not tried
+// again on this connection: the turn runs on what the harness reports. Only
+// a harness that ended fails the turn.
+func (m *Manager) applyChoice(ctx context.Context, conn *harnessConn, sessionID, acpID string, notice func(string)) error {
 	sess, err := m.store.GetAgentSession(ctx, sessionID)
 	if err != nil {
 		return err
@@ -280,88 +381,128 @@ func (m *Manager) applyChoice(ctx context.Context, t *turn, conn *harnessConn, s
 	if want.Empty() {
 		want, own = AgentChoice(agent), false
 	}
-	if want.Empty() {
-		return nil
-	}
 	current := conn.configFor(acpID)
-	warn := func(key, msg string) {
-		if conn.warnOnce(acpID, key) {
-			notice(msg)
-		}
-	}
 	mo, hasModel := modelOption(current)
 	if !hasModel {
-		if own && want.Model != "" {
-			warn("nomodels", fmt.Sprintf("%s does not let clients choose a model during a conversation, so this conversation uses the agent's default model.", conn.name))
+		if own && want.Model != "" && conn.warnOnce(acpID, "nomodels") {
+			notice(fmt.Sprintf("%s does not let clients choose a model during a conversation, so this conversation uses the agent's default model.", conn.name))
 		}
 		return nil
 	}
-	set := func(o ConfigOption, value string) error {
-		req := acp.SetSessionConfigOptionRequest{ValueId: &acp.SetSessionConfigOptionValueId{
-			SessionId: acp.SessionId(acpID), ConfigId: acp.SessionConfigId(o.ID), Value: acp.SessionConfigValueId(value),
-		}}
-		if o.Type == "boolean" {
-			req = acp.SetSessionConfigOptionRequest{Boolean: &acp.SetSessionConfigOptionBoolean{
-				SessionId: acp.SessionId(acpID), ConfigId: acp.SessionConfigId(o.ID), Value: value == "true", Type: "boolean",
-			}}
+	defaults := conn.defaultValues()
+	if defaults == nil {
+		if c, ok, _ := m.Catalog(ctx, conn.agentID); ok && c.Harness == conn.adapter.ID {
+			defaults = c.Defaults
 		}
-		var res acp.SetSessionConfigOptionResponse
-		err := m.step(ctx, conn, "session/set_config_option", func(ctx context.Context) error {
-			var err error
-			res, err = conn.acp.SetSessionConfigOption(ctx, req)
-			return err
-		})
-		var st *stepTimeout
-		if errors.As(err, &st) {
-			return m.giveUp(t, conn, st.msg)
-		}
-		if err != nil {
-			return err
-		}
-		if res.ConfigOptions != nil {
-			m.observe(conn, acpID, res.ConfigOptions)
-		}
-		return nil
 	}
-	// fatal: the connection or the turn is over; anything else was refused.
+	targetModel := want.Model
+	if targetModel == "" {
+		targetModel = defaults[mo.ID] // '' while unknown: keep the current model
+	}
+	// fatal: the connection or the turn is over.
 	fatal := func(err error) bool {
 		var se *stoppedError
-		return errors.As(err, &se) || conn.closed() || ctx.Err() != nil
+		return errors.As(err, &se) || conn.ended() || ctx.Err() != nil
 	}
-	if want.Model != "" && want.Model != mo.Current {
-		switch {
-		case !mo.Has(want.Model) && !conn.adapter.CustomModels:
-			warn("model:"+want.Model, fmt.Sprintf("%s does not offer the model %q (for this login), so this turn uses %s.", conn.name, want.Model, valueName(mo, mo.Current)))
-		default:
-			if err := set(mo, want.Model); err != nil {
-				if fatal(err) {
-					return err
-				}
-				warn("model:"+want.Model, fmt.Sprintf("%s refused to switch to the model %q: %s. This turn uses %s.", conn.name, want.Model, refusal(err), valueName(mo, mo.Current)))
+	set := func(o ConfigOption, value string) (bool, error) {
+		key := o.ID + "=" + value
+		if conn.gaveUpOn(key) {
+			return false, nil
+		}
+		err := m.setOption(ctx, conn, acpID, o, value)
+		if err == nil {
+			return true, nil
+		}
+		if fatal(err) {
+			if conn.ended() {
+				return false, conn.failure()
 			}
+			return false, err
+		}
+		conn.giveUpOn(key)
+		what := fmt.Sprintf("the model %q", value)
+		if o.Kind != KindModel {
+			what = fmt.Sprintf("%s to %q", o.Name, value)
+		}
+		now := valueName(o, o.Current)
+		var de *deadlineError
+		if errors.As(err, &de) {
+			notice(fmt.Sprintf("%s did not answer switching %s within %s, so this turn uses %s.", conn.name, what, setOptionTimeout, now))
+		} else {
+			notice(fmt.Sprintf("%s refused to switch %s: %s. This turn uses %s.", conn.name, what, refusal(err), now))
+		}
+		return false, nil
+	}
+	if targetModel != "" && targetModel != mo.Current {
+		if _, err := set(mo, targetModel); err != nil {
+			return err
 		}
 	}
-	ids := make([]string, 0, len(want.Options))
-	for id := range want.Options {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		v := want.Options[id]
-		o, ok := findOption(conn.configFor(acpID), func(o ConfigOption) bool { return o.ID == id })
-		if !ok || o.Current == v || o.Kind == KindModel {
-			continue // not an option of the current model (fast mode of another model), or already set
+	current = conn.configFor(acpID)
+	mo, _ = modelOption(current)
+	onDefaultModel := mo.Current == defaults[mo.ID]
+	for _, o := range current {
+		if !o.Picker() {
+			continue // never set from a choice (see Picker)
 		}
-		if !o.Has(v) {
-			warn("opt:"+id+"="+v, fmt.Sprintf("%s: %q is not available for the current model, so this turn uses %q.", o.Name, v, valueName(o, o.Current)))
+		v, chosen := want.Options[o.ID]
+		switch {
+		case chosen && !o.Has(v):
+			if conn.warnOnce(acpID, "opt:"+o.ID+"="+v) {
+				notice(fmt.Sprintf("%s: %q is not available for %s, so this turn uses %q.", o.Name, v, valueName(mo, mo.Current), valueName(o, o.Current)))
+			}
+			continue
+		case chosen:
+		case onDefaultModel && o.Has(defaults[o.ID]):
+			v = defaults[o.ID]
+		case o.Kind == KindToggle && len(o.Values) > 0:
+			v = o.Values[0].Value // off
+			if o.Type == "boolean" {
+				v = "false"
+			}
+		default:
+			continue // another model's effort: as the harness chose it
+		}
+		if v == o.Current {
 			continue
 		}
-		if err := set(o, v); err != nil {
-			if fatal(err) {
-				return err
-			}
-			warn("opt:"+id+"="+v, fmt.Sprintf("%s refused to set %s to %q: %s.", conn.name, o.Name, v, refusal(err)))
+		if _, err := set(o, v); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// deadlineError: the harness did not answer within setOptionTimeout.
+type deadlineError struct{}
+
+func (deadlineError) Error() string { return "no answer" }
+
+// setOption sends one session/set_config_option and records the result.
+func (m *Manager) setOption(ctx context.Context, conn *harnessConn, acpID string, o ConfigOption, value string) error {
+	req := acp.SetSessionConfigOptionRequest{ValueId: &acp.SetSessionConfigOptionValueId{
+		SessionId: acp.SessionId(acpID), ConfigId: acp.SessionConfigId(o.ID), Value: acp.SessionConfigValueId(value),
+	}}
+	if o.Type == "boolean" {
+		req = acp.SetSessionConfigOptionRequest{Boolean: &acp.SetSessionConfigOptionBoolean{
+			SessionId: acp.SessionId(acpID), ConfigId: acp.SessionConfigId(o.ID), Value: value == "true", Type: "boolean",
+		}}
+	}
+	sctx, cancel := context.WithTimeout(ctx, setOptionTimeout)
+	defer cancel()
+	res, err := conn.acp.SetSessionConfigOption(sctx, req)
+	if err != nil {
+		if ctx.Err() == nil && errors.Is(sctx.Err(), context.DeadlineExceeded) {
+			return &deadlineError{}
+		}
+		return err
+	}
+	if res.ConfigOptions != nil {
+		m.observe(conn, acpID, res.ConfigOptions, false)
+	} else {
+		// No options in the answer: assume the value took (a harness that
+		// changes more sends config_option_update).
+		conn.setCurrent(acpID, o.ID, value)
 	}
 	return nil
 }

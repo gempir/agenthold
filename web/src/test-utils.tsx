@@ -20,7 +20,12 @@ export function mockApi(routes: Record<string, Handler | unknown>) {
           : new Request(new URL(String(input), 'http://x'), init);
       const method = req.method;
       const path = new URL(req.url).pathname.replace(/^\/api\/v1/, '');
-      const key = `${method} ${path}`;
+      const search = new URL(req.url).search;
+      // "GET /agents?template=true" wins over "GET /agents".
+      const key =
+        `${method} ${path}${search}` in routes
+          ? `${method} ${path}${search}`
+          : `${method} ${path}`;
       const text = method === 'GET' ? '' : await req.text();
       const body = text ? JSON.parse(text) : undefined;
       calls.push({ key, body });

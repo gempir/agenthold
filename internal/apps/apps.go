@@ -88,12 +88,8 @@ func (m *Manager) Create(ctx context.Context, p CreateParams) (db.Agent, error) 
 	appID := id.New("ap")
 	var provision func()
 	err := m.Store.Tx(ctx, func(q *db.Queries) error {
-		n, err := q.CountOwnerApps(ctx, p.OwnerID)
-		if err != nil {
+		if err := m.CheckOwnerLimit(ctx, q, p.OwnerID); err != nil {
 			return err
-		}
-		if n >= int64(*m.Limits.MaxPerOwner) {
-			return &LimitError{Msg: fmt.Sprintf("the owner already has %d apps, the most one user may have (apps.max_per_owner); delete one first", n)}
 		}
 		if p.CreatedByAgentID != "" {
 			n, err := q.CountAgentApps(ctx, p.CreatedByAgentID)
@@ -113,6 +109,7 @@ func (m *Manager) Create(ctx context.Context, p CreateParams) (db.Agent, error) 
 			}
 			return err
 		}
+		var err error
 		provision, err = m.Sandboxes.Provision(ctx, q, appID)
 		return err
 	})
@@ -122,6 +119,22 @@ func (m *Manager) Create(ctx context.Context, p CreateParams) (db.Agent, error) 
 	provision()
 	return m.Store.GetAgent(ctx, appID)
 }
+
+// CheckOwnerLimit refuses another app for ownerID past apps.max_per_owner.
+// Call it in the transaction that inserts the app, holding OwnerLock.
+func (m *Manager) CheckOwnerLimit(ctx context.Context, q *db.Queries, ownerID string) error {
+	n, err := q.CountOwnerApps(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	if n >= int64(*m.Limits.MaxPerOwner) {
+		return &LimitError{Msg: fmt.Sprintf("the owner already has %d apps, the most one user may have (apps.max_per_owner); delete one first", n)}
+	}
+	return nil
+}
+
+// OwnerLock serializes app creation for ownerID; call the returned unlock.
+func (m *Manager) OwnerLock(ownerID string) func() { return m.ownerLock(ownerID) }
 
 // TakeOver makes the owner the only manager of an app: the agent that
 // created it can no longer deploy to, run commands in, or read it.

@@ -25,6 +25,9 @@ type Node interface {
 	Destroy(ctx context.Context, id sandbox.ID, opts sandbox.DestroyOpts) error
 	Status(ctx context.Context, id sandbox.ID) (sandbox.Status, error)
 	Rebuild(ctx context.Context, id sandbox.ID, spec sandbox.Spec) error
+	// Clone copies the stopped sandbox src into a new sandbox for spec.AgentID
+	// on the same node.
+	Clone(ctx context.Context, src sandbox.ID, spec sandbox.Spec) (sandbox.ID, error)
 	Attach(ctx context.Context, id sandbox.ID) error
 	WaitConnected(ctx context.Context, agentID string) error
 	Connected(ctx context.Context, agentID string) (bool, error)
@@ -144,6 +147,11 @@ func (n *Local) Status(ctx context.Context, id sandbox.ID) (sandbox.Status, erro
 // Rebuild implements Node.
 func (n *Local) Rebuild(ctx context.Context, id sandbox.ID, s sandbox.Spec) error {
 	return n.driver.Rebuild(ctx, id, s)
+}
+
+// Clone implements Node.
+func (n *Local) Clone(ctx context.Context, src sandbox.ID, s sandbox.Spec) (sandbox.ID, error) {
+	return n.driver.Clone(ctx, src, s)
 }
 
 // Attach implements Node.

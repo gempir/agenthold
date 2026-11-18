@@ -53,6 +53,7 @@ const (
 	AgentSecrets    Action = "agent.secrets"     // attach and detach secrets
 	AgentShare      Action = "agent.share"       // share with and unshare from other users
 	AgentRebuild    Action = "agent.rebuild"     // reset the system (rebuild the sandbox)
+	AgentClone      Action = "agent.clone"       // copy the machine: its home disk can hold harness credentials
 	AgentDelete     Action = "agent.delete"      // destroy
 	AgentAuthLogin  Action = "agent.auth.login"  // harness login inside the sandbox
 	AgentReadAudit  Action = "agent.audit.read"
@@ -76,6 +77,7 @@ var ownerActions = map[Action]bool{
 	AgentSecrets:   true,
 	AgentShare:     true,
 	AgentRebuild:   true,
+	AgentClone:     true,
 	AgentDelete:    true,
 	AgentAuthLogin: true,
 	AgentReadAudit: true,

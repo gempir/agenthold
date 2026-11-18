@@ -310,6 +310,7 @@ func run() error {
 	})
 	sessions.SetWaker(apiSrv.Wake)
 	appsMgr.Wake = apiSrv.Wake
+	sandboxes.SetBusy(sessions.AgentBusy)
 
 	srvCfg := server.Config{Web: web.Dist(), Logger: logger, API: apiSrv.Mount, DL: downloads}
 	if cfg.DevProxy != "" {

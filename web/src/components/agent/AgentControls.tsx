@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CircleAlert, RefreshCw } from 'lucide-react';
+import { CircleAlert, Copy, RefreshCw } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
 import { agentsQuery, sandboxLimitsQuery, type Agent } from '@/api/queries';
 import { AgentStateBadge } from '@/components/AgentStateBadge';
@@ -67,7 +67,14 @@ export function AgentControls({
           Reset the system to apply resource or environment changes
         </p>
       )}
-      {canUse && (
+      {a.isTemplate && (
+        <p className="flex items-start gap-2 rounded-lg border bg-muted/40 p-2.5 text-sm text-muted-foreground">
+          <Copy className="mt-0.5 size-4 shrink-0" aria-hidden />
+          This machine is a template. It is never started or chatted with; clone
+          it to get a new agent.
+        </p>
+      )}
+      {canUse && !a.isTemplate && (
         <div className="flex flex-wrap gap-2">
           {(a.state === 'sleeping' ||
             a.state === 'error' ||

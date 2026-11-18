@@ -9,6 +9,22 @@ import (
 	"context"
 )
 
+const copyServices = `-- name: CopyServices :exec
+INSERT INTO services (agent_id, name, command, workdir, env, enabled, created_at, updated_at)
+SELECT ?1, src.name, src.command, src.workdir, src.env, src.enabled, ?2, ?2 FROM services AS src WHERE src.agent_id = ?3
+`
+
+type CopyServicesParams struct {
+	DstID string
+	Now   int64
+	SrcID string
+}
+
+func (q *Queries) CopyServices(ctx context.Context, arg CopyServicesParams) error {
+	_, err := q.db.ExecContext(ctx, copyServices, arg.DstID, arg.Now, arg.SrcID)
+	return err
+}
+
 const countAgentApps = `-- name: CountAgentApps :one
 SELECT COUNT(*) FROM agents WHERE kind = 'app' AND created_by_agent_id = ?
 `
@@ -109,7 +125,7 @@ func (q *Queries) GetService(ctx context.Context, arg GetServiceParams) (Service
 }
 
 const listAgentApps = `-- name: ListAgentApps :many
-SELECT id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, permission_policy, credentials_in_sandbox, login_user_id, created_at, updated_at, kind, created_by_agent_id FROM agents WHERE kind = 'app' AND created_by_agent_id = ? ORDER BY name, id
+SELECT id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, permission_policy, credentials_in_sandbox, login_user_id, created_at, updated_at, is_template, cloned_from, kind, created_by_agent_id FROM agents WHERE kind = 'app' AND created_by_agent_id = ? ORDER BY name, id
 `
 
 // Apps created by an agent.
@@ -137,6 +153,8 @@ func (q *Queries) ListAgentApps(ctx context.Context, createdByAgentID string) ([
 			&i.LoginUserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.IsTemplate,
+			&i.ClonedFrom,
 			&i.Kind,
 			&i.CreatedByAgentID,
 		); err != nil {
@@ -187,6 +205,16 @@ func (q *Queries) ListServices(ctx context.Context, agentID string) ([]Service, 
 		return nil, err
 	}
 	return items, nil
+}
+
+const makeAppClone = `-- name: MakeAppClone :exec
+UPDATE agents SET kind = 'app', harness = '', login_user_id = '', created_by_agent_id = '' WHERE id = ?
+`
+
+// A clone of an app is an app of its cloner, managed by no agent.
+func (q *Queries) MakeAppClone(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, makeAppClone, id)
+	return err
 }
 
 const setExposurePort = `-- name: SetExposurePort :exec

@@ -76,7 +76,7 @@ func bindFile(src, dst string, readOnly bool) error {
 }
 
 func (d *Driver) prepare(ctx context.Context, id sandbox.ID, m *manifest, boot sandbox.Boot) error {
-	data, err := sandboxd.EncodeGuestBoot(sandboxd.GuestBoot{AgentID: boot.AgentID, Token: boot.Token, TunnelPort: boot.TunnelPort, Env: m.Spec.Env, Files: boot.Files})
+	data, err := sandboxd.EncodeGuestBoot(sandboxd.GuestBoot{AgentID: boot.AgentID, Token: boot.Token, TunnelPort: boot.TunnelPort, Env: m.Spec.Env, Files: boot.Files, ResetIdentity: m.Fresh})
 	if err != nil {
 		return err
 	}
@@ -209,6 +209,7 @@ func (d *Driver) launch(ctx context.Context, id sandbox.ID, m *manifest) error {
 		return err
 	}
 	m.State = sandbox.StateRunning
+	m.Fresh = false // the guest has the instruction; it resets and stamps itself
 	return d.save(id, m)
 }
 

@@ -78,6 +78,7 @@ func (a *API) apiApp(ctx context.Context, ag db.Agent, sb db.Sandbox, role authz
 		Id: ag.ID, Name: ag.Name, Owner: apiUser(owner), Cpus: float32(ag.Cpus), MemoryMb: ag.MemoryMb,
 		IdleMinutes: int(ag.IdleMinutes), State: gen.SandboxState(sb.State), StateError: sb.Error,
 		StateChangedAt: ts(sb.StateChangedAt), NeedsRebuild: a.Sandboxes.NeedsRebuild(ag, sb), Role: gen.AgentRole(role),
+		IsTemplate: ag.IsTemplate == 1,
 		CreatedAt: ts(ag.CreatedAt), UpdatedAt: ts(ag.UpdatedAt),
 	}
 	out.Links.Services, out.Links.Exposures, out.Links.Files = base+"/services", base+"/exposures", base+"/files"
@@ -254,6 +255,23 @@ func (a *API) UpdateApp(ctx context.Context, req gen.UpdateAppRequestObject) (ge
 	if s.name != ag.Name && !apps.ValidAppName(s.name) {
 		return nil, badRequest("an app name is 1 to 40 lowercase letters, digits and hyphens, starting and ending with a letter or digit")
 	}
+	toTemplate := b.IsTemplate != nil && *b.IsTemplate && ag.IsTemplate == 0
+	toApp := b.IsTemplate != nil && !*b.IsTemplate && ag.IsTemplate == 1
+	if toTemplate || toApp {
+		if err := a.checkTemplateChange(acc.Row, toTemplate); err != nil {
+			return nil, err
+		}
+	}
+	if toTemplate && sandbox.Phase(acc.Row.Sandbox.State) != sandbox.PhaseSleeping {
+		if err := a.Sandboxes.Stop(ctx, ag.ID); err != nil {
+			return nil, err
+		}
+	}
+	if toTemplate || toApp {
+		if err := a.Store.SetAgentTemplate(ctx, db.SetAgentTemplateParams{IsTemplate: b2i(toTemplate), UpdatedAt: a.Now().Unix(), ID: ag.ID}); err != nil {
+			return nil, err
+		}
+	}
 	if err := a.Store.UpdateAgent(ctx, db.UpdateAgentParams{
 		Name: s.name, Image: ag.Image, Cpus: s.cpus, MemoryMb: s.memoryMB, IdleMinutes: s.idleMinutes, UpdatedAt: a.Now().Unix(), ID: ag.ID,
 	}); err != nil {
@@ -262,7 +280,7 @@ func (a *API) UpdateApp(ctx context.Context, req gen.UpdateAppRequestObject) (ge
 		}
 		return nil, err
 	}
-	a.record(ctx, ag, audit.AppUpdate, ag.Name, map[string]any{"name": s.name, "cpus": s.cpus, "memoryMb": s.memoryMB, "idleMinutes": s.idleMinutes})
+	a.record(ctx, ag, audit.AppUpdate, ag.Name, map[string]any{"name": s.name, "cpus": s.cpus, "memoryMb": s.memoryMB, "idleMinutes": s.idleMinutes, "isTemplate": b.IsTemplate})
 	out, err := a.reloadApp(ctx, ag.ID, acc.Role)
 	if err != nil {
 		return nil, err

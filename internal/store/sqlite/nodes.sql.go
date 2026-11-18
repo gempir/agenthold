@@ -162,7 +162,7 @@ func (q *Queries) GetNodeByFingerprint(ctx context.Context, certFingerprint stri
 }
 
 const getSandboxByDriverID = `-- name: GetSandboxByDriverID :one
-SELECT agent_id, node_id, driver, driver_id, state, error, applied_spec, state_changed_at, boot_token_hash, subnet FROM sandboxes WHERE driver_id = ?1 AND driver_id != '' LIMIT 1
+SELECT agent_id, node_id, driver, driver_id, state, error, applied_spec, state_changed_at, boot_token_hash, subnet, resume FROM sandboxes WHERE driver_id = ?1 AND driver_id != '' LIMIT 1
 `
 
 func (q *Queries) GetSandboxByDriverID(ctx context.Context, driverID string) (Sandbox, error) {
@@ -179,12 +179,13 @@ func (q *Queries) GetSandboxByDriverID(ctx context.Context, driverID string) (Sa
 		&i.StateChangedAt,
 		&i.BootTokenHash,
 		&i.Subnet,
+		&i.Resume,
 	)
 	return i, err
 }
 
 const listNodeSandboxes = `-- name: ListNodeSandboxes :many
-SELECT agent_id, node_id, driver, driver_id, state, error, applied_spec, state_changed_at, boot_token_hash, subnet FROM sandboxes WHERE node_id = ?1 ORDER BY agent_id
+SELECT agent_id, node_id, driver, driver_id, state, error, applied_spec, state_changed_at, boot_token_hash, subnet, resume FROM sandboxes WHERE node_id = ?1 ORDER BY agent_id
 `
 
 func (q *Queries) ListNodeSandboxes(ctx context.Context, nodeID string) ([]Sandbox, error) {
@@ -207,6 +208,7 @@ func (q *Queries) ListNodeSandboxes(ctx context.Context, nodeID string) ([]Sandb
 			&i.StateChangedAt,
 			&i.BootTokenHash,
 			&i.Subnet,
+			&i.Resume,
 		); err != nil {
 			return nil, err
 		}

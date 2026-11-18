@@ -71,6 +71,8 @@ func toHTTP(err error) (int, string) {
 		return http.StatusForbidden, "forbidden"
 	case errors.Is(err, sandbox.ErrNotFound):
 		return http.StatusNotFound, "not found"
+	case errors.Is(err, sandbox.ErrTemplate), errors.Is(err, sandbox.ErrCloneFailed), errors.Is(err, sandbox.ErrNeedsReset):
+		return http.StatusConflict, err.Error()
 	case errors.Is(err, sandbox.ErrConflict):
 		return http.StatusConflict, err.Error()
 	}

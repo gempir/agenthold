@@ -126,6 +126,14 @@ func (a *API) servePreview(w http.ResponseWriter, r *http.Request, name string, 
 		t.user = v.user
 	}
 
+	// A template is never started: its exposures stay configured but inert.
+	// Answer like a machine that cannot be woken, and neither wake it nor
+	// count the request as activity.
+	if ag, err := a.Store.GetAgent(ctx, e.AgentID); err == nil && ag.IsTemplate == 1 {
+		previewFail(w, r, http.StatusServiceUnavailable, "Template", "This machine is a template. It is never started, so this app is not served. Its owner can clone it for a running copy, or convert it back to an agent.")
+		return
+	}
+
 	// Only members (and anyone, when the owner allows it) wake the machine
 	// and keep it awake.
 	mayWake := v.member || e.WakeOnRequest != 0

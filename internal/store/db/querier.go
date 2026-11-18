@@ -10,6 +10,7 @@ type Querier interface {
 	AttachSkill(ctx context.Context, arg AttachSkillParams) error
 	ClaimExposureName(ctx context.Context, name string) error
 	ConsumeNodeJoinToken(ctx context.Context, arg ConsumeNodeJoinTokenParams) (string, error)
+	CopyServices(ctx context.Context, arg CopyServicesParams) error
 	CountAgentApps(ctx context.Context, createdByAgentID string) (int64, error)
 	CountExposures(ctx context.Context, agentID string) (int64, error)
 	CountNodeSandboxes(ctx context.Context, nodeID string) (int64, error)
@@ -19,6 +20,7 @@ type Querier interface {
 	CreateAgent(ctx context.Context, arg CreateAgentParams) error
 	CreateAgentSession(ctx context.Context, arg CreateAgentSessionParams) error
 	CreateApp(ctx context.Context, arg CreateAppParams) error
+	CreateClonedAgent(ctx context.Context, arg CreateClonedAgentParams) error
 	CreateExposure(ctx context.Context, arg CreateExposureParams) error
 	CreateIdentity(ctx context.Context, arg CreateIdentityParams) error
 	CreateLoginState(ctx context.Context, arg CreateLoginStateParams) error
@@ -60,6 +62,8 @@ type Querier interface {
 	DetachMCPServer(ctx context.Context, arg DetachMCPServerParams) (int64, error)
 	DetachSecret(ctx context.Context, arg DetachSecretParams) (int64, error)
 	DetachSkill(ctx context.Context, arg DetachSkillParams) (int64, error)
+	DisableAgentSchedules(ctx context.Context, arg DisableAgentSchedulesParams) error
+	DisableAgentWebhooks(ctx context.Context, arg DisableAgentWebhooksParams) error
 	DueSchedules(ctx context.Context, nextRunAt int64) ([]Schedule, error)
 	ExtendSession(ctx context.Context, arg ExtendSessionParams) error
 	GetAgent(ctx context.Context, id string) (Agent, error)
@@ -122,6 +126,7 @@ type Querier interface {
 	ListUserSecrets(ctx context.Context, ownerID string) ([]Secret, error)
 	ListUserSkills(ctx context.Context, ownerID string) ([]Skill, error)
 	ListUsersByVerifiedEmail(ctx context.Context, lower string) ([]User, error)
+	MakeAppClone(ctx context.Context, id string) error
 	MarkCredentialsInSandbox(ctx context.Context, id string) error
 	MaxSessionSeq(ctx context.Context, sessionID string) (int64, error)
 	RecordScheduleRun(ctx context.Context, arg RecordScheduleRunParams) error
@@ -132,6 +137,7 @@ type Querier interface {
 	ResetRunningSessions(ctx context.Context) error
 	SetAgentHarness(ctx context.Context, arg SetAgentHarnessParams) error
 	SetAgentLoginUser(ctx context.Context, arg SetAgentLoginUserParams) error
+	SetAgentTemplate(ctx context.Context, arg SetAgentTemplateParams) error
 	SetBootToken(ctx context.Context, arg SetBootTokenParams) error
 	SetExposurePort(ctx context.Context, arg SetExposurePortParams) error
 	SetNodeCapacity(ctx context.Context, arg SetNodeCapacityParams) error
@@ -140,6 +146,7 @@ type Querier interface {
 	SetProviderLoginStatus(ctx context.Context, arg SetProviderLoginStatusParams) error
 	SetRemoteNodesOffline(ctx context.Context) error
 	SetSandboxBuilt(ctx context.Context, arg SetSandboxBuiltParams) error
+	SetSandboxResume(ctx context.Context, arg SetSandboxResumeParams) error
 	SetSandboxState(ctx context.Context, arg SetSandboxStateParams) error
 	SetSandboxSubnet(ctx context.Context, arg SetSandboxSubnetParams) error
 	SetServiceEnabled(ctx context.Context, arg SetServiceEnabledParams) (int64, error)

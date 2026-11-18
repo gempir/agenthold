@@ -29,6 +29,7 @@ const (
 	AgentStart     = "agent.start"
 	AgentStop      = "agent.stop"
 	AgentRebuild   = "agent.rebuild"
+	AgentClone     = "agent.clone"
 	ShareAdd       = "share.add"
 	ShareRemove    = "share.remove"
 	SecretAttach   = "secret.attach"

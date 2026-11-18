@@ -1,4 +1,5 @@
-import { CircleAlert, Loader2, Moon } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
+import { CircleAlert, Copy, Loader2, Moon } from 'lucide-react';
 import { isTransient, type Agent } from '@/api/queries';
 import { ErrorText } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
@@ -15,6 +16,25 @@ export function AgentNotice({
   const { action, busy } = useAgentActions(a);
   const row =
     'mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-card/60 px-3 py-2 text-sm';
+  if (a.isTemplate)
+    return (
+      <div role="status" className={row}>
+        <Copy className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        <p className="min-w-0 flex-1 text-muted-foreground">
+          This machine is a template. It cannot be chatted with; clone it to get
+          a new agent.
+        </p>
+        <Button asChild size="sm" variant="outline" className="h-7">
+          <Link
+            to="/a/$agentId/settings"
+            params={{ agentId: a.id }}
+            search={{ tab: 'general' }}
+          >
+            Open settings
+          </Link>
+        </Button>
+      </div>
+    );
   if (a.state === 'unreachable')
     return (
       <div role="status" className={`${row} border-destructive/30`}>

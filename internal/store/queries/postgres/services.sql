@@ -38,3 +38,11 @@ UPDATE agents SET created_by_agent_id = '', updated_at = $1 WHERE id = $2 AND ki
 
 -- name: SetExposurePort :exec
 UPDATE exposures SET port = $1 WHERE id = $2;
+
+-- name: MakeAppClone :exec
+-- A clone of an app is an app of its cloner, managed by no agent.
+UPDATE agents SET kind = 'app', harness = '', login_user_id = '', created_by_agent_id = '' WHERE id = $1;
+
+-- name: CopyServices :exec
+INSERT INTO services (agent_id, name, command, workdir, env, enabled, created_at, updated_at)
+SELECT sqlc.arg(dst_id)::text, src.name, src.command, src.workdir, src.env, src.enabled, sqlc.arg(now)::bigint, sqlc.arg(now)::bigint FROM services AS src WHERE src.agent_id = sqlc.arg(src_id);

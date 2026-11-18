@@ -28,6 +28,7 @@ export function useChatIndex() {
   // Deleting an agent is asynchronous: it stays listed as "destroying" until
   // its sandbox is gone. Offering it would send the landing page (and the
   // sidebar) back into the agent that was just deleted.
+  // The list holds no templates: they have their own place in settings.
   const agents: { agent: Agent }[] = (agentList.data ?? [])
     .filter((a) => a.state !== 'destroying')
     .map((agent) => ({ agent }));

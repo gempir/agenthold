@@ -19,6 +19,7 @@ import (
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/harness"
+	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store/db"
 )
@@ -138,8 +139,12 @@ func (a *API) ListSessions(ctx context.Context, req gen.ListSessionsRequestObjec
 
 // CreateSession implements gen.StrictServerInterface.
 func (a *API) CreateSession(ctx context.Context, req gen.CreateSessionRequestObject) (gen.CreateSessionResponseObject, error) {
-	if _, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentPrompt); err != nil {
+	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentPrompt)
+	if err != nil {
 		return nil, err
+	}
+	if acc.Row.Agent.IsTemplate == 1 {
+		return nil, sandbox.ErrTemplate
 	}
 	title := ""
 	if req.Body != nil && req.Body.Title != nil {

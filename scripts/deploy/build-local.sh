@@ -215,7 +215,8 @@ fi
 # the same base share one copy on disk.
 base_key="$(cd "$wt" && bash scripts/guest/base-key.sh)"
 [[ "$base_key" =~ ^[0-9a-f]{32}$ ]] || { echo 'unexpected base key' >&2; exit 1; }
-base_cache="$CACHE/base/$base_key"
+# Root's own cache (0700): the build user must not be able to swap the base a release ships.
+base_cache="$CACHE/root/base/$base_key"
 guest="$wt/build/guest/arm64"
 if [[ -f "$base_cache/base-arm64.manifest.json" && -f "$base_cache/base-arm64.ext4.zst" ]]; then
   echo "==> base: cached ($base_key)"
@@ -229,8 +230,8 @@ fi
 phase release root bash scripts/release/build.sh
 
 if [[ ! -f "$base_cache/base-arm64.ext4.zst" ]]; then
-  install -d -m 0755 "$CACHE/base"
-  tmpb="$(mktemp -d "$CACHE/base/.tmp.XXXXXX")"
+  install -d -m 0700 "$CACHE/root/base"
+  tmpb="$(mktemp -d "$CACHE/root/base/.tmp.XXXXXX")"
   cp -- "$guest/base-arm64.manifest.json" "$tmpb/"
   ln -f -- "$guest/base-arm64.ext4.zst" "$tmpb/base-arm64.ext4.zst" 2>/dev/null || cp -- "$guest/base-arm64.ext4.zst" "$tmpb/"
   chown -R root:root "$tmpb"
@@ -240,7 +241,7 @@ if [[ ! -f "$base_cache/base-arm64.ext4.zst" ]]; then
   mv -T -- "$tmpb" "$base_cache"
 fi
 # One cached base: older keys are only reachable through the store, which pull.sh prunes.
-find "$CACHE/base" -mindepth 1 -maxdepth 1 -type d ! -name "$base_key" -exec rm -rf -- {} +
+find "$CACHE/root/base" -mindepth 1 -maxdepth 1 -type d ! -name "$base_key" -exec rm -rf -- {} +
 phase kvm root make test-kvm
 
 # --- publish ----------------------------------------------------------------------------------

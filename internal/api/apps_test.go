@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -431,7 +433,7 @@ func TestAppTools(t *testing.T) {
 	if out, _ := e.tool(ag, "list_agents", nil); strings.Contains(out, "web") {
 		t.Fatalf("list_agents shows the app: %s", out)
 	}
-	if out, err = e.tool(ag, "list_apps", nil); err != nil || !strings.Contains(out, `"createdBy": "you"`) {
+	if out, err = e.tool(ag, "list_apps", nil); err != nil || !strings.Contains(out, `"createdByYou": "yes"`) || strings.Contains(out, `"id"`) {
 		t.Fatalf("list_apps: %q %v", out, err)
 	}
 	if out, err = e.tool(ag, "app_logs", map[string]any{"name": "web"}); err != nil || !strings.Contains(out, "agenthold: started") {
@@ -445,12 +447,21 @@ func TestAppTools(t *testing.T) {
 		t.Fatalf("restart_app: %q %v", out, err)
 	}
 
-	// Another agent of the same owner may look but not change or delete it.
-	if _, err := e.tool(other.Id, "deploy_app", args); err == nil || !strings.Contains(err.Error(), "not created by you") {
-		t.Fatalf("other agent deploy: %v", err)
+	// Another agent of the same owner sees it in list_apps but cannot use it at all.
+	if out, _ := e.tool(other.Id, "list_apps", nil); !strings.Contains(out, `"createdByYou": "no"`) {
+		t.Fatalf("other agent list_apps: %s", out)
 	}
-	if _, err := e.tool(other.Id, "delete_app", map[string]any{"name": "web"}); err == nil {
-		t.Fatal("other agent deleted the app")
+	for _, c := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"deploy_app", args}, {"delete_app", map[string]any{"name": "web"}}, {"app_logs", map[string]any{"name": "web"}},
+		{"app_exec", map[string]any{"name": "web", "command": "true"}}, {"restart_app", map[string]any{"name": "web"}},
+		{"stop_app", map[string]any{"name": "web"}},
+	} {
+		if _, err := e.tool(other.Id, c.tool, c.args); err == nil || !strings.Contains(err.Error(), "not managed by you") {
+			t.Fatalf("other agent %s: %v", c.tool, err)
+		}
 	}
 	// An agent of another owner does not see it at all.
 	var dagent gen.Agent
@@ -466,6 +477,24 @@ func TestAppTools(t *testing.T) {
 		!strings.Contains(err.Error(), "most an agent may have") {
 		t.Fatalf("limit: %v", err)
 	}
+	e.apps.Limits.MaxPerAgent = ptr(0)
+	if _, err := e.tool(ag, "deploy_app", map[string]any{"name": "web2", "source_dir": "site", "command": pyServer, "port": freePort(t)}); err == nil ||
+		!strings.Contains(err.Error(), "agents cannot create apps") {
+		t.Fatalf("max_per_agent 0: %v", err)
+	}
+	// Updating its own app still works with no room for new ones.
+	if _, err := e.tool(ag, "deploy_app", args); err != nil {
+		t.Fatalf("redeploy at the limit: %v", err)
+	}
+	// A name the owner already uses for an app this agent did not create.
+	e.apps.Limits.MaxPerAgent = ptr(3)
+	var mine gen.App
+	expect(t, "owner's app", alice.do("POST", "/apps", gen.AppInput{Name: "owned"}, &mine), 201)
+	e.sandboxes.Wait()
+	if _, err := e.tool(ag, "deploy_app", map[string]any{"name": "owned", "source_dir": "site", "command": pyServer, "port": freePort(t)}); err == nil ||
+		!strings.Contains(err.Error(), "not managed by you") {
+		t.Fatalf("owner's name: %v", err)
+	}
 
 	if out, err = e.tool(ag, "stop_app", map[string]any{"name": "web"}); err != nil {
 		t.Fatalf("stop_app: %q %v", out, err)
@@ -476,7 +505,7 @@ func TestAppTools(t *testing.T) {
 	}
 	e.sandboxes.Wait()
 	expect(t, "apps after delete", alice.do("GET", "/apps", nil, &apps), 200)
-	if len(apps) != 0 {
+	if len(apps) != 1 || apps[0].Name != "owned" {
 		t.Fatalf("apps = %+v", apps)
 	}
 }
@@ -496,4 +525,178 @@ func TestAppSurvivesCreatorDeletion(t *testing.T) {
 	if len(apps) != 1 || apps[0].CreatedByAgent == nil || apps[0].CreatedByAgent.Name != "" {
 		t.Fatalf("apps = %+v", apps)
 	}
+}
+
+func TestAppTakeOver(t *testing.T) {
+	tm := newTeam(t)
+	e, alice := tm.e, tm.alice
+	ag := tm.agent.Id
+	tm.share("bob")
+	writeSite(t, e.home(ag), "site", "x")
+	if _, err := e.tool(ag, "deploy_app", map[string]any{"name": "mine", "source_dir": "site", "command": pyServer, "port": freePort(t)}); err != nil {
+		t.Fatal(err)
+	}
+	var apps []gen.App
+	expect(t, "apps", alice.do("GET", "/apps", nil, &apps), 200)
+	app := apps[0]
+	if app.CreatedByAgent == nil || app.CreatedByAgent.Id != ag {
+		t.Fatalf("app = %+v", app)
+	}
+	expect(t, "take over by a stranger", tm.dave.do("POST", "/apps/"+app.Id+"/take-over", nil, nil), 404)
+	var taken gen.App
+	expect(t, "take over", alice.do("POST", "/apps/"+app.Id+"/take-over", nil, &taken), 200)
+	if taken.CreatedByAgent != nil {
+		t.Fatalf("still managed: %+v", taken.CreatedByAgent)
+	}
+	for _, tool := range []string{"app_logs", "restart_app", "stop_app", "delete_app"} {
+		if _, err := e.tool(ag, tool, map[string]any{"name": "mine"}); err == nil {
+			t.Fatalf("%s after take-over", tool)
+		}
+	}
+	if _, err := e.tool(ag, "app_exec", map[string]any{"name": "mine", "command": "true"}); err == nil {
+		t.Fatal("app_exec after take-over")
+	}
+	if _, err := e.tool(ag, "deploy_app", map[string]any{"name": "mine", "source_dir": "site", "command": pyServer, "port": freePort(t)}); err == nil {
+		t.Fatal("deploy after take-over")
+	}
+}
+
+func TestAppNamesAndOwnerLimit(t *testing.T) {
+	e := newEnv(t)
+	alice := e.login("alice", "Alice", "a@example.com")
+	expect(t, "not a DNS label", alice.do("POST", "/apps", gen.AppInput{Name: "My Site"}, nil), 400)
+	expect(t, "create", alice.do("POST", "/apps", gen.AppInput{Name: "site"}, nil), 201)
+	expect(t, "same name", alice.do("POST", "/apps", gen.AppInput{Name: "site"}, nil), 409)
+	var other gen.App
+	expect(t, "create other", alice.do("POST", "/apps", gen.AppInput{Name: "other"}, &other), 201)
+	expect(t, "rename onto a taken name", alice.do("PATCH", "/apps/"+other.Id, gen.AppPatch{Name: ptr("site")}, nil), 409)
+	// Another user may use the same name.
+	bob := e.login("bob", "Bob", "b@example.com")
+	expect(t, "bob's site", bob.do("POST", "/apps", gen.AppInput{Name: "site"}, nil), 201)
+	e.apps.Limits.MaxPerOwner = ptr(2)
+	code, body := alice.rawJSON("POST", "/apps", gen.AppInput{Name: "third"})
+	if code != 409 || !strings.Contains(body, "max_per_owner") {
+		t.Fatalf("owner limit: %d %s", code, body)
+	}
+	e.sandboxes.Wait()
+}
+
+// Concurrent creates cannot overshoot the per-owner limit.
+func TestAppOwnerLimitConcurrent(t *testing.T) {
+	e := newEnv(t)
+	alice := e.login("alice", "Alice", "a@example.com")
+	e.apps.Limits.MaxPerOwner = ptr(3)
+	var wg sync.WaitGroup
+	codes := make(chan int, 8)
+	for i := range 8 {
+		wg.Go(func() { codes <- alice.do("POST", "/apps", gen.AppInput{Name: "a" + strconv.Itoa(i)}, nil) })
+	}
+	wg.Wait()
+	close(codes)
+	created := 0
+	for c := range codes {
+		if c == 201 {
+			created++
+		} else if c != 409 {
+			t.Fatalf("status %d", c)
+		}
+	}
+	if created != 3 {
+		t.Fatalf("created %d apps, limit 3", created)
+	}
+	e.sandboxes.Wait()
+}
+
+func TestDeployExposureRules(t *testing.T) {
+	tm := newTeam(t)
+	e, alice := tm.e, tm.alice
+	ag := tm.agent.Id
+	writeSite(t, e.home(ag), "site", "<h1>v1</h1>")
+	port := freePort(t)
+	// A first deploy that never serves gets no URL.
+	if out, err := e.tool(ag, "deploy_app", map[string]any{"name": "rules", "source_dir": "site", "command": "exit 1", "port": port}); err != nil || strings.Contains(out, "serving at") {
+		t.Fatalf("failing first deploy: %q %v", out, err)
+	}
+	var apps []gen.App
+	expect(t, "apps", alice.do("GET", "/apps", nil, &apps), 200)
+	app := apps[0]
+	var list gen.ExposureList
+	expect(t, "exposures", alice.do("GET", "/agents/"+app.Id+"/exposures", nil, &list), 200)
+	if len(list.Exposures) != 0 {
+		t.Fatalf("a release that never served got a URL: %+v", list.Exposures)
+	}
+	// It serves: exposed as authenticated (set at creation).
+	if out, err := e.tool(ag, "deploy_app", map[string]any{"name": "rules", "source_dir": "site", "command": pyServer, "port": port, "access": "authenticated"}); err != nil || !strings.Contains(out, "access: authenticated") {
+		t.Fatalf("deploy: %q %v", out, err)
+	}
+	expect(t, "exposures", alice.do("GET", "/agents/"+app.Id+"/exposures", nil, &list), 200)
+	first := list.Exposures[0]
+	// The owner makes it public; the agent's later access choice does not change that.
+	expect(t, "owner sets public", alice.do("PATCH", "/agents/"+app.Id+"/exposures/"+first.Id, gen.ExposurePatch{Access: ptr(gen.Public)}, nil), 200)
+	out, err := e.tool(ag, "deploy_app", map[string]any{"name": "rules", "source_dir": "site", "command": pyServer, "port": port, "access": "private"})
+	if err != nil || !strings.Contains(out, "access stays public") {
+		t.Fatalf("redeploy with access: %q %v", out, err)
+	}
+	// A new port moves the exposure in place: same id, name and access.
+	port2 := freePort(t)
+	if _, err := e.tool(ag, "deploy_app", map[string]any{"name": "rules", "source_dir": "site", "command": pyServer, "port": port2}); err != nil {
+		t.Fatal(err)
+	}
+	expect(t, "exposures", alice.do("GET", "/agents/"+app.Id+"/exposures", nil, &list), 200)
+	if len(list.Exposures) != 1 || list.Exposures[0].Id != first.Id || list.Exposures[0].Port != port2 ||
+		list.Exposures[0].Name != first.Name || list.Exposures[0].Access != gen.Public {
+		t.Fatalf("after the port change: %+v (was %+v)", list.Exposures, first)
+	}
+	// A broken release on yet another port leaves the exposure exactly as it was.
+	if _, err := e.tool(ag, "deploy_app", map[string]any{"name": "rules", "source_dir": "site", "command": "exit 1", "port": freePort(t)}); err != nil {
+		t.Fatal(err)
+	}
+	expect(t, "exposures", alice.do("GET", "/agents/"+app.Id+"/exposures", nil, &list), 200)
+	if len(list.Exposures) != 1 || list.Exposures[0].Port != port2 {
+		t.Fatalf("after a failed deploy: %+v", list.Exposures)
+	}
+	waitUntil(t, "the rolled back release serves", 10*time.Second, func() bool {
+		return get(t, e.browser(e.anon(), false), list.Exposures[0].Url+"index.html", nil).body == "<h1>v1</h1>"
+	})
+}
+
+func TestCloneAppAndTemplate(t *testing.T) {
+	tm := newTeam(t)
+	e, alice := tm.e, tm.alice
+	var app gen.App
+	expect(t, "create", alice.do("POST", "/apps", gen.AppInput{Name: "orig"}, &app), 201)
+	e.sandboxes.Wait()
+	expect(t, "service", alice.do("PUT", "/agents/"+app.Id+"/services/web", gen.ServiceInput{Command: "exec sleep 300"}, nil), 200)
+	e.expose(alice, app.Id, freePort(t), "")
+	expect(t, "clone: not a DNS label", alice.do("POST", "/agents/"+app.Id+"/clone", gen.CloneInput{Name: "My Copy"}, nil), 400)
+	expect(t, "clone: taken name", alice.do("POST", "/agents/"+app.Id+"/clone", gen.CloneInput{Name: "orig"}, nil), 409)
+	var clone gen.Agent
+	expect(t, "clone", alice.do("POST", "/agents/"+app.Id+"/clone", gen.CloneInput{Name: "copy"}, &clone), 201)
+	e.sandboxes.Wait()
+	var got gen.App
+	expect(t, "clone is an app", alice.do("GET", "/apps/"+clone.Id, nil, &got), 200)
+	if got.CreatedByAgent != nil {
+		t.Fatalf("clone = %+v", got)
+	}
+	var svcs gen.ServiceList
+	expect(t, "clone services", alice.do("GET", "/agents/"+clone.Id+"/services", nil, &svcs), 200)
+	if len(svcs.Services) != 1 || svcs.Services[0].Command != "exec sleep 300" {
+		t.Fatalf("services not cloned: %+v", svcs)
+	}
+	var list gen.ExposureList
+	expect(t, "clone exposures", alice.do("GET", "/agents/"+clone.Id+"/exposures", nil, &list), 200)
+	if len(list.Exposures) != 0 {
+		t.Fatalf("exposures were cloned: %+v", list.Exposures)
+	}
+	// An app can be a template: stopped, never started, cloned into apps.
+	expect(t, "to template", alice.do("PATCH", "/apps/"+app.Id, gen.AppPatch{IsTemplate: ptr(true)}, &got), 200)
+	e.sandboxes.Wait()
+	if !got.IsTemplate {
+		t.Fatalf("not a template: %+v", got)
+	}
+	expect(t, "start a template", alice.do("POST", "/apps/"+app.Id+"/start", nil, nil), 409)
+	var fromTemplate gen.Agent
+	expect(t, "from template", alice.do("POST", "/agents/"+app.Id+"/clone", gen.CloneInput{Name: "from-tpl"}, &fromTemplate), 201)
+	e.sandboxes.Wait()
+	expect(t, "an app", alice.do("GET", "/apps/"+fromTemplate.Id, nil, &got), 200)
 }

@@ -79,7 +79,7 @@ func (a *API) apiApp(ctx context.Context, ag db.Agent, sb db.Sandbox, role authz
 		IdleMinutes: int(ag.IdleMinutes), State: gen.SandboxState(sb.State), StateError: sb.Error,
 		StateChangedAt: ts(sb.StateChangedAt), NeedsRebuild: a.Sandboxes.NeedsRebuild(ag, sb), Role: gen.AgentRole(role),
 		IsTemplate: ag.IsTemplate == 1,
-		CreatedAt: ts(ag.CreatedAt), UpdatedAt: ts(ag.UpdatedAt),
+		CreatedAt:  ts(ag.CreatedAt), UpdatedAt: ts(ag.UpdatedAt),
 	}
 	out.Links.Services, out.Links.Exposures, out.Links.Files = base+"/services", base+"/exposures", base+"/files"
 	out.Links.Terminal, out.Links.Shares, out.Links.Secrets, out.Links.Audit = base+"/terminal", base+"/shares", base+"/secrets", base+"/audit"

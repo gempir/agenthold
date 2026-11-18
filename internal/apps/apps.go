@@ -352,17 +352,21 @@ func (m *Manager) copy(ctx context.Context, src *tunnel.Session, srcDir string, 
 	limit := m.Limits.DeployMaxBytes
 	pr, pw := io.Pipe()
 	relay := &relayReader{r: pr, max: limit + relayOverhead, moved: make(chan struct{}, 1)}
+	idle := RelayIdle
+	watchdog := make(chan struct{})
+	defer func() { cancel(nil); <-watchdog }()
 	go func() {
-		t := time.NewTimer(RelayIdle)
+		defer close(watchdog)
+		t := time.NewTimer(idle)
 		defer t.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-relay.moved:
-				t.Reset(RelayIdle)
+				t.Reset(idle)
 			case <-t.C:
-				cancel(fmt.Errorf("nothing was copied for %s", RelayIdle))
+				cancel(fmt.Errorf("nothing was copied for %s", idle))
 				_ = pr.CloseWithError(context.Cause(ctx))
 				return
 			}
@@ -403,7 +407,7 @@ var (
 
 // relayOverhead is what tar adds to the file contents at most: headers,
 // PAX records and padding for every entry the archive may have.
-const relayOverhead = int64(sandboxd.MaxArchiveEntries)*2048 + 1<<20
+var relayOverhead = int64(sandboxd.MaxArchiveEntries)*2048 + 1<<20
 
 var errRelayTooLarge = errors.New("the archive is larger than the deploy limit")
 

@@ -153,6 +153,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Everything running on this installation: every node, and every machine (agents and apps, of all owners) with its state, owner, configured size and live usage. Admins only (the same notion as the node endpoints: the local admin and users listed in auth.admins). Live usage comes from inside running machines, fetched concurrently with a short timeout and cached for a few seconds; a machine that does not answer keeps its row and gets a `usageReason` instead. Sleeping machines are never woken. Machines of an offline node are `unreachable` and are not contacted. */
+        get: operations["getAdminOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/nodes/join-tokens": {
         parameters: {
             query?: never;
@@ -1633,6 +1650,154 @@ export interface components {
              */
             lastSeen?: string;
         };
+        /** @description Configured size (not usage) summed over a set of machines. */
+        OverviewAllocation: {
+            machines: number;
+            /**
+             * Format: float
+             * @description Sum of the machines' vCPUs.
+             */
+            cpus: number;
+            /**
+             * Format: int64
+             * @description Sum of the machines' memory in MiB.
+             */
+            memoryMb: number;
+        };
+        /** @description A node. `allocated` sums the configured size of every machine placed on it, whatever its state; `running` only of those running now. */
+        OverviewNode: {
+            id: string;
+            name: string;
+            online: boolean;
+            /** @description The controller's built-in node. */
+            local: boolean;
+            /** @description The agenthold release the node runs, if known. */
+            version?: string;
+            /** Format: date-time */
+            lastSeen?: string;
+            /** @description Logical CPUs (the last report if the node is offline). */
+            cpus?: number;
+            /**
+             * Format: int64
+             * @description Installed memory at the last report, if the node reports it.
+             */
+            memoryTotalBytes?: number;
+            /**
+             * Format: int64
+             * @description Available host memory at the last report.
+             */
+            availableMemoryBytes?: number;
+            /**
+             * Format: int64
+             * @description Free data filesystem space at the last report.
+             */
+            freeDiskBytes?: number;
+            /**
+             * Format: int64
+             * @description Space the machines' disk files occupy on the node (blocks actually allocated, not their sparse size), at the last report. Absent when the node does not report it.
+             */
+            diskAllocatedBytes?: number;
+            allocated: components["schemas"]["OverviewAllocation"];
+            running: components["schemas"]["OverviewAllocation"];
+        };
+        /** @description Usage measured inside a running machine. */
+        OverviewUsage: {
+            /** Format: date-time */
+            sampledAt: string;
+            /**
+             * Format: float
+             * @description Share of the machine's vCPUs in use (0 to 100) between the two latest samples. Absent until there are two samples, and from guests that do not report it.
+             */
+            cpuPercent?: number;
+            /** Format: int64 */
+            memUsedBytes?: number;
+            /** Format: int64 */
+            memTotalBytes?: number;
+            /**
+             * Format: int64
+             * @description Used space on the persistent home volume.
+             */
+            homeUsedBytes?: number;
+            /**
+             * Format: int64
+             * @description Size of the home volume.
+             */
+            homeTotalBytes?: number;
+            /**
+             * Format: int64
+             * @description Used space on the system volume (overlay).
+             */
+            rootUsedBytes?: number;
+            /**
+             * Format: int64
+             * @description Size of the system volume.
+             */
+            rootTotalBytes?: number;
+        };
+        OverviewMachine: {
+            id: string;
+            name: string;
+            /** @enum {string} */
+            kind: "agent" | "app";
+            isTemplate: boolean;
+            owner: components["schemas"]["User"];
+            nodeId?: string;
+            nodeName?: string;
+            state: components["schemas"]["SandboxState"];
+            stateError: string;
+            /** Format: date-time */
+            stateChangedAt: string;
+            /** @description Agents only. */
+            harness?: string;
+            /** @description Agents only; empty is the harness default. */
+            model?: string;
+            /**
+             * Format: float
+             * @description Configured vCPUs.
+             */
+            cpus: number;
+            /**
+             * Format: int64
+             * @description Configured memory in MiB.
+             */
+            memoryMb: number;
+            /** @description Minutes without activity before it sleeps; 0 means never. */
+            idleMinutes?: number;
+            /**
+             * Format: date-time
+             * @description Only while running.
+             */
+            lastActivityAt?: string;
+            /**
+             * Format: date-time
+             * @description Only while running and not busy.
+             */
+            sleepsAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+            usage?: components["schemas"]["OverviewUsage"];
+            /**
+             * @description Why a running machine has no usage.
+             * @enum {string}
+             */
+            usageReason?: "node_offline" | "not_connected" | "timeout" | "unsupported" | "error";
+        };
+        OverviewTotals: {
+            machines: number;
+            /** @description Machines per sandbox state (offline nodes' machines count as unreachable). */
+            byState: {
+                [key: string]: number;
+            };
+            allocated: components["schemas"]["OverviewAllocation"];
+            running: components["schemas"]["OverviewAllocation"];
+        };
+        AdminOverview: {
+            /** Format: date-time */
+            generatedAt: string;
+            nodes: components["schemas"]["OverviewNode"][];
+            machines: components["schemas"]["OverviewMachine"][];
+            totals: components["schemas"]["OverviewTotals"];
+        };
         CreateNodeJoinToken: {
             /** @description Name for the node; by default the node proposes its hostname. */
             name?: string;
@@ -2536,6 +2701,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NodeInfo"][];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    getAdminOverview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The overview. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminOverview"];
                 };
             };
             401: components["responses"]["Error"];

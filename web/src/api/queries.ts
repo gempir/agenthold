@@ -55,6 +55,17 @@ export const nodesQuery = queryOptions({
   retry: false,
 });
 
+/** Everything running on this installation. Admins only. React Query's
+ * interval polling pauses while the tab is hidden. */
+export const OVERVIEW_POLL_MS = 5000;
+export const overviewQuery = queryOptions({
+  queryKey: ['admin', 'overview'],
+  queryFn: () => unwrap(api.GET('/admin/overview')),
+  refetchInterval: OVERVIEW_POLL_MS,
+  refetchIntervalInBackground: false,
+  retry: false,
+});
+
 export const sandboxLimitsQuery = queryOptions({
   queryKey: ['sandbox', 'limits'],
   queryFn: () => unwrap(api.GET('/sandbox/limits')),

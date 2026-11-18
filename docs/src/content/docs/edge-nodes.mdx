@@ -28,6 +28,11 @@ auth:
   admins: [ops@example.com]
 ```
 
+Admins also see **Overview** in the sidebar: every node (state, version, vCPU and memory allocation against
+capacity) and every machine of every owner, agents and apps, with its state, size and live CPU, memory and
+disk usage. Usage is read from inside running machines, concurrently and with a short timeout, and cached for a
+few seconds; a machine that does not answer keeps its row. Sleeping machines are never woken by the page.
+
 ## Joining a node
 
 The controller listens for nodes on a dedicated TLS port, separate from the HTTP listener:

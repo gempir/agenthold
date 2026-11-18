@@ -232,6 +232,82 @@ func (q *Queries) GetSandbox(ctx context.Context, agentID string) (Sandbox, erro
 	return i, err
 }
 
+const listAllMachines = `-- name: ListAllMachines :many
+SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, agents.is_template, agents.cloned_from, agents.kind, agents.created_by_agent_id, agents.model_options, sandboxes.agent_id, sandboxes.node_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet, sandboxes.resume, users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at
+FROM agents
+JOIN sandboxes ON sandboxes.agent_id = agents.id
+JOIN users ON users.id = agents.owner_id
+ORDER BY agents.name, agents.id
+`
+
+type ListAllMachinesRow struct {
+	Agent   Agent
+	Sandbox Sandbox
+	User    User
+}
+
+// Every machine with its sandbox and owner (the admin overview).
+func (q *Queries) ListAllMachines(ctx context.Context) ([]ListAllMachinesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAllMachines)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllMachinesRow{}
+	for rows.Next() {
+		var i ListAllMachinesRow
+		if err := rows.Scan(
+			&i.Agent.ID,
+			&i.Agent.OwnerID,
+			&i.Agent.Name,
+			&i.Agent.Image,
+			&i.Agent.Harness,
+			&i.Agent.Model,
+			&i.Agent.Cpus,
+			&i.Agent.MemoryMb,
+			&i.Agent.IdleMinutes,
+			&i.Agent.PermissionPolicy,
+			&i.Agent.CredentialsInSandbox,
+			&i.Agent.LoginUserID,
+			&i.Agent.CreatedAt,
+			&i.Agent.UpdatedAt,
+			&i.Agent.IsTemplate,
+			&i.Agent.ClonedFrom,
+			&i.Agent.Kind,
+			&i.Agent.CreatedByAgentID,
+			&i.Agent.ModelOptions,
+			&i.Sandbox.AgentID,
+			&i.Sandbox.NodeID,
+			&i.Sandbox.Driver,
+			&i.Sandbox.DriverID,
+			&i.Sandbox.State,
+			&i.Sandbox.Error,
+			&i.Sandbox.AppliedSpec,
+			&i.Sandbox.StateChangedAt,
+			&i.Sandbox.BootTokenHash,
+			&i.Sandbox.Subnet,
+			&i.Sandbox.Resume,
+			&i.User.ID,
+			&i.User.Email,
+			&i.User.EmailVerified,
+			&i.User.Name,
+			&i.User.AvatarUrl,
+			&i.User.CreatedAt,
+			&i.User.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSandboxSubnets = `-- name: ListSandboxSubnets :many
 SELECT agent_id, subnet FROM sandboxes WHERE subnet != ''
 `

@@ -157,15 +157,18 @@ type McpServer struct {
 }
 
 type Node struct {
-	ID              string
-	Name            string
-	CertFingerprint string
-	State           string
-	Cpus            int64
-	MemoryBytes     int64
-	DiskBytes       int64
-	LastSeenAt      int64
-	CreatedAt       int64
+	ID                 string
+	Name               string
+	CertFingerprint    string
+	State              string
+	Cpus               int64
+	MemoryBytes        int64
+	DiskBytes          int64
+	LastSeenAt         int64
+	CreatedAt          int64
+	Version            string
+	MemoryTotalBytes   int64
+	DiskAllocatedBytes int64
 }
 
 type NodeJoinToken struct {

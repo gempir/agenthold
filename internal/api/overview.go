@@ -17,11 +17,14 @@ import (
 // StatsFunc reads the live stats of a running machine from inside its guest.
 type StatsFunc func(ctx context.Context, agentID string) (tunnel.Stats, error)
 
-const (
+var (
 	// overviewStatsTimeout bounds how long the overview waits for any machine.
 	overviewStatsTimeout = 1500 * time.Millisecond
 	// overviewStatsTTL is how long a reading (or a failure) is reused.
 	overviewStatsTTL = 3 * time.Second
+)
+
+const (
 	// overviewStatsWindow is the longest span between two readings that still
 	// yields a CPU percentage.
 	overviewStatsWindow = time.Minute
@@ -43,6 +46,7 @@ type machineStats struct {
 	reason   gen.OverviewMachineUsageReason // why the last fetch failed; "" if it worked
 	failedAt time.Time
 	inflight chan struct{}
+	stuck    bool // a fetch outlived its timeout and has not returned
 	used     time.Time
 }
 
@@ -100,6 +104,11 @@ func (c *usageCache) usage(ctx context.Context, id string) (*gen.OverviewUsage, 
 		e.mu.Unlock()
 		return nil, reason
 	}
+	if e.stuck {
+		e.reason, e.failedAt = gen.OverviewMachineUsageReasonTimeout, now
+		e.mu.Unlock()
+		return nil, gen.OverviewMachineUsageReasonTimeout
+	}
 	done := e.inflight
 	if done == nil {
 		done = make(chan struct{})
@@ -149,15 +158,40 @@ func (c *usageCache) run(id string, e *machineStats, done chan struct{}) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), overviewStatsTimeout)
 	defer cancel()
-	select {
-	case c.slots <- struct{}{}:
-		defer func() { <-c.slots }()
-	case <-ctx.Done():
-		finish(tunnel.Stats{}, context.DeadlineExceeded)
-		return
+	type result struct {
+		st  tunnel.Stats
+		err error
 	}
-	st, err := c.fetch(ctx, id)
-	finish(st, err)
+	res := make(chan result, 1)
+	go func() {
+		select {
+		case c.slots <- struct{}{}:
+			defer func() { <-c.slots }()
+		case <-ctx.Done():
+			res <- result{err: ctx.Err()}
+			return
+		}
+		st, err := c.fetch(ctx, id)
+		res <- result{st, err}
+	}()
+	select {
+	case r := <-res:
+		finish(r.st, r.err)
+	case <-ctx.Done():
+		// A call that ignores its context must not hold the machine's slot in
+		// the cache: report the timeout now and let no second call start
+		// until the first one returns.
+		e.mu.Lock()
+		e.stuck = true
+		e.mu.Unlock()
+		finish(tunnel.Stats{}, ctx.Err())
+		go func() {
+			<-res
+			e.mu.Lock()
+			e.stuck = false
+			e.mu.Unlock()
+		}()
+	}
 }
 
 func reasonFor(err error) gen.OverviewMachineUsageReason {

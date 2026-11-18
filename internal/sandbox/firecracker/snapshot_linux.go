@@ -609,6 +609,22 @@ func (d *Driver) deflate(ctx context.Context, a *api, balloon int64) {
 	}
 }
 
+// unpause resumes a VM found paused with the driver lock held: only suspend
+// pauses, under the lock, so a node died while it snapshotted the VM. The VM
+// runs on from its disks; its half-written snapshot goes at its next stop.
+func (d *Driver) unpause(ctx context.Context, id sandbox.ID, m *manifest) {
+	d.cfg.Log.Warn("found a paused VM (interrupted sleep); resuming it", "sandbox", id)
+	a := newAPI(d.socket(id))
+	defer a.close()
+	if err := a.patch(ctx, "/vm", map[string]string{"state": "Resumed"}); err != nil {
+		d.cfg.Log.Warn("resume paused VM", "sandbox", id, "err", err)
+		return
+	}
+	if m.Balloon {
+		d.deflate(ctx, a, 1)
+	}
+}
+
 // resume tries to wake m from its snapshot. It returns false without error
 // when there is none. On error everything it started is torn down and the
 // snapshot is gone: the caller cold boots. The driver lock is held.

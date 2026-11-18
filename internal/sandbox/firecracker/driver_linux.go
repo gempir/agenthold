@@ -389,6 +389,9 @@ func (d *Driver) Status(ctx context.Context, id sandbox.ID) (sandbox.Status, err
 		if e != nil {
 			return sandbox.Status{}, e
 		}
+		if state == "Paused" {
+			d.unpause(ctx, id, m)
+		}
 		if state != "Running" && state != "Paused" {
 			if e = d.kill(m); e != nil {
 				return sandbox.Status{}, e
@@ -504,6 +507,9 @@ func (d *Driver) start(ctx context.Context, id sandbox.ID, boot sandbox.Boot, al
 		state, e := d.guestState(ctx, id)
 		if e != nil {
 			return nil, e
+		}
+		if state == "Paused" {
+			d.unpause(ctx, id, m)
 		}
 		if state == "Running" || state == "Paused" {
 			return nil, nil

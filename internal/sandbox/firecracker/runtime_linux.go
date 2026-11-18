@@ -105,6 +105,51 @@ func (d *Driver) prepare(ctx context.Context, id sandbox.ID, m *manifest, boot s
 			return err
 		}
 	}
+	return d.bindSnapDir(id, m)
+}
+
+// prepareResume binds what a snapshot load re-opens, at the paths the
+// snapshot recorded: the drives (the config drive the VM booted with is kept
+// in the snapshot directory) and the snapshot directory.
+func (d *Driver) prepareResume(ctx context.Context, id sandbox.ID, m *manifest) error {
+	root := d.jailRoot(id)
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return err
+	}
+	for _, f := range []struct {
+		source, name string
+		ro           bool
+	}{{m.BaseImagePath, "base.ext4", true}, {filepath.Join(d.dir(id), "overlay.ext4"), "overlay.ext4", false}, {filepath.Join(d.dir(id), "home.ext4"), "home.ext4", false}, {filepath.Join(d.snapDir(id), "config.img"), "config.img", true}} {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := bindFile(f.source, filepath.Join(root, f.name), f.ro); err != nil {
+			return err
+		}
+	}
+	return d.bindSnapDir(id, m)
+}
+
+// bindSnapDir makes <dir>/snapshot the jail's /snap, where Firecracker
+// writes and reads snapshots as the VMM user.
+func (d *Driver) bindSnapDir(id sandbox.ID, m *manifest) error {
+	src := d.snapDir(id)
+	if err := os.Mkdir(src, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	if err := os.Chown(src, int(m.UID), int(m.GID)); err != nil {
+		return err
+	}
+	dst := filepath.Join(d.jailRoot(id), jailSnapDir)
+	if err := os.Mkdir(dst, 0o700); err != nil {
+		return err
+	}
+	if err := unix.Mount(src, dst, "", unix.MS_BIND, ""); err != nil {
+		return fmt.Errorf("bind snapshot directory: %w", err)
+	}
+	if err := unix.Mount("", dst, "", unix.MS_BIND|unix.MS_REMOUNT|unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC, ""); err != nil {
+		return fmt.Errorf("protect snapshot directory: %w", err)
+	}
 	return nil
 }
 
@@ -126,61 +171,13 @@ func (d *Driver) jailerArgs(id sandbox.ID, m *manifest) []string {
 }
 
 func (d *Driver) launch(ctx context.Context, id sandbox.ID, m *manifest) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	log, err := os.OpenFile(filepath.Join(d.dir(id), "serial.log"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	a, err := d.startVMM(ctx, id, m)
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(d.cfg.JailerPath, d.jailerArgs(id, m)...) //nolint:noctx // VM lifetime exceeds the request; Start explicitly kills and cleans up on cancellation.
-	// The VMM is intentionally not tied to the request context: cancellation is
-	// handled explicitly, and a successful boot survives controller restarts.
-	cmd.Stdin = nil
-	cmd.Stdout = log
-	cmd.Stderr = log
-	if err = cmd.Start(); err != nil {
-		_ = log.Close()
-		return fmt.Errorf("start jailer: %w", err)
-	}
-	_ = log.Close()
-	done := make(chan struct{})
-	go func() { _ = cmd.Wait(); close(done) }()
-	start, _, err := procIdentity(cmd.Process.Pid)
-	if err != nil {
-		_ = cmd.Process.Kill()
-		<-done
-		return fmt.Errorf("jailer exited before process identity was recorded: %w", err)
-	}
-	m.Process = process{PID: cmd.Process.Pid, StartTime: start}
-	// Persist before configuring/starting: a crash here is recoverable, including
-	// an API-ready VMM whose guest has not started yet.
-	if err = d.save(id, m); err != nil {
-		return err
-	}
+	defer a.close()
 	bootCtx, cancel := context.WithTimeout(ctx, d.cfg.StartTimeout)
 	defer cancel()
-	a := newAPI(d.socket(id))
-	defer a.close()
-	for {
-		var info struct {
-			State string `json:"state"`
-		}
-		err = a.request(bootCtx, "GET", "/", nil, &info)
-		if err == nil {
-			break
-		}
-		alive, e := d.running(m)
-		if e != nil {
-			return e
-		}
-		if !alive {
-			return errors.New("jailer/Firecracker exited before API was ready; see serial.log")
-		}
-		if err = delay(bootCtx, 20*time.Millisecond); err != nil {
-			return fmt.Errorf("wait for Firecracker API: %w", err)
-		}
-	}
 	_, mem, vcpus := resources(m)
 	if err = a.put(bootCtx, "/machine-config", map[string]any{"vcpu_count": vcpus, "mem_size_mib": mem}); err != nil {
 		return err
@@ -206,12 +203,86 @@ func (d *Driver) launch(ctx context.Context, id sandbox.ID, m *manifest) error {
 	if err = a.put(bootCtx, "/network-interfaces/eth0", map[string]string{"iface_id": "eth0", "host_dev_name": TapName(id), "guest_mac": mac}); err != nil {
 		return err
 	}
+	// The host tells a resumed sandboxd about its wake over vsock; every VM
+	// gets the device, so any running machine can be snapshotted.
+	if err = a.put(bootCtx, "/vsock", map[string]any{"guest_cid": guestCID, "uds_path": vsockPath}); err != nil {
+		return err
+	}
+	m.Resumable = true
+	m.Balloon = d.cfg.Balloon
+	if m.Balloon {
+		if err = a.put(bootCtx, "/balloon", map[string]any{"amount_mib": 0, "deflate_on_oom": true, "stats_polling_interval_s": balloonStatsSeconds}); err != nil {
+			return err
+		}
+	}
 	if err = a.action(bootCtx, "InstanceStart"); err != nil {
 		return err
 	}
 	m.State = sandbox.StateRunning
 	m.Fresh = false // the guest has the instruction; it resets and stamps itself
 	return d.save(id, m)
+}
+
+// startVMM starts the jailed Firecracker process, records it and waits for
+// its API (nothing configured yet).
+func (d *Driver) startVMM(ctx context.Context, id sandbox.ID, m *manifest) (*api, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	log, err := os.OpenFile(filepath.Join(d.dir(id), "serial.log"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(d.cfg.JailerPath, d.jailerArgs(id, m)...) //nolint:noctx // VM lifetime exceeds the request; Start explicitly kills and cleans up on cancellation.
+	// The VMM is intentionally not tied to the request context: cancellation is
+	// handled explicitly, and a successful boot survives controller restarts.
+	cmd.Stdin = nil
+	cmd.Stdout = log
+	cmd.Stderr = log
+	if err = cmd.Start(); err != nil {
+		_ = log.Close()
+		return nil, fmt.Errorf("start jailer: %w", err)
+	}
+	_ = log.Close()
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	start, _, err := procIdentity(cmd.Process.Pid)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		<-done
+		return nil, fmt.Errorf("jailer exited before process identity was recorded: %w", err)
+	}
+	m.Process = process{PID: cmd.Process.Pid, StartTime: start}
+	// Persist before configuring/starting: a crash here is recoverable, including
+	// an API-ready VMM whose guest has not started yet.
+	if err = d.save(id, m); err != nil {
+		return nil, err
+	}
+	bootCtx, cancel := context.WithTimeout(ctx, d.cfg.StartTimeout)
+	defer cancel()
+	a := newAPI(d.socket(id))
+	for {
+		var info struct {
+			State string `json:"state"`
+		}
+		err = a.request(bootCtx, "GET", "/", nil, &info)
+		if err == nil {
+			return a, nil
+		}
+		alive, e := d.running(m)
+		if e != nil {
+			a.close()
+			return nil, e
+		}
+		if !alive {
+			a.close()
+			return nil, errors.New("jailer/Firecracker exited before API was ready; see serial.log")
+		}
+		if err = delay(bootCtx, 20*time.Millisecond); err != nil {
+			a.close()
+			return nil, fmt.Errorf("wait for Firecracker API: %w", err)
+		}
+	}
 }
 
 // procIdentity parses /proc stat from the final ')' (comm may contain spaces
@@ -298,7 +369,7 @@ func (d *Driver) finish(ctx context.Context, id sandbox.ID, m *manifest) error {
 	errs = append(errs, d.deleteTap(id))
 	// Unmount before RemoveAll: removing through a live bind could delete data.
 	clean := true
-	for _, name := range []string{"config.img", "home.ext4", "overlay.ext4", "base.ext4", "initrd", "kernel"} {
+	for _, name := range []string{jailSnapDir, "config.img", "home.ext4", "overlay.ext4", "base.ext4", "initrd", "kernel"} {
 		err = unix.Unmount(filepath.Join(d.jailRoot(id), name), 0)
 		if err != nil && !errors.Is(err, unix.EINVAL) && !errors.Is(err, unix.ENOENT) {
 			errs = append(errs, err)
@@ -310,6 +381,10 @@ func (d *Driver) finish(ctx context.Context, id sandbox.ID, m *manifest) error {
 	}
 	if err = os.Remove(filepath.Join(d.dir(id), "config.img")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		errs = append(errs, err)
+	}
+	// Only a valid snapshot (and nothing half-written) outlives its VMM.
+	if clean {
+		errs = append(errs, d.cleanSnapshotFiles(id))
 	}
 	cg := filepath.Join(d.cfg.CgroupRoot, d.jailID(id))
 	if err = os.Remove(cg); err != nil && !errors.Is(err, os.ErrNotExist) {

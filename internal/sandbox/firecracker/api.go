@@ -26,6 +26,17 @@ func newAPI(socket string) *api {
 	return &api{client: &http.Client{Transport: t, Timeout: 3 * time.Second}, transport: t}
 }
 func (a *api) close() { a.transport.CloseIdleConnections() }
+
+// slow lets requests of this instance take up to t (snapshots write the
+// whole guest memory).
+func (a *api) slow(t time.Duration) *api {
+	a.client.Timeout = t
+	return a
+}
+
+func (a *api) patch(ctx context.Context, path string, b any) error {
+	return a.request(ctx, http.MethodPatch, path, b, nil)
+}
 func (a *api) request(ctx context.Context, method, path string, input, output any) error {
 	var body io.Reader
 	if input != nil {

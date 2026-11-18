@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/netip"
 	"path/filepath"
@@ -65,6 +66,33 @@ type Config struct {
 	// Attach re-registers running VMs after a controller/node restart.
 	RegisterNetwork   func(context.Context, string, netip.Addr) error
 	UnregisterNetwork func(context.Context, string, netip.Addr) error
+
+	// Snapshots makes Stop keep the guest's memory: the VM is paused and a
+	// full Firecracker snapshot is written next to its disks, and the next
+	// Start resumes it (see snapshot_linux.go). Anything unexpected falls
+	// back to a cold shutdown or a cold boot. It needs Suspend, which asks
+	// sandboxd to flush its filesystems first (and fails for a sandboxd that
+	// cannot resume), and WaitConnected, which bounds how long a resumed
+	// guest may take to reconnect its tunnel before it is cold booted.
+	Snapshots     bool
+	Suspend       func(context.Context, sandbox.ID) error
+	WaitConnected func(context.Context, sandbox.ID) error
+	// SnapshotMaxBytes caps the disk space all snapshots of this node take
+	// (0: no cap). A sleep that would exceed it shuts the VM down instead.
+	SnapshotMaxBytes int64
+	// SnapshotReserveBytes is the free space a snapshot must leave on the
+	// data filesystem (default 2 GiB).
+	SnapshotReserveBytes int64
+	// Balloon adds a virtio balloon to every VM and inflates it before a
+	// snapshot, so the guest's free memory is not written to disk.
+	Balloon bool
+	// SnapshotTimeout bounds writing a snapshot (default 2 min);
+	// ResumeConnectTimeout bounds the tunnel reconnect after a resume
+	// (default 15 s).
+	SnapshotTimeout      time.Duration
+	ResumeConnectTimeout time.Duration
+	// Log receives snapshot fallbacks and measurements (default slog.Default()).
+	Log *slog.Logger
 }
 
 func (c Config) normalized() (Config, error) {
@@ -124,6 +152,24 @@ func (c Config) normalized() (Config, error) {
 	}
 	if c.StopTimeout < 0 || c.StartTimeout < 0 {
 		return c, errors.New("timeouts must be positive")
+	}
+	if c.SnapshotReserveBytes == 0 {
+		c.SnapshotReserveBytes = 2 << 30
+	}
+	if c.SnapshotTimeout == 0 {
+		c.SnapshotTimeout = 2 * time.Minute
+	}
+	if c.ResumeConnectTimeout == 0 {
+		c.ResumeConnectTimeout = 15 * time.Second
+	}
+	if c.SnapshotMaxBytes < 0 || c.SnapshotReserveBytes < 0 || c.SnapshotTimeout < 0 || c.ResumeConnectTimeout < 0 {
+		return c, errors.New("snapshot limits and timeouts must not be negative")
+	}
+	if c.Snapshots && (c.Suspend == nil || c.WaitConnected == nil) {
+		return c, errors.New("snapshots need the suspend and wait-connected callbacks")
+	}
+	if c.Log == nil {
+		c.Log = slog.Default()
 	}
 	if (c.RegisterNetwork == nil) != (c.UnregisterNetwork == nil) {
 		return c, errors.New("network register and unregister callbacks must be supplied together")

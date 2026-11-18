@@ -208,24 +208,8 @@ function Section({ app, section }: { app: App; section: AppSection }) {
               {app.idleMinutes === 0 && (
                 <span className="text-xs text-muted-foreground">Always on</span>
               )}
-              {app.createdByAgent && (
-                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Bot className="size-3.5" aria-hidden />
-                  created by{' '}
-                  {app.createdByAgent.name ? (
-                    <Link
-                      to="/a/$agentId"
-                      params={{ agentId: app.createdByAgent.id }}
-                      className="hover:underline"
-                    >
-                      {app.createdByAgent.name}
-                    </Link>
-                  ) : (
-                    'a deleted agent'
-                  )}
-                </span>
-              )}
             </div>
+            {app.createdByAgent && <ManagedBy app={app} owner={owner} />}
             {app.state === 'error' && app.stateError && (
               <p
                 role="alert"
@@ -409,5 +393,69 @@ function AppSettingsForm({ app }: { app: App }) {
       </div>
       <ErrorText error={save.error} />
     </form>
+  );
+}
+
+/** Who besides the owner controls the app: the agent that created it. */
+function ManagedBy({ app, owner }: { app: App; owner: boolean }) {
+  const qc = useQueryClient();
+  const takeOver = useMutation({
+    mutationFn: () =>
+      unwrap(
+        api.POST('/apps/{appId}/take-over', {
+          params: { path: { appId: app.id } },
+        }),
+      ),
+    onSuccess: async (a) => {
+      qc.setQueryData(['apps', app.id], a);
+      await qc.invalidateQueries({ queryKey: appsQuery.queryKey });
+    },
+  });
+  const agent = app.createdByAgent!;
+  return (
+    <div
+      role="note"
+      className="grid gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm"
+    >
+      <p className="flex items-start gap-2">
+        <Bot className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <span>
+          Managed by{' '}
+          {agent.name ? (
+            <Link
+              to="/a/$agentId"
+              params={{ agentId: agent.id }}
+              className="font-medium hover:underline"
+            >
+              {agent.name}
+            </Link>
+          ) : (
+            'a deleted agent'
+          )}
+          : it can deploy to, run commands in, and read logs of this app,
+          including with secrets attached here.
+        </span>
+      </p>
+      {owner && (
+        <div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={takeOver.isPending}
+            onClick={() => {
+              if (
+                confirm(
+                  'Take this app over? No agent will manage it afterwards. This cannot be undone.',
+                )
+              )
+                takeOver.mutate();
+            }}
+          >
+            Take over
+          </Button>
+          <ErrorText error={takeOver.error} />
+        </div>
+      )}
+    </div>
   );
 }

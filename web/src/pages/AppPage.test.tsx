@@ -1,6 +1,6 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { mockApi, renderApp } from '@/test-utils';
 
 const user = { id: 'u1', name: 'Alice', email: 'a@example.com' };
@@ -15,6 +15,7 @@ const app = {
   stateError: '',
   stateChangedAt: '2026-01-01T00:00:00Z',
   needsRebuild: false,
+  isTemplate: false,
   role: 'owner',
   url: 'https://site.apps.example.com/',
   createdByAgent: { id: 'ag1', name: 'builder' },
@@ -61,10 +62,13 @@ function mocks(extra: Record<string, unknown> = {}) {
   });
 }
 
-it('shows an app with its creator, service, URL and the apps list', async () => {
+it('shows an app with its manager, service, URL and the apps list', async () => {
   mocks();
   renderApp('/apps/ap1');
   expect(await screen.findByText('Always on')).toBeInTheDocument();
+  expect(screen.getByRole('note')).toHaveTextContent(
+    'Managed by builder: it can deploy to, run commands in, and read logs of this app, including with secrets attached here.',
+  );
   expect(screen.getByRole('link', { name: 'builder' })).toHaveAttribute(
     'href',
     '/a/ag1',
@@ -97,5 +101,26 @@ it('sets an idle timeout instead of always on', async () => {
     expect(calls.find((c) => c.key === 'PATCH /apps/ap1')?.body).toMatchObject({
       idleMinutes: 45,
     }),
+  );
+});
+
+it('lets the owner take the app over', async () => {
+  let current: typeof app & { createdByAgent?: unknown } = app;
+  const { calls } = mocks({
+    'GET /apps/ap1': () => ({ body: current }),
+    'POST /apps/ap1/take-over': () => {
+      current = { ...app, createdByAgent: undefined };
+      return { body: current };
+    },
+  });
+  vi.stubGlobal('confirm', () => true);
+  renderApp('/apps/ap1');
+  const u = userEvent.setup();
+  await u.click(await screen.findByRole('button', { name: 'Take over' }));
+  await waitFor(() =>
+    expect(calls.map((c) => c.key)).toContain('POST /apps/ap1/take-over'),
+  );
+  await waitFor(() =>
+    expect(screen.queryByRole('note')).not.toBeInTheDocument(),
   );
 });

@@ -414,6 +414,7 @@ func (d *Driver) suspend(ctx context.Context, id sandbox.ID, m *manifest) (err e
 	d.cfg.Log.Info("snapshot taken", "sandbox", id, "memoryMib", mem, "balloonMib", balloon,
 		"memoryFileBytes", info.MemoryBytes, "memoryFileAllocated", allocated(filepath.Join(dir, "memory")),
 		"prepare", tPaused.Sub(started).Round(time.Millisecond), "write", tWritten.Sub(tPaused).Round(time.Millisecond),
+		"finalize", time.Since(tWritten).Round(time.Millisecond),
 		"total", time.Since(started).Round(time.Millisecond))
 	return nil
 }
@@ -426,16 +427,75 @@ func allocated(path string) int64 {
 	return st.Blocks * 512
 }
 
+// punchZeros deallocates the all-zero pages of f. Firecracker writes a full
+// snapshot's memory file completely (measured on v1.18: allocated = guest
+// memory even with the balloon inflated), but pages the balloon took, and
+// memory the guest never touched, are zero: as holes they take no disk and
+// still read as zero when the file is mapped on resume.
+func punchZeros(f *os.File) error {
+	const page = 4096
+	buf := make([]byte, 4<<20)
+	var off, holeStart int64 = 0, -1
+	punch := func(end int64) error {
+		if holeStart < 0 {
+			return nil
+		}
+		err := unix.Fallocate(int(f.Fd()), unix.FALLOC_FL_PUNCH_HOLE|unix.FALLOC_FL_KEEP_SIZE, holeStart, end-holeStart)
+		holeStart = -1
+		return err
+	}
+	for {
+		n, err := f.ReadAt(buf, off)
+		for i := 0; i+page <= n; i += page {
+			if isZero(buf[i : i+page]) {
+				if holeStart < 0 {
+					holeStart = off + int64(i)
+				}
+			} else if e := punch(off + int64(i)); e != nil {
+				return e
+			}
+		}
+		off += int64(n)
+		if errors.Is(err, io.EOF) {
+			return punch(off - off%page)
+		}
+		if err != nil {
+			return err
+		}
+	}
+}
+
+func isZero(b []byte) bool {
+	for len(b) >= 8 {
+		if b[0]|b[1]|b[2]|b[3]|b[4]|b[5]|b[6]|b[7] != 0 {
+			return false
+		}
+		b = b[8:]
+	}
+	for _, c := range b {
+		if c != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // finalizeSnapshot moves the written files into place and writes the
 // manifest last. The VMM has exited.
 func (d *Driver) finalizeSnapshot(id sandbox.ID, info *snapshotInfo) error {
 	dir := d.snapDir(id)
 	for _, name := range []string{"vmstate", "memory"} {
-		f, err := os.Open(filepath.Join(dir, name+".new"))
+		f, err := os.OpenFile(filepath.Join(dir, name+".new"), os.O_RDWR, 0)
 		if err != nil {
 			return err
 		}
-		st, err := f.Stat()
+		if name == "memory" {
+			err = punchZeros(f)
+		}
+		var st os.FileInfo
+		if err == nil {
+			st, err = f.Stat()
+		}
 		if err == nil {
 			err = f.Sync()
 		}

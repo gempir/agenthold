@@ -144,7 +144,9 @@ AGENTHOLD_SMOKE_PASSWORD=... /tmp/native -base http://127.0.0.1:8080 -fakeagent 
 ```
 
 Back up the database, master key, CA and agent disks before upgrading. Binary rollback does not reverse
-database migrations, so migrations are append-only.
+database migrations, so migrations are append-only. Rolling back past G1 (host-delivered sandboxd) leaves
+machines created or reset since then unbootable until you roll forward again: their base has no sandboxd of its
+own. Their disks are not touched.
 
 ## Disk usage
 

@@ -28,15 +28,35 @@ type harnessCgroup struct {
 }
 
 func newHarnessCgroup(log *slog.Logger) *harnessCgroup {
+	return newCgroup(log, fmt.Sprintf("agenthold-harness-%d-%d", os.Getpid(), cgroupSeq.Add(1)))
+}
+
+// serviceCgroupPrefix names the cgroups of supervised services.
+const serviceCgroupPrefix = "agenthold-svc-"
+
+// newServiceCgroup returns the cgroup of a supervised service. Its name is
+// fixed, so one a previous daemon left behind (with its processes, which
+// init adopted) is killed and replaced: a service never runs twice.
+func newServiceCgroup(log *slog.Logger, name string) *harnessCgroup {
+	dir := filepath.Join(cgroupRoot, serviceCgroupPrefix+name)
+	if _, err := os.Stat(dir); err == nil {
+		old := &harnessCgroup{dir: dir, fd: -1}
+		old.remove()
+	}
+	return newCgroup(log, serviceCgroupPrefix+name)
+}
+
+// newCgroup creates the leaf cgroup name under the root, or returns nil.
+func newCgroup(log *slog.Logger, name string) *harnessCgroup {
 	if os.Geteuid() != 0 {
 		return nil
 	}
 	if _, err := os.Stat(filepath.Join(cgroupRoot, "cgroup.controllers")); err != nil {
 		return nil // not cgroup v2
 	}
-	dir := filepath.Join(cgroupRoot, fmt.Sprintf("agenthold-harness-%d-%d", os.Getpid(), cgroupSeq.Add(1)))
+	dir := filepath.Join(cgroupRoot, name)
 	if err := os.Mkdir(dir, 0o755); err != nil {
-		log.Warn("harness cgroup", "err", err)
+		log.Warn("cgroup", "name", name, "err", err)
 		return nil
 	}
 	if _, err := os.Stat(filepath.Join(dir, "cgroup.kill")); err != nil {

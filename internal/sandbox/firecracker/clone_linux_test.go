@@ -337,3 +337,31 @@ func TestCloneWaitsForAnUnwindingClone(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Cleanup removes the sandbox's cgroup below the configured root, and a root
+// without it (a VM that never ran) is fine. Unit tests never touch the real hierarchy.
+func TestDestroyRemovesItsCgroupAndToleratesMissingOne(t *testing.T) {
+	d := cloneDriver(t)
+	if d.cfg.CgroupRoot == defaultCgroupRoot {
+		t.Fatal("unit tests must not use the real cgroup root")
+	}
+	ctx := context.Background()
+	for _, id := range []sandbox.ID{"ag_a", "ag_b"} {
+		if _, err := d.Create(ctx, sandbox.Spec{AgentID: string(id), Resources: sandbox.Resources{DiskGB: 1}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	leftover := filepath.Join(d.cfg.CgroupRoot, d.jailID("ag_a"))
+	if err := os.Mkdir(leftover, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Destroy(ctx, "ag_a", sandbox.DestroyOpts{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(leftover); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cgroup left behind: %v", err)
+	}
+	if err := d.Destroy(ctx, "ag_b", sandbox.DestroyOpts{}); err != nil {
+		t.Fatalf("destroy without a cgroup: %v", err)
+	}
+}

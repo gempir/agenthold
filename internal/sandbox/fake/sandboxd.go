@@ -12,6 +12,7 @@ import (
 
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandboxd"
+	"github.com/gempir/agenthold/internal/tunnel"
 )
 
 // RunSandboxd makes every started sandbox run an in-process sandboxd that
@@ -33,7 +34,17 @@ func (d *Driver) RunSandboxd(host string, log *slog.Logger) {
 	defer d.mu.Unlock()
 	d.OnStart = func(id sandbox.ID, sb Sandbox, boot sandbox.Boot) {
 		stop(id)
+		// The services a microVM's sandboxd reads from its boot files.
+		services := []tunnel.ServiceSpec{}
+		if b, ok := boot.Files[sandboxd.ServicesFile]; ok {
+			if specs, err := sandboxd.ParseServices(b); err == nil {
+				services = specs
+			} else if log != nil {
+				log.Error("fake sandboxd: services", "err", err)
+			}
+		}
 		dmn, err := sandboxd.New(sandboxd.Config{
+			Services: services,
 			Boot: sandboxd.Boot{
 				AgentID: boot.AgentID, Token: boot.Token,
 				TunnelURL: fmt.Sprintf("ws://%s:%d/tunnel", host, boot.TunnelPort),

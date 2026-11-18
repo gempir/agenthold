@@ -7,6 +7,7 @@ import {
   useSearch,
 } from '@tanstack/react-router';
 import {
+  AppWindow,
   Bot,
   ChevronRight,
   Layers,
@@ -22,7 +23,8 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { meQuery } from '@/api/queries';
+import { api, unwrap } from '@/api/client';
+import { appsQuery, meQuery } from '@/api/queries';
 import { AgentStateDot } from '@/components/AgentStateBadge';
 import { Avatar } from '@/components/Avatar';
 import { ErrorText } from '@/components/Spinner';
@@ -219,6 +221,8 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             )}
           </ul>
         )}
+
+        <AppsSection query={q} />
 
         <SectionHeader>Chats</SectionHeader>
         <ul aria-label="Chats" className="grid grid-cols-1 gap-px">
@@ -480,5 +484,89 @@ function Footer() {
         <LogOut className="size-4" />
       </Button>
     </div>
+  );
+}
+
+/** Apps: machines without a harness, reached at their URLs. */
+function AppsSection({ query: q }: { query: string }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const params = useParams({ strict: false }) as { appId?: string };
+  const [open, setOpen] = useState(true);
+  const apps = useQuery(appsQuery);
+  const create = useMutation({
+    mutationFn: (name: string) => unwrap(api.POST('/apps', { body: { name } })),
+    onSuccess: async (app) => {
+      await qc.invalidateQueries({ queryKey: appsQuery.queryKey });
+      await navigate({ to: '/apps/$appId', params: { appId: app.id } });
+    },
+  });
+  const list = (apps.data ?? []).filter(
+    (a) => !q || a.name.toLowerCase().includes(q),
+  );
+  return (
+    <>
+      <div className="flex items-center">
+        <div className="flex-1">
+          <SectionHeader
+            open={open}
+            onToggle={() => setOpen((o) => !o)}
+            count={apps.data?.length}
+          >
+            Apps
+          </SectionHeader>
+        </div>
+        <button
+          type="button"
+          aria-label="New app"
+          title="New app"
+          disabled={create.isPending}
+          onClick={() => {
+            const name = globalThis.prompt?.('Name of the new app')?.trim();
+            if (name) create.mutate(name);
+          }}
+          className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <Plus className="size-3.5" />
+        </button>
+      </div>
+      <ErrorText error={apps.error ?? create.error} />
+      {open && (
+        <ul aria-label="Apps" className="mb-3 grid grid-cols-1 gap-px">
+          {apps.isSuccess && list.length === 0 && (
+            <li className="px-2 py-1.5 text-muted-foreground">
+              {q
+                ? 'No matching apps.'
+                : 'No apps yet. Agents create them with deploy_app.'}
+            </li>
+          )}
+          {list.map((a) => (
+            <li key={a.id}>
+              <Link
+                to="/apps/$appId"
+                params={{ appId: a.id }}
+                aria-current={params.appId === a.id ? 'page' : undefined}
+                className={cn(
+                  'flex h-8 items-center gap-2 rounded-lg px-2 hover:bg-accent/50',
+                  params.appId === a.id && 'bg-accent/70',
+                )}
+              >
+                <AgentStateDot state={a.state} />
+                <AppWindow
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                  aria-hidden
+                />
+                <span className="min-w-0 flex-1 truncate">{a.name}</span>
+                {a.url && (
+                  <span className="max-w-[45%] truncate text-xs text-muted-foreground">
+                    {a.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                  </span>
+                )}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }

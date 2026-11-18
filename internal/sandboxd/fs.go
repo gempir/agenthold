@@ -55,6 +55,7 @@ func (d *Daemon) fsList(st net.Conn, o tunnel.Open) error {
 			if target, err := os.Stat(filepath.Join(dir, e.Name())); err == nil {
 				fi.IsDir = target.IsDir()
 			}
+			fi.Target, _ = os.Readlink(filepath.Join(dir, e.Name()))
 		}
 		out.Entries = append(out.Entries, fi)
 	}

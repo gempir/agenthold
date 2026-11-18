@@ -15,12 +15,17 @@ type Querier interface {
 	ClaimExposureName(ctx context.Context, name string) error
 	// Single use: only one caller can move used_at away from zero.
 	ConsumeNodeJoinToken(ctx context.Context, arg ConsumeNodeJoinTokenParams) (string, error)
+	CopyServices(ctx context.Context, arg CopyServicesParams) error
+	CountAgentApps(ctx context.Context, createdByAgentID string) (int64, error)
 	CountExposures(ctx context.Context, agentID string) (int64, error)
 	CountNodeSandboxes(ctx context.Context, nodeID string) (int64, error)
+	CountOwnerApps(ctx context.Context, ownerID string) (int64, error)
 	CountUserIdentities(ctx context.Context, arg CountUserIdentitiesParams) (int64, error)
 	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) error
 	CreateAgent(ctx context.Context, arg CreateAgentParams) error
 	CreateAgentSession(ctx context.Context, arg CreateAgentSessionParams) error
+	// An app is a machine without a harness.
+	CreateApp(ctx context.Context, arg CreateAppParams) error
 	// A clone keeps the settings of its source, including whether its disks hold harness credentials.
 	CreateClonedAgent(ctx context.Context, arg CreateClonedAgentParams) error
 	CreateExposure(ctx context.Context, arg CreateExposureParams) error
@@ -55,6 +60,7 @@ type Querier interface {
 	DeleteProviderLogin(ctx context.Context, arg DeleteProviderLoginParams) (int64, error)
 	DeleteSchedule(ctx context.Context, id string) error
 	DeleteSecret(ctx context.Context, id string) error
+	DeleteService(ctx context.Context, arg DeleteServiceParams) (int64, error)
 	DeleteSession(ctx context.Context, tokenHash string) error
 	DeleteSkill(ctx context.Context, id string) error
 	DeleteStaleNodeJoinTokens(ctx context.Context, before int64) error
@@ -86,6 +92,7 @@ type Querier interface {
 	GetSchedule(ctx context.Context, id string) (Schedule, error)
 	GetSecret(ctx context.Context, id string) (Secret, error)
 	GetSecretByName(ctx context.Context, arg GetSecretByNameParams) (Secret, error)
+	GetService(ctx context.Context, arg GetServiceParams) (Service, error)
 	GetSessionUser(ctx context.Context, arg GetSessionUserParams) (GetSessionUserRow, error)
 	GetShare(ctx context.Context, arg GetShareParams) (AgentShare, error)
 	GetSkill(ctx context.Context, id string) (Skill, error)
@@ -100,6 +107,8 @@ type Querier interface {
 	// Sessions of an agent that another agent started, newest first.
 	LinkedSessions(ctx context.Context, arg LinkedSessionsParams) ([]AgentSession, error)
 	ListAPITokens(ctx context.Context, userID string) ([]ApiToken, error)
+	// Apps created by an agent.
+	ListAgentApps(ctx context.Context, createdByAgentID string) ([]Agent, error)
 	ListAgentAudit(ctx context.Context, arg ListAgentAuditParams) ([]AuditLog, error)
 	// Everything the agent uses: its own servers and attached library servers.
 	ListAgentMCPServers(ctx context.Context, agentID string) ([]McpServer, error)
@@ -117,6 +126,7 @@ type Querier interface {
 	ListProviderLogins(ctx context.Context) ([]ProviderLogin, error)
 	ListSandboxSubnets(ctx context.Context) ([]ListSandboxSubnetsRow, error)
 	ListSandboxes(ctx context.Context) ([]Sandbox, error)
+	ListServices(ctx context.Context, agentID string) ([]Service, error)
 	ListSessionEvents(ctx context.Context, arg ListSessionEventsParams) ([]AgentSessionEvent, error)
 	// Sessions whose last prompt has no turn_end after it: their turn was cut off.
 	ListUnfinishedSessions(ctx context.Context) ([]string, error)
@@ -130,6 +140,8 @@ type Querier interface {
 	ListUserSkills(ctx context.Context, ownerID string) ([]Skill, error)
 	// Users with this verified email, for sharing. Emails are compared case-insensitively.
 	ListUsersByVerifiedEmail(ctx context.Context, lower string) ([]User, error)
+	// A clone of an app is an app of its cloner, managed by no agent.
+	MakeAppClone(ctx context.Context, id string) error
 	MarkCredentialsInSandbox(ctx context.Context, id string) error
 	MaxSessionSeq(ctx context.Context, sessionID string) (int64, error)
 	RecordScheduleRun(ctx context.Context, arg RecordScheduleRunParams) error
@@ -144,6 +156,7 @@ type Querier interface {
 	SetAgentLoginUser(ctx context.Context, arg SetAgentLoginUserParams) error
 	SetAgentTemplate(ctx context.Context, arg SetAgentTemplateParams) error
 	SetBootToken(ctx context.Context, arg SetBootTokenParams) error
+	SetExposurePort(ctx context.Context, arg SetExposurePortParams) error
 	SetNodeCapacity(ctx context.Context, arg SetNodeCapacityParams) error
 	SetNodeState(ctx context.Context, arg SetNodeStateParams) error
 	SetPermissionPolicy(ctx context.Context, arg SetPermissionPolicyParams) error
@@ -154,6 +167,7 @@ type Querier interface {
 	SetSandboxResume(ctx context.Context, arg SetSandboxResumeParams) error
 	SetSandboxState(ctx context.Context, arg SetSandboxStateParams) error
 	SetSandboxSubnet(ctx context.Context, arg SetSandboxSubnetParams) error
+	SetServiceEnabled(ctx context.Context, arg SetServiceEnabledParams) (int64, error)
 	SetSessionACPID(ctx context.Context, arg SetSessionACPIDParams) error
 	SetSessionOrigin(ctx context.Context, arg SetSessionOriginParams) error
 	SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error
@@ -161,6 +175,8 @@ type Querier interface {
 	// Only if nobody replaced the credential meanwhile.
 	StoreRefreshedLogin(ctx context.Context, arg StoreRefreshedLoginParams) (int64, error)
 	TakeLoginState(ctx context.Context, arg TakeLoginStateParams) (LoginState, error)
+	// The owner takes an app away from the agent that created it.
+	TakeOverApp(ctx context.Context, arg TakeOverAppParams) (int64, error)
 	TakePreviewCode(ctx context.Context, arg TakePreviewCodeParams) (PreviewCode, error)
 	TouchAPIToken(ctx context.Context, arg TouchAPITokenParams) error
 	TouchIdentity(ctx context.Context, arg TouchIdentityParams) error
@@ -178,6 +194,7 @@ type Querier interface {
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
 	UpdateWebhook(ctx context.Context, arg UpdateWebhookParams) error
 	UpsertLocalNode(ctx context.Context, arg UpsertLocalNodeParams) error
+	UpsertService(ctx context.Context, arg UpsertServiceParams) error
 }
 
 var _ Querier = (*Queries)(nil)

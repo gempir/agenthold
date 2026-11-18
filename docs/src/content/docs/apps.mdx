@@ -1,0 +1,159 @@
+---
+title: "Apps and services"
+description: "Keep commands running in a machine with services, and let agents deploy web apps to always-on app machines."
+---
+
+Every agent runs in its own microVM, a *machine*. Two things build on that:
+
+- A **service** is a long-running command that sandboxd, the daemon inside the machine, supervises: a dev server,
+  a worker, a database. Any machine can have services.
+- An **app** is a machine without a harness. It has no chat, sessions, schedules or webhooks; it exists to run
+  services and to be reached at a [preview URL](/previews/). Agents create apps with `deploy_app`; users can create
+  them in the **Apps** section of the sidebar.
+
+## Services
+
+A service is `(machine, name, command, workdir, env, enabled)`. The command runs with the login shell (`sh -lc`) as
+the `agent` user, in `workdir` (relative to the home), with `env` added to the machine's environment. It runs in its
+own cgroup, independent of chats and terminals:
+
+- When it exits, it is restarted after a delay that starts at 1 second and doubles up to 30 seconds; a run that
+  lasted 60 seconds resets the delay. A command that cannot be started at all (its working directory is missing) is
+  shown as `failed` and retried the same way.
+- Stopping it kills the whole cgroup: everything the command started goes with it, and its port is free again.
+- Its output (stdout and stderr) goes to `~/.agenthold/services/<name>/log`, rotated at 10 MiB with one older file
+  kept (`log.1`). Lines starting with `agenthold:` are written by the supervisor (starts, exits, restarts).
+- Services start with the machine, before it connects to the server: the server writes them into the machine's boot
+  configuration at every start, and changes made while it runs apply at once.
+- A sleeping machine's services are down. Services alone do not keep a machine awake: an agent with services
+  still sleeps after its idle timeout (traffic to its preview URLs counts as activity).
+
+Owners create, change, start, stop, restart and remove services in the machine's **Services** settings or with
+`PUT /api/v1/agents/{id}/services/{name}` and its siblings ([API reference](/api/)). Users the machine is shared with
+see their status and follow their logs.
+
+Secrets reach services the same way they reach every process in a machine: attach a secret to the machine and its
+placeholder is in the environment; the egress proxy swaps in the real value on the wire ([egress](/egress/)).
+Never put secret values into a service's `env`: it is stored in plain text.
+
+### Keeping a dev server alive
+
+Background processes an agent starts during a turn (`npm run dev &`, `nohup ...`) are stopped when the harness ends,
+so a dev server started that way dies with the turn. Agents use their platform tools instead:
+
+| Tool | What it does |
+|---|---|
+| `start_service(name, command, workdir?, env?)` | create or update a service of the agent's own machine and start it (restart it if unchanged) |
+| `stop_service(name)` | stop it (it stays defined) |
+| `list_services` | services with their state, restarts and last exit |
+| `service_logs(name, lines?)` | the last lines of its output |
+
+Together with `expose_port`, an agent can run `start_service("web", "npm run dev -- --port 5173", "app")` and then
+`expose_port(5173)` to hand its owner a URL of a dev server that keeps running between turns.
+
+## Apps
+
+An app is a machine of kind `app`. It uses the same base image as agents (Node.js, Python and Chromium are there),
+has an owner, can be shared, and can have secrets attached by its owner. Apps are **always on** by default: their
+idle timeout is 0, which means "never sleep". An owner may set an idle timeout in the app's settings; a sleeping app
+then wakes for its owner and shared users, and for other visitors if the exposure has **Visitors wake it** on.
+
+### The agent workflow
+
+1. The agent writes a web app in a directory of its machine, for example `~/todo`, that listens on `$PORT`.
+2. It calls `deploy_app(name: "todo", source_dir: "todo", command: "node server.js", port: 3000)`.
+3. agenthold creates the app machine `todo` (if it does not exist yet), copies the directory into a new release,
+   starts the command and waits up to 60 seconds for the port to accept connections.
+4. The tool returns the URL, for example `https://todo.apps.example.com`, behind the agenthold sign-in.
+
+If the release does not come up, the tool returns its last log lines and the previous release serves again; the
+agent fixes its app and deploys again. The URL is created (or moved to a new port) only once a release serves;
+a failed deploy leaves it exactly as it was.
+
+| Tool | What it does |
+|---|---|
+| `deploy_app(name, source_dir, command, port, env?, access?, memory_mb?, cpus?)` | create or update an app and deploy a directory to it |
+| `list_apps` | the owner's apps: name, state, URL and whether the calling agent created them |
+| `app_logs(name, lines?)` | the app's output |
+| `app_exec(name, command, timeout?)` | run a command in the app (in its current release), for migrations or checks |
+| `restart_app(name)`, `stop_app(name)` | restart its service, stop its machine |
+| `delete_app(name)` | delete the app |
+
+### Managed by an agent
+
+An agent manages only the apps it created: every tool but `list_apps` refuses any other app, including apps of
+its owner that a user or another agent created. The app page says so while it lasts: **Managed by &lt;agent&gt;: it
+can deploy to, run commands in, and read logs of this app, including with secrets attached here.** That last part
+matters: a secret the owner attaches to an app reaches the app's processes as a placeholder that the egress proxy
+swaps for the real value, and the managing agent controls those processes, so it can use the secret.
+
+The owner can **Take over** an app (on its page, or `POST /api/v1/apps/{id}/take-over`). After that no agent
+manages it. This cannot be undone; an agent can only deploy a new app under another name. Deleting the agent keeps
+its apps, managed by nobody ("a deleted agent").
+
+Apps do not appear in `list_agents` and cannot be messaged, and an app's own processes get no platform tools.
+
+### How a deploy works
+
+A deploy streams the source directory as a tar archive out of the source machine, through the server, into the app
+(machines on different [edge nodes](/edge-nodes/) work the same way). The files land in `~/app/releases/<n>/`;
+`~/app/current` is a symlink that is switched atomically to the new release once the copy is complete, and the last
+three releases are kept. The service `app` runs `command` in `~/app/current` with `PORT=<port>` and `env`. The
+exposure of `port` is created (or its access updated).
+
+- `.git` is left out; `node_modules` is copied (install dependencies before deploying, or in the command).
+- Symlinks are copied as symlinks; device files and sockets are skipped; setuid bits are dropped. Archive entries that
+  would leave the release directory are refused.
+- A copy that fails changes nothing. A release whose port does not come up in time (or whose command keeps crashing)
+  is rolled back to the previous one.
+- The exposure is touched only after the release serves: a new one is created, or the one deploy made for another
+  port is moved to the new port in place (same name, URL and access).
+- Access is set only when the exposure is created (default `private`); after that only the owner changes it, and a
+  later `access` given to `deploy_app` is ignored.
+- A deploy takes at most 15 minutes, and the copy stops when nothing moved for 60 seconds or the archive is larger
+  than `apps.deploy_max_bytes` (plus tar overhead), or has more than 200,000 entries.
+- If the server or the app machine stops right after `~/app/current` was switched but before the service was
+  updated, the app runs the **new files with the old command** (and port) until the next deploy. Deploy again to
+  finish it.
+
+Owners can deploy from the API too: `POST /api/v1/apps/{id}/deploy` with a source machine they can open a terminal in.
+
+### Who sees an app
+
+The exposure decides who can open an app's URL ([access modes](/previews/#access)). Agents may make it `private`
+(the owner and the users the app is shared with) or `authenticated` (anyone signed in); only the owner can make it
+`public`. Requests of signed-in visitors carry the [identity headers](/previews/#identity-headers)
+(`X-Agenthold-User`, `X-Agenthold-Email`, `X-Agenthold-Name` and the signed `X-Agenthold-Identity` JWT), so an app
+knows who is using it without implementing a login.
+
+## Limits
+
+| Setting | Default | |
+|---|---|---|
+| `apps.max_per_agent` | 3 | apps one agent may have created; `0` means agents cannot create apps |
+| `apps.max_per_owner` | 10 | apps one user may own, however they were created (UI, API, agents, clones) |
+| `apps.default_cpus`, `apps.default_memory_mb` | 1, 1024 | size of an app an agent creates (and of one created in the UI) |
+| `apps.max_cpus`, `apps.max_memory_mb` | 2, 2048 | the most an agent may ask for (users get the `sandbox.*` limits) |
+| `apps.deploy_max_bytes` | 2 GiB | the largest directory a deploy copies |
+
+A machine has at most 20 services. Apps count against node capacity like agents. App names are DNS labels (they
+name the URL), unique among one owner's apps.
+
+## Clones and templates
+
+Cloning works for apps as for agents (`POST /api/v1/agents/{id}/clone` with the app's id): the clone is a new app of
+yours, managed by no agent, with a copy of the disks (all releases), the services and the attached secrets, but no
+URLs: expose it yourself. Its name follows the app name rules and `apps.max_per_owner` applies. An app can be made a
+template (`isTemplate` in its settings); a template is never started and is cloned into new apps.
+
+## The API rule
+
+Agents and apps share one id space. `/agents/{id}` itself (and its start, stop and rebuild) is for agents, and
+`/apps/{id}` for apps; the other id gets `404` there. Harness features (sessions, schedules, webhooks, logins, MCP
+servers, skills) answer `409` for an app. Everything that belongs to the machine (services, exposures, files,
+terminal, shares, secrets, audit) is under `/agents/{id}/...` for both kinds; an app lists those paths in `links`.
+
+## Old machines
+
+Services, deploys and `app_exec` need a sandboxd that knows them. A machine still running an older one answers
+"this machine's sandboxd is too old": restart it, or reset its system if its base image is older.

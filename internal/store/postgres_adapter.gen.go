@@ -34,6 +34,15 @@ func (p postgresQueries) ConsumeNodeJoinToken(ctx context.Context, arg db.Consum
 	return value, err
 }
 
+func (p postgresQueries) CopyServices(ctx context.Context, arg db.CopyServicesParams) error {
+	return p.q.CopyServices(ctx, postgres.CopyServicesParams(arg))
+}
+
+func (p postgresQueries) CountAgentApps(ctx context.Context, createdByAgentID string) (int64, error) {
+	value, err := p.q.CountAgentApps(ctx, createdByAgentID)
+	return value, err
+}
+
 func (p postgresQueries) CountExposures(ctx context.Context, agentID string) (int64, error) {
 	value, err := p.q.CountExposures(ctx, agentID)
 	return value, err
@@ -41,6 +50,11 @@ func (p postgresQueries) CountExposures(ctx context.Context, agentID string) (in
 
 func (p postgresQueries) CountNodeSandboxes(ctx context.Context, nodeID string) (int64, error) {
 	value, err := p.q.CountNodeSandboxes(ctx, nodeID)
+	return value, err
+}
+
+func (p postgresQueries) CountOwnerApps(ctx context.Context, ownerID string) (int64, error) {
+	value, err := p.q.CountOwnerApps(ctx, ownerID)
 	return value, err
 }
 
@@ -59,6 +73,10 @@ func (p postgresQueries) CreateAgent(ctx context.Context, arg db.CreateAgentPara
 
 func (p postgresQueries) CreateAgentSession(ctx context.Context, arg db.CreateAgentSessionParams) error {
 	return p.q.CreateAgentSession(ctx, postgres.CreateAgentSessionParams(arg))
+}
+
+func (p postgresQueries) CreateApp(ctx context.Context, arg db.CreateAppParams) error {
+	return p.q.CreateApp(ctx, postgres.CreateAppParams(arg))
 }
 
 func (p postgresQueries) CreateClonedAgent(ctx context.Context, arg db.CreateClonedAgentParams) error {
@@ -194,6 +212,11 @@ func (p postgresQueries) DeleteSchedule(ctx context.Context, id string) error {
 
 func (p postgresQueries) DeleteSecret(ctx context.Context, id string) error {
 	return p.q.DeleteSecret(ctx, id)
+}
+
+func (p postgresQueries) DeleteService(ctx context.Context, arg db.DeleteServiceParams) (int64, error) {
+	value, err := p.q.DeleteService(ctx, postgres.DeleteServiceParams(arg))
+	return value, err
 }
 
 func (p postgresQueries) DeleteSession(ctx context.Context, tokenHash string) error {
@@ -350,6 +373,11 @@ func (p postgresQueries) GetSecretByName(ctx context.Context, arg db.GetSecretBy
 	return db.Secret(value), err
 }
 
+func (p postgresQueries) GetService(ctx context.Context, arg db.GetServiceParams) (db.Service, error) {
+	value, err := p.q.GetService(ctx, postgres.GetServiceParams(arg))
+	return db.Service(value), err
+}
+
 func (p postgresQueries) GetSessionUser(ctx context.Context, arg db.GetSessionUserParams) (db.GetSessionUserRow, error) {
 	value, err := p.q.GetSessionUser(ctx, postgres.GetSessionUserParams(arg))
 	return db.GetSessionUserRow{User: db.User(value.User), ExpiresAt: value.ExpiresAt}, err
@@ -423,6 +451,18 @@ func (p postgresQueries) ListAPITokens(ctx context.Context, userID string) ([]db
 	result := make([]db.ApiToken, 0, len(value))
 	for _, row := range value {
 		result = append(result, db.ApiToken(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListAgentApps(ctx context.Context, createdByAgentID string) ([]db.Agent, error) {
+	value, err := p.q.ListAgentApps(ctx, createdByAgentID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.Agent, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.Agent(row))
 	}
 	return result, nil
 }
@@ -619,6 +659,18 @@ func (p postgresQueries) ListSandboxes(ctx context.Context) ([]db.Sandbox, error
 	return result, nil
 }
 
+func (p postgresQueries) ListServices(ctx context.Context, agentID string) ([]db.Service, error) {
+	value, err := p.q.ListServices(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.Service, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.Service(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListSessionEvents(ctx context.Context, arg db.ListSessionEventsParams) ([]db.AgentSessionEvent, error) {
 	value, err := p.q.ListSessionEvents(ctx, postgres.ListSessionEventsParams(arg))
 	if err != nil {
@@ -727,6 +779,10 @@ func (p postgresQueries) ListUsersByVerifiedEmail(ctx context.Context, lower str
 	return result, nil
 }
 
+func (p postgresQueries) MakeAppClone(ctx context.Context, id string) error {
+	return p.q.MakeAppClone(ctx, id)
+}
+
 func (p postgresQueries) MarkCredentialsInSandbox(ctx context.Context, id string) error {
 	return p.q.MarkCredentialsInSandbox(ctx, id)
 }
@@ -776,6 +832,10 @@ func (p postgresQueries) SetBootToken(ctx context.Context, arg db.SetBootTokenPa
 	return p.q.SetBootToken(ctx, postgres.SetBootTokenParams(arg))
 }
 
+func (p postgresQueries) SetExposurePort(ctx context.Context, arg db.SetExposurePortParams) error {
+	return p.q.SetExposurePort(ctx, postgres.SetExposurePortParams(arg))
+}
+
 func (p postgresQueries) SetNodeCapacity(ctx context.Context, arg db.SetNodeCapacityParams) error {
 	return p.q.SetNodeCapacity(ctx, postgres.SetNodeCapacityParams(arg))
 }
@@ -812,6 +872,11 @@ func (p postgresQueries) SetSandboxSubnet(ctx context.Context, arg db.SetSandbox
 	return p.q.SetSandboxSubnet(ctx, postgres.SetSandboxSubnetParams(arg))
 }
 
+func (p postgresQueries) SetServiceEnabled(ctx context.Context, arg db.SetServiceEnabledParams) (int64, error) {
+	value, err := p.q.SetServiceEnabled(ctx, postgres.SetServiceEnabledParams(arg))
+	return value, err
+}
+
 func (p postgresQueries) SetSessionACPID(ctx context.Context, arg db.SetSessionACPIDParams) error {
 	return p.q.SetSessionACPID(ctx, postgres.SetSessionACPIDParams(arg))
 }
@@ -836,6 +901,11 @@ func (p postgresQueries) StoreRefreshedLogin(ctx context.Context, arg db.StoreRe
 func (p postgresQueries) TakeLoginState(ctx context.Context, arg db.TakeLoginStateParams) (db.LoginState, error) {
 	value, err := p.q.TakeLoginState(ctx, postgres.TakeLoginStateParams(arg))
 	return db.LoginState(value), err
+}
+
+func (p postgresQueries) TakeOverApp(ctx context.Context, arg db.TakeOverAppParams) (int64, error) {
+	value, err := p.q.TakeOverApp(ctx, postgres.TakeOverAppParams(arg))
+	return value, err
 }
 
 func (p postgresQueries) TakePreviewCode(ctx context.Context, arg db.TakePreviewCodeParams) (db.PreviewCode, error) {
@@ -910,4 +980,8 @@ func (p postgresQueries) UpdateWebhook(ctx context.Context, arg db.UpdateWebhook
 
 func (p postgresQueries) UpsertLocalNode(ctx context.Context, arg db.UpsertLocalNodeParams) error {
 	return p.q.UpsertLocalNode(ctx, postgres.UpsertLocalNodeParams(arg))
+}
+
+func (p postgresQueries) UpsertService(ctx context.Context, arg db.UpsertServiceParams) error {
+	return p.q.UpsertService(ctx, postgres.UpsertServiceParams(arg))
 }

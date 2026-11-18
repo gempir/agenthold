@@ -461,7 +461,7 @@ func TestAppTools(t *testing.T) {
 	}
 
 	// The per-agent limit.
-	e.apps.Limits.MaxPerAgent = 1
+	e.apps.Limits.MaxPerAgent = ptr(1)
 	if _, err := e.tool(ag, "deploy_app", map[string]any{"name": "web2", "source_dir": "site", "command": pyServer, "port": freePort(t)}); err == nil ||
 		!strings.Contains(err.Error(), "most an agent may have") {
 		t.Fatalf("limit: %v", err)

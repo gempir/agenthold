@@ -6,6 +6,8 @@
 ALTER TABLE agents ADD COLUMN kind TEXT NOT NULL DEFAULT 'agent' CHECK (kind IN ('agent', 'app'));
 ALTER TABLE agents ADD COLUMN created_by_agent_id TEXT NOT NULL DEFAULT '';
 CREATE INDEX agents_created_by_agent ON agents(created_by_agent_id);
+-- App names are unique per owner: they name the app in tools and URLs.
+CREATE UNIQUE INDEX agents_owner_app_name ON agents(owner_id, name) WHERE kind = 'app';
 
 -- A service is a long-running command sandboxd supervises in a machine.
 -- command runs with the login shell ("sh -lc") as the agent account in
@@ -26,6 +28,7 @@ CREATE TABLE services (
 
 -- +goose Down
 DROP TABLE services;
+DROP INDEX agents_owner_app_name;
 DROP INDEX agents_created_by_agent;
 ALTER TABLE agents DROP COLUMN created_by_agent_id;
 ALTER TABLE agents DROP COLUMN kind;

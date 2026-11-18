@@ -453,6 +453,26 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /apps/{appId}/take-over:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    post:
+      operationId: takeOverApp
+      tags: [apps]
+      description: |
+        Owner only. The agent that created the app stops managing it: it can
+        no longer deploy to it, run commands in it, read its logs, restart,
+        stop or delete it. No agent manages it afterwards; this cannot be
+        undone (an agent can only deploy a new app under another name).
+      responses:
+        "200":
+          description: Taken over.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
   /apps/{appId}/deploy:
     parameters:
       - $ref: "#/components/parameters/AppId"
@@ -2356,7 +2376,9 @@ components:
         role: { $ref: "#/components/schemas/AgentRole" }
         createdByAgent:
           type: object
-          description: The agent that created the app with deploy_app (it may since have been deleted).
+          description: |
+            The agent that created the app with deploy_app and manages it (it may since have
+            been deleted). Absent once the owner took the app over.
           required: [id, name]
           properties:
             id: { type: string }
@@ -2383,7 +2405,7 @@ components:
       type: object
       required: [name]
       properties:
-        name: { type: string, minLength: 1, maxLength: 100 }
+        name: { type: string, minLength: 1, maxLength: 40, description: "A DNS label: lowercase letters, digits and hyphens, unique among your apps." }
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }
         idleMinutes: { type: integer, minimum: 0, maximum: 10080, description: Default 0 (always on). }
@@ -2391,7 +2413,7 @@ components:
     AppPatch:
       type: object
       properties:
-        name: { type: string, minLength: 1, maxLength: 100 }
+        name: { type: string, minLength: 1, maxLength: 40 }
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }
         idleMinutes: { type: integer, minimum: 0, maximum: 10080 }

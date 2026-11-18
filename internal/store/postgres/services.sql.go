@@ -9,6 +9,28 @@ import (
 	"context"
 )
 
+const countAgentApps = `-- name: CountAgentApps :one
+SELECT COUNT(*) FROM agents WHERE kind = 'app' AND created_by_agent_id = $1
+`
+
+func (q *Queries) CountAgentApps(ctx context.Context, createdByAgentID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAgentApps, createdByAgentID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countOwnerApps = `-- name: CountOwnerApps :one
+SELECT COUNT(*) FROM agents WHERE kind = 'app' AND owner_id = $1
+`
+
+func (q *Queries) CountOwnerApps(ctx context.Context, ownerID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countOwnerApps, ownerID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createApp = `-- name: CreateApp :exec
 INSERT INTO agents (id, owner_id, name, image, kind, harness, created_by_agent_id, cpus, memory_mb, idle_minutes, login_user_id, created_at, updated_at)
 VALUES ($1, $2, $3, $4, 'app', '', $5, $6, $7, $8, '', $9, $10)
@@ -167,6 +189,20 @@ func (q *Queries) ListServices(ctx context.Context, agentID string) ([]Service, 
 	return items, nil
 }
 
+const setExposurePort = `-- name: SetExposurePort :exec
+UPDATE exposures SET port = $1 WHERE id = $2
+`
+
+type SetExposurePortParams struct {
+	Port int64
+	ID   string
+}
+
+func (q *Queries) SetExposurePort(ctx context.Context, arg SetExposurePortParams) error {
+	_, err := q.db.ExecContext(ctx, setExposurePort, arg.Port, arg.ID)
+	return err
+}
+
 const setServiceEnabled = `-- name: SetServiceEnabled :execrows
 UPDATE services SET enabled = $1, updated_at = $2 WHERE agent_id = $3 AND name = $4
 `
@@ -185,6 +221,24 @@ func (q *Queries) SetServiceEnabled(ctx context.Context, arg SetServiceEnabledPa
 		arg.AgentID,
 		arg.Name,
 	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const takeOverApp = `-- name: TakeOverApp :execrows
+UPDATE agents SET created_by_agent_id = '', updated_at = $1 WHERE id = $2 AND kind = 'app'
+`
+
+type TakeOverAppParams struct {
+	UpdatedAt int64
+	ID        string
+}
+
+// The owner takes an app away from the agent that created it.
+func (q *Queries) TakeOverApp(ctx context.Context, arg TakeOverAppParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, takeOverApp, arg.UpdatedAt, arg.ID)
 	if err != nil {
 		return 0, err
 	}

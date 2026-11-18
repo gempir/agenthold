@@ -37,6 +37,7 @@ func toHTTP(err error) (int, string) {
 	var re *tunnel.RemoteError
 	var inv *apps.InvalidError
 	var applyErr *apps.ApplyError
+	var limit *apps.LimitError
 	switch {
 	case errors.As(err, &applyErr):
 		return http.StatusConflict, applyErr.Error()
@@ -51,6 +52,10 @@ func toHTTP(err error) (int, string) {
 		return http.StatusServiceUnavailable, err.Error()
 	case errors.Is(err, tunnel.ErrNotConnected):
 		return http.StatusConflict, "the machine is not running; start it first"
+	case errors.As(err, &limit):
+		return http.StatusConflict, limit.Msg
+	case errors.Is(err, apps.ErrNameTaken), errors.Is(err, apps.ErrNoAgentApps):
+		return http.StatusConflict, err.Error()
 	case errors.Is(err, tunnel.ErrTooOld), errors.Is(err, apps.ErrTooMany), errors.Is(err, apps.ErrNotRunning),
 		errors.Is(err, apps.ErrDeployBusy):
 		return http.StatusConflict, err.Error()

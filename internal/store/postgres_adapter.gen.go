@@ -34,6 +34,11 @@ func (p postgresQueries) ConsumeNodeJoinToken(ctx context.Context, arg db.Consum
 	return value, err
 }
 
+func (p postgresQueries) CountAgentApps(ctx context.Context, createdByAgentID string) (int64, error) {
+	value, err := p.q.CountAgentApps(ctx, createdByAgentID)
+	return value, err
+}
+
 func (p postgresQueries) CountExposures(ctx context.Context, agentID string) (int64, error) {
 	value, err := p.q.CountExposures(ctx, agentID)
 	return value, err
@@ -41,6 +46,11 @@ func (p postgresQueries) CountExposures(ctx context.Context, agentID string) (in
 
 func (p postgresQueries) CountNodeSandboxes(ctx context.Context, nodeID string) (int64, error) {
 	value, err := p.q.CountNodeSandboxes(ctx, nodeID)
+	return value, err
+}
+
+func (p postgresQueries) CountOwnerApps(ctx context.Context, ownerID string) (int64, error) {
+	value, err := p.q.CountOwnerApps(ctx, ownerID)
 	return value, err
 }
 
@@ -798,6 +808,10 @@ func (p postgresQueries) SetBootToken(ctx context.Context, arg db.SetBootTokenPa
 	return p.q.SetBootToken(ctx, postgres.SetBootTokenParams(arg))
 }
 
+func (p postgresQueries) SetExposurePort(ctx context.Context, arg db.SetExposurePortParams) error {
+	return p.q.SetExposurePort(ctx, postgres.SetExposurePortParams(arg))
+}
+
 func (p postgresQueries) SetNodeCapacity(ctx context.Context, arg db.SetNodeCapacityParams) error {
 	return p.q.SetNodeCapacity(ctx, postgres.SetNodeCapacityParams(arg))
 }
@@ -859,6 +873,11 @@ func (p postgresQueries) StoreRefreshedLogin(ctx context.Context, arg db.StoreRe
 func (p postgresQueries) TakeLoginState(ctx context.Context, arg db.TakeLoginStateParams) (db.LoginState, error) {
 	value, err := p.q.TakeLoginState(ctx, postgres.TakeLoginStateParams(arg))
 	return db.LoginState(value), err
+}
+
+func (p postgresQueries) TakeOverApp(ctx context.Context, arg db.TakeOverAppParams) (int64, error) {
+	value, err := p.q.TakeOverApp(ctx, postgres.TakeOverAppParams(arg))
+	return value, err
 }
 
 func (p postgresQueries) TakePreviewCode(ctx context.Context, arg db.TakePreviewCodeParams) (db.PreviewCode, error) {

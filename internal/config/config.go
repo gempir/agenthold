@@ -51,8 +51,12 @@ type Config struct {
 
 // Apps limits apps created by agents (users creating apps get the sandbox limits).
 type Apps struct {
-	// MaxPerAgent is how many apps one agent may have created. Default 3.
-	MaxPerAgent int `yaml:"max_per_agent"`
+	// MaxPerAgent is how many apps one agent may have created. Default 3;
+	// 0 means agents cannot create apps.
+	MaxPerAgent *int `yaml:"max_per_agent"`
+	// MaxPerOwner is how many apps one user may own, however they were
+	// created. Default 10.
+	MaxPerOwner *int `yaml:"max_per_owner"`
 	// Resources of an app an agent creates unless it asks for others, and the
 	// most it may ask for. Defaults 1 vCPU / 1024 MB and 2 vCPUs / 2048 MB.
 	DefaultCPUs     float64 `yaml:"default_cpus"`
@@ -395,8 +399,11 @@ func ApplyDefaults(cfg *Config) {
 	}
 
 	ap := &cfg.Apps
-	if ap.MaxPerAgent == 0 {
-		ap.MaxPerAgent = 3
+	if ap.MaxPerAgent == nil {
+		ap.MaxPerAgent = intPtr(3)
+	}
+	if ap.MaxPerOwner == nil {
+		ap.MaxPerOwner = intPtr(10)
 	}
 	if ap.DefaultCPUs == 0 {
 		ap.DefaultCPUs = 1
@@ -539,8 +546,8 @@ func (c *Config) Validate() error {
 	} else if sb.DefaultCPUs > sb.MaxCPUs {
 		errs = append(errs, errors.New("sandbox.default_cpus: must not exceed max_cpus"))
 	}
-	if ap := c.Apps; ap.MaxPerAgent < 0 || ap.DeployMaxBytes < 0 {
-		errs = append(errs, errors.New("apps.max_per_agent and apps.deploy_max_bytes: must not be negative"))
+	if ap := c.Apps; ap.MaxPerAgent == nil || *ap.MaxPerAgent < 0 || ap.MaxPerOwner == nil || *ap.MaxPerOwner < 0 || ap.DeployMaxBytes < 0 {
+		errs = append(errs, errors.New("apps.max_per_agent, apps.max_per_owner and apps.deploy_max_bytes: must not be negative"))
 	} else if ap.DefaultMemoryMB < MinMemoryMB || ap.DefaultMemoryMB > ap.MaxMemoryMB || ap.MaxMemoryMB > sb.MaxMemoryMB {
 		errs = append(errs, fmt.Errorf("apps.default_memory_mb and max_memory_mb: want %d <= default <= max <= sandbox.max_memory_mb", MinMemoryMB))
 	} else if ap.DefaultCPUs < 1 || ap.DefaultCPUs > ap.MaxCPUs || ap.MaxCPUs > sb.MaxCPUs {
@@ -660,3 +667,5 @@ func (s Sandbox) LocalDriver(kvmAvailable bool) string {
 	}
 	return "none"
 }
+
+func intPtr(n int) *int { return &n }

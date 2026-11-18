@@ -54,6 +54,7 @@ const (
 	AppRebuild     = "app.rebuild"
 	AppDeploy      = "app.deploy"
 	AppExec        = "app.exec"
+	AppTakeOver    = "app.takeover"
 )
 
 // Entry is one audit record. AgentID is empty for account-level actions.

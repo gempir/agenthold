@@ -25,3 +25,16 @@ VALUES (?, ?, ?, ?, 'app', '', ?, ?, ?, ?, '', ?, ?);
 -- name: ListAgentApps :many
 -- Apps created by an agent.
 SELECT * FROM agents WHERE kind = 'app' AND created_by_agent_id = ? ORDER BY name, id;
+
+-- name: CountOwnerApps :one
+SELECT COUNT(*) FROM agents WHERE kind = 'app' AND owner_id = ?;
+
+-- name: CountAgentApps :one
+SELECT COUNT(*) FROM agents WHERE kind = 'app' AND created_by_agent_id = ?;
+
+-- name: TakeOverApp :execrows
+-- The owner takes an app away from the agent that created it.
+UPDATE agents SET created_by_agent_id = '', updated_at = ? WHERE id = ? AND kind = 'app';
+
+-- name: SetExposurePort :exec
+UPDATE exposures SET port = ? WHERE id = ?;

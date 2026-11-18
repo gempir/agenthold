@@ -25,3 +25,16 @@ VALUES ($1, $2, $3, $4, 'app', '', $5, $6, $7, $8, '', $9, $10);
 -- name: ListAgentApps :many
 -- Apps created by an agent.
 SELECT * FROM agents WHERE kind = 'app' AND created_by_agent_id = $1 ORDER BY name, id;
+
+-- name: CountOwnerApps :one
+SELECT COUNT(*) FROM agents WHERE kind = 'app' AND owner_id = $1;
+
+-- name: CountAgentApps :one
+SELECT COUNT(*) FROM agents WHERE kind = 'app' AND created_by_agent_id = $1;
+
+-- name: TakeOverApp :execrows
+-- The owner takes an app away from the agent that created it.
+UPDATE agents SET created_by_agent_id = '', updated_at = $1 WHERE id = $2 AND kind = 'app';
+
+-- name: SetExposurePort :exec
+UPDATE exposures SET port = $1 WHERE id = $2;

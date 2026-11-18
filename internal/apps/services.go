@@ -93,7 +93,8 @@ type Manager struct {
 	Log  *slog.Logger
 	Now  func() time.Time
 
-	locks sync.Map // app id -> *sync.Mutex: one deploy at a time
+	locks  sync.Map // app id -> *sync.Mutex: one deploy at a time
+	owners sync.Map // owner id -> *sync.Mutex: app creation
 }
 
 func (m *Manager) now() time.Time {

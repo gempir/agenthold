@@ -189,11 +189,13 @@ func (p *Service) Call(ctx context.Context, callerID, sessionID, tool string, ar
 	case "service_logs":
 		return p.serviceLogs(ctx, caller.ID, in.Name, in.Lines)
 	case "deploy_app":
-		return p.deployApp(ctx, caller, in)
+		dctx, cancel := context.WithTimeout(ctx, apps.DeployTimeout+time.Minute)
+		defer cancel()
+		return p.deployApp(dctx, caller, in)
 	case "list_apps":
 		return p.listApps(ctx, caller)
 	case "app_logs":
-		app, err := p.findApp(ctx, caller, in.Name, false)
+		app, err := p.findApp(ctx, caller, in.Name, true)
 		if err != nil {
 			return nil, err
 		}

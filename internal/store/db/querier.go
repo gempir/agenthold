@@ -10,8 +10,10 @@ type Querier interface {
 	AttachSkill(ctx context.Context, arg AttachSkillParams) error
 	ClaimExposureName(ctx context.Context, name string) error
 	ConsumeNodeJoinToken(ctx context.Context, arg ConsumeNodeJoinTokenParams) (string, error)
+	CountAgentApps(ctx context.Context, createdByAgentID string) (int64, error)
 	CountExposures(ctx context.Context, agentID string) (int64, error)
 	CountNodeSandboxes(ctx context.Context, nodeID string) (int64, error)
+	CountOwnerApps(ctx context.Context, ownerID string) (int64, error)
 	CountUserIdentities(ctx context.Context, arg CountUserIdentitiesParams) (int64, error)
 	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) error
 	CreateAgent(ctx context.Context, arg CreateAgentParams) error
@@ -131,6 +133,7 @@ type Querier interface {
 	SetAgentHarness(ctx context.Context, arg SetAgentHarnessParams) error
 	SetAgentLoginUser(ctx context.Context, arg SetAgentLoginUserParams) error
 	SetBootToken(ctx context.Context, arg SetBootTokenParams) error
+	SetExposurePort(ctx context.Context, arg SetExposurePortParams) error
 	SetNodeCapacity(ctx context.Context, arg SetNodeCapacityParams) error
 	SetNodeState(ctx context.Context, arg SetNodeStateParams) error
 	SetPermissionPolicy(ctx context.Context, arg SetPermissionPolicyParams) error
@@ -146,6 +149,7 @@ type Querier interface {
 	ShareAgent(ctx context.Context, arg ShareAgentParams) error
 	StoreRefreshedLogin(ctx context.Context, arg StoreRefreshedLoginParams) (int64, error)
 	TakeLoginState(ctx context.Context, arg TakeLoginStateParams) (LoginState, error)
+	TakeOverApp(ctx context.Context, arg TakeOverAppParams) (int64, error)
 	TakePreviewCode(ctx context.Context, arg TakePreviewCodeParams) (PreviewCode, error)
 	TouchAPIToken(ctx context.Context, arg TouchAPITokenParams) error
 	TouchIdentity(ctx context.Context, arg TouchIdentityParams) error

@@ -17,6 +17,7 @@ import (
 	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/sandbox"
+	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
 )
 
@@ -250,9 +251,15 @@ func (a *API) UpdateApp(ctx context.Context, req gen.UpdateAppRequestObject) (ge
 	if err := a.validateApp(&s); err != nil {
 		return nil, err
 	}
+	if s.name != ag.Name && !apps.ValidAppName(s.name) {
+		return nil, badRequest("an app name is 1 to 40 lowercase letters, digits and hyphens, starting and ending with a letter or digit")
+	}
 	if err := a.Store.UpdateAgent(ctx, db.UpdateAgentParams{
 		Name: s.name, Image: ag.Image, Cpus: s.cpus, MemoryMb: s.memoryMB, IdleMinutes: s.idleMinutes, UpdatedAt: a.Now().Unix(), ID: ag.ID,
 	}); err != nil {
+		if store.IsUniqueViolation(err) {
+			return nil, apps.ErrNameTaken
+		}
 		return nil, err
 	}
 	a.record(ctx, ag, audit.AppUpdate, ag.Name, map[string]any{"name": s.name, "cpus": s.cpus, "memoryMb": s.memoryMB, "idleMinutes": s.idleMinutes})
@@ -322,6 +329,23 @@ func (a *API) RebuildApp(ctx context.Context, req gen.RebuildAppRequestObject) (
 		return nil, err
 	}
 	return gen.RebuildApp202JSONResponse(out), nil
+}
+
+// TakeOverApp implements gen.StrictServerInterface.
+func (a *API) TakeOverApp(ctx context.Context, req gen.TakeOverAppRequestObject) (gen.TakeOverAppResponseObject, error) {
+	acc, err := a.appAccess(ctx, req.AppId, authz.AgentConfigure)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.Apps.TakeOver(ctx, acc.Row.Agent.ID); err != nil {
+		return nil, err
+	}
+	a.record(ctx, acc.Row.Agent, audit.AppTakeOver, acc.Row.Agent.Name, map[string]any{"fromAgentId": acc.Row.Agent.CreatedByAgentID})
+	out, err := a.reloadApp(ctx, acc.Row.Agent.ID, acc.Role)
+	if err != nil {
+		return nil, err
+	}
+	return gen.TakeOverApp200JSONResponse(out), nil
 }
 
 // DeployApp implements gen.StrictServerInterface.

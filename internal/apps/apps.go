@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"path"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,6 +18,8 @@ import (
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/id"
 	"github.com/gempir/agenthold/internal/preview"
+	"github.com/gempir/agenthold/internal/sandboxd"
+	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/tunnel"
 )
@@ -44,19 +47,72 @@ type CreateParams struct {
 	IdleMinutes int64
 }
 
-// Create inserts an app machine and starts provisioning it.
+// Limit errors (an API 409).
+var (
+	ErrNameTaken   = errors.New("you already have an app with that name")
+	ErrNoAgentApps = errors.New("agents cannot create apps on this server (apps.max_per_agent is 0)")
+)
+
+// LimitError is a create refused by apps.max_per_owner or apps.max_per_agent.
+type LimitError struct{ Msg string }
+
+func (e *LimitError) Error() string { return e.Msg }
+
+var appNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$`)
+
+// ValidAppName reports whether name can name an app: a DNS label of 1 to 40
+// lowercase letters, digits and hyphens (it becomes the app's URL name).
+func ValidAppName(name string) bool { return appNameRE.MatchString(name) }
+
+// ownerLock serializes app creation per owner, so the limits hold under
+// concurrent creates on every database engine.
+func (m *Manager) ownerLock(ownerID string) func() {
+	v, _ := m.owners.LoadOrStore(ownerID, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
+// Create inserts an app machine and starts provisioning it. It enforces
+// apps.max_per_owner (all apps of the owner) and, for an app an agent
+// creates, apps.max_per_agent, and that app names are unique per owner.
 func (m *Manager) Create(ctx context.Context, p CreateParams) (db.Agent, error) {
+	if !ValidAppName(p.Name) {
+		return db.Agent{}, invalid("an app name is 1 to 40 lowercase letters, digits and hyphens, starting and ending with a letter or digit")
+	}
+	if p.CreatedByAgentID != "" && *m.Limits.MaxPerAgent == 0 {
+		return db.Agent{}, ErrNoAgentApps
+	}
+	defer m.ownerLock(p.OwnerID)()
 	now := m.now().Unix()
 	appID := id.New("ap")
 	var provision func()
 	err := m.Store.Tx(ctx, func(q *db.Queries) error {
+		n, err := q.CountOwnerApps(ctx, p.OwnerID)
+		if err != nil {
+			return err
+		}
+		if n >= int64(*m.Limits.MaxPerOwner) {
+			return &LimitError{Msg: fmt.Sprintf("the owner already has %d apps, the most one user may have (apps.max_per_owner); delete one first", n)}
+		}
+		if p.CreatedByAgentID != "" {
+			n, err := q.CountAgentApps(ctx, p.CreatedByAgentID)
+			if err != nil {
+				return err
+			}
+			if n >= int64(*m.Limits.MaxPerAgent) {
+				return &LimitError{Msg: fmt.Sprintf("this agent already created %d apps, the most an agent may have (apps.max_per_agent); delete one with delete_app or update an existing one", n)}
+			}
+		}
 		if err := q.CreateApp(ctx, db.CreateAppParams{
 			ID: appID, OwnerID: p.OwnerID, Name: p.Name, Image: "base", CreatedByAgentID: p.CreatedByAgentID,
 			Cpus: p.CPUs, MemoryMb: p.MemoryMB, IdleMinutes: p.IdleMinutes, CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
+			if store.IsUniqueViolation(err) {
+				return ErrNameTaken
+			}
 			return err
 		}
-		var err error
 		provision, err = m.Sandboxes.Provision(ctx, q, appID)
 		return err
 	})
@@ -65,6 +121,13 @@ func (m *Manager) Create(ctx context.Context, p CreateParams) (db.Agent, error) 
 	}
 	provision()
 	return m.Store.GetAgent(ctx, appID)
+}
+
+// TakeOver makes the owner the only manager of an app: the agent that
+// created it can no longer deploy to, run commands in, or read it.
+func (m *Manager) TakeOver(ctx context.Context, appID string) error {
+	_, err := m.Store.TakeOverApp(ctx, db.TakeOverAppParams{UpdatedAt: m.now().Unix(), ID: appID})
+	return err
 }
 
 // DeployParams describes a deploy.
@@ -125,6 +188,8 @@ func (m *Manager) lock(appID string) (func(), bool) {
 // whose port does not come up (it is rolled back).
 func (m *Manager) Deploy(ctx context.Context, p DeployParams) (DeployResult, error) {
 	var res DeployResult
+	ctx, cancel := context.WithTimeout(ctx, DeployTimeout)
+	defer cancel()
 	if p.App.Kind != KindApp {
 		return res, invalid("not an app")
 	}
@@ -193,20 +258,24 @@ func (m *Manager) Deploy(ctx context.Context, p DeployParams) (DeployResult, err
 		}
 	}
 
-	if p.Expose && m.Preview.Enabled() {
+	timeout := p.ReadyTimeout
+	if timeout == 0 {
+		timeout = 60 * time.Second
+	}
+	res.Ready = m.waitPort(ctx, app, p.Port, timeout)
+	if res.Ready && p.Expose && m.Preview.Enabled() {
+		// Only a release that serves gets the URL; a failed one leaves the
+		// exposure exactly as it was.
 		e, err := m.ensureExposure(ctx, p)
 		if err != nil {
 			return res, err
 		}
 		res.Exposure, res.URL = &e, m.Preview.URL(e)
 	}
-
-	timeout := p.ReadyTimeout
-	if timeout == 0 {
-		timeout = 60 * time.Second
-	}
-	res.Ready = m.waitPort(ctx, app, p.Port, timeout)
 	if !res.Ready {
+		if e, err := m.Preview.ByPort(ctx, p.App.ID, p.Port); err == nil && m.Preview.Enabled() {
+			res.URL = m.Preview.URL(e)
+		}
 		var logs bytes.Buffer
 		_ = app.ServiceLogs(ctx, AppService, 40, false, &logs, 64<<10)
 		res.Logs = logs.String()
@@ -262,22 +331,47 @@ func isNotExist(err error) bool {
 }
 
 // copy streams the source directory, as a tar archive through the
-// controller, into dir of the app.
+// controller, into dir of the app. The relay stops when it carried more
+// than the size limit plus tar overhead, or nothing moved for RelayIdle.
 func (m *Manager) copy(ctx context.Context, src *tunnel.Session, srcDir string, exclude []string, app *tunnel.Session, dir string) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	limit := m.Limits.DeployMaxBytes
 	pr, pw := io.Pipe()
+	relay := &relayReader{r: pr, max: limit + relayOverhead, moved: make(chan struct{}, 1)}
+	go func() {
+		t := time.NewTimer(RelayIdle)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-relay.moved:
+				t.Reset(RelayIdle)
+			case <-t.C:
+				cancel(fmt.Errorf("nothing was copied for %s", RelayIdle))
+				_ = pr.CloseWithError(context.Cause(ctx))
+				return
+			}
+		}
+	}()
 	tarErr := make(chan error, 1)
 	go func() {
 		err := src.Tar(ctx, srcDir, exclude, limit, pw)
 		_ = pw.CloseWithError(err)
 		tarErr <- err
 	}()
-	err := app.Untar(ctx, dir, limit, pr)
+	err := app.Untar(ctx, dir, limit, relay)
 	_ = pr.CloseWithError(errors.New("copy ended"))
-	cancel()
-	if terr := <-tarErr; terr != nil && !errors.Is(terr, context.Canceled) && !errors.Is(terr, io.ErrClosedPipe) {
+	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
+		err = cause
+	}
+	cancel(nil)
+	terr := <-tarErr
+	if errors.Is(err, errRelayTooLarge) {
+		return fmt.Errorf("copy into the app: %w", err)
+	}
+	if terr != nil && !errors.Is(terr, context.Canceled) && !errors.Is(terr, io.ErrClosedPipe) {
 		return fmt.Errorf("read %s: %w", srcDir, terr)
 	}
 	if err != nil {
@@ -286,38 +380,69 @@ func (m *Manager) copy(ctx context.Context, src *tunnel.Session, srcDir string, 
 	return nil
 }
 
-// ensureExposure makes the app's port reachable: the exposure of that port
-// (access updated), or a new one; an exposure deploy made for another port
-// moves to this one under the same name.
-func (m *Manager) ensureExposure(ctx context.Context, p DeployParams) (db.Exposure, error) {
-	access := p.Access
-	if access == "" {
-		access = preview.Private
-	}
-	if e, err := m.Preview.ByPort(ctx, p.App.ID, p.Port); err == nil {
-		if preview.Access(e.Access) == access {
-			return e, nil
+// Deploy limits.
+var (
+	// DeployTimeout bounds a whole deploy.
+	DeployTimeout = 15 * time.Minute
+	// RelayIdle ends a copy that moved no bytes for that long.
+	RelayIdle = 60 * time.Second
+)
+
+// relayOverhead is what tar adds to the file contents at most: headers,
+// PAX records and padding for every entry the archive may have.
+const relayOverhead = int64(sandboxd.MaxArchiveEntries)*2048 + 1<<20
+
+var errRelayTooLarge = errors.New("the archive is larger than the deploy limit")
+
+// relayReader counts the bytes relayed and reports progress.
+type relayReader struct {
+	r     io.Reader
+	n     int64
+	max   int64
+	moved chan struct{}
+}
+
+func (r *relayReader) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	if n > 0 {
+		r.n += int64(n)
+		select {
+		case r.moved <- struct{}{}:
+		default:
 		}
-		return m.Preview.Update(ctx, e, p.App.OwnerID, preview.Patch{Access: access})
+		if r.n > r.max {
+			return n, errRelayTooLarge
+		}
+	}
+	return n, err
+}
+
+// ensureExposure makes the app's port reachable once a release serves it:
+// the exposure of that port as it is, or the exposure deploy made for
+// another port moved to this one in place (same name, URL and access), or a
+// new one. Access is set only when the exposure is created; later changes
+// are the owner's, in the exposure settings.
+func (m *Manager) ensureExposure(ctx context.Context, p DeployParams) (db.Exposure, error) {
+	if e, err := m.Preview.ByPort(ctx, p.App.ID, p.Port); err == nil {
+		return e, nil
 	} else if !errors.Is(err, preview.ErrNotFound) {
 		return db.Exposure{}, err
 	}
-	name := ""
 	rows, err := m.Preview.List(ctx, p.App.ID)
 	if err != nil {
 		return db.Exposure{}, err
 	}
 	for _, e := range rows {
 		if strings.HasPrefix(e.CreatedBy, "deploy:") {
-			if err := m.Preview.Delete(ctx, e, p.App.OwnerID); err != nil {
-				return db.Exposure{}, err
-			}
-			name = e.Name
-			break
+			return m.Preview.SetPort(ctx, e, p.Port)
 		}
 	}
+	access := p.Access
+	if access == "" {
+		access = preview.Private
+	}
 	return m.Preview.Create(ctx, preview.CreateParams{
-		Agent: p.App, Port: p.Port, Name: name, Access: access, CreatedBy: "deploy:" + p.ExposedBy,
+		Agent: p.App, Port: p.Port, Access: access, CreatedBy: "deploy:" + p.ExposedBy,
 	})
 }
 

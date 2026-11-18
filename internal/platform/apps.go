@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/gempir/agenthold/internal/apps"
@@ -86,7 +85,7 @@ var appTools = []map[string]any{
 				"command":    map[string]any{"type": "string", "description": "Shell command run in the release directory, e.g. \"python3 -m http.server $PORT\" or \"node server.js\"."},
 				"port":       map[string]any{"type": "integer", "description": "Port the command listens on; set as PORT."},
 				"env":        map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}, "description": "Extra environment (plain values; secrets are attached by your owner)."},
-				"access":     map[string]any{"type": "string", "enum": []string{"private", "authenticated"}},
+				"access":     map[string]any{"type": "string", "enum": []string{"private", "authenticated"}, "description": "Who may open the URL (default private). Applies when the URL is first created; after that only your owner changes it."},
 				"memory_mb":  map[string]any{"type": "integer", "description": "Memory of a new app (default 1024)."},
 				"cpus":       map[string]any{"type": "number", "description": "vCPUs of a new app (default 1)."},
 			},
@@ -94,12 +93,12 @@ var appTools = []map[string]any{
 	},
 	{
 		"name":        "list_apps",
-		"description": "List your owner's apps with their state and URL, and whether you created them.",
+		"description": "List your owner's apps: name, state, URL and whether you created (and so manage) them. You can only use apps you created.",
 		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 	},
 	{
 		"name":        "app_logs",
-		"description": "Show the last lines of an app's output.",
+		"description": "Show the last lines of the output of an app you created.",
 		"inputSchema": map[string]any{
 			"type": "object", "required": []string{"name"},
 			"properties": map[string]any{
@@ -110,7 +109,7 @@ var appTools = []map[string]any{
 	},
 	{
 		"name": "app_exec",
-		"description": "Run a shell command in an app's machine (in its current release directory) and return its output " +
+		"description": "Run a shell command in the machine of an app you created (in its current release directory) and return its output " +
 			"and exit code, for example a database migration or a quick check with curl localhost:$PORT. Output is cut at 64 KiB.",
 		"inputSchema": map[string]any{
 			"type": "object", "required": []string{"name", "command"},
@@ -123,12 +122,12 @@ var appTools = []map[string]any{
 	},
 	{
 		"name":        "restart_app",
-		"description": "Restart an app's service (starting the app machine if it is stopped).",
+		"description": "Restart the service of an app you created (starting its machine if it is stopped).",
 		"inputSchema": map[string]any{"type": "object", "required": []string{"name"}, "properties": map[string]any{"name": map[string]any{"type": "string"}}},
 	},
 	{
 		"name":        "stop_app",
-		"description": "Stop an app's machine. Its URL stops working until it is started again.",
+		"description": "Stop the machine of an app you created. Its URL stops working until it is started again.",
 		"inputSchema": map[string]any{"type": "object", "required": []string{"name"}, "properties": map[string]any{"name": map[string]any{"type": "string"}}},
 	},
 	{
@@ -277,8 +276,6 @@ func (p *Service) serviceLogs(ctx context.Context, machineID, name string, lines
 // maxToolLog bounds the log text a tool returns.
 const maxToolLog = 128 << 10
 
-var appNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
-
 // ownerApps lists the apps of the caller's owner.
 func (p *Service) ownerApps(ctx context.Context, caller db.Agent) ([]db.ListUserAgentsRow, error) {
 	rows, err := p.Store.ListUserAgents(ctx, caller.OwnerID)
@@ -297,9 +294,12 @@ func (p *Service) ownerApps(ctx context.Context, caller db.Agent) ([]db.ListUser
 // ErrNoApp is returned for an app name that does not exist (or is not the owner's).
 var ErrNoApp = errors.New("no app with that name; see list_apps")
 
-// findApp resolves an app of the caller's owner by name or id. mine requires
-// that the caller created it.
+// findApp resolves an app of the caller's owner by name or id that the
+// caller created and still manages (the owner did not take it over). An
+// agent manages no other app: deploy, exec, logs, restart, stop and delete
+// all need this.
 func (p *Service) findApp(ctx context.Context, caller db.Agent, ref string, mine bool) (db.Agent, error) {
+	mine = true
 	rows, err := p.ownerApps(ctx, caller)
 	if err != nil {
 		return db.Agent{}, err
@@ -308,7 +308,7 @@ func (p *Service) findApp(ctx context.Context, caller db.Agent, ref string, mine
 	for _, r := range rows {
 		if r.Agent.ID == ref || r.Agent.Name == ref {
 			if mine && r.Agent.CreatedByAgentID != caller.ID {
-				return db.Agent{}, fmt.Errorf("app %s was not created by you, so you cannot change it", r.Agent.Name)
+				return db.Agent{}, fmt.Errorf("app %s is not managed by you (another agent created it, or your owner took it over), so you cannot use it", r.Agent.Name)
 			}
 			return r.Agent, nil
 		}
@@ -317,8 +317,8 @@ func (p *Service) findApp(ctx context.Context, caller db.Agent, ref string, mine
 }
 
 func (p *Service) deployApp(ctx context.Context, caller db.Agent, in toolArgs) (string, error) {
-	if !appNameRE.MatchString(in.Name) {
-		return "", errors.New("name must be 1 to 40 lowercase letters, digits and hyphens, not starting with a hyphen")
+	if !apps.ValidAppName(in.Name) {
+		return "", errors.New("name must be 1 to 40 lowercase letters, digits and hyphens, starting and ending with a letter or digit")
 	}
 	access := preview.Access(in.Access)
 	if access == preview.Public {
@@ -345,16 +345,11 @@ func (p *Service) deployApp(ctx context.Context, caller db.Agent, in toolArgs) (
 	created := false
 	switch {
 	case errors.Is(err, ErrNoApp):
-		mine, err := p.Store.ListAgentApps(ctx, caller.ID)
-		if err != nil {
-			return "", err
-		}
-		if len(mine) >= lim.MaxPerAgent {
-			return "", fmt.Errorf("you already created %d apps, the most an agent may have; delete one with delete_app or update an existing one", len(mine))
-		}
 		if app, err = p.Apps.Create(ctx, apps.CreateParams{
 			OwnerID: caller.OwnerID, Name: in.Name, CreatedByAgentID: caller.ID, CPUs: cpus, MemoryMB: mem,
-		}); err != nil {
+		}); errors.Is(err, apps.ErrNameTaken) {
+			return "", fmt.Errorf("your owner already has an app named %s that you did not create; pick another name", in.Name)
+		} else if err != nil {
 			return "", err
 		}
 		created = true
@@ -391,6 +386,9 @@ func (p *Service) deployApp(ctx context.Context, caller db.Agent, in toolArgs) (
 		}
 		fmt.Fprintf(&b, " Check that it listens on $PORT (%d). Last log lines:\n%s", in.Port, res.Logs)
 	}
+	if res.Exposure != nil && access != "" && preview.Access(res.Exposure.Access) != access {
+		fmt.Fprintf(&b, "\nNote: access stays %s; only your owner changes the access of an existing URL.", res.Exposure.Access)
+	}
 	if !created && (in.CPUs != 0 && in.CPUs != app.Cpus || in.MemoryMB != 0 && in.MemoryMB != app.MemoryMb) {
 		b.WriteString("\nNote: cpus and memory_mb only apply to a new app; your owner can resize this one.")
 	}
@@ -398,11 +396,10 @@ func (p *Service) deployApp(ctx context.Context, caller db.Agent, in toolArgs) (
 }
 
 type appInfo struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	State     string `json:"state"`
-	URL       string `json:"url,omitempty"`
-	CreatedBy string `json:"createdBy"`
+	Name         string `json:"name"`
+	State        string `json:"state"`
+	URL          string `json:"url,omitempty"`
+	CreatedByYou string `json:"createdByYou"`
 }
 
 func (p *Service) listApps(ctx context.Context, caller db.Agent) (string, error) {
@@ -415,13 +412,9 @@ func (p *Service) listApps(ctx context.Context, caller db.Agent) (string, error)
 	}
 	out := make([]appInfo, 0, len(rows))
 	for _, r := range rows {
-		info := appInfo{ID: r.Agent.ID, Name: r.Agent.Name, State: r.Sandbox.State, CreatedBy: "your owner"}
-		switch r.Agent.CreatedByAgentID {
-		case caller.ID:
-			info.CreatedBy = "you"
-		case "":
-		default:
-			info.CreatedBy = "another agent"
+		info := appInfo{Name: r.Agent.Name, State: r.Sandbox.State, CreatedByYou: "no"}
+		if r.Agent.CreatedByAgentID == caller.ID {
+			info.CreatedByYou = "yes"
 		}
 		if p.Preview.Enabled() {
 			if es, err := p.Preview.List(ctx, r.Agent.ID); err == nil && len(es) > 0 {
@@ -438,7 +431,7 @@ func (p *Service) appExec(ctx context.Context, caller db.Agent, in toolArgs) (st
 	if strings.TrimSpace(in.Command) == "" {
 		return "", errors.New("command is required")
 	}
-	app, err := p.findApp(ctx, caller, in.Name, false)
+	app, err := p.findApp(ctx, caller, in.Name, true)
 	if err != nil {
 		return "", err
 	}
@@ -461,7 +454,7 @@ func (p *Service) appExec(ctx context.Context, caller db.Agent, in toolArgs) (st
 }
 
 func (p *Service) restartApp(ctx context.Context, caller db.Agent, name string) (string, error) {
-	app, err := p.findApp(ctx, caller, name, false)
+	app, err := p.findApp(ctx, caller, name, true)
 	if err != nil {
 		return "", err
 	}
@@ -483,7 +476,7 @@ func (p *Service) restartApp(ctx context.Context, caller db.Agent, name string) 
 }
 
 func (p *Service) stopApp(ctx context.Context, caller db.Agent, name string) (string, error) {
-	app, err := p.findApp(ctx, caller, name, false)
+	app, err := p.findApp(ctx, caller, name, true)
 	if err != nil {
 		return "", err
 	}

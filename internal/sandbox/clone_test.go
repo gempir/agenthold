@@ -2,6 +2,7 @@ package sandbox_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -418,9 +419,27 @@ func TestCloneableChecks(t *testing.T) {
 	ctx := t.Context()
 	f.createAgent("ag_src", "img")
 	must(t, f.m.CheckCloneable(ctx, "ag_src"))
+	// A pre-G1 edge node reports an older base: its guest would boot the
+	// sandboxd baked into it, so the clone is refused until a reset.
+	f.driver.MarkPreG1StaleBase("fake-ag_src")
+	if err := f.m.CheckCloneable(ctx, "ag_src"); !errors.Is(err, sandbox.ErrBaseStale) {
+		t.Fatalf("pre-G1 node, older base: %v", err)
+	}
+	must(t, f.m.Rebuild(ctx, "ag_src"))
+	f.m.Wait()
+	must(t, f.m.CheckCloneable(ctx, "ag_src"))
 	// Pending changes would be inherited unapplied.
 	must(t, f.st.UpdateAgent(ctx, db.UpdateAgentParams{ID: "ag_src", Name: "ag_src", Image: "img", Cpus: 1, MemoryMb: 4096, IdleMinutes: 15}))
 	if err := f.m.CheckCloneable(ctx, "ag_src"); !errors.Is(err, sandbox.ErrNeedsReset) {
 		t.Fatalf("pending change: %v", err)
+	}
+}
+
+// A pre-G1 edge node sends Status as JSON with Go field names; its BaseStale
+// must survive the trip. TODO(G1+1): remove with Status.BaseStale.
+func TestStatusFromPreG1Node(t *testing.T) {
+	var st sandbox.Status
+	if err := json.Unmarshal([]byte(`{"State":"running","GatewayIP":"10.0.0.1","BaseStale":true}`), &st); err != nil || !st.BaseStale {
+		t.Fatalf("status %+v %v", st, err)
 	}
 }

@@ -610,3 +610,21 @@ func TestExposuresAndCloneTemplates(t *testing.T) {
 		t.Fatalf("deleting the clone removed the source's exposures: %+v", list.Exposures)
 	}
 }
+
+// TODO(G1+1): remove with sandbox.Status.BaseStale.
+func TestCloneOnAPreG1NodeNeedsACurrentSystem(t *testing.T) {
+	tm := newTeam(t)
+	e, alice := tm.e, tm.alice
+	ag := tm.agent.Id
+	// A pre-G1 edge node: its guest boots the sandboxd baked into the older base.
+	e.driver.MarkPreG1StaleBase(sandbox.ID("fake-" + ag))
+	res := alice.raw("POST", "/agents/"+ag+"/clone", jsonBody(t, gen.CloneInput{Name: "x"}))
+	msg, _ := io.ReadAll(res.Body)
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusConflict || !strings.Contains(string(msg), "older than the current base image") {
+		t.Fatalf("clone from an older base on a pre-G1 node: %d %s", res.StatusCode, msg)
+	}
+	expect(t, "reset", alice.do("POST", "/agents/"+ag+"/rebuild", nil, nil), 202)
+	e.sandboxes.Wait()
+	e.cloneOf(alice, tm.agent, "after the reset", false)
+}

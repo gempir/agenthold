@@ -50,6 +50,15 @@ type Status struct {
 	GatewayIP string
 	// Subnet is the sandbox's network, used to attribute its traffic.
 	Subnet netip.Prefix
+	// BaseStale is only ever set by an edge node running a release before G1
+	// (host-delivered sandboxd): its system disk sits on an older base than
+	// the node's current one, so its guest boots the older sandboxd baked
+	// into that base. No driver of this release sets it.
+	//
+	// TODO(G1+1): remove BaseStale and ErrBaseStale one release after G1,
+	// once no supported node can run a release before G1 (edge nodes run
+	// their controller's release, see the version rules of D1a).
+	BaseStale bool
 }
 
 // Boot is the per-boot configuration for sandboxd. The driver knows how the

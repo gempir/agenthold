@@ -32,6 +32,12 @@ var ErrCloneFailed = errors.New("this machine's clone did not finish: delete it 
 // changes that only a system reset applies.
 var ErrNeedsReset = errors.New("reset the system first: this machine has changes that only a system reset applies, and a clone would inherit them unapplied. Use Reset system (your home files are kept), then clone it")
 
+// ErrBaseStale is returned when a pre-G1 edge node reports that a machine's
+// system disk is on an older base: on such a node the guest boots the
+// sandboxd baked into that base, which may not reset a clone's identity.
+// TODO(G1+1): remove together with Status.BaseStale.
+var ErrBaseStale = errors.New("reset the system first: this machine's system disk is older than the current base image or has pending changes, and a clone would inherit that. Use Reset system (your home files are kept), then clone it")
+
 // SpecFunc builds the sandbox spec for an agent.
 type SpecFunc func(a db.Agent) Spec
 
@@ -472,7 +478,8 @@ func (m *Manager) ProvisionClone(ctx context.Context, q *db.Queries, srcID, dstI
 // copies the system disk as it is). The base image does not matter: a clone
 // stays on its source's base, which stays on the node while any machine uses
 // it, and the node's own sandboxd (delivered at every boot) resets the copy's
-// identity whatever that base contains.
+// identity whatever that base contains. Only a pre-G1 edge node, which has no
+// delivered sandboxd, still reports an older base; such a clone is refused.
 func (m *Manager) CheckCloneable(ctx context.Context, agentID string) error {
 	sb, err := m.store.GetSandbox(ctx, agentID)
 	if err != nil {
@@ -487,6 +494,14 @@ func (m *Manager) CheckCloneable(ctx context.Context, agentID string) error {
 	}
 	if sb.DriverID == "" {
 		return ErrConflict
+	}
+	// TODO(G1+1): drop with Status.BaseStale (only pre-G1 nodes report it).
+	st, err := m.driver.Status(ctx, ID(sb.DriverID))
+	if err != nil {
+		return err
+	}
+	if st.BaseStale {
+		return ErrBaseStale
 	}
 	return nil
 }

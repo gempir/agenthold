@@ -22,6 +22,9 @@ type Sandbox struct {
 	Boot    sandbox.Boot
 	// ClonedFrom is the sandbox this one was cloned from, if any.
 	ClonedFrom sandbox.ID
+	// PreG1StaleBase makes Status report BaseStale, as an edge node running a
+	// release before G1 does (see MarkPreG1StaleBase). TODO(G1+1): remove.
+	PreG1StaleBase bool
 }
 
 // Driver implements sandbox.Driver in memory.
@@ -183,7 +186,18 @@ func (d *Driver) Status(_ context.Context, id sandbox.ID) (sandbox.Status, error
 	if !ok {
 		return sandbox.Status{State: sandbox.StateMissing}, nil
 	}
-	return sandbox.Status{State: sb.State, GatewayIP: "127.0.0.1"}, nil
+	return sandbox.Status{State: sb.State, GatewayIP: "127.0.0.1", BaseStale: sb.PreG1StaleBase}, nil
+}
+
+// MarkPreG1StaleBase makes the sandbox look like one on a pre-G1 edge node
+// whose system disk is on an older base, until it is rebuilt.
+// TODO(G1+1): remove with sandbox.Status.BaseStale.
+func (d *Driver) MarkPreG1StaleBase(id sandbox.ID) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if sb, ok := d.sandboxes[id]; ok {
+		sb.PreG1StaleBase = true
+	}
 }
 
 // Rebuild implements sandbox.Driver.

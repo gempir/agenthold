@@ -76,14 +76,15 @@ LDFLAGS="-s -w -X github.com/gempir/agenthold/internal/version.Version=$VERSION 
 (cd "$REPO_ROOT" && CGO_ENABLED=0 go build -trimpath -ldflags "$LDFLAGS" -o "$STAGE/sandboxd" ./cmd/sandboxd)
 SANDBOXD_SHA="$(sha256sum "$STAGE/sandboxd" | cut -d' ' -f1)"
 BASE_MANIFEST="$ART/base-$ARCH.manifest.json"
-HAVE="$(jq -r '.inputs.sandboxdSha256 // empty' "$BASE_MANIFEST" 2>/dev/null || true)"
 BASE="$ART/base-$ARCH.ext4"
-# A release-built daemon carries this release version and commit. Never pair it with an image
-# containing an older development daemon, even if the tools and Debian snapshot are unchanged.
-if [[ ! -f "$BASE" || "$HAVE" != "$SANDBOXD_SHA" ]]; then
-  bash "$REPO_ROOT/scripts/guest/build-rootfs.sh" --sandboxd "$STAGE/sandboxd"
+# The base holds no sandboxd (the binary delivers it to every guest at boot): it is rebuilt only
+# when its own inputs change, so a Go-only release keeps the previous base byte for byte.
+BASE_KEY="$(bash "$REPO_ROOT/scripts/guest/base-key.sh")"
+HAVE="$(jq -r '.inputs.baseKey // empty' "$BASE_MANIFEST" 2>/dev/null || true)"
+if [[ ! -f "$BASE" || "$HAVE" != "$BASE_KEY" ]]; then
+  bash "$REPO_ROOT/scripts/guest/build-rootfs.sh"
 fi
-[[ "$(jq -er '.inputs.sandboxdSha256' "$BASE_MANIFEST")" == "$SANDBOXD_SHA" ]] || { echo 'base image sandboxd does not match bundled daemon' >&2; exit 1; }
+[[ "$(jq -er '.inputs.baseKey' "$BASE_MANIFEST")" == "$BASE_KEY" ]] || { echo 'base image was not built from these inputs' >&2; exit 1; }
 echo "$(jq -er .sha256 "$BASE_MANIFEST")  $BASE" | sha256sum --check --status
 if [[ ! -f "$BASE.zst" || "$(jq -r '.zstd.sha256 // empty' "$BASE_MANIFEST")" == '' ]]; then
   zstd -q -f -T0 -6 --long=27 -o "$BASE.zst" "$BASE"

@@ -310,6 +310,25 @@ Milestones (migration numbers are reserved so parallel work does not collide):
   wake = restore, fix the guest clock, sandboxd re-dials the tunnel. Balloon to shrink the
   snapshot. Any restore failure (version change, missing file, error) falls back to cold boot.
   Exposures wake a sleeping machine on the first request. Builds on C1 (same driver code).
+  *As built* (no migration, no API or node protocol change: everything is in the driver; the controller sees
+  sleep and wake as before). Sleep: tunnel op `suspend` (sandboxd syncs; an older sandboxd refuses it, so
+  its machine shuts down as before), balloon inflated to the guest's free memory, `PATCH /vm Paused`, full
+  snapshot into `<dir>/snapshot` (bind-mounted as the jail's `/snap`), VMM killed, zero pages punched out of
+  the memory file (Firecracker v1.18 writes it fully allocated), `snapshot.json` written last. It records
+  what a resume needs unchanged: Firecracker, kernel and initramfs (sandboxd) hashes, resume protocol,
+  host CPU model and host kernel, VM shape, base image, disk sizes and mtimes. Wake: the manifest is removed
+  first (a snapshot is resumed at most once and never outlives a disk change), new jailed VMM,
+  `/snapshot/load` with `resume_vm`, balloon deflated, then a `sandboxd.ResumeMessage` over vsock (port 1100;
+  every VM now has a vsock device) carries the new boot token, boot files and host clock: sandboxd steps
+  the clock, rewrites its boot file and redials the tunnel at once. The driver waits up to 15 s (lock
+  released) for the tunnel, else kills and cold boots. Any failure before is a cold boot after discarding the
+  snapshot; cold boot, Reset system and Destroy always discard it, Clone only reads disks. The tap gets a
+  fixed MAC (derived from the gateway address): with a random one, a resumed guest's neighbour entry
+  black-holed its traffic for about 3 s. Config `sandbox.firecracker.snapshots` (true), `balloon` (true),
+  `snapshot_max_gb` (0 = no cap), `snapshot_reserve_gb` (2). Measured on the demo box (1 GiB guest, nested):
+  sleep 1.0-1.5 s (up to 3.8 s with 400 MiB of freed dirty memory to balloon), wake to tunnel 0.4-0.5 s
+  (cold boot 2.3-2.7 s), memory file 88-110 MiB allocated with the balloon, 491 MiB without after freeing
+  400 MiB. Capacity reporting is unchanged: snapshots are on the data filesystem, whose free space is reported.
 - **D1. Self-hosted artifacts.** No GitHub release assets. A controller serves the base image and
   release bundle it runs to its edge nodes and to other installs
   (`/dl/...`, checksummed, zstd, range requests); the demo box builds and tests releases itself

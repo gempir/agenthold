@@ -16,6 +16,9 @@ import (
 	"github.com/gempir/agenthold/internal/sandbox"
 )
 
+// defaultCgroupRoot is where the jailer puts microVM cgroups (--parent-cgroup agenthold).
+const defaultCgroupRoot = "/sys/fs/cgroup/agenthold"
+
 // ErrUnsupported is returned on hosts which cannot run Firecracker.
 var ErrUnsupported = errors.New("firecracker requires Linux, root, and /dev/kvm")
 
@@ -32,7 +35,12 @@ type Config struct {
 	JailerPath      string
 	// JailDir defaults to DataDir/jailer. Keep it short: Linux Unix socket paths
 	// are limited to 107 bytes. All configured paths must be absolute.
-	JailDir     string
+	JailDir string
+	// CgroupRoot is the cgroup directory the jailer places VMs in (its
+	// --parent-cgroup "agenthold" below /sys/fs/cgroup). It defaults to the real
+	// path; tests that do not boot VMs point it at a temporary directory so they
+	// never touch the hierarchy of a live service.
+	CgroupRoot  string
 	NetworkPool netip.Prefix
 	// Each allocated /30 gets a distinct uid/gid: base + its pool index.
 	// Both default to 100000; zero/root is never used for the VMM.
@@ -66,6 +74,12 @@ func (c Config) normalized() (Config, error) {
 	}
 	if c.JailDir == "" {
 		c.JailDir = filepath.Join(c.DataDir, "jailer")
+	}
+	if c.CgroupRoot == "" {
+		c.CgroupRoot = defaultCgroupRoot
+	}
+	if !filepath.IsAbs(c.CgroupRoot) {
+		return c, errors.New("cgroup root path must be absolute")
 	}
 	if !filepath.IsAbs(c.JailDir) {
 		return c, errors.New("jail directory path must be absolute")

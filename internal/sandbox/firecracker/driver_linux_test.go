@@ -19,8 +19,16 @@ import (
 func unitDriver(t *testing.T) *Driver {
 	t.Helper()
 	cfg := testConfig(t.TempDir())
-	cfg.JailDir = "/tmp/ah-unit-jails"
-	var err error
+	// Nothing a unit test does may leave its temp dirs: not the jailer's
+	// (short: unix socket paths), nor the cgroup hierarchy, which on a live host
+	// belongs to the running service's microVMs.
+	jails, err := os.MkdirTemp("", "ahj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(jails) })
+	cfg.JailDir = jails
+	cfg.CgroupRoot = t.TempDir()
 	cfg, err = cfg.normalized()
 	if err != nil {
 		t.Fatal(err)

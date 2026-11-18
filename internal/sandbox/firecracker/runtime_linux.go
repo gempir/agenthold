@@ -310,7 +310,7 @@ func (d *Driver) finish(ctx context.Context, id sandbox.ID, m *manifest) error {
 	if err = os.Remove(filepath.Join(d.dir(id), "config.img")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		errs = append(errs, err)
 	}
-	cg := filepath.Join("/sys/fs/cgroup/agenthold", d.jailID(id))
+	cg := filepath.Join(d.cfg.CgroupRoot, d.jailID(id))
 	if err = os.Remove(cg); err != nil && !errors.Is(err, os.ErrNotExist) {
 		errs = append(errs, fmt.Errorf("remove cgroup: %w", err))
 	}
@@ -349,7 +349,7 @@ func (d *Driver) recoverProcess(id sandbox.ID, m *manifest) error {
 	if err != nil || alive {
 		return err
 	}
-	path := filepath.Join("/sys/fs/cgroup/agenthold", d.jailID(id), "cgroup.procs")
+	path := filepath.Join(d.cfg.CgroupRoot, d.jailID(id), "cgroup.procs")
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil

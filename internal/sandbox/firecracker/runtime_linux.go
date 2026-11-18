@@ -97,7 +97,7 @@ func (d *Driver) prepare(ctx context.Context, id sandbox.ID, m *manifest, boot s
 	for _, f := range []struct {
 		source, name string
 		ro           bool
-	}{{d.cfg.KernelPath, "kernel", true}, {m.BaseImagePath, "base.ext4", true}, {filepath.Join(d.dir(id), "overlay.ext4"), "overlay.ext4", false}, {filepath.Join(d.dir(id), "home.ext4"), "home.ext4", false}, {config, "config.img", true}} {
+	}{{d.cfg.KernelPath, "kernel", true}, {d.initrd, "initrd", true}, {m.BaseImagePath, "base.ext4", true}, {filepath.Join(d.dir(id), "overlay.ext4"), "overlay.ext4", false}, {filepath.Join(d.dir(id), "home.ext4"), "home.ext4", false}, {config, "config.img", true}} {
 		if err = ctx.Err(); err != nil {
 			return err
 		}
@@ -185,8 +185,9 @@ func (d *Driver) launch(ctx context.Context, id sandbox.ID, m *manifest) error {
 	if err = a.put(bootCtx, "/machine-config", map[string]any{"vcpu_count": vcpus, "mem_size_mib": mem}); err != nil {
 		return err
 	}
-	args := fmt.Sprintf("console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda ro rootfstype=ext4 init=/opt/agenthold/sandboxd quiet ip=%s::%s:255.255.255.252::eth0:off", m.Subnet.Addr().Next().Next(), m.Subnet.Addr().Next())
-	if err = a.put(bootCtx, "/boot-source", map[string]string{"kernel_image_path": "/kernel", "boot_args": args}); err != nil {
+	// sandboxd arrives as the initramfs's /init and mounts the base (vda) itself.
+	args := fmt.Sprintf("console=ttyS0 reboot=k panic=1 pci=off quiet ip=%s::%s:255.255.255.252::eth0:off", m.Subnet.Addr().Next().Next(), m.Subnet.Addr().Next())
+	if err = a.put(bootCtx, "/boot-source", map[string]string{"kernel_image_path": "/kernel", "initrd_path": "/initrd", "boot_args": args}); err != nil {
 		return err
 	}
 	// Insertion order is part of sandboxd's ABI: vda base, vdb system,
@@ -196,7 +197,7 @@ func (d *Driver) launch(ctx context.Context, id sandbox.ID, m *manifest) error {
 		if name == "config" {
 			path = "/config.img"
 		}
-		if err = a.put(bootCtx, "/drives/"+name, map[string]any{"drive_id": name, "path_on_host": path, "is_root_device": i == 0, "is_read_only": i == 0 || i == 3}); err != nil {
+		if err = a.put(bootCtx, "/drives/"+name, map[string]any{"drive_id": name, "path_on_host": path, "is_root_device": false, "is_read_only": i == 0 || i == 3}); err != nil {
 			return err
 		}
 	}
@@ -297,7 +298,7 @@ func (d *Driver) finish(ctx context.Context, id sandbox.ID, m *manifest) error {
 	errs = append(errs, d.deleteTap(id))
 	// Unmount before RemoveAll: removing through a live bind could delete data.
 	clean := true
-	for _, name := range []string{"config.img", "home.ext4", "overlay.ext4", "base.ext4", "kernel"} {
+	for _, name := range []string{"config.img", "home.ext4", "overlay.ext4", "base.ext4", "initrd", "kernel"} {
 		err = unix.Unmount(filepath.Join(d.jailRoot(id), name), 0)
 		if err != nil && !errors.Is(err, unix.EINVAL) && !errors.Is(err, unix.ENOENT) {
 			errs = append(errs, err)

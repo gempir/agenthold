@@ -14,6 +14,8 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/hashicorp/yamux"
+
+	"github.com/gempir/agenthold/internal/version"
 )
 
 // Header names used by sandboxd when dialing.
@@ -149,6 +151,11 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.register(s)
 	h.log.Info("tunnel: connected", "agent", agentID, "user", s.Hello.User, "sandboxd", s.Hello.Version)
+	if s.Hello.Version != version.Version {
+		// The node delivers its own sandboxd at every boot; a guest that booted
+		// under another release keeps that one until it restarts.
+		h.log.Warn("tunnel: machine runs the sandboxd it booted with; restart it to update", "agent", agentID, "sandboxd", s.Hello.Version, "node", version.Version)
+	}
 	go h.acceptIncoming(s)
 	<-mux.CloseChan()
 	h.unregister(s)

@@ -7,10 +7,10 @@ import (
 	"strings"
 )
 
-// ErrTooOld is returned when the guest's sandboxd does not know an operation
-// (it predates it). Restarting the machine, or resetting its system when its
-// base image is older, brings a current sandboxd.
-var ErrTooOld = errors.New("this machine's sandboxd is too old for this; restart the machine (or reset its system) to update it")
+// ErrTooOld is returned when the guest's sandboxd does not know an operation:
+// the machine still runs the sandboxd it booted with. The node delivers its
+// own sandboxd at every boot, so a restart updates it (whatever the base).
+var ErrTooOld = errors.New("this machine still runs the sandboxd it booted with, which is too old for this; restart the machine to update it")
 
 // unsupported maps "unknown operation" errors of old guests to ErrTooOld.
 func unsupported(err error) error {

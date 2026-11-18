@@ -30,8 +30,10 @@ unprivileged `agenthold-build` user), checks it out into a fresh worktree and ru
    covered by GitHub CI)
 3. `make web` (build user)
 4. the guest kernel, cached in `/var/cache/agenthold-build/kernel/<hash of its inputs>` (build user)
-5. `VERSION=sha-<commit> BASE_URL= scripts/release/build.sh`, which builds the guest daemon and base
-   image (root: `mmdebstrap`) and the bundled binary
+5. `VERSION=sha-<commit> BASE_URL= scripts/release/build.sh`, which builds the guest daemon and the
+   bundled binary, and the base image (root: `mmdebstrap`) only when its inputs changed: the compressed base
+   and its manifest are cached in `/var/cache/agenthold-build/root/base/<scripts/guest/base-key.sh>` (root only) and unpacked
+   into the worktree when the key matches. The base holds no sandboxd, so Go-only commits reuse it
 6. `make test-kvm` against the image just built (root: the jailer, taps and nftables). The KVM tests run
    in their own network and mount namespaces with temporary data and jail directories, so they do not
    touch the live service's taps, firewall or address pool.
@@ -45,7 +47,7 @@ and the journal (`journalctl -u agenthold-build`); runtime and memory peak per p
 
 Only when everything passed is the release published atomically into the store
 `/srv/agenthold/releases/`: `sha-<commit>/` (binary, runtime manifest, compressed base, base manifest,
-`SHA256SUMS`) is renamed into place, then `channel.json` is replaced. A failure keeps the previous
+`SHA256SUMS`) is renamed into place (the compressed base is a hard link to the cached one), then `channel.json` is replaced. A failure keeps the previous
 channel and writes `/srv/agenthold/failed/<commit>.log`; that commit is not rebuilt (a new commit is). To
 retry it: `sudo /usr/local/lib/agenthold/build-local.sh --force`. If main moves during a build, the build
 finishes and the next run picks up the newest head; commits in between are skipped.
@@ -142,7 +144,9 @@ AGENTHOLD_SMOKE_PASSWORD=... /tmp/native -base http://127.0.0.1:8080 -fakeagent 
 ```
 
 Back up the database, master key, CA and agent disks before upgrading. Binary rollback does not reverse
-database migrations, so migrations are append-only.
+database migrations, so migrations are append-only. Rolling back past G1 (host-delivered sandboxd) leaves
+machines created or reset since then unbootable until you roll forward again: their base has no sandboxd of its
+own. Their disks are not touched.
 
 ## Disk usage
 
@@ -150,22 +154,26 @@ The shared base and the per-agent disks can consume substantial host storage. A 
 full configured size to the guest while the Mac only pays for the blocks that were written, so the guest can
 show tens of GiB free that the Mac does not have. Measured on the Scarif demo VM:
 
-- One base image is about 2.4 GiB, plus about 0.8 GiB for the kept compressed file. The embedded guest
-  daemon differs per release, so every deployed commit brings a new base. After each successful switch the
-  puller prunes the base cache and keeps only the base (both files) of the new release, the base of the
-  previous release (the rollback target) and every base that an agent's `state.json` still references: an
-  agent's overlay only works with the base it was created on, and it moves to the current base when the
-  agent's system is reset. If any agent state cannot be read, no base is pruned.
+- One base image is about 2.4 GiB, plus about 0.8 GiB for the kept compressed file. The base is the
+  operating system only (the node delivers sandboxd at boot), so it changes only when `images/base` or the
+  rootfs build changes; consecutive releases normally share it, and the builder's cache, every store version
+  and the base cache hold one compressed copy through hard links. After each successful switch the puller
+  prunes the base cache and keeps only the base (both files) of the new release, the base of the previous
+  release (the rollback target; usually the same one) and every base that an agent's `state.json` still
+  references: an agent's overlay only works with the base it was created on, and it moves to the current base
+  when the agent's system is reset. If any agent state cannot be read, no base is pruned. In normal operation
+  that converges to one base.
 - Release directories under `/opt/agenthold/releases` are pruned to the newest three, never the current or
-  previous release; versions in the local release store to the newest three plus the deployed and previous
-  ones (the compressed base there is a hard link to the one in the base cache, so it costs nothing extra
-  while both exist); `<data_dir>/dl/` keeps only the deployed version. Pruning only touches
+  previous release; versions in the local release store to the newest two plus the deployed and previous
+  ones (what rollback needs; their compressed bases are hard links of one file while the base is unchanged); `<data_dir>/dl/` keeps only the deployed version. Pruning only touches
   `<sha256>.ext4[.zst]` files in `<data_dir>/base/`, 40-hex release directories and `sha-<commit>`
   directories, ignores symlinks, and logs each removal and the bytes freed. It never runs after a failed or
   rolled-back deployment. Set `PRUNE=0` in the puller's environment (`systemctl edit agenthold-pull.service`)
   to disable it.
-- A build needs about 10 GB of temporary space (worktree, Go and pnpm caches, the rootfs work tree, the
-  KVM test copy of the image); the builder refuses to start with less than 12 GB free.
+- A build needs temporary space for its worktree (with the unpacked base image, 2.4 GiB) and the Go, pnpm and
+  rootfs caches. Measured on 2026-11-18: about 3 GB at the peak with the base cached (the KVM tests and the
+  release output hard-link the base); 6.9 GB when both still copied it. The builder refuses to start with
+  less than 12 GB free.
 - A fresh agent has an 8 GiB overlay and a 10 GiB home disk as sparse files; right after boot they occupy
   only a few MiB.
 - Before placing a new base the puller checks free space on the guest filesystem and on `host_mount`, the

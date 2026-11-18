@@ -62,7 +62,8 @@ connects to a node, so nodes can sit behind NAT.
 
 ## Base image and version
 
-A node needs the base disk of its own release. It fetches it **from the controller it joined**, over HTTP(S)
+A node needs the base disk of its own release. The base holds no sandboxd (each node delivers its own at boot),
+so consecutive releases usually share one base and an upgraded node downloads nothing. It fetches it **from the controller it joined**, over HTTP(S)
 from the controller's [`/dl/`](/install/#serving-the-release-to-others) (`<public_url>/dl/<version>/base-<arch>.ext4.zst`),
 not from a third-party host. The controller tells the node that address, together with its own version, every
 time the node joins or connects, and the node keeps it in its state file (a node that restarts with its base

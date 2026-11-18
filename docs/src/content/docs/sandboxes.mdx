@@ -41,9 +41,12 @@ credentials. The clone is created in the background (`creating`, then `sleeping`
 
 - The source must be at rest while its disks are copied. A running agent is stopped, copied and started again; the
   clone is refused while a prompt is running, and no prompt is accepted while the copy is made.
-- A machine whose system disk is on an older base image than the current one, or has changes that need a reset
-  (`needsRebuild`), is not cloned: a clone would inherit that system, and an old guest may not know how to give a
-  clone its own identity. **Reset system** first (home files are kept), then clone. The API answers 409. A source that is being cloned is `stopping` until the copy is done, and
+- A machine with changes that need a reset (`needsRebuild`) is not cloned: a clone would inherit them unapplied.
+  **Reset system** first (home files are kept), then clone. The API answers 409. The base image does not matter: a
+  clone stays on its source's base (its system overlay only makes sense on that one), which stays on the node while
+  any machine uses it. An [edge node](/edge-nodes/) still on a release from before host-delivered sandboxd reports
+  a machine on an older base, and that clone is refused until a reset, as before (its guest boots the sandboxd
+  baked into the base); run the controller's release on every node. A source that is being cloned is `stopping` until the copy is done, and
   cannot be started, stopped or cloned a second time meanwhile.
 - A clone lives on the same node as its source, because disks never leave a node. If that node is offline, cloning
   fails like any other operation on it.
@@ -97,5 +100,11 @@ The guest runs `sandboxd`, which connects to the node using a per-boot token. A 
 once its daemon connects. The tunnel carries terminal, file, harness and health streams. File paths are
 relative to `/home/agent`; opening a terminal wakes a sleeping agent, while file operations require it to be
 running.
+
+`sandboxd` is not part of the base image: the node hands its own sandboxd to every guest at boot (as the
+initramfs, see [Guest artifacts](/guest-artifacts/#boot-contract)). A machine therefore gets a new release's
+sandboxd, and the features that need it, at its next start; a running machine keeps the one it booted with until
+it sleeps or is restarted. The node logs a machine that still runs an older sandboxd, and features it lacks say
+"restart the machine to update it". Reset system is never needed for that.
 
 The fake driver runs sandboxd on the server's machine as the server's user. Use it only for development and tests.

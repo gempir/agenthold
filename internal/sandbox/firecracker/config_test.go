@@ -11,7 +11,7 @@ import (
 )
 
 func testConfig(dir string) Config {
-	return Config{DataDir: dir, BaseImagePath: "/base.ext4", KernelPath: "/kernel", FirecrackerPath: "/firecracker", JailerPath: "/jailer", NetworkPool: netip.MustParsePrefix("172.29.0.0/24")}
+	return Config{DataDir: dir, BaseImagePath: "/base.ext4", KernelPath: "/kernel", FirecrackerPath: "/firecracker", JailerPath: "/jailer", SandboxdPath: "/sandboxd", NetworkPool: netip.MustParsePrefix("172.29.0.0/24")}
 }
 
 func TestConfigAndResources(t *testing.T) {

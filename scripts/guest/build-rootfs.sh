@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # Builds the read-only base disk image of the microVMs from images/base.
 #
-#   scripts/guest/build-rootfs.sh [--out DIR] [--sandboxd PATH] [--squashfs] [--no-zstd]
+#   scripts/guest/build-rootfs.sh [--out DIR] [--squashfs] [--no-zstd]
 #
 # Runs on Linux (arm64 or amd64, natively: no cross builds) as root, for example inside the Lima dev
 # VM or on a GitHub runner; from macOS it re-runs itself inside the Lima VM "agenthold".
 #
 # Build path: mmdebstrap (no Docker or other container runtime) creates a Debian minbase tree from
 # snapshot.debian.org at the pinned timestamp, installs images/base/packages.txt and runs
-# images/base/provision.sh in a chroot. sandboxd is built from this checkout and installed at
-# /opt/agenthold/sandboxd. The tree becomes a journal-less ext4 image with fixed UUID, hash seed and
+# images/base/provision.sh in a chroot. The image carries no sandboxd: the host delivers it at
+# every boot (an initramfs) and bind-mounts it over the empty /opt/agenthold/sandboxd placeholder, so
+# the image only changes with its inputs (scripts/guest/base-key.sh). The tree becomes a journal-less ext4 image with fixed UUID, hash seed and
 # timestamps, shrunk to its minimum size.
 #
 # Output (default build/guest/<arch>/ in the repo, git-ignored):
@@ -32,13 +33,11 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 OUT=""
-SANDBOXD=""
 SQUASHFS=0
 ZSTD=1
 while (($#)); do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
-    --sandboxd) SANDBOXD="$2"; shift 2 ;;
     --squashfs) SQUASHFS=1; shift ;;
     --no-zstd) ZSTD=0; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -102,18 +101,6 @@ fi
 dpkg-deb -x "$KEYRING_DEB" "$WORK/keyring"
 KEYRING="$WORK/keyring/usr/share/keyrings/debian-archive-keyring.gpg"
 
-if [[ -z "$SANDBOXD" ]]; then
-  log "Building sandboxd"
-  command -v go >/dev/null || { echo "go not found (or pass --sandboxd PATH)" >&2; exit 1; }
-  version="$(git -C "$REPO_ROOT" describe --tags --always --dirty 2>/dev/null || echo dev)"
-  commit="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-  # Own caches: this runs as root and must not leave root-owned files in the user's Go cache.
-  (cd "$REPO_ROOT" && GOCACHE="$CACHE/go-build" GOMODCACHE="$CACHE/go-mod" CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -trimpath \
-    -ldflags "-s -w -X github.com/gempir/agenthold/internal/version.Version=$version -X github.com/gempir/agenthold/internal/version.Commit=$commit" \
-    -o "$WORK/sandboxd" ./cmd/sandboxd)
-  SANDBOXD="$WORK/sandboxd"
-fi
-
 # --- tree (cached: only rebuilt when images/base changes) ---------------------------------------------
 # Bump TREE_FORMAT when the mmdebstrap invocation below changes.
 TREE_FORMAT=2
@@ -153,8 +140,10 @@ if [[ ! -f "$TREE.done" ]]; then
 else
   log "Reusing cached tree $TREE"
 fi
-install -m 0755 "$SANDBOXD" "$TREE/opt/agenthold/sandboxd"
-# Clamp every timestamp (npm, the hooks and sandboxd carry "now").
+# Mount point of the delivered sandboxd (a cached tree may still hold a daemon from before G1).
+rm -f "$TREE/opt/agenthold/sandboxd"
+install -m 0755 /dev/null "$TREE/opt/agenthold/sandboxd"
+# Clamp every timestamp (npm and the hooks carry "now").
 find "$TREE" -xdev -newermt "@$SOURCE_DATE_EPOCH" -exec touch --no-dereference --date="@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
 
 # --- ext4 -------------------------------------------------------------------------------------------
@@ -170,16 +159,33 @@ truncate -s "${size_mb}M" "$IMG.part"
 E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" mkfs.ext4 -q -F -L agenthold-base -U "$FS_UUID" \
   -E "hash_seed=$FS_UUID,lazy_itable_init=0,nodiscard" -O ^has_journal -m 0 -N "$inodes" \
   -T default -d "$TREE" "$IMG.part"
-E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" e2fsck -fy "$IMG.part" >/dev/null 2>&1 || [[ $? -le 1 ]]
+# The lifetime write counter only grows while it is nonzero; zero it before e2fsck and resize2fs
+# rewrite the backup superblocks (debugfs below only writes the primary one).
+E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" debugfs -w -R "ssv kbytes_written 0" "$IMG.part" >/dev/null 2>&1
+E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" E2FSCK_TIME="$SOURCE_DATE_EPOCH" e2fsck -fy "$IMG.part" >/dev/null 2>&1 || [[ $? -le 1 ]]
 E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" resize2fs -M "$IMG.part" >/dev/null 2>&1
-E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" e2fsck -fy "$IMG.part" >/dev/null 2>&1 || [[ $? -le 1 ]]
+E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" E2FSCK_TIME="$SOURCE_DATE_EPOCH" e2fsck -fy "$IMG.part" >/dev/null 2>&1 || [[ $? -le 1 ]]
+# mke2fs -d (1.47.0) copies each file's atime and ctime from the tree, and those are "now" for a
+# cached tree that was read or touched (ctime cannot be set at the source). Pin both on every
+# allocated inode so the same inputs give the same image, build after build.
+dumpe2fs "$IMG.part" 2>/dev/null | awk -v sde="$SOURCE_DATE_EPOCH" '
+  /^Inode count:/ {n = $3}
+  /^  Free inodes: / {
+    sub(/^  Free inodes: /, ""); k = split($0, r, ", ")
+    for (i = 1; i <= k; i++) if (r[i] != "") { split(r[i], ab, "-"); hi = (ab[2] == "" ? ab[1] : ab[2]); for (j = ab[1]; j <= hi; j++) free[j] = 1 }
+  }
+  END { for (i = 1; i <= n; i++) if (!(i in free)) printf "sif <%d> atime @%d\nsif <%d> ctime @%d\n", i, sde, i, sde }' >"$WORK/pin-times"
+E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" debugfs -w -f "$WORK/pin-times" "$IMG.part" >/dev/null 2>&1
+E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" E2FSCK_TIME="$SOURCE_DATE_EPOCH" e2fsck -fy "$IMG.part" >/dev/null 2>&1 || [[ $? -le 1 ]]
 blocks=$(dumpe2fs -h "$IMG.part" 2>/dev/null | awk -F: '/^Block count/ {gsub(/ /,"",$2); print $2}')
 bsize=$(dumpe2fs -h "$IMG.part" 2>/dev/null | awk -F: '/^Block size/ {gsub(/ /,"",$2); print $2}')
 truncate -s $(( blocks * bsize )) "$IMG.part"
-# Last-mount/check times are part of the superblock; pin them as well.
-debugfs -w -R "ssv mtime $SOURCE_DATE_EPOCH" "$IMG.part" >/dev/null 2>&1 || true
-debugfs -w -R "ssv lastcheck $SOURCE_DATE_EPOCH" "$IMG.part" >/dev/null 2>&1 || true
-debugfs -w -R "ssv wtime $SOURCE_DATE_EPOCH" "$IMG.part" >/dev/null 2>&1 || true
+# Last-mount/check/write times and the lifetime write counter are part of the superblock; pin them
+# in one session (debugfs parses a bare number as a date, hence @; closing the file system stamps
+# the write time unless the time is faked, and only adds to a nonzero write counter).
+printf 'ssv mtime @%s\nssv lastcheck @%s\nssv wtime @%s\nssv kbytes_written 0\n' \
+  "$SOURCE_DATE_EPOCH" "$SOURCE_DATE_EPOCH" "$SOURCE_DATE_EPOCH" >"$WORK/pin-super"
+E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" debugfs -w -f "$WORK/pin-super" "$IMG.part" >/dev/null 2>&1
 mv "$IMG.part" "$IMG"
 
 size=$(stat -c %s "$IMG")
@@ -203,17 +209,17 @@ if ((SQUASHFS)); then
   sqsize=$(stat -c %s "$OUT/$NAME.squashfs")
 fi
 
-sandboxd_sha=$(sha256sum "$TREE/opt/agenthold/sandboxd" | cut -d' ' -f1)
+base_key="$(bash "$REPO_ROOT/scripts/guest/base-key.sh")"
 jq -n --arg version "$BASE_VERSION" --arg arch "$ARCH" --arg file "$NAME.ext4" --argjson size "$size" \
   --arg sha256 "$sha" --argjson zstdSize "$zsize" --argjson zstdSha256 "$zsha" --argjson squashfsSize "$sqsize" \
   --arg fsUuid "$FS_UUID" --arg debian "$DEBIAN_SUITE@$DEBIAN_SNAPSHOT" --arg node "$NODE_VERSION" \
   --arg npmLockSha256 "$(sha256sum "$IMG_DIR/package-lock.json" | cut -d' ' -f1)" \
   --argjson harnesses "$(jq '.dependencies' "$IMG_DIR/package.json")" \
-  --arg sandboxd "$sandboxd_sha" --argjson treeMiB "$tree_mb" --argjson sde "$SOURCE_DATE_EPOCH" \
+  --arg baseKey "$base_key" --argjson treeMiB "$tree_mb" --argjson sde "$SOURCE_DATE_EPOCH" \
   '{version: $version, arch: $arch, format: "ext4", file: $file, size: $size, sha256: $sha256,
     zstd: (if $zstdSize == null then null else {file: ($file + ".zst"), size: $zstdSize, sha256: $zstdSha256} end),
     squashfsSize: $squashfsSize, fsUuid: $fsUuid, treeMiB: $treeMiB, sourceDateEpoch: $sde,
-    inputs: {debian: $debian, node: $node, harnesses: $harnesses, npmLockSha256: $npmLockSha256, sandboxdSha256: $sandboxd}}' >"$OUT/$NAME.manifest.json"
+    inputs: {debian: $debian, node: $node, harnesses: $harnesses, npmLockSha256: $npmLockSha256, baseKey: $baseKey}}' >"$OUT/$NAME.manifest.json"
 
 # Hand the outputs to the invoking user when run through sudo (the repo is theirs).
 if [[ -n "${SUDO_UID:-}" ]]; then chown -R "$SUDO_UID:${SUDO_GID:-$SUDO_UID}" "$OUT"; fi

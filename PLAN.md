@@ -40,8 +40,8 @@ out unworkable, stop and report.
 | Isolation | Firecracker microVMs only. Docker driver, Sysbox/gVisor options and docs are deleted. The `fake` driver stays for tests and UI work. |
 | Why | No Docker dependency, real isolation, a full machine per agent (own kernel, Docker-in-agent, enforced disk size), and later true suspend/resume. |
 | Host requirement | Linux with `/dev/kvm`, x86_64 or aarch64, running as root (tap devices, nftables, jailer). |
-| Binary | `agenthold` embeds `firecracker`, `jailer`, the guest kernel and `sandboxd` for its architecture and extracts them to `<data_dir>/runtime/<version>/` on start. |
-| Base rootfs | One blessed base disk image per release, built from `images/base`. Too large to embed (several GB): fetched on first start from a pinned URL and verified by sha256, or pre-placed in `data_dir` for offline installs. |
+| Binary | `agenthold` embeds `firecracker`, `jailer`, the guest kernel and `sandboxd` for its architecture and extracts them to `<data_dir>/runtime/<version>/` on start. The node delivers its `sandboxd` to every guest at boot as an initramfs (G1), so a machine always runs the booting release's daemon. |
+| Base rootfs | One blessed base disk image, built from `images/base`, OS only (no sandboxd): it changes only with its own inputs, so consecutive releases share it. Too large to embed (several GB): fetched on first start from a pinned URL and verified by sha256, or pre-placed in `data_dir` for offline installs. |
 | Agent disks | Shared read-only base + per-agent writable overlay disk (system changes survive sleep) + per-agent persistent `/home/agent` disk. Upgrading the base swaps it and resets the overlay; home always survives. No per-agent image; "Rebuild" becomes "Reset system". |
 | Sleep | Cold shutdown and boot (same semantics as before: disk and conversation survive, processes do not). Memory snapshots are a later milestone. |
 | Secrets | Unchanged: never enter the VM. A host-side transparent TLS-intercepting proxy injects them. Account-level harness logins stay. |
@@ -115,9 +115,13 @@ can cross a network: no shared pointers, context-cancellable, streams as `io.Rea
   reach each other.
 - Boot configuration (agent id, tunnel token, CA cert, harness files) reaches sandboxd through MMDS or
   a small config disk; no bind mounts exist any more.
-- `sandboxd` is the guest's init: mounts the overlay over the base, mounts home, brings up the
-  network, dials the node's tunnel endpoint at the gateway address, reaps children, powers off on
-  request. Everything else it does today is unchanged.
+- `sandboxd` reaches the guest as the kernel's initramfs (`initrd_path`: an uncompressed newc cpio with
+  only `/init`, written in Go by the driver from the node's own sandboxd) and is the guest's init: it
+  mounts the base read-only and switches into it, mounts the overlay over the base, mounts home,
+  bind-mounts itself over `/opt/agenthold/sandboxd` (the stable in-guest path; old bases' own copy is
+  covered), brings up the network, dials the node's tunnel endpoint at the gateway address, reaps
+  children, powers off on request. A restart updates a machine's sandboxd; the tunnel hello reports
+  its version.
 
 ### 3.3 Domain model
 
@@ -318,6 +322,16 @@ Milestones (migration numbers are reserved so parallel work does not collide):
     root) and publishes the deployed release under the controller's `/dl/`. `deploy.yml`,
     `release.yml` and the CI `kvm` job are gone. Open: tagged `v*` releases (build-local only builds
     `sha-<commit>` from main), amd64 builds (from source only).
+
+- **G1. Runtime-delivered sandboxd** (done). The base image no longer contains sandboxd: the driver
+  boots every VM with an initramfs carrying the node's sandboxd, which mounts the base and switches into
+  it, and bind-mounts itself over `/opt/agenthold/sandboxd`. The base is keyed by
+  `scripts/guest/base-key.sh` (images/base and the rootfs script), built reproducibly (all inode and
+  superblock times pinned) and cached by the demo builder, so Go-only releases share one base on disk
+  and edge nodes download nothing new. Existing machines on old bases get the new sandboxd at their next
+  boot without a reset. `Status.BaseStale` and the clone refusal for machines on an older base are gone:
+  a clone stays on its source's base, which pruning keeps while any machine names it. Release store
+  retention is two versions. No migration.
 
 ### Later
 

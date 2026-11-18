@@ -209,7 +209,37 @@ else
   cp -- "$kernel_cache"/* "$wt/build/guest/arm64/"
 fi
 
+# The base image only changes with its own inputs (scripts/guest/base-key.sh; sandboxd is not in it):
+# cache its compressed image and manifest by that key. The cached .zst is hard-linked into the store,
+# and pull.sh hard-links the store's copy into the service's base cache, so consecutive releases with
+# the same base share one copy on disk.
+base_key="$(cd "$wt" && bash scripts/guest/base-key.sh)"
+[[ "$base_key" =~ ^[0-9a-f]{32}$ ]] || { echo 'unexpected base key' >&2; exit 1; }
+# Root's own cache (0700): the build user must not be able to swap the base a release ships.
+base_cache="$CACHE/root/base/$base_key"
+guest="$wt/build/guest/arm64"
+if [[ -f "$base_cache/base-arm64.manifest.json" && -f "$base_cache/base-arm64.ext4.zst" ]]; then
+  echo "==> base: cached ($base_key)"
+  jq -e --arg key "$base_key" '.inputs.baseKey == $key' "$base_cache/base-arm64.manifest.json" >/dev/null || { echo 'cached base manifest has another key' >&2; exit 1; }
+  install -d -o "$BUILD_USER" -g "$BUILD_USER" "$wt/build" "$wt/build/guest" "$guest"
+  cp -- "$base_cache/base-arm64.manifest.json" "$guest/"
+  ln -f -- "$base_cache/base-arm64.ext4.zst" "$guest/base-arm64.ext4.zst" 2>/dev/null || cp -- "$base_cache/base-arm64.ext4.zst" "$guest/"
+  zstd -d -q -f --long=27 --sparse "$guest/base-arm64.ext4.zst" -o "$guest/base-arm64.ext4"
+fi
+
 phase release root bash scripts/release/build.sh
+
+if [[ ! -f "$base_cache/base-arm64.ext4.zst" ]]; then
+  install -d -m 0700 "$CACHE/root/base"
+  tmpb="$(mktemp -d "$CACHE/root/base/.tmp.XXXXXX")"
+  cp -- "$guest/base-arm64.manifest.json" "$tmpb/"
+  ln -f -- "$guest/base-arm64.ext4.zst" "$tmpb/base-arm64.ext4.zst" 2>/dev/null || cp -- "$guest/base-arm64.ext4.zst" "$tmpb/"
+  chown -R root:root "$tmpb"
+  chmod 0755 "$tmpb"
+  chmod 0644 "$tmpb"/*
+  rm -rf -- "$base_cache"
+  mv -T -- "$tmpb" "$base_cache"
+fi
 phase kvm root make test-kvm
 
 # --- publish ----------------------------------------------------------------------------------
@@ -222,9 +252,16 @@ jq -e --arg v "$version" '.format == 1 and .arch == "arm64" and .version == $v a
   { echo 'runtime manifest does not describe this build' >&2; exit 1; }
 [[ "$("$out/agenthold-linux-arm64" --version)" == "agenthold $version ("* ]] || { echo 'binary version does not match' >&2; exit 1; }
 stage="$(mktemp -d "$STORE/.stage.XXXXXX")"
-for f in agenthold-linux-arm64 runtime-linux-arm64.manifest.json base-arm64.ext4.zst base-arm64.manifest.json SHA256SUMS; do
+for f in agenthold-linux-arm64 runtime-linux-arm64.manifest.json base-arm64.manifest.json SHA256SUMS; do
   cp -- "$out/$f" "$stage/$f"
 done
+# The compressed base is the cached one (verified against SHA256SUMS below): link, do not copy.
+if cmp -s -- "$out/base-arm64.ext4.zst" "$base_cache/base-arm64.ext4.zst" &&
+   ln -- "$base_cache/base-arm64.ext4.zst" "$stage/base-arm64.ext4.zst" 2>/dev/null; then
+  echo "==> base: linked from the cache"
+else
+  cp -- "$out/base-arm64.ext4.zst" "$stage/base-arm64.ext4.zst"
+fi
 chown -R root:root "$stage"
 chmod 0644 "$stage"/*
 chmod 0755 "$stage" "$stage/agenthold-linux-arm64"
@@ -249,6 +286,9 @@ chmod 0644 "$STORE/.channel.json.tmp"
 mv -f -- "$STORE/.channel.json.tmp" "$STORE/channel.json"
 rm -f -- "$FAILED/$commit.log"
 echo "==> published $version to $STORE"
+# One cached base, cleaned only after a successful publish: older keys stay reachable through the
+# store (hard links), which pull.sh prunes.
+find "$CACHE/root/base" -mindepth 1 -maxdepth 1 -type d ! -name "$base_key" -exec rm -rf -- {} +
 cat "$phases"
 # Deploy right away instead of waiting for the next pull timer run.
 if systemctl is-enabled --quiet agenthold-pull.timer 2>/dev/null; then

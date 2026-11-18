@@ -29,15 +29,15 @@ import (
 // TestJailedClone clones a stopped microVM and boots clone and source side by
 // side. Same environment as TestJailedLifecycle (root, KVM, extracted pinned
 // artifacts), in a disposable network namespace:
-// AGENTHOLD_KVM_BASE=... AGENTHOLD_KVM_KERNEL=... AGENTHOLD_KVM_FIRECRACKER=... AGENTHOLD_KVM_JAILER=...
+// AGENTHOLD_KVM_BASE=... AGENTHOLD_KVM_KERNEL=... AGENTHOLD_KVM_FIRECRACKER=... AGENTHOLD_KVM_JAILER=... AGENTHOLD_KVM_SANDBOXD=...
 // sudo -E go test -tags=kvm ./internal/sandbox/firecracker -run TestJailedClone -v
 func TestJailedClone(t *testing.T) {
-	for _, key := range []string{"BASE", "KERNEL", "FIRECRACKER", "JAILER"} {
+	for _, key := range []string{"BASE", "KERNEL", "FIRECRACKER", "JAILER", "SANDBOXD"} {
 		if os.Getenv("AGENTHOLD_KVM_"+key) == "" {
 			if os.Getenv("AGENTHOLD_REQUIRE_KVM") == "1" {
 				t.Fatal("required jailed VM artifact environment is missing: AGENTHOLD_KVM_" + key)
 			}
-			t.Skip("set AGENTHOLD_KVM_BASE/KERNEL/FIRECRACKER/JAILER to run the jailed VM test")
+			t.Skip("set AGENTHOLD_KVM_BASE/KERNEL/FIRECRACKER/JAILER/SANDBOXD to run the jailed VM test")
 		}
 	}
 	if os.Geteuid() != 0 {
@@ -76,7 +76,7 @@ func TestJailedClone(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	cfg := Config{DataDir: dir, JailDir: filepath.Join(dir, "j"), BaseImagePath: os.Getenv("AGENTHOLD_KVM_BASE"), KernelPath: os.Getenv("AGENTHOLD_KVM_KERNEL"), FirecrackerPath: os.Getenv("AGENTHOLD_KVM_FIRECRACKER"), JailerPath: os.Getenv("AGENTHOLD_KVM_JAILER"), NetworkPool: netip.MustParsePrefix("10.215.0.0/24"), OverlaySizeBytes: 256 << 20, HomeSizeBytes: 256 << 20, StopTimeout: 8 * time.Second}
+	cfg := Config{DataDir: dir, JailDir: filepath.Join(dir, "j"), BaseImagePath: os.Getenv("AGENTHOLD_KVM_BASE"), KernelPath: os.Getenv("AGENTHOLD_KVM_KERNEL"), FirecrackerPath: os.Getenv("AGENTHOLD_KVM_FIRECRACKER"), JailerPath: os.Getenv("AGENTHOLD_KVM_JAILER"), SandboxdPath: os.Getenv("AGENTHOLD_KVM_SANDBOXD"), NetworkPool: netip.MustParsePrefix("10.215.0.0/24"), OverlaySizeBytes: 256 << 20, HomeSizeBytes: 256 << 20, StopTimeout: 8 * time.Second}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 	const token = "kvm-clone-config-disk-only-token"
@@ -168,14 +168,14 @@ func TestJailedClone(t *testing.T) {
 	t.Cleanup(func() { destroy(srcID) })
 	src := start(srcID)
 	run(src, "echo home-from-source > ~/keep.txt; sudo sh -c 'echo system-from-source > /etc/kvm-system; echo source-engine > /var/lib/docker/engine-id; echo 0123456789abcdef0123456789abcdef > /etc/machine-id'; sync")
-	// Only the source's identity stamp (written by a sandboxd that has the
-	// feature) decides whether the identity checks below can be made.
-	stamped := run(src, "cat /etc/agenthold/instance 2>/dev/null || true") == string(srcID)
-	if stamped {
-		// A system that was never stamped (every machine built before the
-		// stamp existed): the clone's own boot instruction must reset it.
-		run(src, "sudo rm /etc/agenthold/instance; sync")
+	// The delivered sandboxd stamps every system with its machine's id, on
+	// any base image.
+	if got := run(src, "cat /etc/agenthold/instance"); got != string(srcID) {
+		t.Fatalf("source stamp: %q", got)
 	}
+	// A system that was never stamped (machines that booted only before the
+	// stamp existed): the clone's own boot instruction must reset it.
+	run(src, "sudo rm /etc/agenthold/instance; sync")
 
 	// A running source is refused, and a refusal leaves nothing behind.
 	if _, err = d.Clone(ctx, srcID, spec(prefix+"_dst")); !errors.Is(err, sandbox.ErrRunning) {
@@ -245,16 +245,12 @@ func TestJailedClone(t *testing.T) {
 	}
 
 	// The clone is its own machine: machine identity is cleared, the source keeps its own.
-	if stamped {
-		if got := run(dst, "cat /etc/agenthold/instance; wc -c < /etc/machine-id; ls /var/lib/docker/engine-id 2>&1 | grep -c 'No such file'"); got != string(dstID)+"\n0\n1" {
-			t.Fatalf("clone identity: %q", got)
-		}
-		// The source was unstamped and had no instruction: it only stamps itself.
-		if got := run(src, "cat /etc/agenthold/instance; cat /etc/machine-id; cat /var/lib/docker/engine-id"); got != string(srcID)+"\n0123456789abcdef0123456789abcdef\nsource-engine" {
-			t.Fatalf("source identity: %q", got)
-		}
-	} else {
-		t.Log("base image predates the machine identity stamp: identity reset not checked")
+	if got := run(dst, "cat /etc/agenthold/instance; wc -c < /etc/machine-id; ls /var/lib/docker/engine-id 2>&1 | grep -c 'No such file'"); got != string(dstID)+"\n0\n1" {
+		t.Fatalf("clone identity: %q", got)
+	}
+	// The source was unstamped and had no instruction: it only stamps itself.
+	if got := run(src, "cat /etc/agenthold/instance; cat /etc/machine-id; cat /var/lib/docker/engine-id"); got != string(srcID)+"\n0123456789abcdef0123456789abcdef\nsource-engine" {
+		t.Fatalf("source identity: %q", got)
 	}
 
 	// The tunnel's dial op (preview URLs) works in a clone as in any machine.
@@ -304,10 +300,8 @@ func TestJailedClone(t *testing.T) {
 	if got := run(gc, "cat ~/keep.txt ~/clone.txt"); got != "home-from-source\nonly-in-clone" {
 		t.Fatalf("clone of a clone: %q", got)
 	}
-	if stamped {
-		if got := run(gc, "cat /etc/agenthold/instance"); got != string(again) {
-			t.Fatalf("grandchild stamp: %q", got)
-		}
+	if got := run(gc, "cat /etc/agenthold/instance"); got != string(again) {
+		t.Fatalf("grandchild stamp: %q", got)
 	}
 	t.Log("clone of a stopped microVM: sparse disks, both VMs side by side, independent writes, own addresses, own identity, clone of a clone")
 }

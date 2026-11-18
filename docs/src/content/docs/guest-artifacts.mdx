@@ -3,8 +3,10 @@ title: "Guest artifacts"
 description: "Build the pinned base ext4 and guest kernel, and verify sandboxd as PID 1 in a real Firecracker microVM."
 ---
 
-The N2 guest artifacts are independent of the controller: a read-only ext4 base, a Linux kernel and
-`sandboxd`. The hand-started boot test uses the real authenticated tunnel protocol and a small host
+The guest artifacts are a read-only ext4 base, a Linux kernel and `sandboxd`. The base is the
+operating system only: `sandboxd` is not in it. The node delivers its own `sandboxd` at every boot as
+a tiny initramfs (see [Boot contract](#boot-contract)), so a machine always runs the sandboxd of the
+release that booted it, on whatever base its system disk sits on. The hand-started boot test uses the real authenticated tunnel protocol and a small host
 listener. Release embedding, downloads and the production Firecracker driver are separate milestones.
 
 ## Build
@@ -25,7 +27,7 @@ Outputs are in `build/guest/<arch>/` (git-ignored). The kernel is
 `vmlinux-6.1.188-agenthold`: an arm64 `Image` or an amd64 ELF `vmlinux`. The base is
 `base-<arch>.ext4`, with a `.sha256`, `.ext4.zst` and `.manifest.json`. The manifest records the
 uncompressed and compressed checksums and sizes. `--no-zstd` skips compression and removes an old
-compressed output. `--sandboxd PATH` supplies an already-built Linux binary. `--squashfs` produces a
+compressed output. `--squashfs` produces a
 comparison image; the guest always boots ext4.
 
 The scripts cache verified downloads and the provisioned rootfs tree in
@@ -52,12 +54,26 @@ architecture. The runtime apt sources use the live Debian archive so the agent c
 The image includes Chromium, Python, a compiler toolchain, Git and the three harness adapters.
 Docker is installed only by the optional boot test, rather than in the base.
 
-The builds fix filesystem UUID/hash seed, image timestamps, kernel build metadata and Go paths.
-The sandboxd binary hash is part of the manifest. Keep the Go compiler, GCC, e2fsprogs and mmdebstrap
-versions fixed when comparing output bytes; the kernel manifest records GCC. These pins do not imply
-that different build toolchains produce byte-identical artifacts.
+The builds fix filesystem UUID/hash seed, kernel build metadata and Go paths, and pin every
+timestamp in the image: file mtimes in the tree, the atime and ctime of every inode (mke2fs copies
+those from the tree, where they are the time of the build), and the superblock's mount, check and
+write times and write counter in the primary and all backup superblocks. The manifest records
+`inputs.baseKey` (`scripts/guest/base-key.sh`: a hash of `images/base` and `build-rootfs.sh`, nothing
+else). Release builds rebuild the base only when that key changes, so a release that changes only
+Go code ships the previous base byte for byte, and a rebuild from the same inputs gives the same
+sha256. Keep the Go compiler, GCC, e2fsprogs and mmdebstrap versions fixed when comparing output
+bytes; the kernel manifest records GCC. These pins do not imply that different build toolchains
+produce byte-identical artifacts.
 
 ## Boot contract
+
+Boot the kernel with an initramfs that contains only `sandboxd` as `/init` (plus `/dev`, `/proc`,
+`/sys`, `/run` and `/dev/console`): an uncompressed newc cpio that `sandboxd.WriteInitramfs` writes
+in pure Go, so no external tool and no decompressor in the kernel is needed (the kernel only needs
+`CONFIG_BLK_DEV_INITRD`, which the pinned configuration has). The Firecracker driver builds it once
+per node start as `<data_dir>/initrd/<sha256>.cpio` from the release's embedded sandboxd and passes it
+as `initrd_path`; `testhost -write-initrd` builds the same file for the boot test. No drive is the root
+device.
 
 Attach these virtio block devices in this order:
 
@@ -71,7 +87,7 @@ Attach these virtio block devices in this order:
 The kernel command line includes:
 
 ```text
-console=ttyS0 reboot=k panic=1 root=/dev/vda ro rootfstype=ext4 init=/opt/agenthold/sandboxd ip=172.31.254.2::172.31.254.1:255.255.255.252::eth0:off
+console=ttyS0 reboot=k panic=1 pci=off ip=172.31.254.2::172.31.254.1:255.255.255.252::eth0:off
 ```
 
 The host encodes `sandboxd.GuestBoot` with `EncodeGuestBoot`: one versioned JSON object, zero-padded
@@ -81,6 +97,15 @@ Optional fields set the hostname, environment and boot files (absolute guest pat
 bytes). Environment values and the tunnel URL support the literal `{{server}}` gateway placeholder.
 The configuration is per boot; it carries the tunnel credential, CA certificate and harness files,
 not provider API secrets. The guest has passwordless sudo: the VM is the isolation boundary.
+
+PID 1 starts in the initramfs: it keeps a handle on its own binary, mounts the base (`/dev/vda`, or
+`agenthold.base=`) read-only and makes it the root (move the mount onto `/`, chroot). From there it
+boots as if the kernel had mounted the base. Once the root is assembled it bind-mounts the delivered
+binary read-only over `/opt/agenthold/sandboxd`, the stable in-guest path (bases since G1 hold an empty
+placeholder there; older bases hold their own, older daemon, which is covered and never runs). The
+daemon child, the platform MCP server (`/opt/agenthold/sandboxd mcp`) and every other in-guest use
+of that path get the delivered binary. The tunnel handshake reports its version, so the node can tell
+a machine that still runs the sandboxd of an earlier boot: a restart updates it, a reset is not needed.
 
 PID 1 reads the configuration before starting the daemon. It formats new disks, mounts overlayfs
 for `/`, mounts the home disk at `/home/agent`, configures the static network and resolver, and
@@ -129,6 +154,16 @@ The demo host publishes one `.ext4.zst` per release plus checksums and the manif
 `68cc3a5b3a1ec1c2fd783025b48805043d1b0d40162e8b2e4ffbb549fcd918a6`;
 the compressed sha256 is `4465ad0548b77e1ddd5e27a92c9b4690b5b13f8e66454760b4ed5bf130489129`.
 The first three main boots connected in 3.6–4.9 seconds and shut down in 301–348 ms.
+
+G1 (2026-11-18, same host): the base without sandboxd is 2,584,207,360 bytes, sha256
+`251318bbab177e26a7b974fabd9e69bfef64a3a68944719670d5770c361fdb76`, compressed 815,744,837 bytes
+(`3f7a3856e6196fc83b3d3981d87cb28ce3a4784328fa62f7e188bc804546e6df`). Two release builds from a cached tree,
+the second with a sandboxd-only change, produced exactly these bytes. The initramfs is the 6.75 MB sandboxd plus
+under 1 KiB of cpio headers. On one old base, four boots each: sandboxd started at 0.82–0.90 s guest uptime from
+the base (`init=`) and at 0.90–0.92 s from the initramfs (about 45 ms for unpacking and mounting the base); the
+tunnel connected after 2.04 s and 2.14 s on average, within the run-to-run spread. The Docker boot (`--docker`)
+currently fails in the same way with both boot paths: dockerd gives up waiting for its managed containerd, while
+containerd started by hand boots in one second.
 
 The amd64 build path and pins are present; amd64 is not built or KVM-tested by the project (the demo host is arm64), so amd64 users build from source.
 

@@ -43,10 +43,11 @@ test-kvm:
 		jailer="$${AGENTHOLD_KVM_JAILER:-$(CURDIR)/build/runtime/jailer}"; \
 		for path in "$$base" "$$kernel" "$$fc" "$$jailer"; do test -f "$$path" || { echo "missing KVM fixture: $$path" >&2; exit 1; }; done; \
 		work="$$(mktemp -d /tmp/ahkvm-XXXXXX)"; trap 'rm -rf -- "$$work"' EXIT; chmod 755 "$$work"; \
-		cp --sparse=always "$$base" "$$work/base.ext4" && cp "$$kernel" "$$work/kernel" && cp "$$fc" "$$work/firecracker" && cp "$$jailer" "$$work/jailer" || exit 1; \
-		chmod 644 "$$work/base.ext4" "$$work/kernel"; chmod 755 "$$work/firecracker" "$$work/jailer"; \
+		{ ln -f "$$base" "$$work/base.ext4" 2>/dev/null || cp --sparse=always "$$base" "$$work/base.ext4"; } && cp "$$kernel" "$$work/kernel" && cp "$$fc" "$$work/firecracker" && cp "$$jailer" "$$work/jailer" || exit 1; \
+		CGO_ENABLED=0 GOFLAGS=-buildvcs=false $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o "$$work/sandboxd" ./cmd/sandboxd || exit 1; \
+		chmod 644 "$$work/base.ext4" "$$work/kernel"; chmod 755 "$$work/firecracker" "$$work/jailer" "$$work/sandboxd"; \
 		runner=; if [ "$$(id -u)" -ne 0 ]; then runner=sudo; fi; \
-		$$runner env "PATH=$$PATH" CGO_ENABLED=1 GOFLAGS=-buildvcs=false AGENTHOLD_REQUIRE_KVM=1 AGENTHOLD_KVM_BASE="$$work/base.ext4" AGENTHOLD_KVM_KERNEL="$$work/kernel" AGENTHOLD_KVM_FIRECRACKER="$$work/firecracker" AGENTHOLD_KVM_JAILER="$$work/jailer" $(GO) test -v -tags kvm -count=1 ./... >"$$work/test.log" 2>&1 || { cat "$$work/test.log"; exit 1; }; \
+		$$runner env "PATH=$$PATH" CGO_ENABLED=1 GOFLAGS=-buildvcs=false AGENTHOLD_REQUIRE_KVM=1 AGENTHOLD_KVM_BASE="$$work/base.ext4" AGENTHOLD_KVM_KERNEL="$$work/kernel" AGENTHOLD_KVM_FIRECRACKER="$$work/firecracker" AGENTHOLD_KVM_JAILER="$$work/jailer" AGENTHOLD_KVM_SANDBOXD="$$work/sandboxd" $(GO) test -v -tags kvm -count=1 ./... >"$$work/test.log" 2>&1 || { cat "$$work/test.log"; exit 1; }; \
 		cat "$$work/test.log"; \
 		for test in TestJailedLifecycle TestGuestFirewallIsolation TestJailedClone TestAppServicesKVM; do grep -q "^--- PASS: $$test " "$$work/test.log" || { echo "KVM test did not pass: $$test" >&2; exit 1; }; done; \
 	fi

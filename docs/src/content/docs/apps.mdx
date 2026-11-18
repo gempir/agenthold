@@ -155,5 +155,6 @@ terminal, shares, secrets, audit) is under `/agents/{id}/...` for both kinds; an
 
 ## Old machines
 
-Services, deploys and `app_exec` need a sandboxd that knows them. A machine still running an older one answers
-"this machine's sandboxd is too old": restart it, or reset its system if its base image is older.
+Services, deploys and `app_exec` need a sandboxd that knows them. A machine that has been running since before
+its node got them still runs the sandboxd it booted with and answers "... too old for this; restart the machine to
+update it". A restart is enough on any base image: the node delivers its own sandboxd at every boot.

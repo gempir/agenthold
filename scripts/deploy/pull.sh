@@ -34,6 +34,8 @@ TIMEOUT="${AGENTHOLD_DEPLOY_TIMEOUT:-1800}"
 SERVICE="${AGENTHOLD_DEPLOY_SERVICE:-agenthold.service}"
 PRUNE="${PRUNE:-1}"
 KEEP_RELEASES=3
+# The local store holds a compressed base per release; rollback needs only the previous one.
+KEEP_STORE=2
 ARCH=arm64
 
 check=0
@@ -351,7 +353,7 @@ prune() {
   prune_bases "$1" "$2"
   prune_releases "$1" "$2"
   prune_versions "$dl" 1 "$version"
-  if [[ "$kind" == local ]]; then prune_versions "$SOURCE" "$KEEP_RELEASES" "$version" "$previous"; fi
+  if [[ "$kind" == local ]]; then prune_versions "$SOURCE" "$KEEP_STORE" "$version" "$previous"; fi
   echo "prune: freed $prune_bytes bytes"
 }
 

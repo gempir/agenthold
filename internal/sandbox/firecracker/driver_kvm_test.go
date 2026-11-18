@@ -5,6 +5,7 @@ package firecracker
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -36,14 +37,15 @@ import (
 // Use built N2 artifacts and extracted pinned Firecracker+jailer binaries:
 // AGENTHOLD_KVM_BASE=/.../base.ext4 AGENTHOLD_KVM_KERNEL=/.../vmlinux
 // AGENTHOLD_KVM_FIRECRACKER=/.../firecracker AGENTHOLD_KVM_JAILER=/.../jailer
+// AGENTHOLD_KVM_SANDBOXD=/.../sandboxd (delivered to the guest as its initramfs)
 // sudo -E go test -tags=kvm ./internal/sandbox/firecracker -run TestJailedLifecycle -v
 func TestJailedLifecycle(t *testing.T) {
-	for _, key := range []string{"BASE", "KERNEL", "FIRECRACKER", "JAILER"} {
+	for _, key := range []string{"BASE", "KERNEL", "FIRECRACKER", "JAILER", "SANDBOXD"} {
 		if os.Getenv("AGENTHOLD_KVM_"+key) == "" {
 			if os.Getenv("AGENTHOLD_REQUIRE_KVM") == "1" {
 				t.Fatal("required jailed VM artifact environment is missing: AGENTHOLD_KVM_" + key)
 			}
-			t.Skip("set AGENTHOLD_KVM_BASE/KERNEL/FIRECRACKER/JAILER to run the jailed VM test")
+			t.Skip("set AGENTHOLD_KVM_BASE/KERNEL/FIRECRACKER/JAILER/SANDBOXD to run the jailed VM test")
 		}
 	}
 	if os.Geteuid() != 0 {
@@ -82,7 +84,7 @@ func TestJailedLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	cfg := Config{DataDir: dir, JailDir: filepath.Join(dir, "j"), BaseImagePath: os.Getenv("AGENTHOLD_KVM_BASE"), KernelPath: os.Getenv("AGENTHOLD_KVM_KERNEL"), FirecrackerPath: os.Getenv("AGENTHOLD_KVM_FIRECRACKER"), JailerPath: os.Getenv("AGENTHOLD_KVM_JAILER"), NetworkPool: netip.MustParsePrefix("10.214.0.0/24"), OverlaySizeBytes: 256 << 20, HomeSizeBytes: 256 << 20, StopTimeout: 8 * time.Second}
+	cfg := Config{DataDir: dir, JailDir: filepath.Join(dir, "j"), BaseImagePath: os.Getenv("AGENTHOLD_KVM_BASE"), KernelPath: os.Getenv("AGENTHOLD_KVM_KERNEL"), FirecrackerPath: os.Getenv("AGENTHOLD_KVM_FIRECRACKER"), JailerPath: os.Getenv("AGENTHOLD_KVM_JAILER"), SandboxdPath: os.Getenv("AGENTHOLD_KVM_SANDBOXD"), NetworkPool: netip.MustParsePrefix("10.214.0.0/24"), OverlaySizeBytes: 256 << 20, HomeSizeBytes: 256 << 20, StopTimeout: 8 * time.Second}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	token := "kvm-test-config-disk-only-token"
@@ -180,6 +182,7 @@ func TestJailedLifecycle(t *testing.T) {
 	if got := run(sess, "id -un; cat /etc/agenthold/kvm-file; echo; echo $KVM_GATEWAY; cat /proc/cmdline"); !strings.Contains(got, "agent\nboot-config-file\n10.214.0.1") || strings.Contains(got, token) {
 		t.Fatalf("guest init contract: %s", got)
 	}
+	assertDeliveredSandboxd(t, sess, run)
 	// The guest only knows the placeholder. Its verified TLS request crosses
 	// the production transparent proxy; only the upstream receives the real key.
 	if got := run(sess, `printf '%s\n' "$KVM_SECRET"; curl --noproxy '*' --cacert /etc/agenthold/ca.pem --resolve api.example.com:443:198.51.100.1 --max-time 20 -fsS https://api.example.com/secret -H "Authorization: Bearer $KVM_SECRET"`); got != "ph-kvm-placeholder\nupstream-ok" {
@@ -466,5 +469,32 @@ func guestDial(ctx context.Context, t *testing.T, sess *tunnel.Session) {
 			t.Fatalf("guest server unreachable through dial: %v", err)
 		}
 		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// assertDeliveredSandboxd checks that the guest runs the host's sandboxd (the
+// initramfs), not whatever the base image carries: the tunnel handshake
+// reports the host binary's version, PID 1 and /opt/agenthold/sandboxd are
+// that binary, and the latter is a read-only bind mount.
+func assertDeliveredSandboxd(t *testing.T, sess *tunnel.Session, run func(*tunnel.Session, string) string) {
+	t.Helper()
+	host := os.Getenv("AGENTHOLD_KVM_SANDBOXD")
+	out, err := exec.Command(host, "--version").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := strings.Fields(string(out))
+	if len(f) < 2 || sess.Hello.Version != f[1] {
+		t.Fatalf("guest sandboxd version %q, host sandboxd says %q", sess.Hello.Version, out)
+	}
+	bin, err := os.ReadFile(host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("%x", sha256.Sum256(bin))
+	got := run(sess, "sudo sha256sum /proc/1/exe /opt/agenthold/sandboxd | cut -d' ' -f1; findmnt -no OPTIONS /opt/agenthold/sandboxd")
+	lines := strings.Split(got, "\n")
+	if len(lines) != 3 || lines[0] != want || lines[1] != want || !strings.HasPrefix(lines[2], "ro,") {
+		t.Fatalf("delivered sandboxd (host sha256 %s): %q", want, got)
 	}
 }

@@ -43,7 +43,7 @@ test-kvm:
 		jailer="$${AGENTHOLD_KVM_JAILER:-$(CURDIR)/build/runtime/jailer}"; \
 		for path in "$$base" "$$kernel" "$$fc" "$$jailer"; do test -f "$$path" || { echo "missing KVM fixture: $$path" >&2; exit 1; }; done; \
 		work="$$(mktemp -d /tmp/ahkvm-XXXXXX)"; trap 'rm -rf -- "$$work"' EXIT; chmod 755 "$$work"; \
-		cp --sparse=always "$$base" "$$work/base.ext4" && cp "$$kernel" "$$work/kernel" && cp "$$fc" "$$work/firecracker" && cp "$$jailer" "$$work/jailer" || exit 1; \
+		{ ln -f "$$base" "$$work/base.ext4" 2>/dev/null || cp --sparse=always "$$base" "$$work/base.ext4"; } && cp "$$kernel" "$$work/kernel" && cp "$$fc" "$$work/firecracker" && cp "$$jailer" "$$work/jailer" || exit 1; \
 		CGO_ENABLED=0 GOFLAGS=-buildvcs=false $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o "$$work/sandboxd" ./cmd/sandboxd || exit 1; \
 		chmod 644 "$$work/base.ext4" "$$work/kernel"; chmod 755 "$$work/firecracker" "$$work/jailer" "$$work/sandboxd"; \
 		runner=; if [ "$$(id -u)" -ne 0 ]; then runner=sudo; fi; \

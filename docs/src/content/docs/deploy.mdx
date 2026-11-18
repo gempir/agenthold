@@ -168,8 +168,10 @@ show tens of GiB free that the Mac does not have. Measured on the Scarif demo VM
   directories, ignores symlinks, and logs each removal and the bytes freed. It never runs after a failed or
   rolled-back deployment. Set `PRUNE=0` in the puller's environment (`systemctl edit agenthold-pull.service`)
   to disable it.
-- A build needs about 10 GB of temporary space (worktree, Go and pnpm caches, the rootfs work tree, the
-  KVM test copy of the image); the builder refuses to start with less than 12 GB free.
+- A build needs temporary space for its worktree (with the unpacked base image, 2.4 GiB) and the Go, pnpm and
+  rootfs caches. Measured on 2026-11-18 before the KVM tests and the release output hard-linked the base
+  instead of copying it, a build took 6.9 GB at its peak; the copies were 3.4 GB of that. The builder refuses
+  to start with less than 12 GB free.
 - A fresh agent has an 8 GiB overlay and a 10 GiB home disk as sparse files; right after boot they occupy
   only a few MiB.
 - Before placing a new base the puller checks free space on the guest filesystem and on `host_mount`, the

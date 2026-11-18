@@ -112,7 +112,8 @@ jq -n --arg version "$VERSION" --arg arch "$ARCH" --arg url "$BASE_URL" --slurpf
 (cd "$REPO_ROOT" && CGO_ENABLED=0 go build -trimpath -tags bundled -ldflags "$LDFLAGS" -o "$OUT/agenthold-linux-$ARCH" ./cmd/agenthold)
 cp "$STAGE/manifest.json" "$OUT/runtime-linux-$ARCH.manifest.json"
 cp "$BASE_MANIFEST" "$OUT/base-$ARCH.manifest.json"
-cp "$BASE.zst" "$OUT/base-$ARCH.ext4.zst"
+# A hard link where possible: the compressed base is large and never modified in place.
+ln -f "$BASE.zst" "$OUT/base-$ARCH.ext4.zst" 2>/dev/null || cp "$BASE.zst" "$OUT/base-$ARCH.ext4.zst"
 (cd "$OUT" && sha256sum "agenthold-linux-$ARCH" "base-$ARCH.ext4.zst" "base-$ARCH.manifest.json" "runtime-linux-$ARCH.manifest.json" > SHA256SUMS)
 printf 'Release artifacts: %s\n' "$OUT"
 ls -lh "$OUT/agenthold-linux-$ARCH" "$OUT/base-$ARCH.ext4.zst"

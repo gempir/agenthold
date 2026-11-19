@@ -87,6 +87,10 @@ const (
 	// balloonHeadroomMiB is guest memory left out of the balloon on top of
 	// what the guest uses.
 	balloonHeadroomMiB = 64
+	// balloonPoll is how often inflation progress is read; balloonStall is
+	// how long it may stand still before the guest is taken to give no more.
+	balloonPoll  = 100 * time.Millisecond
+	balloonStall = 2 * time.Second
 )
 
 // snapshotInfo is snapshot.json.
@@ -455,11 +459,15 @@ func (d *Driver) suspend(ctx context.Context, id sandbox.ID, m *manifest) (err e
 	if err != nil {
 		return fmt.Errorf("sandboxd suspend: %w", err)
 	}
+	tSynced := time.Now()
 	a := newAPI(d.socket(id))
 	defer a.close()
-	var balloon int64
+	var balloon, balloonTarget int64
+	balloonStop := "off"
+	tInflated := tSynced
 	if m.Balloon {
-		balloon = d.inflate(ctx, a, mem)
+		balloon, balloonTarget, balloonStop = d.inflate(ctx, a, mem)
+		tInflated = time.Now()
 		// The guest ran on while the balloon grew: flush again right before
 		// the pause.
 		sctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -512,9 +520,10 @@ func (d *Driver) suspend(ctx context.Context, id sandbox.ID, m *manifest) (err e
 	if err = d.finalizeSnapshot(id, m, &info); err != nil {
 		return err
 	}
-	d.cfg.Log.Info("snapshot taken", "sandbox", id, "memoryMib", mem, "balloonMib", balloon,
+	d.cfg.Log.Info("snapshot taken", "sandbox", id, "memoryMib", mem, "balloonMib", balloon, "balloonTargetMib", balloonTarget, "balloonStop", balloonStop,
 		"memoryFileBytes", info.MemoryBytes, "memoryFileAllocated", allocated(filepath.Join(dir, "memory")),
-		"prepare", tPaused.Sub(started).Round(time.Millisecond), "write", tWritten.Sub(tPaused).Round(time.Millisecond),
+		"prepare", tPaused.Sub(started).Round(time.Millisecond), "sync", tSynced.Sub(started).Round(time.Millisecond),
+		"inflate", tInflated.Sub(tSynced).Round(time.Millisecond), "resync", tPaused.Sub(tInflated).Round(time.Millisecond), "write", tWritten.Sub(tPaused).Round(time.Millisecond),
 		"finalize", time.Since(tWritten).Round(time.Millisecond),
 		"total", time.Since(started).Round(time.Millisecond))
 	return nil
@@ -749,42 +758,50 @@ type balloonStats struct {
 }
 
 // inflate grows the balloon to the guest's free memory (minus headroom) and
-// waits until the guest stops giving pages. It returns the size reached.
-// Errors only cost snapshot size: they are logged.
-func (d *Driver) inflate(ctx context.Context, a *api, memMiB int64) int64 {
+// waits until the guest stops giving pages. It returns the size reached, the
+// target and why it stopped waiting (for the log). Errors only cost snapshot
+// size: they are logged.
+func (d *Driver) inflate(ctx context.Context, a *api, memMiB int64) (reached, target int64, stop string) {
 	var st balloonStats
 	if err := a.request(ctx, "GET", "/balloon/statistics", nil, &st); err != nil || st.TotalMemory == 0 {
 		d.cfg.Log.Warn("balloon statistics unavailable; snapshot without inflating", "err", err)
-		return 0
+		return 0, 0, "no statistics"
 	}
-	usedMiB := (st.TotalMemory - st.AvailableMemory) >> 20
-	target := memMiB - usedMiB - balloonHeadroomMiB
+	// The balloon's own pages count as used (deflate_on_oom keeps them in
+	// the guest's total): after a resume it can still be deflating.
+	usedMiB := (st.TotalMemory-st.AvailableMemory)>>20 - st.ActualMiB
+	target = memMiB - usedMiB - balloonHeadroomMiB
 	if target <= 0 {
-		return 0
+		return 0, target, "no room"
 	}
 	if err := a.patch(ctx, "/balloon", map[string]int64{"amount_mib": target}); err != nil {
 		d.cfg.Log.Warn("balloon inflate", "err", err)
-		return 0
+		return 0, target, "error"
 	}
 	deadline := time.Now().Add(15 * time.Second)
 	last, lastChange := int64(-1), time.Now()
+	stop = "deadline"
 	for time.Now().Before(deadline) {
-		if err := delay(ctx, 100*time.Millisecond); err != nil {
+		if err := delay(ctx, balloonPoll); err != nil {
+			stop = "cancelled"
 			break
 		}
 		if err := a.request(ctx, "GET", "/balloon/statistics", nil, &st); err != nil {
+			stop = "error"
 			break
 		}
 		if st.ActualMiB >= target {
+			stop = "target"
 			break
 		}
 		if st.ActualMiB != last {
 			last, lastChange = st.ActualMiB, time.Now()
-		} else if time.Since(lastChange) > 2*time.Second {
-			break // the guest gives no more
+		} else if time.Since(lastChange) > balloonStall {
+			stop = "stalled" // the guest gives no more
+			break
 		}
 	}
-	return max(st.ActualMiB, 0)
+	return max(st.ActualMiB, 0), target, stop
 }
 
 func (d *Driver) deflate(ctx context.Context, a *api, balloon int64) {

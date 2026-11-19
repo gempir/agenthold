@@ -195,7 +195,7 @@ func (d *Daemon) handle(ctx context.Context, st net.Conn, o tunnel.Open) {
 			go d.cfg.OnShutdown()
 		}
 	case tunnel.OpStats:
-		err = tunnel.WriteJSON(st, stats())
+		err = tunnel.WriteJSON(st, stats(d.acct.home))
 	case tunnel.OpPTY:
 		err = d.pty(ctx, st, o)
 	case tunnel.OpHarness:

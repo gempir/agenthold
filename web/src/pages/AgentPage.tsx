@@ -14,6 +14,7 @@ import { DraftChat } from '@/components/chat/DraftChat';
 import { Crumb, CrumbSep, TopBar } from '@/components/layout/TopBar';
 import { readPref, writePref } from '@/components/layout/shell';
 import { useStartChat } from '@/hooks/useStartChat';
+import type { Choice } from '@/lib/models';
 
 const ChatView = lazy(() => import('@/components/chat/ChatView'));
 
@@ -41,6 +42,10 @@ export function AgentPage({
     () => readPref('panelWide', '') === '1',
   );
   const start = useStartChat();
+  const [draftModel, setDraftModel] = useState<Choice>({
+    model: '',
+    options: {},
+  });
 
   if (q.isPending)
     return (
@@ -168,7 +173,13 @@ export function AgentPage({
               canUse={access.canUse}
               agentState={a.state}
               initialRunning={selected?.running}
-              composerMeta={<HarnessMeta agent={a} />}
+              composerMeta={
+                <HarnessMeta
+                  agent={a}
+                  session={selected}
+                  canUse={access.canUse}
+                />
+              }
               notice={notice}
             />
           </Suspense>
@@ -185,7 +196,14 @@ export function AgentPage({
                 ? `${sessions.data.length} earlier ${sessions.data.length === 1 ? 'chat' : 'chats'} in the sidebar and the agent panel.`
                 : 'Each chat is its own session with the agent; files persist across them.'
             }
-            meta={<HarnessMeta agent={a} />}
+            meta={
+              <HarnessMeta
+                agent={a}
+                draft={draftModel}
+                onDraft={setDraftModel}
+                canUse={access.canUse}
+              />
+            }
             notice={notice}
             readOnly={!access.canUse}
             disabled={a.state === 'unreachable'}
@@ -196,7 +214,9 @@ export function AgentPage({
             }
             pending={start.isPending}
             error={start.error}
-            onSend={(text) => start.mutate({ agentId, text })}
+            onSend={(text) =>
+              start.mutate({ agentId, text, model: draftModel })
+            }
           />
         )}
       </div>

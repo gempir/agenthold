@@ -81,6 +81,7 @@ type Querier interface {
 	GetExposureByPort(ctx context.Context, arg GetExposureByPortParams) (Exposure, error)
 	GetIdentity(ctx context.Context, arg GetIdentityParams) (Identity, error)
 	GetMCPServer(ctx context.Context, id string) (McpServer, error)
+	GetModelCatalog(ctx context.Context, agentID string) (AgentModelCatalog, error)
 	GetNode(ctx context.Context, id string) (Node, error)
 	GetNodeByFingerprint(ctx context.Context, certFingerprint string) (Node, error)
 	GetPreviewSessionUser(ctx context.Context, arg GetPreviewSessionUserParams) (GetPreviewSessionUserRow, error)
@@ -120,6 +121,8 @@ type Querier interface {
 	ListAgentSkills(ctx context.Context, agentID string) ([]Skill, error)
 	ListAgentWebhooks(ctx context.Context, agentID string) ([]Webhook, error)
 	ListAgentsByLoginUser(ctx context.Context, loginUserID string) ([]Agent, error)
+	// Every machine with its sandbox and owner (the admin overview).
+	ListAllMachines(ctx context.Context) ([]ListAllMachinesRow, error)
 	ListExposures(ctx context.Context, agentID string) ([]Exposure, error)
 	ListNodeSandboxes(ctx context.Context, nodeID string) ([]Sandbox, error)
 	ListNodes(ctx context.Context) ([]Node, error)
@@ -154,11 +157,13 @@ type Querier interface {
 	ResetRunningSessions(ctx context.Context) error
 	SetAgentHarness(ctx context.Context, arg SetAgentHarnessParams) error
 	SetAgentLoginUser(ctx context.Context, arg SetAgentLoginUserParams) error
+	SetAgentModel(ctx context.Context, arg SetAgentModelParams) error
 	SetAgentTemplate(ctx context.Context, arg SetAgentTemplateParams) error
 	SetBootToken(ctx context.Context, arg SetBootTokenParams) error
 	SetExposurePort(ctx context.Context, arg SetExposurePortParams) error
 	SetNodeCapacity(ctx context.Context, arg SetNodeCapacityParams) error
 	SetNodeState(ctx context.Context, arg SetNodeStateParams) error
+	SetNodeVersion(ctx context.Context, arg SetNodeVersionParams) error
 	SetPermissionPolicy(ctx context.Context, arg SetPermissionPolicyParams) error
 	SetProviderLoginStatus(ctx context.Context, arg SetProviderLoginStatusParams) error
 	// At controller start no edge node is connected yet.
@@ -169,6 +174,7 @@ type Querier interface {
 	SetSandboxSubnet(ctx context.Context, arg SetSandboxSubnetParams) error
 	SetServiceEnabled(ctx context.Context, arg SetServiceEnabledParams) (int64, error)
 	SetSessionACPID(ctx context.Context, arg SetSessionACPIDParams) error
+	SetSessionModel(ctx context.Context, arg SetSessionModelParams) error
 	SetSessionOrigin(ctx context.Context, arg SetSessionOriginParams) error
 	SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error
 	ShareAgent(ctx context.Context, arg ShareAgentParams) error
@@ -194,6 +200,7 @@ type Querier interface {
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
 	UpdateWebhook(ctx context.Context, arg UpdateWebhookParams) error
 	UpsertLocalNode(ctx context.Context, arg UpsertLocalNodeParams) error
+	UpsertModelCatalog(ctx context.Context, arg UpsertModelCatalogParams) error
 	UpsertService(ctx context.Context, arg UpsertServiceParams) error
 }
 

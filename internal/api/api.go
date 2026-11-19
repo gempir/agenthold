@@ -50,6 +50,9 @@ type Deps struct {
 	Preview *preview.Service
 	// Identity signs X-Agenthold-Identity tokens; nil when previews are off.
 	Identity *preview.Signer
+	// Stats reads a running machine's live stats for the admin overview. Nil
+	// asks the machine's sandboxd through its node.
+	Stats StatsFunc
 	// ShowTestHarness lists the scripted test harness (development).
 	ShowTestHarness bool
 	Limits          config.Sandbox
@@ -60,6 +63,7 @@ type Deps struct {
 type API struct {
 	Deps
 	authz authz.Checker
+	usage *usageCache
 	wakes
 }
 
@@ -79,7 +83,9 @@ func New(d Deps) *API {
 	if d.Preview == nil {
 		d.Preview = &preview.Service{Store: d.Store}
 	}
-	return &API{Deps: d, authz: authz.Checker{Q: d.Store.Queries}, wakes: wakes{pending: map[string]*wakeCall{}, visitorWake: map[string]time.Time{}, slots: map[string]chan struct{}{}}}
+	a := &API{Deps: d, authz: authz.Checker{Q: d.Store.Queries}, wakes: wakes{pending: map[string]*wakeCall{}, visitorWake: map[string]time.Time{}, slots: map[string]chan struct{}{}}}
+	a.usage = newUsageCache(a.machineStats, time.Now)
+	return a
 }
 
 // Mount registers all /api/v1 routes on r.

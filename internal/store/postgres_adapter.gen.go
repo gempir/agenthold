@@ -318,6 +318,11 @@ func (p postgresQueries) GetMCPServer(ctx context.Context, id string) (db.McpSer
 	return db.McpServer(value), err
 }
 
+func (p postgresQueries) GetModelCatalog(ctx context.Context, agentID string) (db.AgentModelCatalog, error) {
+	value, err := p.q.GetModelCatalog(ctx, agentID)
+	return db.AgentModelCatalog(value), err
+}
+
 func (p postgresQueries) GetNode(ctx context.Context, id string) (db.Node, error) {
 	value, err := p.q.GetNode(ctx, id)
 	return db.Node(value), err
@@ -587,6 +592,18 @@ func (p postgresQueries) ListAgentsByLoginUser(ctx context.Context, loginUserID 
 	return result, nil
 }
 
+func (p postgresQueries) ListAllMachines(ctx context.Context) ([]db.ListAllMachinesRow, error) {
+	value, err := p.q.ListAllMachines(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ListAllMachinesRow, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.ListAllMachinesRow{Agent: db.Agent(row.Agent), Sandbox: db.Sandbox(row.Sandbox), User: db.User(row.User)})
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListExposures(ctx context.Context, agentID string) ([]db.Exposure, error) {
 	value, err := p.q.ListExposures(ctx, agentID)
 	if err != nil {
@@ -824,6 +841,10 @@ func (p postgresQueries) SetAgentLoginUser(ctx context.Context, arg db.SetAgentL
 	return p.q.SetAgentLoginUser(ctx, postgres.SetAgentLoginUserParams(arg))
 }
 
+func (p postgresQueries) SetAgentModel(ctx context.Context, arg db.SetAgentModelParams) error {
+	return p.q.SetAgentModel(ctx, postgres.SetAgentModelParams(arg))
+}
+
 func (p postgresQueries) SetAgentTemplate(ctx context.Context, arg db.SetAgentTemplateParams) error {
 	return p.q.SetAgentTemplate(ctx, postgres.SetAgentTemplateParams(arg))
 }
@@ -842,6 +863,10 @@ func (p postgresQueries) SetNodeCapacity(ctx context.Context, arg db.SetNodeCapa
 
 func (p postgresQueries) SetNodeState(ctx context.Context, arg db.SetNodeStateParams) error {
 	return p.q.SetNodeState(ctx, postgres.SetNodeStateParams(arg))
+}
+
+func (p postgresQueries) SetNodeVersion(ctx context.Context, arg db.SetNodeVersionParams) error {
+	return p.q.SetNodeVersion(ctx, postgres.SetNodeVersionParams(arg))
 }
 
 func (p postgresQueries) SetPermissionPolicy(ctx context.Context, arg db.SetPermissionPolicyParams) error {
@@ -879,6 +904,10 @@ func (p postgresQueries) SetServiceEnabled(ctx context.Context, arg db.SetServic
 
 func (p postgresQueries) SetSessionACPID(ctx context.Context, arg db.SetSessionACPIDParams) error {
 	return p.q.SetSessionACPID(ctx, postgres.SetSessionACPIDParams(arg))
+}
+
+func (p postgresQueries) SetSessionModel(ctx context.Context, arg db.SetSessionModelParams) error {
+	return p.q.SetSessionModel(ctx, postgres.SetSessionModelParams(arg))
 }
 
 func (p postgresQueries) SetSessionOrigin(ctx context.Context, arg db.SetSessionOriginParams) error {
@@ -980,6 +1009,10 @@ func (p postgresQueries) UpdateWebhook(ctx context.Context, arg db.UpdateWebhook
 
 func (p postgresQueries) UpsertLocalNode(ctx context.Context, arg db.UpsertLocalNodeParams) error {
 	return p.q.UpsertLocalNode(ctx, postgres.UpsertLocalNodeParams(arg))
+}
+
+func (p postgresQueries) UpsertModelCatalog(ctx context.Context, arg db.UpsertModelCatalogParams) error {
+	return p.q.UpsertModelCatalog(ctx, postgres.UpsertModelCatalogParams(arg))
 }
 
 func (p postgresQueries) UpsertService(ctx context.Context, arg db.UpsertServiceParams) error {

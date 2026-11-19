@@ -16,6 +16,9 @@ func init() {
 		SecretPresets:   []string{"openai"},
 		CredentialPaths: []string{".codex/auth.json"},
 		SkillsDir:       ".codex/skills",
+		// No fallback models: Codex's list comes from its app server and
+		// depends on the login (ChatGPT plan or API key), and a model can only
+		// be chosen through the session's config options.
 		// With an OpenAI API key in the environment (an attached secret's
 		// placeholder), the "api-key" method signs in without user interaction.
 		AutoAuthenticate: []string{"api-key"},

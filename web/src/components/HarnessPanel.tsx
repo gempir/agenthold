@@ -3,7 +3,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { TriangleAlert } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
-import { agentsQuery, harnessesQuery, type Agent } from '@/api/queries';
+import {
+  agentsQuery,
+  harnessesQuery,
+  modelsQuery,
+  type Agent,
+} from '@/api/queries';
+import { ModelPicker } from '@/components/ModelPicker';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,8 +19,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { choiceLabel, toChoice, type Choice } from '@/lib/models';
 
 const TerminalTab = lazy(() =>
   import('@/components/TerminalTab').then((m) => ({ default: m.TerminalTab })),
@@ -49,7 +55,9 @@ export function HarnessPanel({
           <dt className="text-muted-foreground">Harness</dt>
           <dd>{agent.harness}</dd>
           <dt className="text-muted-foreground">Model</dt>
-          <dd>{agent.model || 'default'}</dd>
+          <dd>
+            <ModelSummary agent={agent} />
+          </dd>
           <dt className="text-muted-foreground">Permission policy</dt>
           <dd>{agent.permissionPolicy}</dd>
         </dl>
@@ -172,20 +180,33 @@ function HarnessForm({
   const qc = useQueryClient();
   const harnesses = useQuery(harnessesQuery);
   const [harness, setHarness] = useState(agent.harness);
-  const [model, setModel] = useState(agent.model);
+  const [model, setModel] = useState<Choice>(() =>
+    toChoice({ model: agent.model, options: agent.modelOptions }),
+  );
   const [policy, setPolicy] = useState<Policy>(agent.permissionPolicy);
   const options = harnesses.data ?? [];
+  const models = useQuery(modelsQuery(agent.id));
+  // The catalog is the saved harness's: another harness starts on its default.
+  const harnessChanged = harness !== agent.harness;
   const save = useMutation({
     mutationFn: () =>
       unwrap(
         api.PATCH('/agents/{agentId}', {
           params: { path: { agentId: agent.id } },
-          body: { harness, model: model.trim(), permissionPolicy: policy },
+          body: harnessChanged
+            ? { harness, model: '', modelOptions: {}, permissionPolicy: policy }
+            : {
+                harness,
+                model: model.model,
+                modelOptions: model.options,
+                permissionPolicy: policy,
+              },
         }),
       ),
     onSuccess: async (a) => {
       onSaved(a);
       await qc.invalidateQueries({ queryKey: agentsQuery.queryKey });
+      await qc.invalidateQueries({ queryKey: modelsQuery(a.id).queryKey });
     },
   });
   return (
@@ -210,14 +231,33 @@ function HarnessForm({
             ))}
           </Select>
         </label>
-        <label className="grid gap-1 text-sm">
-          Model
-          <Input
-            value={model}
-            placeholder="default"
-            onChange={(e) => setModel(e.target.value)}
-          />
-        </label>
+        <div className="grid gap-1 text-sm">
+          <span id="default-model-label">Default model</span>
+          {harnessChanged ? (
+            <p className="flex h-9 items-center text-xs text-muted-foreground">
+              The new harness starts on its default; choose a model after
+              saving.
+            </p>
+          ) : (
+            <div className="flex h-9 items-center rounded-md border border-input px-1.5">
+              <ModelPicker
+                catalog={models.data}
+                value={model}
+                onChange={setModel}
+                side="bottom"
+                label="Default model"
+                defaultLabel="Harness default"
+                defaultDescription="Whatever the harness is configured to use"
+                note={
+                  models.data && !models.data.switchable
+                    ? 'This harness picks its model when it starts: saving restarts it once its turns are done.'
+                    : 'Conversations without a model of their own switch at their next message.'
+                }
+                className="w-full"
+              />
+            </div>
+          )}
+        </div>
         <label className="grid gap-1 text-sm">
           Permission policy
           <Select
@@ -316,5 +356,18 @@ function SignIn({ agent }: { agent: Agent }) {
         </Dialog>
       )}
     </div>
+  );
+}
+
+function ModelSummary({ agent }: { agent: Agent }) {
+  const models = useQuery(modelsQuery(agent.id));
+  return (
+    <>
+      {choiceLabel(
+        models.data,
+        toChoice({ model: agent.model, options: agent.modelOptions }),
+        'default',
+      )}
+    </>
   );
 }

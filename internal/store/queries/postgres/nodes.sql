@@ -22,8 +22,12 @@ DELETE FROM nodes WHERE id = sqlc.arg(id);
 UPDATE nodes SET state = sqlc.arg(state), last_seen_at = sqlc.arg(last_seen_at) WHERE id = sqlc.arg(id);
 
 -- name: SetNodeCapacity :exec
-UPDATE nodes SET cpus = sqlc.arg(cpus), memory_bytes = sqlc.arg(memory_bytes), disk_bytes = sqlc.arg(disk_bytes), last_seen_at = sqlc.arg(last_seen_at)
+UPDATE nodes SET cpus = sqlc.arg(cpus), memory_bytes = sqlc.arg(memory_bytes), disk_bytes = sqlc.arg(disk_bytes),
+    memory_total_bytes = sqlc.arg(memory_total_bytes), disk_allocated_bytes = sqlc.arg(disk_allocated_bytes), last_seen_at = sqlc.arg(last_seen_at)
 WHERE id = sqlc.arg(id);
+
+-- name: SetNodeVersion :exec
+UPDATE nodes SET version = sqlc.arg(version) WHERE id = sqlc.arg(id);
 
 -- name: SetRemoteNodesOffline :exec
 -- At controller start no edge node is connected yet.

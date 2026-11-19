@@ -11,6 +11,7 @@ import {
   Bot,
   ChevronRight,
   Layers,
+  LayoutDashboard,
   Loader2,
   LogOut,
   Moon,
@@ -150,6 +151,18 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
           </Button>
         </div>
       </div>
+
+      {me.data?.admin && (
+        <div className="px-3 pb-2">
+          <Link
+            to="/overview"
+            className="flex h-8 items-center gap-2 rounded-lg px-2 text-muted-foreground hover:bg-accent/50 hover:text-foreground data-[status=active]:bg-accent/70 data-[status=active]:text-foreground"
+          >
+            <LayoutDashboard className="size-4 shrink-0" aria-hidden />
+            Overview
+          </Link>
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
         <ErrorText error={index.error} />

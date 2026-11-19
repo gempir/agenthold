@@ -230,7 +230,7 @@ func run() error {
 		}
 		nodeSrv := &enrollment.Server{
 			Identity: nodeIdentity, Registry: cluster, Log: logger, Version: version.Version,
-			Handle: func(ctx context.Context, p enrollment.Peer, conn net.Conn) { cluster.Serve(ctx, p.ID, conn) },
+			Handle: func(ctx context.Context, p enrollment.Peer, conn net.Conn) { cluster.ServePeer(ctx, p, conn) },
 		}
 		if release != nil {
 			if root, why := dl.AdvertisedURL(cfg.PublicURL); root != "" {

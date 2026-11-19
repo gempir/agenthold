@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -424,6 +425,49 @@ func TestSessionLostAfterRestart(t *testing.T) {
 	}
 }
 
+// restores is how the fake agent restored sessions, in order.
+func (e *env) restores() []string {
+	b, _ := os.ReadFile(filepath.Join(e.home, ".fakeagent", "restores"))
+	return strings.Fields(string(b))
+}
+
+func TestSessionLoad(t *testing.T) {
+	e := newEnv(t)
+	e.ok("remember me")
+	e.m.Disconnect(agentID)
+	if r := e.ok("hello"); len(r.notices) != 0 {
+		t.Fatalf("notices %q", r.notices)
+	}
+	if got := e.restores(); !slices.Equal(got, []string{"session/load"}) {
+		t.Fatalf("restores %q", got)
+	}
+}
+
+func TestSessionResumePreferred(t *testing.T) {
+	e := newEnv(t)
+	e.script("resume")
+	e.ok("remember me")
+	e.m.Disconnect(agentID)
+	// The harness can do both: resume, which does not replay the history.
+	if r := e.ok("hello"); len(r.notices) != 0 {
+		t.Fatalf("notices %q", r.notices)
+	}
+	if got := e.restores(); !slices.Equal(got, []string{"session/resume"}) {
+		t.Fatalf("restores %q", got)
+	}
+}
+
+func TestSessionResumeFails(t *testing.T) {
+	e := newEnv(t)
+	e.script("resume", "session/resume error")
+	e.ok("remember me")
+	e.m.Disconnect(agentID)
+	r := e.ok("hello")
+	if len(r.notices) != 1 || !strings.Contains(r.notices[0], "could not restore this conversation") {
+		t.Fatalf("notices %q", r.notices)
+	}
+}
+
 func TestSessionWithoutLoad(t *testing.T) {
 	e := newEnv(t)
 	e.script("no-load")
@@ -484,6 +528,22 @@ func TestKilledMidTurn(t *testing.T) {
 func TestPromptError(t *testing.T) {
 	e := newEnv(t)
 	e.failed("error", "failed the prompt", "scripted failure at prompt")
+	if n := len(e.pids()); n != 1 {
+		t.Fatalf("an error answer restarted the harness (%d processes)", n)
+	}
+}
+
+func TestUsageLimitError(t *testing.T) {
+	e := newEnv(t)
+	// The harness's own message, not the JSON-RPC error around it.
+	const msg = "You've hit your usage limit. Try again at Nov 22nd, 2026 11:30 AM."
+	r := e.failed("limit", "failed the prompt: "+msg)
+	if strings.ContainsAny(r.errs[0], "{}") || strings.Contains(r.errs[0], "Internal error") {
+		t.Fatalf("error %q is not readable", r.errs[0])
+	}
+	if !strings.Contains(r.text, msg) {
+		t.Fatalf("text %q", r.text)
+	}
 	if n := len(e.pids()); n != 1 {
 		t.Fatalf("an error answer restarted the harness (%d processes)", n)
 	}

@@ -625,19 +625,40 @@ func valueName(o ConfigOption, v string) string {
 	return v
 }
 
-// refusal is the readable part of a harness's error.
+// refusal is the readable part of a harness's error: the message an ACP
+// error carries in its data (codex-acp: data.message, others: data.error or
+// a string), else its own message, without the JSON-RPC boilerplate.
 func refusal(err error) string {
 	var re *acp.RequestError
-	if errors.As(err, &re) {
-		msg := re.Message
-		if d, ok := re.Data.(map[string]any); ok {
-			if s, ok := d["error"].(string); ok && s != "" {
-				msg = s
-			}
-		} else if s, ok := re.Data.(string); ok && s != "" {
-			msg = s
-		}
-		return msg
+	if !errors.As(err, &re) {
+		return err.Error()
 	}
-	return err.Error()
+	msg := re.Message
+	switch d := re.Data.(type) {
+	case map[string]any:
+		for _, k := range []string{"message", "error"} {
+			if s, ok := d[k].(string); ok && strings.TrimSpace(s) != "" {
+				msg = s
+				break
+			}
+		}
+	case string:
+		if strings.TrimSpace(d) != "" {
+			msg = d
+		}
+	}
+	// claude-agent-acp: "Internal error: API Error: ...".
+	if rest, ok := strings.CutPrefix(msg, "Internal error: "); ok && rest != "" {
+		msg = rest
+	}
+	return strings.TrimSpace(msg)
 }
+
+// harnessError is a harness's error answer, shown as its readable message.
+type harnessError struct {
+	msg string
+	err error
+}
+
+func (e *harnessError) Error() string { return e.msg }
+func (e *harnessError) Unwrap() error { return e.err }

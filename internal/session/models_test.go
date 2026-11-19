@@ -577,3 +577,27 @@ func TestProbeDoesNotReplaceTheReportedState(t *testing.T) {
 		t.Fatalf("%d sessions' options kept after the probe, want 1", n)
 	}
 }
+
+func TestRefusal(t *testing.T) {
+	for _, c := range []struct {
+		err  error
+		want string
+	}{
+		// codex-acp 2.6.0 over its usage limit.
+		{&acp.RequestError{Code: -32603, Message: "Internal error", Data: map[string]any{
+			"codexErrorInfo": "usageLimitExceeded", "message": "You’ve hit your usage limit. Try again at Nov 22nd, 2026 11:30 AM.",
+		}}, "You’ve hit your usage limit. Try again at Nov 22nd, 2026 11:30 AM."},
+		// claude-agent-acp 0.107 after a rejected request.
+		{&acp.RequestError{Code: -32603, Message: "Internal error: API Error: Request rejected (429) · This request would exceed your account's rate limit.", Data: map[string]any{
+			"errorKind": "rate_limit",
+		}}, "API Error: Request rejected (429) · This request would exceed your account's rate limit."},
+		{&acp.RequestError{Code: -32603, Message: "Internal error", Data: map[string]any{"error": "model not found"}}, "model not found"},
+		{&acp.RequestError{Code: -32602, Message: "Invalid params", Data: "unknown session"}, "unknown session"},
+		{&acp.RequestError{Code: -32603, Message: "Internal error"}, "Internal error"},
+		{fmt.Errorf("plain"), "plain"},
+	} {
+		if got := refusal(c.err); got != c.want {
+			t.Errorf("refusal(%v) = %q, want %q", c.err, got, c.want)
+		}
+	}
+}

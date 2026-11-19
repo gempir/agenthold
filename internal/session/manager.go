@@ -499,7 +499,7 @@ func (m *Manager) run(t *turn, sess db.AgentSession, text string, status func(st
 		if authRequired(err) {
 			return nil, errLoginNeeded
 		}
-		return nil, fmt.Errorf("%s failed the prompt: %w", conn.name, err)
+		return nil, &harnessError{msg: fmt.Sprintf("%s failed the prompt: %s", conn.name, refusal(err)), err: err}
 	}
 	return map[string]any{"stopReason": res.StopReason, "usage": res.Usage}, nil
 }
@@ -599,6 +599,17 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 		var err error
 		var config []acp.SessionConfigOption
 		switch {
+		case caps.SessionCapabilities.Resume != nil:
+			// Preferred: the log already has the conversation, and a load
+			// would have the harness read and send all of it again (on a
+			// woken agent, before the first prompt can start).
+			var res acp.ResumeSessionResponse
+			err = m.step(ctx, conn, "session/resume", func(ctx context.Context) error {
+				var err error
+				res, err = conn.acp.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: sid, Cwd: HomeDir, McpServers: mcp})
+				return err
+			})
+			config = res.ConfigOptions
 		case caps.LoadSession:
 			// The replay is not stored again: the session is bound to this
 			// connection only after it is active.
@@ -606,14 +617,6 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 			err = m.step(ctx, conn, "session/load", func(ctx context.Context) error {
 				var err error
 				res, err = conn.acp.LoadSession(ctx, acp.LoadSessionRequest{SessionId: sid, Cwd: HomeDir, McpServers: mcp})
-				return err
-			})
-			config = res.ConfigOptions
-		case caps.SessionCapabilities.Resume != nil:
-			var res acp.ResumeSessionResponse
-			err = m.step(ctx, conn, "session/resume", func(ctx context.Context) error {
-				var err error
-				res, err = conn.acp.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: sid, Cwd: HomeDir, McpServers: mcp})
 				return err
 			})
 			config = res.ConfigOptions

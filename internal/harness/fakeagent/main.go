@@ -15,6 +15,8 @@
 //	kill                     send a chunk, then SIGKILL itself (like the OOM killer)
 //	hang                     never answer, ignore cancel
 //	error                    answer the prompt with a JSON-RPC error
+//	limit                    say it hit a usage limit, then answer with the
+//	                         error codex-acp sends for one
 //	garbage                  print a line that is not JSON-RPC, then answer
 //	bigline                  print a line longer than the client accepts
 //	stderr <bytes>           write one stderr line of that size and 1000 short ones, then answer
@@ -26,17 +28,19 @@
 //	                         and end as cancelled only if it is refused as cancelled
 //
 // Each prompt is appended to $HOME/.fakeagent/prompts when it arrives, so
-// tests can wait until the harness has it.
+// tests can wait until the harness has it, and each restored session's
+// method (session/load, session/resume) to $HOME/.fakeagent/restores.
 //
 // $HOME/.fakeagent/script scripts the protocol steps, one directive per line:
 //
 //	<step> <action> [arg]    fail at step, once (the line is removed when it fires)
 //	                         step: start, initialize, authenticate, session/new, session/load,
-//	                         session/set_config_option
+//	                         session/resume, session/set_config_option
 //	                         action: exit <code>, kill, hang, error, auth (session/new: needs authenticate),
 //	                         slow <seconds> (answer late, writing stderr all along),
 //	                         quiet <seconds> (answer late, silently)
 //	no-load                  do not advertise session/load
+//	resume                   advertise session/resume (restores without replaying)
 //	require-login            session/new needs a login (credentials file or FAKEAGENT_TOKEN)
 //
 // Each process appends its pid to $HOME/.fakeagent/pids. Sessions are
@@ -257,12 +261,9 @@ func (a *agent) Initialize(context.Context, acp.InitializeRequest) (acp.Initiali
 	}
 	exe, _ := os.Executable()
 	return acp.InitializeResponse{
-		ProtocolVersion: acp.ProtocolVersionNumber,
-		AgentInfo:       &acp.Implementation{Name: "fakeagent", Version: "1.0"},
-		AgentCapabilities: acp.AgentCapabilities{
-			LoadSession: !a.flag("no-load"), McpCapabilities: acp.McpCapabilities{Http: true},
-			SessionCapabilities: acp.SessionCapabilities{Close: &acp.SessionCloseCapabilities{}},
-		},
+		ProtocolVersion:   acp.ProtocolVersionNumber,
+		AgentInfo:         &acp.Implementation{Name: "fakeagent", Version: "1.0"},
+		AgentCapabilities: a.capabilities(),
 		AuthMethods: []acp.AuthMethod{
 			{Terminal: &acp.AuthMethodTerminalInline{
 				Id: "fake-login", Name: "Fake subscription", Type: "terminal", Args: []string{"login"},
@@ -272,6 +273,17 @@ func (a *agent) Initialize(context.Context, acp.InitializeRequest) (acp.Initiali
 			{Agent: &acp.AuthMethodAgent{Id: "fake-key", Name: "Fake API key", Description: acp.Ptr("Uses the key in the environment")}},
 		},
 	}, nil
+}
+
+func (a *agent) capabilities() acp.AgentCapabilities {
+	c := acp.AgentCapabilities{
+		LoadSession: !a.flag("no-load"), McpCapabilities: acp.McpCapabilities{Http: true},
+		SessionCapabilities: acp.SessionCapabilities{Close: &acp.SessionCloseCapabilities{}},
+	}
+	if a.flag("resume") {
+		c.SessionCapabilities.Resume = &acp.SessionResumeCapabilities{}
+	}
+	return c
 }
 
 func (a *agent) Authenticate(_ context.Context, p acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
@@ -301,6 +313,14 @@ func (a *agent) history(id string) []turn {
 		_ = json.Unmarshal(b, &h)
 	}
 	return h
+}
+
+// restored appends how a session was restored to $HOME/.fakeagent/restores.
+func (a *agent) restored(method string) {
+	if f, err := os.OpenFile(filepath.Join(a.dir, "restores"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+		fmt.Fprintln(f, method)
+		_ = f.Close()
+	}
 }
 
 func (a *agent) record(id string, t turn) {
@@ -341,6 +361,7 @@ func (a *agent) LoadSession(ctx context.Context, p acp.LoadSessionRequest) (acp.
 	a.mcp[string(p.SessionId)] = mcpNames(p.McpServers)
 	a.servers[string(p.SessionId)] = p.McpServers
 	a.mu.Unlock()
+	a.restored("session/load")
 	for _, t := range a.history(string(p.SessionId)) {
 		u := acp.UpdateAgentMessageText(t.Text)
 		if t.Role == "user" {
@@ -505,8 +526,22 @@ func (a *agent) ListSessions(context.Context, acp.ListSessionsRequest) (acp.List
 	return acp.ListSessionsResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionList)
 }
 
-func (a *agent) ResumeSession(context.Context, acp.ResumeSessionRequest) (acp.ResumeSessionResponse, error) {
-	return acp.ResumeSessionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionResume)
+func (a *agent) ResumeSession(_ context.Context, p acp.ResumeSessionRequest) (acp.ResumeSessionResponse, error) {
+	if !a.flag("resume") {
+		return acp.ResumeSessionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionResume)
+	}
+	if err := a.failAt("session/resume"); err != nil {
+		return acp.ResumeSessionResponse{}, err
+	}
+	if _, err := os.Stat(a.path(string(p.SessionId))); err != nil {
+		return acp.ResumeSessionResponse{}, acp.NewInvalidParams("unknown session")
+	}
+	a.mu.Lock()
+	a.mcp[string(p.SessionId)] = mcpNames(p.McpServers)
+	a.servers[string(p.SessionId)] = p.McpServers
+	a.mu.Unlock()
+	a.restored("session/resume")
+	return acp.ResumeSessionResponse{ConfigOptions: a.configOptions(string(p.SessionId))}, nil
 }
 
 func (a *agent) SetSessionMode(context.Context, acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
@@ -528,6 +563,11 @@ func (a *agent) misbehave(ctx context.Context, sid acp.SessionId, f []string) (a
 		select {}
 	case "error":
 		return "", true, a.fail("prompt", "error", "")
+	case "limit":
+		// What codex-acp does when the account is over its usage limit.
+		const msg = "You've hit your usage limit. Try again at Nov 22nd, 2026 11:30 AM."
+		_ = a.say(ctx, sid, msg+"\n\n")
+		return "", true, &acp.RequestError{Code: -32603, Message: "Internal error", Data: map[string]any{"codexErrorInfo": "usageLimitExceeded", "message": msg}}
 	case "garbage":
 		_, _ = a.out.Write([]byte("this is not JSON-RPC\n{\"neither\": \"is this\"}\n"))
 	case "bigline":

@@ -17,6 +17,12 @@ func init() {
 				// Logins run in the web terminal, which can show the URL and
 				// accept a pasted code but cannot open a browser.
 				"NO_BROWSER": "1",
+				// Claude Code retries a 429 or 5xx ten times with exponential
+				// backoff (about three minutes) before the turn ends, and says
+				// nothing over ACP meanwhile. Three retries ride out a blip
+				// (about 4s) and an exhausted rate limit fails while the user
+				// still waits. Subscription usage limits are not retried.
+				"CLAUDE_CODE_MAX_RETRIES": "3",
 			}
 			if c.Model != "" {
 				env["ANTHROPIC_MODEL"] = c.Model

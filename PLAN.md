@@ -312,9 +312,15 @@ Milestones (migration numbers are reserved so parallel work does not collide):
   Exposures wake a sleeping machine on the first request. Builds on C1 (same driver code).
   *As built* (no migration, no API or node protocol change: everything is in the driver; the controller sees
   sleep and wake as before). Sleep: tunnel op `suspend` (sandboxd syncs; an older sandboxd refuses it, so
-  its machine shuts down as before), balloon inflated to the guest's free memory, `PATCH /vm Paused`, full
-  snapshot into `<dir>/snapshot` (bind-mounted as the jail's `/snap`), VMM killed, zero pages punched out of
-  the memory file (Firecracker v1.18 writes it fully allocated), `snapshot.json` written last. It records
+  its machine shuts down as before), balloon inflated to the guest's free memory, `suspend` again,
+  `PATCH /vm Paused`, full snapshot into `<dir>/snapout` (the VMM user's; bind-mounted as the jail's `/snap`),
+  VMM killed, then the host takes each file by descriptor (`O_NOFOLLOW|O_NONBLOCK`, regular file of the VMM
+  user with one link), punches its zero pages (Firecracker v1.18 writes it fully allocated), fsyncs it, gives
+  it to root and `renameat`s it into the root-owned store `<dir>/snapshot` (0700, bound read-only on resume),
+  fsyncs the disks, and writes `snapshot.json` last. Nothing the host later opens or binds as root lives in a
+  directory the VMM user can write; sockets in the jail are dialed through `O_PATH|O_NOFOLLOW`, jail
+  unmounts use `UMOUNT_NOFOLLOW`. The slow part runs without the driver lock (the machine is marked
+  suspending: its other operations wait, Status reports it running). It records
   what a resume needs unchanged: Firecracker, kernel and initramfs (sandboxd) hashes, resume protocol,
   host CPU model and host kernel, VM shape, base image, disk sizes and mtimes. Wake: the manifest is removed
   first (a snapshot is resumed at most once and never outlives a disk change), new jailed VMM,
@@ -324,7 +330,9 @@ Milestones (migration numbers are reserved so parallel work does not collide):
   released) for the tunnel, else kills and cold boots. Any failure before is a cold boot after discarding the
   snapshot; cold boot, Reset system and Destroy always discard it, Clone only reads disks. The tap gets a
   fixed MAC (derived from the gateway address): with a random one, a resumed guest's neighbour entry
-  black-holed its traffic for about 3 s. Config `sandbox.firecracker.snapshots` (true), `balloon` (true),
+  black-holed its traffic for about 3 s. On wake sandboxd also applies the services file it is handed. A VM an
+  interrupted sleep left paused is resumed by Status/Start and gets a resume message (clock; Start's new
+  token). Config `sandbox.firecracker.snapshots` (true), `balloon` (true),
   `snapshot_max_gb` (0 = no cap), `snapshot_reserve_gb` (2). Measured on the demo box (1 GiB guest, nested):
   sleep 1.0-1.5 s (up to 3.8 s with 400 MiB of freed dirty memory to balloon), wake to tunnel 0.4-0.5 s
   (cold boot 2.3-2.7 s), memory file 88-110 MiB allocated with the balloon, 491 MiB without after freeing

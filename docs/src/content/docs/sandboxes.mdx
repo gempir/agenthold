@@ -132,10 +132,18 @@ when the snapshot does not fit (see below) or when taking it fails; the machine 
 size of the guest's memory but is sparse: before the snapshot a balloon device takes the guest's free memory, and
 the pages that are zero (all of the balloon's, and memory the guest never used) are not stored. A machine that
 used little memory takes about 100 MiB on disk; one that had 400 MiB of freed memory takes about 110 MiB with the
-balloon and 490 MiB without. Writing the snapshot briefly needs the full memory size free. While a resumed
-machine runs, its memory file stays on disk (Firecracker maps the guest's memory from it) until the machine
-sleeps again or stops. Snapshots are deleted with their machine and by Reset system; a clone copies the disks
-only, never the memory.
+balloon and 490 MiB without. While a resumed machine runs, its memory file stays on disk (Firecracker maps the
+guest's memory from it) until the machine sleeps again or stops. Snapshots are deleted with their machine and by
+Reset system; a clone copies the disks only, never the memory.
+
+The cap and the reserve are checked conservatively: a sleep asks for the guest's full memory size (Firecracker
+writes the file fully before the zero pages are removed, so that much must be free for a moment), and the node's
+total counts the memory files of resumed machines too, including the one the new snapshot replaces.
+
+Firecracker writes the snapshot into `<id>/snapout/`, the only snapshot directory its (jailed, unprivileged) user
+can write. The node takes the files from there without following links, checks them, and moves them into
+`<id>/snapshot/`, which belongs to root and is attached to a resumed VM read-only. A sleep takes seconds; other
+machines on the node are not held up meanwhile.
 
 **Configuration** (`sandbox.firecracker`):
 

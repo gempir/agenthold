@@ -29,7 +29,10 @@ const ResumeVersion = 1
 type ResumeMessage struct {
 	Version int    `json:"version"`
 	AgentID string `json:"agentId"`
-	Token   string `json:"token"`
+	// Token is the tunnel token of this wake. Empty keeps the current one:
+	// the host resumed a VM that an interrupted sleep left paused, and
+	// only the clock and the connection need fixing.
+	Token string `json:"token,omitempty"`
 	// TimeUnixNano is the host's wall clock when it sent the message.
 	TimeUnixNano int64 `json:"timeUnixNano"`
 	// Files are the boot files of this wake (see GuestBoot.Files).
@@ -57,8 +60,8 @@ func readResume(r io.Reader) (ResumeMessage, error) {
 	if m.Version != ResumeVersion {
 		return m, fmt.Errorf("resume message version %d, want %d", m.Version, ResumeVersion)
 	}
-	if m.AgentID == "" || m.Token == "" || m.TimeUnixNano <= 0 {
-		return m, errors.New("resume message: agentId, token and time are required")
+	if m.AgentID == "" || m.TimeUnixNano <= 0 {
+		return m, errors.New("resume message: agentId and time are required")
 	}
 	for p := range m.Files {
 		if err := checkGuestPath(p); err != nil {
@@ -81,6 +84,13 @@ func (d *Daemon) resume(m ResumeMessage, setClock func(time.Time) error) ResumeR
 		// Keep going: a stale clock is better than an unreachable machine.
 		d.log.Warn("resume: set clock", "err", err)
 	}
+	services, hasServices := m.Files[d.cfg.ServicesFile]
+	if d.cfg.ServicesFile != "" && hasServices {
+		// Applied while the supervisor's operations wait, so no runtime
+		// change can save the set it had before the sleep over this file.
+		d.services.ops.Lock()
+		defer d.services.ops.Unlock()
+	}
 	for _, p := range slices.Sorted(maps.Keys(m.Files)) {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			d.log.Warn("resume: boot file", "path", p, "err", err)
@@ -93,7 +103,16 @@ func (d *Daemon) resume(m ResumeMessage, setClock func(time.Time) error) ResumeR
 	if _, ok := m.Files[CAFile]; ok {
 		d.installCA()
 	}
-	if d.cfg.BootPath != "" {
+	if d.cfg.ServicesFile != "" && hasServices {
+		// The services the host delivers (changed while the machine slept).
+		// The file already holds them: apply without saving.
+		if specs, err := ParseServices(services); err != nil {
+			d.log.Warn("resume: services", "err", err)
+		} else if err := d.services.apply(specs, false); err != nil {
+			d.log.Warn("resume: services", "err", err)
+		}
+	}
+	if m.Token != "" && d.cfg.BootPath != "" {
 		d.bootMu.Lock()
 		b := d.boot
 		d.bootMu.Unlock()

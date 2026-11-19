@@ -206,11 +206,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 }
 
-// setToken replaces the tunnel token and ends the current connection, so
+// setToken replaces the tunnel token ("" keeps it) and ends the current connection, so
 // the reconnect loop dials again at once with the new one.
 func (d *Daemon) setToken(token string) {
 	d.bootMu.Lock()
-	d.boot.Token = token
+	if token != "" {
+		d.boot.Token = token
+	}
 	redial := d.redial
 	d.bootMu.Unlock()
 	select {

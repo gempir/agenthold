@@ -5,6 +5,7 @@
 #   build-local.sh                 build main's head if it is new (what the timer runs)
 #   build-local.sh --commit SHA    build that commit (it must be reachable from main)
 #   build-local.sh --force         rebuild even if the commit was built, deployed or failed before
+#                                  (ignores the failure record and the wait; a failure still counts)
 #
 # Every phase runs as its own transient systemd unit in agenthold-build.slice (memory and CPU
 # limits, nice, idle I/O), as the unprivileged build user except the two that need root (the
@@ -12,8 +13,11 @@
 # runtime and memory peak; they end up in the log and in $STATE/last-build.json.
 #
 # A commit is published only when everything passed: atomically into $STORE/sha-<commit>/ and then
-# $STORE/channel.json (written last). A failed commit is recorded in $FAILED/<commit>.log and not
-# retried until --force; a new commit on main is built normally. pull.sh deploys from $STORE.
+# $STORE/channel.json (written last). A failed commit is retried automatically: up to MAX_ATTEMPTS
+# attempts in total (default 3), at least RETRY_DELAY seconds apart (default 15 minutes). Each
+# failure writes $FAILED/<commit>.attempt-N.log, copies it to $FAILED/<commit>.log (the latest) and
+# records the count in $FAILED/<commit>.attempts. After the last failed attempt the commit is not
+# built again until --force; a new commit on main is built normally. pull.sh deploys from $STORE.
 set -euo pipefail
 umask 022
 
@@ -28,6 +32,8 @@ BUILD_USER="${AGENTHOLD_BUILD_USER:-agenthold-build}"
 DEPLOY_ROOT="${AGENTHOLD_DEPLOY_ROOT:-/opt/agenthold}"
 SLICE="${AGENTHOLD_BUILD_SLICE:-agenthold-build.slice}"
 MIN_FREE_GB="${AGENTHOLD_BUILD_MIN_FREE_GB:-12}"
+MAX_ATTEMPTS="${AGENTHOLD_BUILD_MAX_ATTEMPTS:-3}"
+RETRY_DELAY="${AGENTHOLD_BUILD_RETRY_DELAY:-900}"
 KEEP_LOGS=20
 GOMAXPROCS_BUILD="${AGENTHOLD_BUILD_GOMAXPROCS:-4}"
 
@@ -44,6 +50,7 @@ done
 [[ "$(uname -m)" == aarch64 ]] || { echo 'the demo builder runs on arm64 Linux' >&2; exit 1; }
 [[ "$STORE" == /* && "$FAILED" == /* && "$STATE" == /* && "$CACHE" == /* && "$LOGS" == /* ]] || { echo 'paths must be absolute' >&2; exit 2; }
 [[ "$MIN_FREE_GB" =~ ^[0-9]+$ && "$GOMAXPROCS_BUILD" =~ ^[1-9][0-9]*$ ]] || { echo 'invalid limits' >&2; exit 2; }
+[[ "$MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ && "$RETRY_DELAY" =~ ^[0-9]+$ ]] || { echo 'invalid retry limits' >&2; exit 2; }
 id -u "$BUILD_USER" >/dev/null 2>&1 || { echo "build user $BUILD_USER does not exist" >&2; exit 1; }
 for tool in git go node pnpm jq zstd sha256sum flock systemd-run make; do
   command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
@@ -71,11 +78,27 @@ fi
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo 'unexpected commit id' >&2; exit 1; }
 version="sha-$commit"
 
+# Failed attempts of a commit. A record from before attempts were counted holds one attempt.
+failed_attempts() {
+  local n=""
+  [[ -f "$FAILED/$1.attempts" ]] && n="$(cat -- "$FAILED/$1.attempts")"
+  if [[ "$n" =~ ^[0-9]+$ ]]; then echo "$n"
+  elif [[ -f "$FAILED/$1.log" ]]; then echo 1
+  else echo 0
+  fi
+}
+
 deployed="$(basename "$(readlink -f "$DEPLOY_ROOT/current" 2>/dev/null || true)")"
 if ((!force)); then
   if [[ -f "$STORE/$version/SHA256SUMS" ]]; then echo "$commit is already built"; exit 0; fi
   if [[ "$deployed" == "$commit" ]]; then echo "$commit is already deployed"; exit 0; fi
-  if [[ -f "$FAILED/$commit.log" ]]; then echo "$commit failed before (see $FAILED/$commit.log); waiting for a new commit"; exit 0; fi
+  if [[ -f "$FAILED/$commit.log" ]]; then
+    attempts="$(failed_attempts "$commit")"
+    if ((attempts >= MAX_ATTEMPTS)); then echo "$commit failed before (see $FAILED/$commit.log); waiting for a new commit"; exit 0; fi
+    wait_s=$(( $(stat -c %Y -- "$FAILED/$commit.log" 2>/dev/null || echo 0) + RETRY_DELAY - $(date +%s) ))
+    if ((wait_s > 0)); then echo "$commit failed $attempts of $MAX_ATTEMPTS time(s); next attempt in ${wait_s}s"; exit 0; fi
+    echo "$commit failed $attempts of $MAX_ATTEMPTS time(s); retrying"
+  fi
 fi
 free_kb="$(df -Pk / | awk 'END {print $4}')"
 if ! [[ "$free_kb" =~ ^[0-9]+$ ]] || ((free_kb < MIN_FREE_GB * 1024 * 1024)); then
@@ -100,7 +123,13 @@ finish() {
   as_user git -C "$mirror" worktree prune
   if ((status != 0)); then
     echo "build of $commit FAILED (status $status)"
+    # Count before writing anything: a record from before counting is read through its latest log.
+    failed_n=$(( $(failed_attempts "$commit") + 1 ))
+    cp -- "$log" "$FAILED/$commit.attempt-$failed_n.log"
+    printf '%s\n' "$failed_n" > "$FAILED/.$commit.attempts.tmp" && mv -f -- "$FAILED/.$commit.attempts.tmp" "$FAILED/$commit.attempts"
+    # The latest log goes last: its existence and mtime are what the next run waits on.
     cp -- "$log" "$FAILED/.$commit.log.tmp" && mv -f -- "$FAILED/.$commit.log.tmp" "$FAILED/$commit.log"
+    echo "failed attempt $failed_n of $MAX_ATTEMPTS for $commit"
   fi
   jq -n --arg commit "$commit" --arg started "$started" --arg finished "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson status "$status" \
     --slurpfile phases <(jq -s . "$phases" 2>/dev/null || echo '[]') \
@@ -109,7 +138,9 @@ finish() {
   rm -f -- "$phases"
   # Keep the newest logs only; failure records stay (they stop rebuild loops).
   ls -1t "$LOGS"/*.log 2>/dev/null | tail -n +$((KEEP_LOGS + 1)) | xargs -r rm -f --
-  find "$FAILED" -maxdepth 1 -name '*.log' -mtime +60 -delete 2>/dev/null
+  # Failure records age out together (latest log, attempt logs, counter); a commit still at main's head
+  # is then built again, as before. Attempt logs of a commit that later passed age out the same way.
+  find "$FAILED" -maxdepth 1 \( -name '*.log' -o -name '*.attempts' \) -mtime +60 -delete 2>/dev/null
   exit "$status"
 }
 trap finish EXIT
@@ -284,7 +315,8 @@ jq -n --arg commit "$commit" --arg version "$version" --arg built "$(date -u +%Y
     sums: {path: ($version + "/SHA256SUMS"), sha256: $sums}}' > "$STORE/.channel.json.tmp"
 chmod 0644 "$STORE/.channel.json.tmp"
 mv -f -- "$STORE/.channel.json.tmp" "$STORE/channel.json"
-rm -f -- "$FAILED/$commit.log"
+# A commit that passed on a retry keeps its attempt logs (flaky tests show up there) until they age out.
+rm -f -- "$FAILED/$commit.log" "$FAILED/$commit.attempts"
 echo "==> published $version to $STORE"
 # One cached base, cleaned only after a successful publish: older keys stay reachable through the
 # store (hard links), which pull.sh prunes.

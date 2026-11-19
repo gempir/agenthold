@@ -21,7 +21,7 @@ Two timers do the work:
 ### Build (`build-local.sh`)
 
 Each run asks `https://github.com/gempir/agenthold.git` for main's head. A commit that is already in the
-store, already deployed or recorded as failed is skipped. Otherwise, with at least 12 GB free on `/`, the
+store, already deployed, or failed with its next attempt not yet due, is skipped. Otherwise, with at least 12 GB free on `/`, the
 builder fetches it into its own bare clone (`/var/lib/agenthold-build/agenthold.git`, owned by the
 unprivileged `agenthold-build` user), checks it out into a fresh worktree and runs, in this order:
 
@@ -48,8 +48,12 @@ and the journal (`journalctl -u agenthold-build`); runtime and memory peak per p
 Only when everything passed is the release published atomically into the store
 `/srv/agenthold/releases/`: `sha-<commit>/` (binary, runtime manifest, compressed base, base manifest,
 `SHA256SUMS`) is renamed into place (the compressed base is a hard link to the cached one), then `channel.json` is replaced. A failure keeps the previous
-channel and writes `/srv/agenthold/failed/<commit>.log`; that commit is not rebuilt (a new commit is). To
-retry it: `sudo /usr/local/lib/agenthold/build-local.sh --force`. If main moves during a build, the build
+channel and records the attempt: `/srv/agenthold/failed/<commit>.attempt-N.log` (N = 1 to 3), the latest one
+in `<commit>.log` and the count in `<commit>.attempts`. The same commit is retried automatically, at least 15
+minutes after its last failure, until it has failed 3 times; after the third failure it is not rebuilt (a new
+commit is). A commit that passes on a retry is published as usual and keeps its attempt logs until they age
+out, so a flaky test shows up there. Failure records older than 60 days are removed. To build a commit now,
+ignoring the record and the wait: `sudo /usr/local/lib/agenthold/build-local.sh --force`. If main moves during a build, the build
 finishes and the next run picks up the newest head; commits in between are skipped.
 
 ### Deploy (`pull.sh`)

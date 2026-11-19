@@ -15,6 +15,11 @@ import (
 // a "fast" on/off select while the current model supports it. Script flags:
 //
 //	no-config      advertise no config options (like a harness without them)
+//	effort-in-model  encode effort in model ids ("deep-1/high", no effort option)
+//	fast-on-first    list the fast mode values as on, off (Claude Code does)
+//	fast-everywhere  every model has fast mode, not only swift-1
+//	ultracode        advertise Claude Code's "ultracode" on/off option (cost multiplier,
+//	                 category model_config, like fast mode); the "ultracode" prompt reports it
 //	session/set_config_option <action> [arg]   fail one set request (see main.go)
 //
 // A "mode" select (category mode) stands for a harness's permission mode:
@@ -47,7 +52,7 @@ func findModel(id string) (fakeModel, bool) {
 // sessionConfig is a session's current choice.
 type sessionConfig struct {
 	model, effort, mode string
-	fast                bool
+	fast, ultracode     bool
 }
 
 func defaultConfig() sessionConfig {
@@ -79,21 +84,32 @@ func (a *agent) configOptions(sid string) []acp.SessionConfigOption {
 		return nil
 	}
 	c := a.config(sid)
+	inModel := a.flag("effort-in-model")
 	groups := acp.SessionConfigSelectOptionsGrouped{}
 	for _, m := range fakeModels {
 		if len(groups) == 0 || string(groups[len(groups)-1].Group) != m.group {
 			groups = append(groups, acp.SessionConfigSelectGroup{Group: acp.SessionConfigGroupId(strings.ToLower(strings.ReplaceAll(m.group, " ", "-"))), Name: m.group})
 		}
 		g := &groups[len(groups)-1]
+		if inModel && len(m.efforts) > 0 {
+			for _, e := range m.efforts {
+				g.Options = append(g.Options, acp.SessionConfigSelectOption{Value: acp.SessionConfigValueId(m.id + "/" + e), Name: m.name + " (" + strings.ToUpper(e[:1]) + e[1:] + ")"})
+			}
+			continue
+		}
 		g.Options = append(g.Options, acp.SessionConfigSelectOption{Value: acp.SessionConfigValueId(m.id), Name: m.name})
+	}
+	current := c.model
+	if cm, _ := findModel(c.model); inModel && len(cm.efforts) > 0 {
+		current += "/" + c.effort
 	}
 	model := acp.SessionConfigOptionCategoryModel
 	opts := []acp.SessionConfigOption{{Select: &acp.SessionConfigOptionSelect{
 		Id: "model", Name: "Model", Category: &model, Type: "select",
-		CurrentValue: acp.SessionConfigValueId(c.model), Options: acp.SessionConfigSelectOptions{Grouped: &groups},
+		CurrentValue: acp.SessionConfigValueId(current), Options: acp.SessionConfigSelectOptions{Grouped: &groups},
 	}}}
 	m, _ := findModel(c.model)
-	if len(m.efforts) > 0 {
+	if len(m.efforts) > 0 && !inModel {
 		levels := acp.SessionConfigSelectOptionsUngrouped{}
 		for _, e := range m.efforts {
 			levels = append(levels, acp.SessionConfigSelectOption{Value: acp.SessionConfigValueId(e), Name: strings.ToUpper(e[:1]) + e[1:]})
@@ -104,7 +120,7 @@ func (a *agent) configOptions(sid string) []acp.SessionConfigOption {
 			CurrentValue: acp.SessionConfigValueId(c.effort), Options: acp.SessionConfigSelectOptions{Ungrouped: &levels},
 		}})
 	}
-	if m.fast {
+	if a.hasFast(m) {
 		cur := "off"
 		if c.fast {
 			cur = "on"
@@ -113,6 +129,22 @@ func (a *agent) configOptions(sid string) []acp.SessionConfigOption {
 			Id: "fast", Name: "Fast mode", Type: "select", CurrentValue: acp.SessionConfigValueId(cur),
 			Options: acp.SessionConfigSelectOptions{Ungrouped: &acp.SessionConfigSelectOptionsUngrouped{
 				{Value: "off", Name: "Off"}, {Value: "on", Name: "On"},
+			}},
+		}})
+		if a.flag("fast-on-first") {
+			opts[len(opts)-1].Select.Options.Ungrouped = &acp.SessionConfigSelectOptionsUngrouped{{Value: "on", Name: "On"}, {Value: "off", Name: "Off"}}
+		}
+	}
+	if a.flag("ultracode") {
+		cur := "off"
+		if c.ultracode {
+			cur = "on"
+		}
+		modelConfig := acp.SessionConfigOptionCategory("model_config")
+		opts = append(opts, acp.SessionConfigOption{Select: &acp.SessionConfigOptionSelect{
+			Id: "ultracode", Name: "Ultracode", Category: &modelConfig, Type: "select", CurrentValue: acp.SessionConfigValueId(cur),
+			Options: acp.SessionConfigSelectOptions{Ungrouped: &acp.SessionConfigSelectOptionsUngrouped{
+				{Value: "on", Name: "On"}, {Value: "off", Name: "Off"},
 			}},
 		}})
 	}
@@ -143,6 +175,12 @@ func (a *agent) SetSessionConfigOption(ctx context.Context, p acp.SetSessionConf
 	switch id {
 	case "model":
 		nm, ok := findModel(value)
+		if i := strings.LastIndex(value, "/"); !ok && i > 0 && a.flag("effort-in-model") {
+			if vm, found := findModel(value[:i]); found && contains(vm.efforts, value[i+1:]) {
+				nm, ok = vm, true
+				c.effort = value[i+1:]
+			}
+		}
 		if !ok {
 			return acp.SetSessionConfigOptionResponse{}, acp.NewInvalidParams(fmt.Sprintf("unknown model %q", value))
 		}
@@ -159,7 +197,7 @@ func (a *agent) SetSessionConfigOption(ctx context.Context, p acp.SetSessionConf
 				}
 			}
 		}
-		if !nm.fast {
+		if !a.hasFast(nm) {
 			c.fast = false
 		}
 	case "effort":
@@ -172,8 +210,13 @@ func (a *agent) SetSessionConfigOption(ctx context.Context, p acp.SetSessionConf
 			return acp.SetSessionConfigOptionResponse{}, acp.NewInvalidParams(fmt.Sprintf("invalid mode %q", value))
 		}
 		c.mode = value
+	case "ultracode":
+		if !a.flag("ultracode") || (value != "on" && value != "off") {
+			return acp.SetSessionConfigOptionResponse{}, acp.NewInvalidParams(fmt.Sprintf("invalid ultracode %q", value))
+		}
+		c.ultracode = value == "on"
 	case "fast":
-		if !m.fast || (value != "on" && value != "off") {
+		if !a.hasFast(m) || (value != "on" && value != "off") {
 			return acp.SetSessionConfigOptionResponse{}, acp.NewInvalidParams(fmt.Sprintf("invalid fast mode %q", value))
 		}
 		c.fast = value == "on"
@@ -207,4 +250,15 @@ func contains(list []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// hasFast reports whether the model has fast mode.
+func (a *agent) hasFast(m fakeModel) bool { return m.fast || a.flag("fast-everywhere") }
+
+// describeUltracode answers the "ultracode" prompt.
+func (a *agent) describeUltracode(sid string) string {
+	if a.config(sid).ultracode {
+		return "ultracode=on"
+	}
+	return "ultracode=off"
 }

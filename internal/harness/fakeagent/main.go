@@ -257,9 +257,12 @@ func (a *agent) Initialize(context.Context, acp.InitializeRequest) (acp.Initiali
 	}
 	exe, _ := os.Executable()
 	return acp.InitializeResponse{
-		ProtocolVersion:   acp.ProtocolVersionNumber,
-		AgentInfo:         &acp.Implementation{Name: "fakeagent", Version: "1.0"},
-		AgentCapabilities: acp.AgentCapabilities{LoadSession: !a.flag("no-load"), McpCapabilities: acp.McpCapabilities{Http: true}},
+		ProtocolVersion: acp.ProtocolVersionNumber,
+		AgentInfo:       &acp.Implementation{Name: "fakeagent", Version: "1.0"},
+		AgentCapabilities: acp.AgentCapabilities{
+			LoadSession: !a.flag("no-load"), McpCapabilities: acp.McpCapabilities{Http: true},
+			SessionCapabilities: acp.SessionCapabilities{Close: &acp.SessionCloseCapabilities{}},
+		},
 		AuthMethods: []acp.AuthMethod{
 			{Terminal: &acp.AuthMethodTerminalInline{
 				Id: "fake-login", Name: "Fake subscription", Type: "terminal", Args: []string{"login"},
@@ -476,6 +479,8 @@ func (a *agent) Prompt(_ context.Context, p acp.PromptRequest) (acp.PromptRespon
 		answer = "mcp=[" + strings.Join(servers, " | ") + "] skills=[" + strings.Join(skills, ",") + "]"
 	case len(fields) == 1 && fields[0] == "model":
 		answer = a.describeConfig(string(sid))
+	case len(fields) == 1 && fields[0] == "ultracode":
+		answer = a.describeUltracode(string(sid))
 	case len(fields) == 1 && fields[0] == "mode":
 		answer = "mode=" + a.config(string(sid)).mode
 	case len(fields) == 1 && fields[0] == "whoami":

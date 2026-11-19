@@ -16,6 +16,8 @@ var adapter = &harness.Adapter{
 		return map[string]string{"FAKEAGENT_MODEL": c.Model}
 	},
 	FallbackModels: []harness.Model{{ID: "swift-1", Name: "Swift 1", Group: "Fake Labs"}},
+	// Side-effect-free, so the model probe may run against it.
+	ProbeModels: true,
 	// Like Codex's "api-key": the client may call it on its own.
 	AutoAuthenticate: []string{"fake-key"},
 	// It is not in the image: keep it out of production listings.

@@ -35,6 +35,7 @@ const catalog: ModelCatalog = {
       id: 'opus',
       name: 'Opus 5.5',
       group: 'Anthropic',
+      description: 'Most capable model, for complex work',
       options: [effort(['low', 'medium', 'high', 'xhigh', 'max']), fast],
     },
     {
@@ -71,7 +72,7 @@ function Harness({
   );
 }
 
-it('shows the choice compactly and checks the current model', async () => {
+it('shows the choice compactly: one line per model, no inline descriptions', async () => {
   render(
     <Harness initial={{ model: 'opus', options: { effort: 'medium' } }} />,
   );
@@ -87,19 +88,48 @@ it('shows the choice compactly and checks the current model', async () => {
   const opus = within(list).getByRole('option', { name: /Opus 5.5/ });
   expect(opus).toHaveAttribute('data-current', 'true');
   expect(opus).toHaveAttribute('aria-selected', 'true');
-  // The options of the highlighted model: effort levels and fast mode.
+  // The description is behind the info icon, not in the row.
+  expect(opus).not.toHaveTextContent('Most capable');
+  expect(opus).toHaveAttribute(
+    'aria-description',
+    'Most capable model, for complex work',
+  );
+  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  await userEvent.hover(
+    within(opus).getByRole('button', { name: 'About Opus 5.5' }),
+  );
+  expect(screen.getByRole('tooltip')).toHaveTextContent('Most capable model');
+  // Models without a description have no icon.
+  expect(
+    within(list).queryByRole('button', { name: 'About Sonnet 5.5' }),
+  ).not.toBeInTheDocument();
+});
+
+it('shows the reasoning section of the chosen model', async () => {
+  render(
+    <Harness initial={{ model: 'opus', options: { effort: 'medium' } }} />,
+  );
+  await userEvent.click(screen.getByRole('button', { name: /Model:/ }));
+  expect(screen.getByText('Reasoning')).toBeVisible();
+  expect(screen.getByRole('radio', { name: 'Low' })).toBeInTheDocument();
   expect(screen.getByRole('radio', { name: 'Extra High' })).toBeInTheDocument();
+  expect(screen.getByRole('radio', { name: 'Max' })).toBeInTheDocument();
   expect(screen.getByRole('radio', { name: 'Medium' })).toHaveAttribute(
     'aria-checked',
     'true',
   );
-  expect(screen.getByRole('switch', { name: 'Fast mode' })).toHaveAttribute(
+  // Fast mode: Standard (off) is the default.
+  expect(screen.getByRole('radio', { name: 'Standard' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  expect(screen.getByRole('radio', { name: 'Fast' })).toHaveAttribute(
     'aria-checked',
     'false',
   );
 });
 
-it('searches, moves with the arrows and picks with Enter', async () => {
+it('searches, moves with the arrows and picks with Enter, staying open for the reasoning', async () => {
   const onChange = vi.fn();
   render(
     <Harness
@@ -116,19 +146,25 @@ it('searches, moves with the arrows and picks with Enter', async () => {
   await user.keyboard('{Enter}');
   // Options the new model lacks are dropped (max, fast mode).
   expect(onChange).toHaveBeenLastCalledWith({ model: 'sonnet', options: {} });
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /Model:/ })).toHaveFocus();
+  // Still open, now showing Sonnet's levels.
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  expect(screen.queryByRole('radio', { name: 'Max' })).not.toBeInTheDocument();
+  expect(screen.getByRole('radio', { name: 'High' })).toBeInTheDocument();
 
-  await user.click(screen.getByRole('button', { name: /Model:/ }));
-  // Sonnet is current; down moves to Haiku, whose options are unknown.
-  await user.keyboard('{ArrowDown}');
+  await user.clear(search);
+  // The list starts on the default entry: down to Haiku, whose options are
+  // unknown.
+  await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}');
   expect(screen.getByRole('option', { name: /Haiku/ })).toHaveAttribute(
     'aria-selected',
     'true',
   );
-  expect(screen.getByText(/once the agent has used this model/)).toBeVisible();
+  await user.keyboard('{Enter}');
+  expect(onChange).toHaveBeenLastCalledWith({ model: 'haiku', options: {} });
+  expect(screen.getByText(/once the agent has run/)).toBeVisible();
   await user.keyboard('{Escape}');
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Model:/ })).toHaveFocus();
 });
 
 it('picks the n-th model with Alt+number and the default entry', async () => {
@@ -140,6 +176,7 @@ it('picks the n-th model with Alt+number and the default entry', async () => {
     'data-current',
     'true',
   );
+  expect(screen.getByText(/Pick a model to set its reasoning/)).toBeVisible();
   await user.keyboard('{Alt>}2{/Alt}');
   expect(onChange).toHaveBeenLastCalledWith({ model: 'sonnet', options: {} });
 });
@@ -159,11 +196,17 @@ it('sets effort and fast mode, also with the arrow keys', async () => {
     model: 'opus',
     options: { effort: 'high' },
   });
-  await user.click(screen.getByRole('switch', { name: 'Fast mode' }));
+  await user.click(screen.getByRole('radio', { name: 'Fast' }));
   expect(onChange).toHaveBeenLastCalledWith({
     model: 'opus',
     options: { effort: 'high', fast: 'on' },
   });
+  await user.click(screen.getByRole('radio', { name: 'Standard' }));
+  expect(onChange).toHaveBeenLastCalledWith({
+    model: 'opus',
+    options: { effort: 'high', fast: 'off' },
+  });
+  await user.click(screen.getByRole('radio', { name: 'Fast' }));
   // Still open: options are set in place.
   screen.getByRole('combobox').focus();
   await user.keyboard('{ArrowRight}');
@@ -174,6 +217,38 @@ it('sets effort and fast mode, also with the arrow keys', async () => {
   expect(screen.getByRole('button', { name: /Model:/ })).toHaveTextContent(
     'Opus 5.5 · Extra High · Fast',
   );
+});
+
+it('offers the effort levels of other models while a model is not described', async () => {
+  const onChange = vi.fn();
+  render(
+    <Harness
+      initial={{ model: 'haiku', options: {} }}
+      cat={{
+        ...catalog,
+        provisionalOptions: [effort(['low', 'medium', 'high'])],
+      }}
+      onChange={onChange}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: /Model:/ }));
+  expect(screen.getByRole('radio', { name: 'Medium' })).toBeInTheDocument();
+  expect(screen.queryByRole('radio', { name: 'Max' })).not.toBeInTheDocument();
+  expect(
+    screen.getByText(/confirms them once the agent has used/),
+  ).toBeVisible();
+  await user.click(screen.getByRole('radio', { name: 'High' }));
+  expect(onChange).toHaveBeenLastCalledWith({
+    model: 'haiku',
+    options: { effort: 'high' },
+  });
+});
+
+it('says a model has no reasoning options when the harness said so', async () => {
+  render(<Harness initial={{ model: 'other/one', options: {} }} />);
+  await userEvent.click(screen.getByRole('button', { name: /Model:/ }));
+  expect(screen.getByText(/no reasoning options/)).toBeVisible();
 });
 
 it('keeps an unknown model from an old setting as custom', async () => {

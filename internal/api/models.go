@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/gempir/agenthold/internal/api/gen"
@@ -55,6 +56,10 @@ func (a *API) catalog(ctx context.Context, agent db.Agent) (catalog, error) {
 			}
 			c.api.Models = append(c.api.Models, m)
 		}
+		if prov := provisionalEfforts(rep.ByModel); len(prov) > 0 && slices.ContainsFunc(c.api.Models, func(m gen.CatalogModel) bool { return m.Options == nil }) {
+			list := apiModelOptions(prov)
+			c.api.ProvisionalOptions = &list
+		}
 		return c, nil
 	}
 	// Never reported or reported by another harness: the fallback list, and
@@ -74,6 +79,43 @@ func (a *API) catalog(ctx context.Context, agent db.Agent) (catalog, error) {
 	return c, nil
 }
 
+// provisionalEfforts merges the effort options the harness reported for
+// its models, by option id: what a model not described yet probably offers.
+// Values are kept in the order of the longest list, then those only shorter
+// lists have.
+func provisionalEfforts(byModel map[string][]session.ConfigOption) []session.ConfigOption {
+	var out []session.ConfigOption
+	ids := make([]string, 0, len(byModel))
+	for id := range byModel {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids) // deterministic
+	for _, id := range ids {
+		for _, o := range byModel[id] {
+			if o.Kind != session.KindEffort {
+				continue
+			}
+			i := slices.IndexFunc(out, func(x session.ConfigOption) bool { return x.ID == o.ID })
+			if i < 0 {
+				o.Values = slices.Clone(o.Values)
+				out = append(out, o)
+				continue
+			}
+			merged := out[i].Values
+			if len(o.Values) > len(merged) {
+				merged, o.Values = slices.Clone(o.Values), merged
+			}
+			for _, v := range o.Values {
+				if !slices.ContainsFunc(merged, func(x session.ConfigValue) bool { return x.Value == v.Value }) {
+					merged = append(merged, v)
+				}
+			}
+			out[i].Values = merged
+		}
+	}
+	return out
+}
+
 func opt(s string) *string {
 	if s == "" {
 		return nil
@@ -84,6 +126,9 @@ func opt(s string) *string {
 func apiModelOptions(in []session.ConfigOption) []gen.ModelOption {
 	out := []gen.ModelOption{}
 	for _, o := range in {
+		if !o.Picker() {
+			continue
+		}
 		m := gen.ModelOption{Id: o.ID, Name: o.Name, Description: opt(o.Description), Values: []gen.ModelOptionValue{}}
 		switch o.Kind {
 		case session.KindEffort:
@@ -93,9 +138,9 @@ func apiModelOptions(in []session.ConfigOption) []gen.ModelOption {
 			}
 		case session.KindToggle:
 			m.Kind = gen.Toggle
-			off, on := "off", "on"
-			if o.Type == "boolean" {
-				off, on = "false", "true"
+			off, on, ok := o.OffOn()
+			if !ok {
+				continue
 			}
 			m.Values = []gen.ModelOptionValue{{Value: off, Name: "Off"}, {Value: on, Name: "On"}}
 		default:

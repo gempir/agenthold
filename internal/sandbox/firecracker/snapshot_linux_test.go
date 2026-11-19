@@ -70,7 +70,8 @@ func TestSnapshotCompatibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.Resumable = true
-	m.UID = uint32(os.Getuid()) // the files below are "the VMM's"
+	vmm := *m
+	vmm.UID = uint32(os.Getuid()) // the files below are "the VMM's"
 	unprivilegedChown(t)
 	dir := d.snapDir(id)
 	out := d.snapOut(id)
@@ -89,7 +90,7 @@ func TestSnapshotCompatibility(t *testing.T) {
 		Format: snapshotFormat, Firecracker: "fc", Kernel: "k", HostCPU: "cpu", HostKernel: "6.8", ResumeVersion: sandboxd.ResumeVersion,
 		Sandboxd: "abc.cpio", BaseImagePath: m.BaseImagePath, VCPUs: 1, MemoryMiB: 256,
 	}
-	if err := d.finalizeSnapshot(id, m, &info); err != nil {
+	if err := d.finalizeSnapshot(id, &vmm, &info); err != nil {
 		t.Fatal(err)
 	}
 	s, err := d.readSnapshot(id)

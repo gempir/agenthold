@@ -479,6 +479,8 @@ func (a *agent) Prompt(_ context.Context, p acp.PromptRequest) (acp.PromptRespon
 		answer = "mcp=[" + strings.Join(servers, " | ") + "] skills=[" + strings.Join(skills, ",") + "]"
 	case len(fields) == 1 && fields[0] == "model":
 		answer = a.describeConfig(string(sid))
+	case len(fields) == 1 && fields[0] == "ultracode":
+		answer = a.describeUltracode(string(sid))
 	case len(fields) == 1 && fields[0] == "mode":
 		answer = "mode=" + a.config(string(sid)).mode
 	case len(fields) == 1 && fields[0] == "whoami":

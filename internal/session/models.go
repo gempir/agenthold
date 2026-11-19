@@ -1,6 +1,7 @@
 package session
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -58,6 +59,36 @@ func (o ConfigOption) Has(v string) bool {
 	return slices.ContainsFunc(o.Values, func(x ConfigValue) bool { return x.Value == v })
 }
 
+// toggleIDs are the only on/off options the picker offers: fast mode (Claude
+// Code "fast", Codex "fast-mode"). Other toggles are not model settings:
+// Claude Code's "ultracode" (category model_config, like fast mode) multiplies
+// the cost of a turn, so it is neither shown nor ever set from a choice.
+var toggleIDs = map[string]bool{"fast": true, "fast-mode": true}
+
+// offOn finds the off and on values of an on/off option by what they are
+// called, never by their position (Claude Code lists "on" first). ok is false
+// unless the option has exactly one of each.
+func (o ConfigOption) offOn() (off, on string, ok bool) {
+	if o.Type == "boolean" {
+		return "false", "true", true
+	}
+	if len(o.Values) != 2 {
+		return "", "", false
+	}
+	for _, v := range o.Values {
+		switch strings.ToLower(v.Value) {
+		case "off", "false", "disabled":
+			off = v.Value
+		case "on", "true", "enabled":
+			on = v.Value
+		}
+	}
+	return off, on, off != "" && on != "" && off != on
+}
+
+// OffOn is offOn for other packages.
+func (o ConfigOption) OffOn() (off, on string, ok bool) { return o.offOn() }
+
 // kindOf classifies an option for the picker.
 func kindOf(o ConfigOption) string {
 	switch {
@@ -65,16 +96,10 @@ func kindOf(o ConfigOption) string {
 		return KindModel
 	case o.Category == "thought_level":
 		return KindEffort
-	}
-	// Fast mode: Claude Code "fast", Codex "fast-mode" (category model_config).
-	if !strings.Contains(strings.ToLower(o.ID), "fast") && o.Category != "model_config" {
-		return ""
-	}
-	if o.Type == "boolean" {
-		return KindToggle
-	}
-	if len(o.Values) == 2 && o.Has("on") && o.Has("off") {
-		return KindToggle
+	case toggleIDs[o.ID]:
+		if _, _, ok := o.offOn(); ok {
+			return KindToggle
+		}
 	}
 	return ""
 }
@@ -177,7 +202,11 @@ func findOption(opts []ConfigOption, pred func(ConfigOption) bool) (ConfigOption
 // effort and toggles only. Mode, agent and other options are not model
 // settings (a session mode can switch the harness's permission handling) and
 // are never set from a choice.
-func (o ConfigOption) Picker() bool { return o.Kind == KindEffort || o.Kind == KindToggle }
+func (o ConfigOption) Picker() bool {
+	// The id check also covers catalogs stored before toggles were limited to
+	// toggleIDs.
+	return o.Kind == KindEffort || (o.Kind == KindToggle && toggleIDs[o.ID])
+}
 
 func modelOption(opts []ConfigOption) (ConfigOption, bool) {
 	return findOption(opts, func(o ConfigOption) bool { return o.Kind == KindModel })
@@ -233,6 +262,9 @@ type Catalog struct {
 	// the harness's own default model and options, which clearing a choice
 	// returns to.
 	Defaults map[string]string `json:"defaults,omitempty"`
+	// Probed is when each model was last tried by the model probe (unix
+	// seconds), whatever came of it.
+	Probed map[string]int64 `json:"probed,omitempty"`
 }
 
 // ModelOption is the catalog's model option, if the harness has one.
@@ -317,7 +349,11 @@ func (m *Manager) observe(conn *harnessConn, acpID string, in []acp.SessionConfi
 	if c.ByModel == nil {
 		c.ByModel = map[string][]ConfigOption{}
 	}
-	c.Options = view
+	// A probe session reports a model it was switched to, not the harness's
+	// state: only what it says about that model is kept.
+	if !conn.isProbe(acpID) {
+		c.Options = view
+	}
 	if fresh {
 		c.Defaults = map[string]string{}
 		for _, o := range opts {
@@ -355,6 +391,11 @@ func (m *Manager) observe(conn *harnessConn, acpID string, in []acp.SessionConfi
 		for id := range c.ByModel {
 			if !mo.Has(id) && id != mo.Current {
 				delete(c.ByModel, id)
+			}
+		}
+		for id := range c.Probed {
+			if !mo.Has(id) {
+				delete(c.Probed, id)
 			}
 		}
 	}
@@ -445,16 +486,25 @@ func (m *Manager) applyChoice(ctx context.Context, conn *harnessConn, sessionID,
 		}
 	}
 	targetModel := want.Model
+	if sp, ok := splitVariants(mo); ok {
+		// The harness encodes effort levels in model ids: the chosen model
+		// and effort are one value. Without a chosen model (the harness's
+		// default) the effort still applies to the default model.
+		base := targetModel
+		if base == "" {
+			base = sp.baseOf(cmp.Or(defaults[mo.ID], mo.Current))
+		}
+		effort := want.Options[VariantEffortID]
+		if targetModel != "" || effort != "" {
+			v, valid := sp.compose(base, effort, defaults[mo.ID], mo.Current)
+			if !valid && conn.warnOnce(acpID, "opt:"+VariantEffortID) {
+				notice(fmt.Sprintf("Reasoning effort: %q is not available for %s, so this turn uses %q.", effort, valueName(sp.view(), base), valueName(mo, v)))
+			}
+			targetModel = v
+		}
+	}
 	if targetModel == "" {
 		targetModel = defaults[mo.ID] // '' while unknown: keep the current model
-	} else if sp, ok := splitVariants(mo); ok {
-		// The harness encodes effort levels in model ids: the chosen model
-		// and effort are one value.
-		v, valid := sp.compose(targetModel, want.Options[VariantEffortID], mo.Current)
-		if !valid && conn.warnOnce(acpID, "opt:"+VariantEffortID) {
-			notice(fmt.Sprintf("Reasoning effort: %q is not available for %s, so this turn uses %q.", want.Options[VariantEffortID], valueName(sp.view(), targetModel), valueName(mo, v)))
-		}
-		targetModel = v
 	}
 	// fatal: the connection or the turn is over.
 	fatal := func(err error) bool {
@@ -512,11 +562,12 @@ func (m *Manager) applyChoice(ctx context.Context, conn *harnessConn, sessionID,
 		case chosen:
 		case onDefaultModel && o.Has(defaults[o.ID]):
 			v = defaults[o.ID]
-		case o.Kind == KindToggle && len(o.Values) > 0:
-			v = o.Values[0].Value // off
-			if o.Type == "boolean" {
-				v = "false"
+		case o.Kind == KindToggle:
+			off, _, ok := o.offOn() // by name: Claude Code lists "on" first
+			if !ok {
+				continue
 			}
+			v = off
 		default:
 			continue // another model's effort: as the harness chose it
 		}

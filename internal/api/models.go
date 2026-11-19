@@ -126,6 +126,9 @@ func opt(s string) *string {
 func apiModelOptions(in []session.ConfigOption) []gen.ModelOption {
 	out := []gen.ModelOption{}
 	for _, o := range in {
+		if !o.Picker() {
+			continue
+		}
 		m := gen.ModelOption{Id: o.ID, Name: o.Name, Description: opt(o.Description), Values: []gen.ModelOptionValue{}}
 		switch o.Kind {
 		case session.KindEffort:
@@ -135,9 +138,9 @@ func apiModelOptions(in []session.ConfigOption) []gen.ModelOption {
 			}
 		case session.KindToggle:
 			m.Kind = gen.Toggle
-			off, on := "off", "on"
-			if o.Type == "boolean" {
-				off, on = "false", "true"
+			off, on, ok := o.OffOn()
+			if !ok {
+				continue
 			}
 			m.Values = []gen.ModelOptionValue{{Value: off, Name: "Off"}, {Value: on, Name: "On"}}
 		default:

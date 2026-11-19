@@ -230,3 +230,35 @@ func TestModelEffortForModelsNotUsedYet(t *testing.T) {
 		t.Fatalf("turn %q", got)
 	}
 }
+
+func TestUltracodeIsNotAModelOption(t *testing.T) {
+	e := newEnv(t)
+	alice := e.login("alice", "Alice", "a@example.com")
+	ag := e.fakeAgent(alice, "")
+	dir := filepath.Join(e.home(ag.Id), ".fakeagent")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Claude Code's fast mode and ultracode are both on/off options of
+	// category model_config, listed "on" first.
+	if err := os.WriteFile(filepath.Join(dir, "script"), []byte("ultracode\nfast-on-first\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var sess gen.Session
+	expect(t, "session", alice.do("POST", "/agents/"+ag.Id+"/sessions", map[string]string{}, &sess), 201)
+	e.turnText(alice, sess.Id, "model")
+	var cat gen.ModelCatalog
+	expect(t, "models", alice.do("GET", "/agents/"+ag.Id+"/models", nil, &cat), 200)
+	opts := *cat.Models[0].Options
+	if len(opts) != 2 || opts[0].Kind != gen.Effort || opts[1].Id != "fast" || opts[1].Kind != gen.Toggle {
+		t.Fatalf("swift-1 options %+v", opts)
+	}
+	// Whatever the order the harness lists them in, off comes first for clients.
+	if opts[1].Values[0].Value != "off" || opts[1].Values[1].Value != "on" {
+		t.Fatalf("fast values %+v", opts[1].Values)
+	}
+	for _, model := range []string{"swift-1", "deep-1", "gone-0"} {
+		expect(t, "ultracode "+model, alice.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: model, Options: &map[string]string{"ultracode": "on"}}, nil), 400)
+	}
+	expect(t, "fast", alice.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "swift-1", Options: &map[string]string{"fast": "on"}}, nil), 200)
+}

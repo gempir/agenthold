@@ -116,9 +116,10 @@ func (s *variantSplit) effortOption(base string) ConfigOption {
 
 // compose is the raw model value for a base model and a chosen effort. ok is
 // false when the effort is not one of the model's levels. Without an effort
-// the value is the base itself when the harness lists it (its default
-// effort), else the variant the session is on, else the first variant.
-func (s *variantSplit) compose(base, effort, current string) (value string, ok bool) {
+// the value is, in this order: the base itself when the harness lists it (its
+// default effort), the harness's default value when that is a variant of the
+// model, the variant the session is on, "medium", else the middle level.
+func (s *variantSplit) compose(base, effort, def, current string) (value string, ok bool) {
 	levels := s.efforts[base]
 	if levels == nil {
 		return base, true
@@ -130,10 +131,26 @@ func (s *variantSplit) compose(base, effort, current string) (value string, ok b
 	if s.listed[base] {
 		return base, ok
 	}
-	if b, _, isVariant := variantParts(current); isVariant && b == base {
-		return current, ok
+	// Nothing chosen reverts to the harness's defaults, not to what an
+	// earlier choice left.
+	for _, v := range []string{def, current} {
+		if b, _, isVariant := variantParts(v); isVariant && b == base {
+			return v, ok
+		}
 	}
-	return base + "/" + levels[0], ok
+	if slices.Contains(levels, "medium") {
+		return base + "/medium", ok
+	}
+	return base + "/" + levels[len(levels)/2], ok
+}
+
+// baseOf is the base model of a raw model value (the value itself when it has
+// no effort suffix).
+func (s *variantSplit) baseOf(value string) string {
+	if b, _, ok := variantParts(value); ok && s.efforts[b] != nil {
+		return b
+	}
+	return value
 }
 
 func effortName(e string) string {

@@ -50,6 +50,9 @@ type harnessConn struct {
 	updatesSeen, updatesHandled atomic.Int64
 	// probing: a model probe is scheduled or running (see probe.go).
 	probing atomic.Bool
+	// probeSessions are the ACP sessions of running probes (guarded by mu):
+	// what they report describes models, not the harness's current state.
+	probeSessions map[string]bool
 
 	mu       sync.Mutex
 	sessions map[string]string          // ACP session id -> our session id
@@ -208,6 +211,38 @@ func (c *harnessConn) forget(acpID string) {
 	delete(c.active, acpID)
 	delete(c.config, acpID)
 	delete(c.warned, acpID)
+}
+
+// isProbe reports whether the ACP session belongs to a model probe.
+func (c *harnessConn) isProbe(acpID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.probeSessions[acpID]
+}
+
+func (c *harnessConn) setProbe(acpID string, on bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.probeSessions == nil {
+		c.probeSessions = map[string]bool{}
+	}
+	if on {
+		c.probeSessions[acpID] = true
+	} else {
+		delete(c.probeSessions, acpID)
+	}
+}
+
+// tracks reports whether the connection knows the ACP session: it started,
+// loaded or resumed it, and did not forget it since.
+func (c *harnessConn) tracks(acpID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.config[acpID]; ok {
+		return true
+	}
+	_, bound := c.sessions[acpID]
+	return bound || c.active[acpID]
 }
 
 // configFor is the session's current config options (nil: none reported).
@@ -417,8 +452,12 @@ func (c *harnessConn) SessionUpdate(ctx context.Context, n acp.SessionNotificati
 	defer c.updatesHandled.Add(1)
 	c.alive() // also for sessions being loaded: a long replay is progress
 	if u := n.Update.ConfigOptionUpdate; u != nil {
-		// Harness state, not conversation: recorded, not logged.
-		c.m.observe(c, string(n.SessionId), u.ConfigOptions, false)
+		// Harness state, not conversation: recorded, not logged. A session
+		// this connection no longer tracks (a finished probe, a forgotten
+		// session) is ignored: its late updates must not bring it back.
+		if c.tracks(string(n.SessionId)) {
+			c.m.observe(c, string(n.SessionId), u.ConfigOptions, false)
+		}
 		return nil
 	}
 	sessionID, ok := c.sessionFor(n.SessionId)

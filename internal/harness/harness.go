@@ -62,6 +62,14 @@ type Adapter struct {
 	// the agent ever ran. Keep it small: what the harness accepts whatever
 	// the account (aliases, not dated ids).
 	FallbackModels []Model
+	// ProbeModels: the client may describe the models' options by switching a
+	// throwaway session through them (see session.Manager.ProbeModels). Set it
+	// only for a harness where that has no side effects: a session that is
+	// not stored, starts no hooks or MCP servers and costs nothing. None of
+	// the harnesses in the image qualifies (a session/new persists in OpenCode
+	// and Codex, Claude Code runs SessionStart hooks and its session/options
+	// cannot choose a model), so they show provisional levels instead.
+	ProbeModels bool
 	// CustomModels: the harness accepts model ids it does not list (OpenCode's
 	// "provider/model" for providers configured in its own config).
 	CustomModels bool

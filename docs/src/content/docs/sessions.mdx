@@ -179,13 +179,15 @@ to pick, Escape to close, Alt+1…9 for the n-th model, ←/→ to change the ef
 The list comes from the harness itself: its ACP session config options (a `model` option, a `thought_level` option
 for effort, a fast mode toggle) reported with every `session/new` and `session/load`. agenthold stores the last report
 per agent, so the picker works while the machine sleeps, and says when it was reported. A harness describes the effort
-levels of its current model only, so agenthold asks about the others itself: once a conversation's turn is over and the
-harness is idle, it starts a throwaway session (no prompt is sent, nothing is billed), switches it through the models
-that have no options recorded yet and stores what each reports. Until a model is described, the picker offers the
-effort levels the harness reported for its other models, marked as such; the harness has the last word and refuses a
-level the model lacks, with a notice. Before an agent first runs, the picker shows a small built-in list per harness
-instead. A harness that encodes the effort in the model id (`model/high`) gets one entry per model and an effort
-selector made from the suffixes.
+levels of its current model only, so the options of a model appear once a conversation has used it. Until then the
+picker offers the effort levels the harness reported for its other models, marked as such; the harness has the last
+word and refuses a level the model lacks, with a notice. (agenthold can also ask a harness about its other models by
+switching a throwaway session through them, but only where that has no side effects. None of the harnesses in the image
+qualifies: a new session is stored, runs hooks or cannot choose a model without a turn.) Fast mode is the only on/off
+option offered; others a harness reports (Claude Code's ultracode, which multiplies the cost of a turn) are not model
+settings and cannot be chosen. Unchosen toggles go back to off. Before an agent first runs, the picker shows a small
+built-in list per harness instead. A harness that encodes the effort in the model id (`model/high`) gets one entry per
+model and an effort selector made from the suffixes.
 
 A choice applies from the next message, with `session/set_config_option`, without restarting the harness. Only the
 model, its reasoning effort and on/off toggles such as fast mode are ever set this way: other config options a harness

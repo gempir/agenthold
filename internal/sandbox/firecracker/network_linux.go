@@ -97,6 +97,13 @@ func (d *Driver) ensureTap(ctx context.Context, id sandbox.ID, m *manifest) (err
 			_ = h.LinkDel(link)
 			return err
 		}
+		// A fixed host-side MAC: a VM resumed from a snapshot still has the
+		// gateway's address in its neighbour table, and a new random MAC
+		// would black-hole its traffic until that entry times out (seconds).
+		if err = h.LinkSetHardwareAddr(link, hostMAC(m.Subnet)); err != nil {
+			_ = h.LinkDel(link)
+			return err
+		}
 	}
 	addr := &netlink.Addr{IPNet: &net.IPNet{IP: net.ParseIP(m.Subnet.Addr().Next().String()).To4(), Mask: net.CIDRMask(30, 32)}}
 	addrs, err := h.AddrList(link, netlink.FAMILY_V4)
@@ -140,4 +147,11 @@ func (d *Driver) deleteTap(id sandbox.ID) error {
 		return fmt.Errorf("refusing to delete foreign interface %s", TapName(id))
 	}
 	return h.LinkDel(link)
+}
+
+// hostMAC is the tap's (gateway's) MAC: locally administered, derived from
+// the gateway address like the guest's (06:00:<guest IPv4>).
+func hostMAC(subnet netip.Prefix) net.HardwareAddr {
+	b := subnet.Addr().Next().As4()
+	return net.HardwareAddr{0x0a, 0x00, b[0], b[1], b[2], b[3]}
 }

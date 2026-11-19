@@ -29,6 +29,8 @@ type Driver struct {
 	cfg Config
 	// initrd is the initramfs carrying cfg.SandboxdPath (see initrd_linux.go).
 	initrd string
+	// host is what snapshots are checked against (see snapshot_linux.go).
+	host hostIdentity
 	// disk is an internal provisioning seam for unprivileged unit tests.
 	disk func(string, int64, uint32, uint32) error
 	// chown hands cloned disks to the clone's VMM user (nil: os.Chown).
@@ -38,6 +40,9 @@ type Driver struct {
 	// without the driver lock held, so nothing else may start or remove them.
 	cloningMu sync.Mutex
 	cloning   map[sandbox.ID]int
+	// suspending are the machines a sleep is snapshotting without the driver
+	// lock (see lockIdle); the channel closes when it is done.
+	suspending map[sandbox.ID]chan struct{}
 	// destinations are the ids a Clone is currently writing (see claimDestination).
 	destinations map[sandbox.ID]chan struct{}
 }
@@ -63,6 +68,10 @@ type manifest struct {
 	// Fresh marks a clone that has not booted yet: its first boot is told to
 	// reset the machine identity it inherited with the copied disks.
 	Fresh bool `json:"fresh,omitempty"`
+	// Resumable: the running VM has the vsock device a resume from a
+	// snapshot needs. Balloon: it has a balloon device.
+	Resumable bool `json:"resumable,omitempty"`
+	Balloon   bool `json:"balloon,omitempty"`
 }
 
 // New validates runtime artifacts and opens the persistent driver. It does not
@@ -99,6 +108,9 @@ func New(ctx context.Context, cfg Config) (*Driver, error) {
 	defer unlock()
 	if d.initrd, err = writeInitrd(cfg.DataDir, cfg.SandboxdPath); err != nil {
 		return nil, fmt.Errorf("sandboxd initramfs: %w", err)
+	}
+	if d.host, err = readHostIdentity(cfg); err != nil {
+		return nil, fmt.Errorf("host identity for snapshots: %w", err)
 	}
 	// Fail closed on corrupt/foreign manifests: never reuse a potentially live
 	// VM's addresses or uid. New performs no destructive reconciliation.
@@ -371,6 +383,10 @@ func (d *Driver) Status(ctx context.Context, id sandbox.ID) (sandbox.Status, err
 	if err != nil {
 		return sandbox.Status{}, err
 	}
+	if d.suspendingNow(id) != nil {
+		// Running until its sleep is done; its VM is paused on purpose.
+		return sandbox.Status{State: sandbox.StateRunning, Subnet: m.Subnet, GatewayIP: m.Subnet.Addr().Next().String()}, nil
+	}
 	running, err := d.running(m)
 	if err != nil {
 		return sandbox.Status{}, err
@@ -379,6 +395,9 @@ func (d *Driver) Status(ctx context.Context, id sandbox.ID) (sandbox.Status, err
 		state, e := d.guestState(ctx, id)
 		if e != nil {
 			return sandbox.Status{}, e
+		}
+		if state == "Paused" {
+			d.unpause(ctx, id, m, sandbox.Boot{})
 		}
 		if state != "Running" && state != "Paused" {
 			if e = d.kill(m); e != nil {
@@ -404,7 +423,7 @@ func (d *Driver) Status(ctx context.Context, id sandbox.ID) (sandbox.Status, err
 
 // Attach implements sandbox.Attacher.
 func (d *Driver) Attach(ctx context.Context, id sandbox.ID) error {
-	unlock, err := d.lock(ctx)
+	unlock, err := d.lockIdle(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -429,44 +448,108 @@ func (d *Driver) Attach(ctx context.Context, id sandbox.ID) error {
 	return nil
 }
 
-// Start implements sandbox.Driver.
-func (d *Driver) Start(ctx context.Context, id sandbox.ID, boot sandbox.Boot) (err error) {
-	unlock, err := d.lock(ctx)
-	if err != nil {
+// Start implements sandbox.Driver. A machine with a valid snapshot is
+// resumed from it; if its guest does not reconnect within
+// ResumeConnectTimeout it is cold booted instead.
+func (d *Driver) Start(ctx context.Context, id sandbox.ID, boot sandbox.Boot) error {
+	resumed, err := d.start(ctx, id, boot, true)
+	if err != nil || resumed == nil {
 		return err
 	}
-	defer unlock()
-	if err = d.notCloning(id); err != nil {
+	// The driver lock is not held while the guest reconnects.
+	wctx, cancel := context.WithTimeout(ctx, d.cfg.ResumeConnectTimeout)
+	err = d.cfg.WaitConnected(wctx, id)
+	cancel()
+	if err == nil {
+		return nil
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	d.cfg.Log.Warn("resumed guest did not reconnect; cold booting", "sandbox", id, "err", err)
+	unlock, err := d.lockIdle(ctx, id)
+	if err != nil {
 		return err
 	}
 	m, err := d.load(id)
 	if err != nil {
+		unlock()
 		return err
+	}
+	if m.Process != *resumed {
+		unlock()
+		return nil // stopped or restarted meanwhile: not ours to replace
+	}
+	if err = d.kill(m); err == nil {
+		err = d.waitExit(ctx, m)
+	}
+	unlock()
+	if err != nil {
+		return err
+	}
+	_, err = d.start(ctx, id, boot, false)
+	return err
+}
+
+// start boots or resumes the VM with the driver lock held. It returns the
+// resumed VMM's process when it resumed one.
+func (d *Driver) start(ctx context.Context, id sandbox.ID, boot sandbox.Boot, allowResume bool) (resumed *process, err error) {
+	unlock, err := d.lockIdle(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	if err = d.notCloning(id); err != nil {
+		return nil, err
+	}
+	m, err := d.load(id)
+	if err != nil {
+		return nil, err
 	}
 	running, err := d.running(m)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if running {
 		state, e := d.guestState(ctx, id)
 		if e != nil {
-			return e
+			return nil, e
+		}
+		if state == "Paused" {
+			d.unpause(ctx, id, m, boot)
 		}
 		if state == "Running" || state == "Paused" {
-			return nil
+			return nil, nil
 		}
 		if e = d.kill(m); e != nil {
-			return e
+			return nil, e
 		}
 		if e = d.waitExit(ctx, m); e != nil {
-			return e
+			return nil, e
 		}
 	}
 	if boot.AgentID != m.Spec.AgentID {
-		return errors.New("boot agent id does not match sandbox")
+		return nil, errors.New("boot agent id does not match sandbox")
 	}
 	if err = d.finish(ctx, id, m); err != nil {
-		return err
+		return nil, err
+	}
+	if allowResume && d.cfg.Snapshots {
+		ok, e := d.resume(ctx, id, m, boot)
+		if ok {
+			p := m.Process
+			return &p, nil
+		}
+		if e != nil {
+			if alive, re := d.running(m); re != nil || alive {
+				return nil, errors.Join(e, re, errors.New("resume failed and its VMM could not be stopped"))
+			}
+			d.cfg.Log.Warn("cannot resume from snapshot; cold booting", "sandbox", id, "err", e)
+		}
+	}
+	// A cold boot writes to the disks: no snapshot may survive it.
+	if err = d.discardSnapshot(id); err != nil {
+		return nil, err
 	}
 	// From here every failure unwinds mounts, network, cgroup and the config disk.
 	defer func() {
@@ -484,30 +567,59 @@ func (d *Driver) Start(ctx context.Context, id sandbox.ID, boot sandbox.Boot) (e
 		}
 	}()
 	if err = d.prepare(ctx, id, m, boot); err != nil {
-		return err
+		return nil, err
 	}
 	if err = d.ensureTap(ctx, id, m); err != nil {
-		return err
+		return nil, err
 	}
 	if d.cfg.RegisterNetwork != nil {
 		if err = d.cfg.RegisterNetwork(ctx, TapName(id), m.Subnet.Addr().Next().Next()); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return d.launch(ctx, id, m)
+	return nil, d.launch(ctx, id, m)
 }
 
 // Stop implements sandbox.Driver.
 func (d *Driver) Stop(ctx context.Context, id sandbox.ID) error {
-	unlock, err := d.lock(ctx)
+	unlock, err := d.lockIdle(ctx, id)
 	if err != nil {
 		return err
 	}
-	defer unlock()
 	m, err := d.load(id)
 	if err != nil {
+		unlock()
 		return err
 	}
+	if running, e := d.running(m); e == nil && running && d.canSnapshot(m) && d.notCloning(id) == nil {
+		// The snapshot takes seconds: other machines' operations go on, this
+		// one's wait (lockIdle), and Status reports it running meanwhile.
+		d.beginSuspend(id)
+		unlock()
+		err = d.suspend(ctx, id, m)
+		relock, lerr := d.lock(context.WithoutCancel(ctx))
+		d.endSuspend(id)
+		if lerr != nil {
+			return errors.Join(err, lerr)
+		}
+		unlock = relock
+		if err == nil {
+			// finish only now, under the lock: network, jail, cgroup.
+			err = d.finish(context.WithoutCancel(ctx), id, m)
+			unlock()
+			return err
+		}
+		d.cfg.Log.Warn("sleep without a memory snapshot", "sandbox", id, "err", err)
+		if ctx.Err() != nil {
+			unlock()
+			return ctx.Err()
+		}
+		if m, err = d.load(id); err != nil {
+			unlock()
+			return err
+		}
+	}
+	defer unlock()
 	return d.stop(ctx, id, m)
 }
 
@@ -553,7 +665,7 @@ func (d *Driver) stop(ctx context.Context, id sandbox.ID, m *manifest) error {
 
 // Destroy implements sandbox.Driver.
 func (d *Driver) Destroy(ctx context.Context, id sandbox.ID, opts sandbox.DestroyOpts) error {
-	unlock, err := d.lock(ctx)
+	unlock, err := d.lockIdle(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -579,6 +691,9 @@ func (d *Driver) Destroy(ctx context.Context, id sandbox.ID, opts sandbox.Destro
 	if !opts.KeepHome {
 		return os.RemoveAll(d.dir(id))
 	}
+	if err = d.discardSnapshot(id); err != nil {
+		return err
+	}
 	for _, name := range []string{"overlay.ext4", "serial.log", "state.json"} {
 		if err = os.Remove(filepath.Join(d.dir(id), name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
@@ -596,7 +711,7 @@ func (d *Driver) Rebuild(ctx context.Context, id sandbox.ID, s sandbox.Spec) err
 	if string(id) != s.AgentID {
 		return errors.New("reset system: sandbox id does not match agent")
 	}
-	unlock, err := d.lock(ctx)
+	unlock, err := d.lockIdle(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -609,6 +724,10 @@ func (d *Driver) Rebuild(ctx context.Context, id sandbox.ID, s sandbox.Spec) err
 		return err
 	}
 	if err = d.stop(ctx, id, m); err != nil {
+		return err
+	}
+	// The system disk is replaced: a snapshot of the old one is meaningless.
+	if err = d.discardSnapshot(id); err != nil {
 		return err
 	}
 	overlay, home := capacities(d.cfg, s)

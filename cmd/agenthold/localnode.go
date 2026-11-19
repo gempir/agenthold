@@ -76,8 +76,12 @@ func startLocalHost(ctx context.Context, cfg *config.Config, driverName string, 
 		OpenPorts: []int{tunnelPort, cfg.Egress.ExplicitPort},
 	}
 	h := &localHost{driver: driverName, cfg: cfg, log: logger}
-	driver, err := newDriver(ctx, cfg, driverName, fw, func(ctx context.Context, id sandbox.ID) error {
-		return node.Client(h.node, string(id)).Shutdown(ctx)
+	driver, err := newDriver(ctx, cfg, driverName, fw, driverCallbacks{
+		shutdown: func(ctx context.Context, id sandbox.ID) error { return node.Client(h.node, string(id)).Shutdown(ctx) },
+		suspend:  func(ctx context.Context, id sandbox.ID) error { return node.Client(h.node, string(id)).Suspend(ctx) },
+		connected: func(ctx context.Context, id sandbox.ID) error {
+			return h.node.WaitConnected(ctx, string(id))
+		},
 	}, logger)
 	if err != nil {
 		return nil, err
@@ -129,7 +133,12 @@ func (h *localHost) useCA(ctx context.Context, ca *egress.CA) error {
 	return nil
 }
 
-func newDriver(ctx context.Context, cfg *config.Config, name string, fw *egress.Firewall, shutdown func(context.Context, sandbox.ID) error, logger *slog.Logger) (sandbox.Driver, error) {
+// driverCallbacks reach a machine's sandboxd through this node's tunnel hub.
+type driverCallbacks struct {
+	shutdown, suspend, connected func(context.Context, sandbox.ID) error
+}
+
+func newDriver(ctx context.Context, cfg *config.Config, name string, fw *egress.Firewall, cb driverCallbacks, logger *slog.Logger) (sandbox.Driver, error) {
 	switch name {
 	case "fake":
 		logger.Warn("using the fake sandbox driver: terminals run on this machine as the server's user")
@@ -155,7 +164,10 @@ func newDriver(ctx context.Context, cfg *config.Config, name string, fw *egress.
 			FirecrackerPath: fc.Binary, JailerPath: fc.Jailer, SandboxdPath: cfg.Sandbox.SandboxdPath,
 			NetworkPool:      netip.MustParsePrefix(cfg.Sandbox.NetworkPool),
 			OverlaySizeBytes: fc.OverlayGB << 30, HomeSizeBytes: fc.HomeGB << 30,
-			Shutdown: shutdown, RegisterNetwork: fw.Register, UnregisterNetwork: fw.Unregister,
+			Shutdown: cb.shutdown, RegisterNetwork: fw.Register, UnregisterNetwork: fw.Unregister,
+			Snapshots: fc.SnapshotsEnabled(), Suspend: cb.suspend, WaitConnected: cb.connected,
+			SnapshotMaxBytes: fc.SnapshotMaxGB << 30, SnapshotReserveBytes: fc.SnapshotReserveGB << 30,
+			Balloon: fc.BalloonEnabled(), Log: logger,
 		})
 	default:
 		return nil, fmt.Errorf("unknown sandbox driver %q", name)

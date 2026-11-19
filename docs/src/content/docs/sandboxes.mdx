@@ -13,7 +13,7 @@ individual writable system overlay and a persistent home disk mounted at `/home/
 | `creating` | The agent's disks and sandbox are being set up. |
 | `starting` / `stopping` | The sandbox is starting or going to sleep. |
 | `running` | The sandbox is up and its guest daemon is connected. |
-| `sleeping` | The sandbox is stopped. Its disks are kept; running processes are not. |
+| `sleeping` | The sandbox is stopped. Its disks are kept, and usually its memory too (see [memory snapshots](#memory-snapshots)). |
 | `rebuilding` | The system is being reset and current resources applied; the home disk is kept. |
 | `destroying` | The sandbox and its disks are removed, then the agent. |
 | `error` | The last operation failed. The message says why; start or reset the system to retry. |
@@ -108,12 +108,75 @@ Agents sleep when nobody uses them. An agent is idle when, for its idle timeout 
 - the processes in its sandbox used less than 5% of a CPU core. sandboxd reports their CPU time, so a long build
   or test run keeps the agent awake.
 
-The sleeper checks every `sandbox.idle_check_interval` (default 30s) and stops idle sandboxes. Both disks and
-conversations survive; running processes do not. A prompt, terminal or Start request wakes the agent again.
-The harness restores the conversation where supported (see [sessions and harnesses](/sessions/)).
+The sleeper checks every `sandbox.idle_check_interval` (default 30s) and puts idle sandboxes to sleep. A
+prompt, terminal, Start request or [preview](/previews/) request wakes the machine again. Disks and conversations
+always survive; with a [memory snapshot](#memory-snapshots) running processes do too. The harness itself is
+always started anew after a wake and restores the conversation where supported (see
+[sessions and harnesses](/sessions/)): no turn is running when a machine sleeps (busy machines do not idle-sleep),
+and its connection to the controller ends with the sleep.
 
 While an agent runs, the API reports `lastActivityAt` and `sleepsAt`, and the UI shows when it will fall asleep.
 After a server restart, the idle clock of running agents starts again.
+
+## Memory snapshots
+
+Sleep pauses the microVM and writes a Firecracker snapshot of it (its device state and its memory) next to its
+disks; wake starts a new microVM from that snapshot and resumes it. What survives a sleep:
+
+- every process, with its memory: services, background jobs, shells in `tmux`, files in `/dev/shm` and `/tmp`;
+- the guest's wall clock is wrong after a resume (it continued from the moment of the snapshot): the node sends
+  the current time with the wake, and sandboxd steps the clock before anything else;
+- TCP connections to the outside are broken (the remote ends gave up long ago): clients must reconnect;
+- terminals and the harness are not kept: they end with the sleep, like a disconnect.
+
+A wake from a snapshot takes about half a second until sandboxd is connected (1 GiB guest on the demo box,
+nested virtualization), against about 2.5 s for a boot, and its services answer right away instead of starting
+up: a preview request to a sleeping app is served in about half a second.
+
+**Cold boot fallback.** Anything unexpected makes the wake a normal boot from the disks, which are then as a
+power cut left them (sandboxd flushed them before the snapshot was taken, and the journal is replayed):
+
+- the machine has no snapshot (it was stopped some other way), or its files are missing or incomplete;
+- Firecracker, the guest kernel, sandboxd, the host kernel or the host CPU model changed since the snapshot (a
+  snapshot only resumes on the same software and hardware, see Firecracker's
+  [snapshot support](https://github.com/firecracker-microvm/firecracker/blob/v1.18.0/docs/snapshotting/snapshot-support.md));
+  so the first wake after an upgrade that changes one of them is a boot;
+- the machine's size, base image or disks changed since the snapshot;
+- Firecracker refuses to load the snapshot, the resumed guest does not answer the node, or it does not
+  reconnect its tunnel within 15 seconds.
+
+A snapshot is used once: it is invalidated before the resumed machine runs. Sleep falls back to a shutdown when
+the guest's sandboxd is too old to resume (machines booted by an older release: after their next boot they can),
+when the snapshot does not fit (see below) or when taking it fails; the machine then simply boots at its next wake.
+
+**Disk.** Each sleeping machine keeps one snapshot in `<data_dir>/agents/<id>/snapshot/`. The memory file has the
+size of the guest's memory but is sparse: before the snapshot a balloon device takes the guest's free memory, and
+the pages that are zero (all of the balloon's, and memory the guest never used) are not stored. A machine that
+used little memory takes about 100 MiB on disk; one that had 400 MiB of freed memory takes about 110 MiB with the
+balloon and 490 MiB without. While a resumed machine runs, its memory file stays on disk (Firecracker maps the
+guest's memory from it) until the machine sleeps again or stops. Snapshots are deleted with their machine and by
+Reset system; a clone copies the disks only, never the memory.
+
+The cap and the reserve are checked conservatively: a sleep asks for the guest's full memory size (Firecracker
+writes the file fully before the zero pages are removed, so that much must be free for a moment), and the node's
+total counts the memory files of resumed machines too, including the one the new snapshot replaces.
+
+Firecracker writes the snapshot into `<id>/snapout/`, the only snapshot directory its (jailed, unprivileged) user
+can write. The node takes the files from there without following links, checks them, and moves them into
+`<id>/snapshot/`, which belongs to root and is attached to a resumed VM read-only. A sleep takes seconds; other
+machines on the node are not held up meanwhile.
+
+**Configuration** (`sandbox.firecracker`):
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `snapshots` | `true` | `false`: sleep is a shutdown and wake a boot. |
+| `snapshot_max_gb` | `0` (no cap) | Disk space all snapshots of this node may take. A sleep that would exceed it is a shutdown. |
+| `snapshot_reserve_gb` | `2` | Free space a snapshot must leave on the data filesystem. |
+| `balloon` | `true` | Shrink snapshots with a virtio balloon (adds 0.5 to 3 s to a sleep, more for a machine with much freed memory). Takes effect at a machine's next boot. |
+
+Each node decides on its own: an [edge node](/edge-nodes/) uses its own configuration, and the controller only
+sees sleep and wake as before.
 
 ## sandboxd and the tunnel
 
@@ -124,8 +187,8 @@ running.
 
 `sandboxd` is not part of the base image: the node hands its own sandboxd to every guest at boot (as the
 initramfs, see [Guest artifacts](/guest-artifacts/#boot-contract)). A machine therefore gets a new release's
-sandboxd, and the features that need it, at its next start; a running machine keeps the one it booted with until
-it sleeps or is restarted. The node logs a machine that still runs an older sandboxd, and features it lacks say
+sandboxd, and the features that need it, at its next start: a running machine keeps the one it booted with, and a
+sleeping machine's memory snapshot is not resumed by a node whose sandboxd differs (that wake is a boot). The node logs a machine that still runs an older sandboxd, and features it lacks say
 "restart the machine to update it". Reset system is never needed for that.
 
 The fake driver runs sandboxd on the server's machine as the server's user. Use it only for development and tests.

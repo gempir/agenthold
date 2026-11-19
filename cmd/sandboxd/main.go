@@ -66,6 +66,8 @@ func run(logger *slog.Logger) error {
 		// the host delivers the machine's services in the boot files.
 		_ = os.Unsetenv(sandboxd.EnvInitChild)
 		cfg.ServicesFile = sandboxd.ServicesFile
+		cfg.BootPath = *bootPath
+		cfg.ResumePort = sandboxd.ResumePort
 		cfg.OnShutdown = func() {
 			if err := sandboxd.RequestShutdown(); err != nil {
 				logger.Error("shutdown", "err", err)

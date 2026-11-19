@@ -254,7 +254,26 @@ type Firecracker struct {
 	BaseURL   string `yaml:"base_url"`
 	OverlayGB int64  `yaml:"overlay_gb"`
 	HomeGB    int64  `yaml:"home_gb"`
+	// Snapshots: sleep keeps a machine's memory (a Firecracker snapshot next
+	// to its disks) and wake resumes its processes. Default true; false makes
+	// sleep a shutdown and wake a boot.
+	Snapshots *bool `yaml:"snapshots"`
+	// SnapshotMaxGB caps the disk space all snapshots of this node take
+	// (default 0: no cap). Beyond it a machine sleeps without its memory.
+	SnapshotMaxGB int64 `yaml:"snapshot_max_gb"`
+	// SnapshotReserveGB is the free space a snapshot must leave on the data
+	// filesystem (default 2).
+	SnapshotReserveGB int64 `yaml:"snapshot_reserve_gb"`
+	// Balloon inflates a virtio balloon before a snapshot so the guest's
+	// free memory is not written. Default true.
+	Balloon *bool `yaml:"balloon"`
 }
+
+// SnapshotsEnabled reports whether sleep keeps memory.
+func (f Firecracker) SnapshotsEnabled() bool { return f.Snapshots == nil || *f.Snapshots }
+
+// BalloonEnabled reports whether VMs get a balloon for snapshots.
+func (f Firecracker) BalloonEnabled() bool { return f.Balloon == nil || *f.Balloon }
 
 // Auth configures sign-in.
 type Auth struct {
@@ -462,6 +481,9 @@ func ApplyDefaults(cfg *Config) {
 	if fc.HomeGB == 0 {
 		fc.HomeGB = 10
 	}
+	if fc.SnapshotReserveGB == 0 {
+		fc.SnapshotReserveGB = 2
+	}
 	if sb.IdleCheckInterval == 0 {
 		sb.IdleCheckInterval = 30 * time.Second
 	}
@@ -598,6 +620,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Sandbox.Firecracker.OverlayGB < 1 || c.Sandbox.Firecracker.HomeGB < 1 {
 		errs = append(errs, errors.New("sandbox.firecracker: overlay_gb and home_gb must be positive"))
+	}
+	if c.Sandbox.Firecracker.SnapshotMaxGB < 0 || c.Sandbox.Firecracker.SnapshotReserveGB < 0 {
+		errs = append(errs, errors.New("sandbox.firecracker: snapshot_max_gb and snapshot_reserve_gb must not be negative"))
 	}
 	if u := c.Sandbox.Firecracker.BaseURL; u != "" {
 		if p, err := url.Parse(u); err != nil || p.Host == "" || p.User != nil || p.Fragment != "" || (p.Scheme != "https" && p.Scheme != "http") {

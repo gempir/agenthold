@@ -223,7 +223,12 @@ func (d *Driver) launch(ctx context.Context, id sandbox.ID, m *manifest) error {
 	m.Resumable = true
 	m.Balloon = d.cfg.Balloon
 	if m.Balloon {
-		if err = a.put(bootCtx, "/balloon", map[string]any{"amount_mib": 0, "deflate_on_oom": true, "stats_polling_interval_s": balloonStatsSeconds}); err != nil {
+		// Free page reporting: the guest hands memory it frees back to the
+		// host (Firecracker drops it, so it reads as zero) about 2 s later,
+		// in 2 MiB blocks. A sleep's inflation then mostly takes pages the
+		// host no longer backs, which is cheap, and the zero pages are
+		// punched out of the memory file.
+		if err = a.put(bootCtx, "/balloon", map[string]any{"amount_mib": 0, "deflate_on_oom": true, "stats_polling_interval_s": balloonStatsSeconds, "free_page_reporting": true}); err != nil {
 			return err
 		}
 	}

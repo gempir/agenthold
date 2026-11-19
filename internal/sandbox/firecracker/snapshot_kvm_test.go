@@ -41,6 +41,56 @@ class H(http.server.BaseHTTPRequestHandler):
 http.server.HTTPServer(("127.0.0.1", 18091), H).serve_forever()
 `
 
+// wakeLog records the driver's resume outcomes, so that a resume falling back
+// to a cold boot fails the test instead of only making a wake slower.
+type wakeLog struct {
+	mu     sync.Mutex
+	events []string // "resumed" or "cold: <reason>"
+}
+
+// take returns the outcomes recorded since the last call.
+func (w *wakeLog) take() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	e := w.events
+	w.events = nil
+	return e
+}
+
+type wakeHandler struct {
+	slog.Handler
+	log *wakeLog
+}
+
+func (h wakeHandler) Handle(ctx context.Context, r slog.Record) error {
+	event := ""
+	switch r.Message {
+	case "resumed from snapshot":
+		event = "resumed"
+	case "cannot resume from snapshot; cold booting":
+		event = "cold:"
+		r.Attrs(func(a slog.Attr) bool {
+			if a.Key == "err" {
+				event += " " + a.Value.String()
+			}
+			return true
+		})
+	}
+	if event != "" {
+		h.log.mu.Lock()
+		h.log.events = append(h.log.events, event)
+		h.log.mu.Unlock()
+	}
+	return h.Handler.Handle(ctx, r)
+}
+
+func (h wakeHandler) WithAttrs(as []slog.Attr) slog.Handler {
+	return wakeHandler{h.Handler.WithAttrs(as), h.log}
+}
+func (h wakeHandler) WithGroup(name string) slog.Handler {
+	return wakeHandler{h.Handler.WithGroup(name), h.log}
+}
+
 // TestSnapshotResumeKVM sleeps a 1 GiB machine with a memory snapshot and
 // wakes it: a service with in-memory state (a counter) answers with its
 // state, the same process, a file in /dev/shm survives and the guest clock is
@@ -120,13 +170,20 @@ func TestSnapshotResumeKVM(t *testing.T) {
 	t.Cleanup(func() { _ = srv.Close() })
 
 	balloon := os.Getenv("AGENTHOLD_KVM_SNAPSHOT_BALLOON") != "0"
+	memMiB := int64(1024)
+	if v := os.Getenv("AGENTHOLD_KVM_SNAPSHOT_MIB"); v != "" {
+		if memMiB, err = strconv.ParseInt(v, 10, 64); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outcomes := &wakeLog{}
 	cfg := Config{
 		DataDir: dir, JailDir: filepath.Join(dir, "j"), BaseImagePath: os.Getenv("AGENTHOLD_KVM_BASE"),
 		KernelPath: os.Getenv("AGENTHOLD_KVM_KERNEL"), FirecrackerPath: os.Getenv("AGENTHOLD_KVM_FIRECRACKER"),
 		JailerPath: os.Getenv("AGENTHOLD_KVM_JAILER"), SandboxdPath: os.Getenv("AGENTHOLD_KVM_SANDBOXD"), NetworkPool: netip.MustParsePrefix("10.216.0.0/24"),
 		OverlaySizeBytes: 256 << 20, HomeSizeBytes: 256 << 20, StopTimeout: 10 * time.Second,
 		Snapshots: true, Balloon: balloon, SnapshotReserveBytes: 1 << 30,
-		Log: slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		Log: slog.New(wakeHandler{slog.NewTextHandler(os.Stderr, nil), outcomes}),
 	}
 	firewall := &egress.Firewall{Pool: cfg.NetworkPool, ProxyPort: 15001, DNSPort: 15053, OpenPorts: []int{port}}
 	if err = firewall.Install(); err != nil {
@@ -164,7 +221,7 @@ func TestSnapshotResumeKVM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec := sandbox.Spec{AgentID: "ag_kvmsnap_" + strconv.Itoa(os.Getpid()), Resources: sandbox.Resources{CPUs: 1, MemoryMB: 1024}}
+	spec := sandbox.Spec{AgentID: "ag_kvmsnap_" + strconv.Itoa(os.Getpid()), Resources: sandbox.Resources{CPUs: 1, MemoryMB: memMiB}}
 	id, err := d.Create(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
@@ -260,8 +317,22 @@ func TestSnapshotResumeKVM(t *testing.T) {
 		return guest.Sub(mid)
 	}
 	snapFile := func(name string) string { return filepath.Join(d.snapDir(id), name) }
+	// wokeBy checks how the last start woke: "resumed", "cold boot" (no
+	// snapshot to resume) or a fallback whose reason contains a given text.
+	wokeBy := func(what, want string) {
+		t.Helper()
+		got := outcomes.take()
+		switch {
+		case want == "cold boot" && len(got) == 0:
+		case want == "resumed" && len(got) == 1 && got[0] == "resumed":
+		case want != "resumed" && want != "cold boot" && len(got) == 1 && strings.HasPrefix(got[0], "cold: ") && strings.Contains(got[0], want):
+		default:
+			t.Fatalf("%s: woke by %q, want %q", what, got, want)
+		}
+	}
 
 	s, coldBoot := start()
+	wokeBy("first start", "cold boot")
 	execIn(s, "cat > ~/counter.py <<'EOF'\n"+counterPy+"EOF\necho kept > /dev/shm/marker")
 	specs := []tunnel.ServiceSpec{{Name: "counter", Command: "exec python3 -u ~/counter.py", Enabled: true}}
 	if _, err := s.Services(ctx, tunnel.ServiceRequest{Action: tunnel.ServiceApply, Specs: specs}); err != nil {
@@ -321,6 +392,7 @@ func TestSnapshotResumeKVM(t *testing.T) {
 	time.Sleep(3 * time.Second) // the guest clock must not lose this
 	s, wake := start()
 	firstByte := time.Now()
+	wokeBy("wake", "resumed")
 	if got := count(s); got != 4 {
 		t.Fatalf("counter after resume = %d, want 4 (state lost)", got)
 	}
@@ -345,6 +417,7 @@ func TestSnapshotResumeKVM(t *testing.T) {
 	// while it runs; the new snapshot replaces it).
 	sleep()
 	s, wake2 := start()
+	wokeBy("second wake", "resumed")
 	if got := count(s); got != 5 {
 		t.Fatalf("counter after second resume = %d, want 5", got)
 	}
@@ -369,11 +442,14 @@ func TestSnapshotResumeKVM(t *testing.T) {
 		}
 		execIn(s, "echo kept > /dev/shm/marker")
 	}
+	// Each case breaks the snapshot on purpose; the driver logs the fallback
+	// as a warning (the corrupt vmstate as Firecracker's "bitcode error").
 	breakSnapshot := []struct {
 		what   string
+		reason string // in the driver's fallback warning
 		break_ func()
 	}{
-		{"recorded Firecracker version changed", func() {
+		{"recorded Firecracker version changed", "the Firecracker binary changed", func() {
 			var m map[string]any
 			data, _ := os.ReadFile(snapFile(snapshotManifest))
 			if err := json.Unmarshal(data, &m); err != nil {
@@ -385,7 +461,7 @@ func TestSnapshotResumeKVM(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
-		{"vmstate corrupt", func() {
+		{"vmstate corrupt", "PUT /snapshot/load", func() {
 			f, err := os.OpenFile(snapFile("vmstate"), os.O_WRONLY, 0)
 			if err != nil {
 				t.Fatal(err)
@@ -401,7 +477,7 @@ func TestSnapshotResumeKVM(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
-		{"memory file missing", func() {
+		{"memory file missing", "snapshot file memory", func() {
 			if err := os.Remove(snapFile("memory")); err != nil {
 				t.Fatal(err)
 			}
@@ -414,6 +490,7 @@ func TestSnapshotResumeKVM(t *testing.T) {
 		}
 		c.break_()
 		s, wake := start()
+		wokeBy(c.what, c.reason)
 		coldCheck(c.what, s)
 		t.Logf("fallback %q: cold boot in %s", c.what, wake.Round(time.Millisecond))
 	}

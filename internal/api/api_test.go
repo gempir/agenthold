@@ -184,12 +184,16 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	e.sandboxes = sandbox.NewManagerWithNode(st, n, egress.SpecFunc(st, 15002), sandbox.Options{TunnelPort: port, ConnectTimeout: 10 * time.Second, BootFiles: e.apps.BootFiles}, nil)
 	e.apps.Sandboxes = e.sandboxes
 	t.Cleanup(func() {
+		// Finish the background operations first: one still starting a
+		// sandbox would otherwise start its in-process sandboxd after the
+		// stop below, and that keeps writing into the temp directories
+		// while they are removed.
+		e.sandboxes.Close()
 		// Stop in-process sandboxd goroutines.
 		rows, _ := st.ListSandboxes(context.Background())
 		for _, r := range rows {
 			_ = e.driver.Stop(context.Background(), sandbox.ID(r.DriverID))
 		}
-		e.sandboxes.Close()
 	})
 	e.directory = &egress.Directory{Store: st, Box: box}
 	e.logins = &logins.Service{Store: st, Box: box, Audit: &audit.Log{Store: st}, Invalidate: e.directory.Invalidate}

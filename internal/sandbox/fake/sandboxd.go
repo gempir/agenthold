@@ -21,13 +21,21 @@ import (
 // server, as the server's user: this is for tests and development only.
 func (d *Driver) RunSandboxd(host string, log *slog.Logger) {
 	var mu sync.Mutex
-	running := map[sandbox.ID]context.CancelFunc{}
+	type instance struct {
+		cancel context.CancelFunc
+		done   chan struct{}
+	}
+	running := map[sandbox.ID]instance{}
+	// stop ends the sandboxd and waits for it: nothing of it may touch the
+	// sandbox's directories afterwards.
 	stop := func(id sandbox.ID) {
 		mu.Lock()
-		defer mu.Unlock()
-		if cancel, ok := running[id]; ok {
-			cancel()
-			delete(running, id)
+		in, ok := running[id]
+		delete(running, id)
+		mu.Unlock()
+		if ok {
+			in.cancel()
+			<-in.done
 		}
 	}
 	d.mu.Lock()
@@ -60,10 +68,11 @@ func (d *Driver) RunSandboxd(host string, log *slog.Logger) {
 			return
 		}
 		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
 		mu.Lock()
-		running[id] = cancel
+		running[id] = instance{cancel, done}
 		mu.Unlock()
-		go func() { _ = dmn.Run(ctx) }()
+		go func() { defer close(done); _ = dmn.Run(ctx) }()
 	}
 	d.OnStop = stop
 }

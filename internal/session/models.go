@@ -1,6 +1,7 @@
 package session
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	acp "github.com/coder/acp-go-sdk"
 
@@ -58,6 +60,36 @@ func (o ConfigOption) Has(v string) bool {
 	return slices.ContainsFunc(o.Values, func(x ConfigValue) bool { return x.Value == v })
 }
 
+// toggleIDs are the only on/off options the picker offers: fast mode (Claude
+// Code "fast", Codex "fast-mode"). Other toggles are not model settings:
+// Claude Code's "ultracode" (category model_config, like fast mode) multiplies
+// the cost of a turn, so it is neither shown nor ever set from a choice.
+var toggleIDs = map[string]bool{"fast": true, "fast-mode": true}
+
+// offOn finds the off and on values of an on/off option by what they are
+// called, never by their position (Claude Code lists "on" first). ok is false
+// unless the option has exactly one of each.
+func (o ConfigOption) offOn() (off, on string, ok bool) {
+	if o.Type == "boolean" {
+		return "false", "true", true
+	}
+	if len(o.Values) != 2 {
+		return "", "", false
+	}
+	for _, v := range o.Values {
+		switch strings.ToLower(v.Value) {
+		case "off", "false", "disabled":
+			off = v.Value
+		case "on", "true", "enabled":
+			on = v.Value
+		}
+	}
+	return off, on, off != "" && on != "" && off != on
+}
+
+// OffOn is offOn for other packages.
+func (o ConfigOption) OffOn() (off, on string, ok bool) { return o.offOn() }
+
 // kindOf classifies an option for the picker.
 func kindOf(o ConfigOption) string {
 	switch {
@@ -65,16 +97,10 @@ func kindOf(o ConfigOption) string {
 		return KindModel
 	case o.Category == "thought_level":
 		return KindEffort
-	}
-	// Fast mode: Claude Code "fast", Codex "fast-mode" (category model_config).
-	if !strings.Contains(strings.ToLower(o.ID), "fast") && o.Category != "model_config" {
-		return ""
-	}
-	if o.Type == "boolean" {
-		return KindToggle
-	}
-	if len(o.Values) == 2 && o.Has("on") && o.Has("off") {
-		return KindToggle
+	case toggleIDs[o.ID]:
+		if _, _, ok := o.offOn(); ok {
+			return KindToggle
+		}
 	}
 	return ""
 }
@@ -177,7 +203,11 @@ func findOption(opts []ConfigOption, pred func(ConfigOption) bool) (ConfigOption
 // effort and toggles only. Mode, agent and other options are not model
 // settings (a session mode can switch the harness's permission handling) and
 // are never set from a choice.
-func (o ConfigOption) Picker() bool { return o.Kind == KindEffort || o.Kind == KindToggle }
+func (o ConfigOption) Picker() bool {
+	// The id check also covers catalogs stored before toggles were limited to
+	// toggleIDs.
+	return o.Kind == KindEffort || (o.Kind == KindToggle && toggleIDs[o.ID])
+}
 
 func modelOption(opts []ConfigOption) (ConfigOption, bool) {
 	return findOption(opts, func(o ConfigOption) bool { return o.Kind == KindModel })
@@ -233,6 +263,9 @@ type Catalog struct {
 	// the harness's own default model and options, which clearing a choice
 	// returns to.
 	Defaults map[string]string `json:"defaults,omitempty"`
+	// Probed is when each model was last tried by the model probe (unix
+	// seconds), whatever came of it.
+	Probed map[string]int64 `json:"probed,omitempty"`
 }
 
 // ModelOption is the catalog's model option, if the harness has one.
@@ -255,6 +288,35 @@ func (m *Manager) Catalog(ctx context.Context, agentID string) (Catalog, bool, e
 	return c, true, nil
 }
 
+// catalogView is what the catalog stores of a report: the options with the
+// model option reduced to base models when the harness encodes effort levels
+// in model ids, and the effort option of each base model.
+func catalogView(opts []ConfigOption) ([]ConfigOption, map[string][]ConfigOption) {
+	mo, ok := modelOption(opts)
+	if !ok {
+		return opts, nil
+	}
+	s, ok := splitVariants(mo)
+	if !ok {
+		return opts, nil
+	}
+	view := slices.Clone(opts)
+	extras := map[string][]ConfigOption{}
+	for i, o := range view {
+		if o.ID == mo.ID && o.Kind == KindModel {
+			view[i] = s.view()
+		}
+	}
+	// Every model is described: those without effort levels have no options.
+	for _, v := range view[slices.IndexFunc(view, func(o ConfigOption) bool { return o.ID == mo.ID && o.Kind == KindModel })].Values {
+		extras[v.Value] = []ConfigOption{}
+		if s.efforts[v.Value] != nil {
+			extras[v.Value] = []ConfigOption{s.effortOption(v.Value)}
+		}
+	}
+	return view, extras
+}
+
 // observe records the config options a harness reported for a session.
 // fresh: the report is a session/new answer, whose values are the harness's
 // defaults. A report without options is recorded too: the harness offers no
@@ -270,6 +332,9 @@ func (m *Manager) observe(conn *harnessConn, acpID string, in []acp.SessionConfi
 		}
 	}
 	conn.mu.Unlock()
+	// The catalog shows effort levels encoded in model ids as a separate
+	// option (see variants.go); the session keeps the harness's own ids.
+	view, extras := catalogView(opts)
 	m.catMu.Lock()
 	defer m.catMu.Unlock()
 	ctx := context.WithoutCancel(m.ctx)
@@ -285,27 +350,53 @@ func (m *Manager) observe(conn *harnessConn, acpID string, in []acp.SessionConfi
 	if c.ByModel == nil {
 		c.ByModel = map[string][]ConfigOption{}
 	}
-	c.Options = opts
+	// A probe session reports a model it was switched to, not the harness's
+	// state: only what it says about that model is kept.
+	if !conn.isProbe(acpID) {
+		c.Options = view
+	}
 	if fresh {
 		c.Defaults = map[string]string{}
 		for _, o := range opts {
 			c.Defaults[o.ID] = o.Current
 		}
 	}
-	if mo, ok := modelOption(opts); ok && mo.Current != "" {
+	if mo, ok := modelOption(view); ok && mo.Current != "" {
 		picker := []ConfigOption{}
 		for _, o := range opts {
 			if o.Picker() {
 				picker = append(picker, o)
 			}
 		}
-		if _, known := c.ByModel[mo.Current]; known || len(c.ByModel) < maxCatalogModel {
-			c.ByModel[mo.Current] = picker
+		for base, ex := range extras {
+			var keep []ConfigOption
+			if base == mo.Current {
+				keep = picker
+			} else {
+				for _, o := range c.ByModel[base] {
+					if o.ID != VariantEffortID {
+						keep = append(keep, o)
+					}
+				}
+			}
+			if _, known := c.ByModel[base]; known || len(c.ByModel) < maxCatalogModel {
+				c.ByModel[base] = append(slices.Clone(keep), ex...)
+			}
+		}
+		if _, split := extras[mo.Current]; !split {
+			if _, known := c.ByModel[mo.Current]; known || len(c.ByModel) < maxCatalogModel {
+				c.ByModel[mo.Current] = picker
+			}
 		}
 		// Forget models the harness no longer lists.
 		for id := range c.ByModel {
 			if !mo.Has(id) && id != mo.Current {
 				delete(c.ByModel, id)
+			}
+		}
+		for id := range c.Probed {
+			if !mo.Has(id) {
+				delete(c.Probed, id)
 			}
 		}
 	}
@@ -396,6 +487,23 @@ func (m *Manager) applyChoice(ctx context.Context, conn *harnessConn, sessionID,
 		}
 	}
 	targetModel := want.Model
+	if sp, ok := splitVariants(mo); ok {
+		// The harness encodes effort levels in model ids: the chosen model
+		// and effort are one value. Without a chosen model (the harness's
+		// default) the effort still applies to the default model.
+		base := targetModel
+		if base == "" {
+			base = sp.baseOf(cmp.Or(defaults[mo.ID], mo.Current))
+		}
+		effort := want.Options[VariantEffortID]
+		if targetModel != "" || effort != "" {
+			v, valid := sp.compose(base, effort, defaults[mo.ID], mo.Current)
+			if !valid && conn.warnOnce(acpID, "opt:"+VariantEffortID) {
+				notice(fmt.Sprintf("Reasoning effort: %q is not available for %s, so this turn uses %q.", effort, valueName(sp.view(), base), valueName(mo, v)))
+			}
+			targetModel = v
+		}
+	}
 	if targetModel == "" {
 		targetModel = defaults[mo.ID] // '' while unknown: keep the current model
 	}
@@ -455,11 +563,12 @@ func (m *Manager) applyChoice(ctx context.Context, conn *harnessConn, sessionID,
 		case chosen:
 		case onDefaultModel && o.Has(defaults[o.ID]):
 			v = defaults[o.ID]
-		case o.Kind == KindToggle && len(o.Values) > 0:
-			v = o.Values[0].Value // off
-			if o.Type == "boolean" {
-				v = "false"
+		case o.Kind == KindToggle:
+			off, _, ok := o.offOn() // by name: Claude Code lists "on" first
+			if !ok {
+				continue
 			}
+			v = off
 		default:
 			continue // another model's effort: as the harness chose it
 		}
@@ -517,19 +626,87 @@ func valueName(o ConfigOption, v string) string {
 	return v
 }
 
-// refusal is the readable part of a harness's error.
+// refusalMax bounds a harness's error text in events and notices.
+const refusalMax = 2000
+
+// genericMessages are the JSON-RPC errors' standard messages, which say
+// nothing about what went wrong.
+var genericMessages = map[string]bool{
+	"": true, "Internal error": true, "Invalid params": true, "Invalid request": true,
+	"Method not found": true, "Parse error": true, "Request cancelled": true,
+}
+
+// refusal is the readable part of a harness's error: the more specific of
+// the ACP error's message and the text in its data (codex-acp: data.message,
+// others: data.error, an {error: {message}} object or a string), without the
+// JSON-RPC boilerplate, on one line and at most about refusalMax bytes.
+// Without either it is err's own text.
 func refusal(err error) string {
 	var re *acp.RequestError
-	if errors.As(err, &re) {
-		msg := re.Message
-		if d, ok := re.Data.(map[string]any); ok {
-			if s, ok := d["error"].(string); ok && s != "" {
-				msg = s
-			}
-		} else if s, ok := re.Data.(string); ok && s != "" {
+	if !errors.As(err, &re) {
+		return oneLine(err.Error())
+	}
+	msg := oneLine(re.Message)
+	// claude-agent-acp: "Internal error: API Error: ...".
+	if rest, ok := strings.CutPrefix(msg, "Internal error: "); ok && rest != "" {
+		msg = rest
+	}
+	data := oneLine(dataText(re.Data))
+	switch {
+	case data == "":
+	case genericMessages[msg], !strings.Contains(msg, data):
+		// The harness's own text, unless the message already holds it
+		// with more around it.
+		msg = data
+	}
+	if genericMessages[msg] {
+		if s := oneLine(err.Error()); s != "" && (msg == "" || !strings.HasPrefix(s, "{")) {
 			msg = s
 		}
-		return msg
 	}
-	return err.Error()
+	return msg
 }
+
+// dataText is the message an ACP error's data carries, or "".
+func dataText(data any) string {
+	switch d := data.(type) {
+	case string:
+		return d
+	case map[string]any:
+		for _, k := range []string{"message", "error", "detail"} {
+			switch v := d[k].(type) {
+			case string:
+				if strings.TrimSpace(v) != "" {
+					return v
+				}
+			case map[string]any:
+				if s := dataText(v); s != "" {
+					return s
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// oneLine collapses s's whitespace and cuts it to about refusalMax bytes.
+func oneLine(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) <= refusalMax {
+		return s
+	}
+	cut := refusalMax
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
+
+// harnessError is a harness's error answer, shown as its readable message.
+type harnessError struct {
+	msg string
+	err error
+}
+
+func (e *harnessError) Error() string { return e.msg }
+func (e *harnessError) Unwrap() error { return e.err }

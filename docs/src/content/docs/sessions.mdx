@@ -13,9 +13,9 @@ the [Agent Client Protocol](https://agentclientprotocol.com) (ACP) on stdio. The
    `/home/agent`, with the sandbox's environment plus what the adapter adds. Its stdio goes over the tunnel.
    One harness process serves all of an agent's sessions.
 3. If the harness doesn't know the session yet (new process after a sleep or restart), the server uses
-   `session/load` when the harness supports it, and `session/resume` otherwise. History the harness replays
-   while loading is not stored again. Without either capability, a new ACP session starts and the log records a
-   notice that the context was reset.
+   `session/resume` when the harness supports it, and `session/load` otherwise: the log already holds the
+   conversation, so the replay a load sends would only delay the prompt (it is not stored again). Without either
+   capability, a new ACP session starts and the log records a notice that the context was reset.
 4. `session/prompt` runs. Every `session/update` the harness sends is appended to the session's event log and
    streamed to everyone watching.
 
@@ -125,7 +125,7 @@ harness. Versions are pinned in `images/base/package.json` only; a test checks i
 
 Every turn ends with a `turn_end` event, and the session is idle again before it is sent. When the harness fails, an
 `error` event before it says what happened and the turn ends with `stopReason: "error"`; the next message starts a
-fresh harness process and restores the conversation with `session/load` where the harness supports it.
+fresh harness process and restores the conversation (`session/resume` or `session/load`) where the harness supports it.
 
 | What happens | What the session shows |
 | --- | --- |
@@ -133,12 +133,21 @@ fresh harness process and restores the conversation with `session/load` where th
 | It is killed by something else (signal 9, usually the guest's OOM killer) | that it was killed and may have run out of memory |
 | sandboxd stops it (it closed its stdout but kept running) | that the sandbox stopped it, and why |
 | A setup request (`initialize`, `authenticate`, `session/new`, `session/resume`) shows no activity (ACP messages or stderr) for 2 minutes, or takes over 15 | which request timed out; the harness is stopped |
-| `session/load` fails or times out | a notice that the conversation could not be restored; the turn continues in a fresh session |
+| `session/resume` or `session/load` fails or times out | a notice that the conversation could not be restored; the turn continues in a fresh session |
+| It answers the prompt with an error (a usage or rate limit, a refused request) | the harness's own message, for example `Codex failed the prompt: You've hit your usage limit. …` |
 | It asks for a login | auto-authentication is tried first (API key methods), then a hint to connect a login |
 | It writes output that is not ACP, or a line over 10 MB | that it stopped speaking ACP; the process is stopped |
 | The sandbox does not start (10 minutes) or does not open the harness stream (2 minutes) | which one |
 | The tunnel drops, the sandbox stops, or the server shuts down during a turn | which one; the harness is stopped with the stream |
 | The server crashed during a turn | on the next start: that the server restarted during the turn |
+
+Provider errors come from the harness, so how fast a turn fails depends on its retries:
+
+| Harness | Over a usage limit | Rate limited (429 without a long `retry-after`), 5xx |
+| --- | --- | --- |
+| Codex | fails at once | Codex's own retries |
+| Claude Code | fails at once (subscription limits carry their reset time) | 3 retries, about 4 seconds (`CLAUDE_CODE_MAX_RETRIES=3`, set by the adapter; Claude Code's default is 10, about three minutes). A longer outage ends the turn; send the message again. 529 overloaded errors keep Claude Code's own budget (three attempts, about 2 seconds). |
+| OpenCode | `insufficient_quota` and other 429s are retried for about 70 seconds, and a `retry-after` is waited out however long it is; OpenCode has no setting for this and sends nothing over ACP meanwhile | the same |
 
 A cancel before the prompt reached the harness ends the turn right away; afterwards the harness gets
 `session/cancel`, and if it has not ended the turn 15 seconds later the turn ends without it. Both end with
@@ -171,14 +180,23 @@ Signing in:
 
 The model button in the composer ("Opus 5.5 · Medium") picks the model of one conversation; the agent's
 settings (Harness → Default model) pick the default for every conversation without its own choice. The picker lists
-the models the harness offers, grouped by provider, with the highlighted model's reasoning effort and fast mode on the
-right. Keys: arrows to move, Enter to pick, Escape to close, Alt+1…9 for the n-th model, ←/→ to change the effort.
+the models the harness offers, grouped by provider, one line each (the description is behind the info icon), with a
+Reasoning section for the chosen model: effort levels and, where the model has it, fast mode (Standard/Fast). A choice
+applies at once and the picker stays open, so a model and its reasoning are set in one go. Keys: arrows to move, Enter
+to pick, Escape to close, Alt+1…9 for the n-th model, ←/→ to change the effort.
 
 The list comes from the harness itself: its ACP session config options (a `model` option, a `thought_level` option
-for effort, a fast mode toggle) reported with every `session/new` and `session/load`. agenthold stores the last report
+for effort, a fast mode toggle) reported with every `session/new`, `session/resume` and `session/load`. agenthold stores the last report
 per agent, so the picker works while the machine sleeps, and says when it was reported. A harness describes the effort
-levels of its current model only, so a model's options appear once a conversation has used it. Before an agent first
-runs, the picker shows a small built-in list per harness instead.
+levels of its current model only, so the options of a model appear once a conversation has used it. Until then the
+picker offers the effort levels the harness reported for its other models, marked as such; the harness has the last
+word and refuses a level the model lacks, with a notice. (agenthold can also ask a harness about its other models by
+switching a throwaway session through them, but only where that has no side effects. None of the harnesses in the image
+qualifies: a new session is stored, runs hooks or cannot choose a model without a turn.) Fast mode is the only on/off
+option offered; others a harness reports (Claude Code's ultracode, which multiplies the cost of a turn) are not model
+settings and cannot be chosen. Unchosen toggles go back to off. Before an agent first runs, the picker shows a small
+built-in list per harness instead. A harness that encodes the effort in the model id (`model/high`) gets one entry per
+model and an effort selector made from the suffixes.
 
 A choice applies from the next message, with `session/set_config_option`, without restarting the harness. Only the
 model, its reasoning effort and on/off toggles such as fast mode are ever set this way: other config options a harness

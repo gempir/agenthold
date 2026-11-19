@@ -1934,6 +1934,12 @@ export interface components {
             /** @description The harness accepts model ids it does not list (OpenCode's provider/model). */
             customModels: boolean;
             models: components["schemas"]["CatalogModel"][];
+            /**
+             * @description Effort levels the harness reported for other models, for the models whose options are still unknown
+             *     (a harness describes only its current model; agenthold probes the others once the agent is idle).
+             *     The harness has the last word at the next message: a level the model lacks is refused with a notice.
+             */
+            provisionalOptions?: components["schemas"]["ModelOption"][];
         };
         CatalogModel: {
             id: string;
@@ -1941,7 +1947,7 @@ export interface components {
             description?: string;
             /** @description Heading in the picker (provider or family). */
             group?: string;
-            /** @description The model's options; absent while unknown (the harness describes a model's options once it was used). */
+            /** @description The model's options; absent while unknown (the harness describes a model's options only while it is the current one, agenthold learns the others when the agent is idle). */
             options?: components["schemas"]["ModelOption"][];
         };
         ModelOption: {

@@ -249,6 +249,7 @@ func run() error {
 
 	sessions := session.NewManager(st, nil, logger)
 	sessions.SetLogins(loginSvc)
+	sessions.SetModelProbe(true)
 	loginSvc.Restart = sessions.Restart
 	go loginSvc.Run(ctx)
 	runner := &trigger.Runner{Store: st, Sessions: sessions, Audit: auditLog}

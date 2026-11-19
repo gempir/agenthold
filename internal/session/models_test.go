@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	acp "github.com/coder/acp-go-sdk"
 
@@ -575,5 +576,53 @@ func TestProbeDoesNotReplaceTheReportedState(t *testing.T) {
 	conn.mu.Unlock()
 	if n != 1 {
 		t.Fatalf("%d sessions' options kept after the probe, want 1", n)
+	}
+}
+
+func TestRefusal(t *testing.T) {
+	for _, c := range []struct {
+		err  error
+		want string
+	}{
+		// codex-acp 2.6.0 over its usage limit.
+		{&acp.RequestError{Code: -32603, Message: "Internal error", Data: map[string]any{
+			"codexErrorInfo": "usageLimitExceeded", "message": "You’ve hit your usage limit. Try again at Nov 22nd, 2026 11:30 AM.",
+		}}, "You’ve hit your usage limit. Try again at Nov 22nd, 2026 11:30 AM."},
+		// claude-agent-acp 0.107 after a rejected request.
+		{&acp.RequestError{Code: -32603, Message: "Internal error: API Error: Request rejected (429) · This request would exceed your account's rate limit.", Data: map[string]any{
+			"errorKind": "rate_limit",
+		}}, "API Error: Request rejected (429) · This request would exceed your account's rate limit."},
+		{&acp.RequestError{Code: -32603, Message: "Internal error", Data: map[string]any{"error": "model not found"}}, "model not found"},
+		{&acp.RequestError{Code: -32602, Message: "Invalid params", Data: "unknown session"}, "unknown session"},
+		{&acp.RequestError{Code: -32603, Message: "Internal error"}, "Internal error"},
+		{fmt.Errorf("plain"), "plain"},
+		// The more specific text wins.
+		{&acp.RequestError{Code: -32603, Message: "Codex failed: rate limited (try again in 5m)", Data: map[string]any{"message": "rate limited"}}, "Codex failed: rate limited (try again in 5m)"},
+		{&acp.RequestError{Code: -32603, Message: "Something broke", Data: map[string]any{"message": "disk full"}}, "disk full"},
+		// Data that is not a string.
+		{&acp.RequestError{Code: -32603, Message: "Internal error", Data: map[string]any{"error": map[string]any{"message": "nested reason"}}}, "nested reason"},
+		{&acp.RequestError{Code: -32603, Message: "Something broke", Data: 42}, "Something broke"},
+		{&acp.RequestError{Code: -32603, Message: "Something broke", Data: []any{"x"}}, "Something broke"},
+		{&acp.RequestError{Code: -32603, Message: "Internal error", Data: map[string]any{"message": 7}}, "Internal error"},
+		// Whitespace is collapsed.
+		{&acp.RequestError{Code: -32603, Message: "Internal error", Data: map[string]any{"message": "line one\n\n  line\ttwo  "}}, "line one line two"},
+		{fmt.Errorf("  spaced\nout "), "spaced out"},
+	} {
+		if got := refusal(c.err); got != c.want {
+			t.Errorf("refusal(%v) = %q, want %q", c.err, got, c.want)
+		}
+	}
+	// Nothing to say: never empty, err's own text instead.
+	if got := refusal(&acp.RequestError{Code: -32603}); got == "" || got != (&acp.RequestError{Code: -32603}).Error() {
+		t.Errorf("empty error: %q", got)
+	}
+	if got := refusal(&acp.RequestError{Code: -32603, Data: map[string]any{"message": "  "}}); got == "" {
+		t.Error("blank data message: empty refusal")
+	}
+	// Long text is cut, at a rune boundary.
+	long := strings.Repeat("ä", 3000)
+	got := refusal(&acp.RequestError{Code: -32603, Message: "Internal error", Data: map[string]any{"message": long}})
+	if len(got) > refusalMax+len("…") || !strings.HasSuffix(got, "…") || !utf8.ValidString(got) {
+		t.Errorf("long refusal: %d bytes, valid %v", len(got), utf8.ValidString(got))
 	}
 }

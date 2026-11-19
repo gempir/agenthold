@@ -128,6 +128,7 @@ func newEnv(t *testing.T) *env { return newEnvWith(t, nil) }
 // (auth settings) before the server is built.
 func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	t.Helper()
+	goroutinesBefore := goroutines()
 	idp := authtest.NewIdP(t)
 	gh := authtest.NewGitHub(t)
 
@@ -155,6 +156,7 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	}
 	cfg.Sandbox.Driver = "fake"
 	e := &env{t: t, srv: srv, idp: idp, github: gh, driver: fake.New(t.TempDir())}
+	noGoroutinesLeft(t, goroutinesBefore)
 	e.driver.RunSandboxd("127.0.0.1", nil)
 	var localNode *node.Local
 	e.hub = tunnel.NewHub(func(ctx context.Context, agentID, token string) error {

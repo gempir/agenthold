@@ -77,6 +77,27 @@ under "Start from"; that is a clone, and `POST /agents/{id}/clone` with `asTempl
 straight away. **Convert to agent** turns a template back into a normal machine. Templates belong to their owner;
 sharing does not give anyone the right to clone them.
 
+## Docker in a machine
+
+A machine is a full VM with its own kernel (overlayfs, bridge, veth and nftables are built in; `/var/lib/docker`,
+`/var/lib/containerd` and `/var/lib/containers` sit on the machine's disk), so Docker runs in it as on any Linux host.
+Docker is not in the base image: install it once (`sudo apt-get install docker.io`) and start it as a
+[service](/apps/#keeping-a-dev-server-alive), so it comes back when the machine wakes:
+
+```
+start_service(name: "docker", command: "sudo sh -c 'containerd & until [ -S /run/containerd/containerd.sock ]; do sleep 0.2; done; exec dockerd --containerd=/run/containerd/containerd.sock'")
+```
+
+(or add that command to the machine's **Services** settings). `sudo docker ...` then works; add the agent user to the
+`docker` group if it should not need `sudo`.
+
+Start containerd yourself like this, rather than running a bare `dockerd`: a `dockerd` that starts its own
+containerd gives it a fixed 15 seconds to open its socket and exits with `failed to start containerd: timeout
+waiting for containerd to start` if it takes longer. The first start after an install is cold (both binaries are
+read from the disk and Go's start-up cost is high in a small VM) and can exceed that on a busy host. Where
+containerd is started separately `dockerd` waits for it as long as it needs. Which cgroup the daemon starts in
+does not matter: harnesses, terminals and services run in their own cgroup v2 leaf, and Docker works from there.
+
 ## Sleep and wake
 
 Agents sleep when nobody uses them. An agent is idle when, for its idle timeout (`idleMinutes`, default 15):

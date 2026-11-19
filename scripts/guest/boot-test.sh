@@ -29,11 +29,13 @@ fi
 
 KERNEL_KIND=agenthold
 DOCKER=0
+DOCKER_ONLY=0
 QUIET=1
 while (($#)); do
   case "$1" in
     --kernel) KERNEL_KIND="$2"; shift 2 ;;
     --docker) DOCKER=1; shift ;;
+    --docker-only) DOCKER=1; DOCKER_ONLY=1; shift ;; # skip boots 1-4, run only the Docker boot
     --verbose-kernel) QUIET=0; shift ;; # kernel messages on the serial console (about 2 s slower)
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -71,7 +73,7 @@ if [[ $EUID -ne 0 ]]; then
     log "Building the base image (inputs changed or image missing)"
     bash "$SCRIPTS/build-rootfs.sh" --no-zstd
   fi
-  exec sudo -E env "PATH=$PATH" bash "${BASH_SOURCE[0]}" --kernel "$KERNEL_KIND" $( ((DOCKER)) && echo --docker) $( ((QUIET)) || echo --verbose-kernel)
+  exec sudo -E env "PATH=$PATH" bash "${BASH_SOURCE[0]}" --kernel "$KERNEL_KIND" $( ((DOCKER_ONLY)) && echo --docker-only || { ((DOCKER)) && echo --docker; }) $( ((QUIET)) || echo --verbose-kernel)
 fi
 
 # --- as root from here -----------------------------------------------------------------------------------
@@ -186,7 +188,7 @@ boot() {
   fcapi /drives/base "{\"drive_id\": \"base\", \"path_on_host\": \"$BASE\", \"is_root_device\": false, \"is_read_only\": true}"
   fcapi /drives/overlay "{\"drive_id\": \"overlay\", \"path_on_host\": \"$OVERLAY\", \"is_root_device\": false, \"is_read_only\": false}"
   fcapi /drives/home "{\"drive_id\": \"home\", \"path_on_host\": \"$HOME_DISK\", \"is_root_device\": false, \"is_read_only\": false}"
-  fcapi /drives/config "{\"drive_id\": \"config\", \"path_on_host\": \"$RUN/config.img\", \"is_root_device\": false, \"is_read_only\": true}"
+  fcapi /drives/config "{\"drive_id\": \"config\", \"path_on_host\": \"${CONFIG_IMG:-$RUN/config.img}\", \"is_root_device\": false, \"is_read_only\": true}"
   fcapi /network-interfaces/eth0 "{\"iface_id\": \"eth0\", \"guest_mac\": \"$GUEST_MAC\", \"host_dev_name\": \"$TAP\"}"
   T_START=$(ms)
   fcapi /actions '{"action_type": "InstanceStart"}'
@@ -235,6 +237,7 @@ check_exit() { # name
 MKDEB='set -e; d=$(mktemp -d); mkdir -p $d/DEBIAN $d/usr/local/share/boottest; echo pkg-NONCE > $d/usr/local/share/boottest/pkg.txt; printf "Package: agenthold-boottest\nVersion: 1.0\nArchitecture: all\nMaintainer: agenthold <noreply@example.com>\nDescription: boot test\n" > $d/DEBIAN/control; dpkg-deb --build $d /tmp/boottest.deb >/dev/null; sudo dpkg -i /tmp/boottest.deb >/dev/null; dpkg-query -W -f="\${Status}" agenthold-boottest'
 MKDEB="${MKDEB//NONCE/$NONCE}"
 
+if ((!DOCKER_ONLY)); then
 # --- boot 1: first boot on blank disks ---------------------------------------------------------------------
 log "Boot 1: blank overlay and home disks"
 boot boot1 1024 \
@@ -287,6 +290,7 @@ grep -q 'power off' "$RUN/boot4.serial" || fail "boot4: no clean power off in th
 for d in "$OVERLAY" "$HOME_DISK"; do
   if e2fsck -fn "$d" >/dev/null 2>&1; then pass "$(basename "$d"): e2fsck clean after power off"; else fail "$(basename "$d"): e2fsck reports problems"; fi
 done
+fi
 
 # --- docker -------------------------------------------------------------------------------------------------------
 if ((DOCKER)); then
@@ -300,19 +304,35 @@ table ip agenthold_boottest {
   chain boottest_forward { type filter hook forward priority 0; iifname "$TAP" accept; oifname "$TAP" ct state established,related accept; }
 }
 NFT
-  boot docker 2048 -dns "$HOST_IP:53" -cmd-timeout 15m \
+  # The command documented for running Docker in a machine (a service named docker, see Docker in a
+  # machine in the docs): dockerd's own managed containerd gets only 15 s to open its socket, which a
+  # cold first start in a small VM can exceed (dockerd then exits with "timeout waiting for containerd
+  # to start"), so containerd runs next to it and dockerd waits for it as long as it needs.
+  DOCKER_SERVICE_CMD='sudo sh -c '"'"'containerd & until [ -S /run/containerd/containerd.sock ]; do sleep 0.2; done; exec dockerd --containerd=/run/containerd/containerd.sock'"'"
+  # Boot 1 installs Docker; boot 2 starts it as a supervised service from the boot services file, the way
+  # a machine does (a command's own background processes end with the command's cgroup).
+  boot dockerinstall 2048 -dns "$HOST_IP:53" -cmd-timeout 15m \
     -run 'sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker.io >/tmp/apt.log 2>&1; echo apt=$?; tail -3 /tmp/apt.log; docker --version' \
-    -run 'sudo sh -c "echo \$\$ >/sys/fs/cgroup/cgroup.procs; setsid dockerd --debug >/var/log/dockerd.log 2>&1 </dev/null &"; for i in $(seq 1 120); do sudo docker version --format "{{.Server.Version}}" >/dev/null 2>&1 && break; sleep 0.5; done; sudo docker version --format "{{.Server.Version}}" || { sudo tail -80 /var/log/dockerd.log; exit 1; }; sudo docker info --format "server={{.ServerVersion}} storage={{.Driver}} cgroup={{.CgroupDriver}}/v{{.CgroupVersion}}"' \
+    -shutdown
+  check_conn dockerinstall
+  [[ "$(out dockerinstall 0)" == *"apt=0"* && "$(out dockerinstall 0)" == *"Docker version"* ]] && pass "docker: installed docker.io" || fail "docker: install: $(out dockerinstall 0 | tail -5)"
+  check_exit dockerinstall
+  jq -n --arg cmd "$DOCKER_SERVICE_CMD" '[{name: "docker", command: $cmd, enabled: true}]' >"$RUN/services.json"
+  "$TESTHOST" -write-config "$RUN/config-docker.img" -agent "$AGENT" -token "$TOKEN" -port "$TUNNEL_PORT" \
+    -hostname boottest -file "/etc/agenthold/services.json=$RUN/services.json"
+  DOCKER_WAIT='for i in $(seq 1 300); do [ -S /var/run/docker.sock ] && sudo docker version --format "{{.Server.Version}}" >/dev/null 2>&1 && break; sleep 1; done; sudo docker version --format "{{.Server.Version}}" || { tail -60 ~/.agenthold/services/docker/log; ps -eo pid,stat,cmd | grep -E "docker|containerd"; exit 1; }; sudo docker info --format "server={{.ServerVersion}} storage={{.Driver}} cgroup={{.CgroupDriver}}/v{{.CgroupVersion}}"'
+  CONFIG_IMG="$RUN/config-docker.img" boot docker 2048 -dns "$HOST_IP:53" -cmd-timeout 15m \
+    -run "$DOCKER_WAIT" \
     -run 'sudo docker run --rm hello-world 2>&1 | grep -m1 "Hello from Docker"' \
     -run 'sudo docker run --rm busybox sh -c "nslookup deb.debian.org >/dev/null && wget -qO /tmp/Release http://deb.debian.org/debian/dists/trixie/Release && head -3 /tmp/Release"' \
-    -run 'sudo grep -iE "level=(warn|error)" /var/log/dockerd.log | cut -c1-300 | head -20; true' \
+    -run 'grep -iE "level=(warn|error)" ~/.agenthold/services/docker/log | cut -c1-300 | head -20; true' \
     -shutdown
   check_conn docker
   echo "--- docker results"
   jq -r '.results[] | "$ \(.cmd | .[0:80])...\n  exit \(.code)\n\(.stdout)\(.stderr)"' "$RUN/docker.json"
-  [[ "$(out docker 1)" == *"storage=overlay2"* && "$(out docker 1)" == *"/v2"* ]] && pass "docker: overlay2 on native ext4 and cgroup v2" || fail "docker: storage/cgroup setup failed"
-  [[ "$(code docker 2)" == 0 && "$(out docker 2)" == *"Hello from Docker"* ]] && pass "docker: hello-world ran" || fail "docker: hello-world failed"
-  [[ "$(code docker 3)" == 0 && "$(out docker 3)" == *"Origin: Debian"* ]] && pass "docker: container reached the internet" || fail "docker: container networking failed"
+  [[ "$(out docker 0)" == *"storage=overlay2"* && "$(out docker 0)" == *"/v2"* ]] && pass "docker: overlay2 on native ext4 and cgroup v2" || fail "docker: storage/cgroup setup failed"
+  [[ "$(code docker 1)" == 0 && "$(out docker 1)" == *"Hello from Docker"* ]] && pass "docker: hello-world ran" || fail "docker: hello-world failed"
+  [[ "$(code docker 2)" == 0 && "$(out docker 2)" == *"Origin: Debian"* ]] && pass "docker: container reached the internet" || fail "docker: container networking failed"
   check_exit docker
 fi
 

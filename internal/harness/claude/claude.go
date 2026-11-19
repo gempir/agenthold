@@ -17,11 +17,16 @@ func init() {
 				// Logins run in the web terminal, which can show the URL and
 				// accept a pasted code but cannot open a browser.
 				"NO_BROWSER": "1",
-				// Claude Code retries a 429 or 5xx ten times with exponential
-				// backoff (about three minutes) before the turn ends, and says
-				// nothing over ACP meanwhile. Three retries ride out a blip
-				// (about 4s) and an exhausted rate limit fails while the user
-				// still waits. Subscription usage limits are not retried.
+				// Claude Code retries a 429 or a 5xx ten times with exponential
+				// backoff (about three minutes, measured with 0.107) and says
+				// nothing over ACP meanwhile. Three retries take about 4s: a
+				// blip is ridden out, and an exhausted rate limit fails while
+				// the user still waits. The trade-off: an outage or rate limit
+				// that lasts longer now ends the turn instead of stalling it,
+				// and the user (or the schedule) sends the message again.
+				// Subscription usage limits are not retried either way, and 529
+				// overloaded errors have their own budget (about 2s, three
+				// attempts; CLAUDE_CODE_OVERLOADED_RETRY_*) that this leaves alone.
 				"CLAUDE_CODE_MAX_RETRIES": "3",
 			}
 			if c.Model != "" {

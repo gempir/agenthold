@@ -596,40 +596,50 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 	}
 	if sess.AcpSessionID != "" {
 		sid := acp.SessionId(sess.AcpSessionID)
-		var err error
-		var config []acp.SessionConfigOption
-		switch {
-		case caps.SessionCapabilities.Resume != nil:
-			// Preferred: the log already has the conversation, and a load
-			// would have the harness read and send all of it again (on a
-			// woken agent, before the first prompt can start).
-			var res acp.ResumeSessionResponse
-			err = m.step(ctx, conn, "session/resume", func(ctx context.Context) error {
+		resume := func(ctx context.Context) ([]acp.SessionConfigOption, error) {
+			res, err := conn.acp.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: sid, Cwd: HomeDir, McpServers: mcp})
+			return res.ConfigOptions, err
+		}
+		// The replay is not stored again: the session is bound to this
+		// connection only after it is active.
+		load := func(ctx context.Context) ([]acp.SessionConfigOption, error) {
+			res, err := conn.acp.LoadSession(ctx, acp.LoadSessionRequest{SessionId: sid, Cwd: HomeDir, McpServers: mcp})
+			return res.ConfigOptions, err
+		}
+		// Resume first: the log already has the conversation, and a load
+		// has the harness read and send all of it again (on a woken agent,
+		// before the first prompt can start). A failed resume falls back to
+		// a load where the harness has one.
+		type restore struct {
+			method string
+			fn     func(context.Context) ([]acp.SessionConfigOption, error)
+		}
+		var ways []restore
+		if caps.SessionCapabilities.Resume != nil {
+			ways = append(ways, restore{"session/resume", resume})
+		}
+		if caps.LoadSession {
+			ways = append(ways, restore{"session/load", load})
+		}
+		err := errors.New("the harness cannot restore sessions")
+		for i, w := range ways {
+			var config []acp.SessionConfigOption
+			err = m.step(ctx, conn, w.method, func(ctx context.Context) error {
 				var err error
-				res, err = conn.acp.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: sid, Cwd: HomeDir, McpServers: mcp})
+				config, err = w.fn(ctx)
 				return err
 			})
-			config = res.ConfigOptions
-		case caps.LoadSession:
-			// The replay is not stored again: the session is bound to this
-			// connection only after it is active.
-			var res acp.LoadSessionResponse
-			err = m.step(ctx, conn, "session/load", func(ctx context.Context) error {
-				var err error
-				res, err = conn.acp.LoadSession(ctx, acp.LoadSessionRequest{SessionId: sid, Cwd: HomeDir, McpServers: mcp})
-				return err
-			})
-			config = res.ConfigOptions
-		default:
-			err = errors.New("the harness cannot restore sessions")
-		}
-		if err == nil {
-			m.observe(conn, sess.AcpSessionID, config, false)
-			conn.markActive(sess.AcpSessionID)
-			return sess.AcpSessionID, nil
-		}
-		if conn.closed() || ctx.Err() != nil {
-			return "", err
+			if err == nil {
+				m.observe(conn, sess.AcpSessionID, config, false)
+				conn.markActive(sess.AcpSessionID)
+				return sess.AcpSessionID, nil
+			}
+			if conn.closed() || ctx.Err() != nil {
+				return "", err
+			}
+			if i < len(ways)-1 {
+				m.lg.Warn("restoring the session failed, trying another way", "session", sess.ID, "method", w.method, "err", err)
+			}
 		}
 		// Failed or timed out: a fresh session, with a notice below.
 		m.lg.Warn("restoring the session failed, starting a new one", "session", sess.ID, "err", err)

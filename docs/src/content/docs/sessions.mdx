@@ -143,10 +143,10 @@ fresh harness process and restores the conversation (`session/resume` or `sessio
 
 Provider errors come from the harness, so how fast a turn fails depends on its retries:
 
-| Harness | Over a usage limit | Rate limited (429 without a long `retry-after`), overloaded, 5xx |
+| Harness | Over a usage limit | Rate limited (429 without a long `retry-after`), 5xx |
 | --- | --- | --- |
 | Codex | fails at once | Codex's own retries |
-| Claude Code | fails at once (subscription limits carry their reset time) | 3 retries, about 4 seconds (`CLAUDE_CODE_MAX_RETRIES=3`, set by the adapter; Claude Code's default is 10, about three minutes) |
+| Claude Code | fails at once (subscription limits carry their reset time) | 3 retries, about 4 seconds (`CLAUDE_CODE_MAX_RETRIES=3`, set by the adapter; Claude Code's default is 10, about three minutes). A longer outage ends the turn; send the message again. 529 overloaded errors keep Claude Code's own budget (three attempts, about 2 seconds). |
 | OpenCode | `insufficient_quota` and other 429s are retried for about 70 seconds, and a `retry-after` is waited out however long it is; OpenCode has no setting for this and sends nothing over ACP meanwhile | the same |
 
 A cancel before the prompt reached the harness ends the turn right away; afterwards the harness gets

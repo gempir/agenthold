@@ -28,8 +28,8 @@
 //	                         and end as cancelled only if it is refused as cancelled
 //
 // Each prompt is appended to $HOME/.fakeagent/prompts when it arrives, so
-// tests can wait until the harness has it, and each restored session's
-// method (session/load, session/resume) to $HOME/.fakeagent/restores.
+// tests can wait until the harness has it, and each restore request's method
+// (session/load, session/resume) to $HOME/.fakeagent/restores.
 //
 // $HOME/.fakeagent/script scripts the protocol steps, one directive per line:
 //
@@ -315,7 +315,8 @@ func (a *agent) history(id string) []turn {
 	return h
 }
 
-// restored appends how a session was restored to $HOME/.fakeagent/restores.
+// restored appends a restore request's method to $HOME/.fakeagent/restores
+// when it arrives (whether it then succeeds or not).
 func (a *agent) restored(method string) {
 	if f, err := os.OpenFile(filepath.Join(a.dir, "restores"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
 		fmt.Fprintln(f, method)
@@ -351,6 +352,7 @@ func (a *agent) NewSession(_ context.Context, p acp.NewSessionRequest) (acp.NewS
 }
 
 func (a *agent) LoadSession(ctx context.Context, p acp.LoadSessionRequest) (acp.LoadSessionResponse, error) {
+	a.restored("session/load")
 	if err := a.failAt("session/load"); err != nil {
 		return acp.LoadSessionResponse{}, err
 	}
@@ -361,7 +363,6 @@ func (a *agent) LoadSession(ctx context.Context, p acp.LoadSessionRequest) (acp.
 	a.mcp[string(p.SessionId)] = mcpNames(p.McpServers)
 	a.servers[string(p.SessionId)] = p.McpServers
 	a.mu.Unlock()
-	a.restored("session/load")
 	for _, t := range a.history(string(p.SessionId)) {
 		u := acp.UpdateAgentMessageText(t.Text)
 		if t.Role == "user" {
@@ -530,6 +531,7 @@ func (a *agent) ResumeSession(_ context.Context, p acp.ResumeSessionRequest) (ac
 	if !a.flag("resume") {
 		return acp.ResumeSessionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionResume)
 	}
+	a.restored("session/resume")
 	if err := a.failAt("session/resume"); err != nil {
 		return acp.ResumeSessionResponse{}, err
 	}
@@ -540,7 +542,6 @@ func (a *agent) ResumeSession(_ context.Context, p acp.ResumeSessionRequest) (ac
 	a.mcp[string(p.SessionId)] = mcpNames(p.McpServers)
 	a.servers[string(p.SessionId)] = p.McpServers
 	a.mu.Unlock()
-	a.restored("session/resume")
 	return acp.ResumeSessionResponse{ConfigOptions: a.configOptions(string(p.SessionId))}, nil
 }
 

@@ -457,14 +457,57 @@ func TestSessionResumePreferred(t *testing.T) {
 	}
 }
 
-func TestSessionResumeFails(t *testing.T) {
+func TestSessionResumeFailsFallsBackToLoad(t *testing.T) {
 	e := newEnv(t)
 	e.script("resume", "session/resume error")
+	e.ok("remember me")
+	e.m.Disconnect(agentID)
+	if r := e.ok("hello"); len(r.notices) != 0 {
+		t.Fatalf("notices %q", r.notices)
+	}
+	if got := e.restores(); !slices.Equal(got, []string{"session/resume", "session/load"}) {
+		t.Fatalf("restores %q", got)
+	}
+}
+
+func TestSessionResumeHangsFallsBackToLoad(t *testing.T) {
+	setTimeout(t, &setupIdle, 500*time.Millisecond)
+	e := newEnv(t)
+	e.script("resume", "session/resume quiet 5")
+	e.ok("remember me")
+	e.m.Disconnect(agentID)
+	if r := e.ok("hello"); len(r.notices) != 0 {
+		t.Fatalf("notices %q", r.notices)
+	}
+	if got := e.restores(); !slices.Equal(got, []string{"session/resume", "session/load"}) {
+		t.Fatalf("restores %q", got)
+	}
+}
+
+func TestSessionResumeOnlyFails(t *testing.T) {
+	e := newEnv(t)
+	e.script("resume", "no-load", "session/resume error")
 	e.ok("remember me")
 	e.m.Disconnect(agentID)
 	r := e.ok("hello")
 	if len(r.notices) != 1 || !strings.Contains(r.notices[0], "could not restore this conversation") {
 		t.Fatalf("notices %q", r.notices)
+	}
+	if got := e.restores(); !slices.Equal(got, []string{"session/resume"}) {
+		t.Fatalf("restores %q", got)
+	}
+}
+
+func TestSessionResumeOnly(t *testing.T) {
+	e := newEnv(t)
+	e.script("resume", "no-load")
+	e.ok("remember me")
+	e.m.Disconnect(agentID)
+	if r := e.ok("hello"); len(r.notices) != 0 {
+		t.Fatalf("notices %q", r.notices)
+	}
+	if got := e.restores(); !slices.Equal(got, []string{"session/resume"}) {
+		t.Fatalf("restores %q", got)
 	}
 }
 

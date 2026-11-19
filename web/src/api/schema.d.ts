@@ -153,6 +153,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Everything running on this installation: every node, and every machine (agents and apps, of all owners) with its state, owner, configured size and live usage. Admins only (the same notion as the node endpoints: the local admin and users listed in auth.admins). Live usage comes from inside running machines, fetched concurrently with a short timeout and cached for a few seconds; a machine that does not answer keeps its row and gets a `usageReason` instead. Sleeping machines are never woken. Machines of an offline node are `unreachable` and are not contacted. */
+        get: operations["getAdminOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/nodes/join-tokens": {
         parameters: {
             query?: never;
@@ -698,6 +715,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agentId}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description The models the agent's harness offers and their options (reasoning effort, fast mode), as the harness last
+         *     reported them, or agenthold's small fallback list for the harness when it never did. Does not wake the agent.
+         */
+        get: operations["listModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agentId}/sessions": {
         parameters: {
             query?: never;
@@ -733,6 +773,28 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["renameSession"];
+        trace?: never;
+    };
+    "/sessions/{sessionId}/model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * @description The session's own model and options. An empty model with no options returns the session to the agent's
+         *     default. It applies from the next message on (a running turn keeps its model).
+         */
+        put: operations["setSessionModel"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/sessions/{sessionId}/prompt": {
@@ -1588,6 +1650,154 @@ export interface components {
              */
             lastSeen?: string;
         };
+        /** @description Configured size (not usage) summed over a set of machines. */
+        OverviewAllocation: {
+            machines: number;
+            /**
+             * Format: float
+             * @description Sum of the machines' vCPUs.
+             */
+            cpus: number;
+            /**
+             * Format: int64
+             * @description Sum of the machines' memory in MiB.
+             */
+            memoryMb: number;
+        };
+        /** @description A node. `allocated` sums the configured size of every machine placed on it, whatever its state; `running` only of those running now. */
+        OverviewNode: {
+            id: string;
+            name: string;
+            online: boolean;
+            /** @description The controller's built-in node. */
+            local: boolean;
+            /** @description The agenthold release the node runs, if known. */
+            version?: string;
+            /** Format: date-time */
+            lastSeen?: string;
+            /** @description Logical CPUs (the last report if the node is offline). */
+            cpus?: number;
+            /**
+             * Format: int64
+             * @description Installed memory at the last report, if the node reports it.
+             */
+            memoryTotalBytes?: number;
+            /**
+             * Format: int64
+             * @description Available host memory at the last report.
+             */
+            availableMemoryBytes?: number;
+            /**
+             * Format: int64
+             * @description Free data filesystem space at the last report.
+             */
+            freeDiskBytes?: number;
+            /**
+             * Format: int64
+             * @description Space the machines' disk files occupy on the node (blocks actually allocated, not their sparse size), at the last report. Absent when the node does not report it.
+             */
+            diskAllocatedBytes?: number;
+            allocated: components["schemas"]["OverviewAllocation"];
+            running: components["schemas"]["OverviewAllocation"];
+        };
+        /** @description Usage measured inside a running machine. */
+        OverviewUsage: {
+            /** Format: date-time */
+            sampledAt: string;
+            /**
+             * Format: float
+             * @description Share of the machine's vCPUs in use (0 to 100) between the two latest samples. Absent until there are two samples, and from guests that do not report it.
+             */
+            cpuPercent?: number;
+            /** Format: int64 */
+            memUsedBytes?: number;
+            /** Format: int64 */
+            memTotalBytes?: number;
+            /**
+             * Format: int64
+             * @description Used space on the persistent home volume.
+             */
+            homeUsedBytes?: number;
+            /**
+             * Format: int64
+             * @description Size of the home volume.
+             */
+            homeTotalBytes?: number;
+            /**
+             * Format: int64
+             * @description Used space on the system volume (overlay).
+             */
+            rootUsedBytes?: number;
+            /**
+             * Format: int64
+             * @description Size of the system volume.
+             */
+            rootTotalBytes?: number;
+        };
+        OverviewMachine: {
+            id: string;
+            name: string;
+            /** @enum {string} */
+            kind: "agent" | "app";
+            isTemplate: boolean;
+            owner: components["schemas"]["User"];
+            nodeId?: string;
+            nodeName?: string;
+            state: components["schemas"]["SandboxState"];
+            stateError: string;
+            /** Format: date-time */
+            stateChangedAt: string;
+            /** @description Agents only. */
+            harness?: string;
+            /** @description Agents only; empty is the harness default. */
+            model?: string;
+            /**
+             * Format: float
+             * @description Configured vCPUs.
+             */
+            cpus: number;
+            /**
+             * Format: int64
+             * @description Configured memory in MiB.
+             */
+            memoryMb: number;
+            /** @description Minutes without activity before it sleeps; 0 means never. */
+            idleMinutes?: number;
+            /**
+             * Format: date-time
+             * @description Only while running.
+             */
+            lastActivityAt?: string;
+            /**
+             * Format: date-time
+             * @description Only while running and not busy.
+             */
+            sleepsAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+            usage?: components["schemas"]["OverviewUsage"];
+            /**
+             * @description Why a running machine has no usage.
+             * @enum {string}
+             */
+            usageReason?: "node_offline" | "not_connected" | "timeout" | "unsupported" | "error";
+        };
+        OverviewTotals: {
+            machines: number;
+            /** @description Machines per sandbox state (offline nodes' machines count as unreachable). */
+            byState: {
+                [key: string]: number;
+            };
+            allocated: components["schemas"]["OverviewAllocation"];
+            running: components["schemas"]["OverviewAllocation"];
+        };
+        AdminOverview: {
+            /** Format: date-time */
+            generatedAt: string;
+            nodes: components["schemas"]["OverviewNode"][];
+            machines: components["schemas"]["OverviewMachine"][];
+            totals: components["schemas"]["OverviewTotals"];
+        };
         CreateNodeJoinToken: {
             /** @description Name for the node; by default the node proposes its hostname. */
             name?: string;
@@ -1624,7 +1834,12 @@ export interface components {
             stateChangedAt: string;
             /** @description Resources or environment changed since the sandbox was built. */
             needsRebuild: boolean;
+            /** @description The default model ('' is the harness's own default). */
             model: string;
+            /** @description Default model options, by harness config option id (see ModelCatalog). */
+            modelOptions: {
+                [key: string]: string;
+            };
             /** @enum {string} */
             permissionPolicy: "auto-approve" | "ask";
             /** @description A harness login was completed inside the sandbox; the agent can read its own credentials. */
@@ -1681,9 +1896,70 @@ export interface components {
             idleMinutes?: number;
             /** @description Harness id (see /harnesses). Default claude-code. */
             harness?: string;
+            /** @description The default model. Changing the harness without a model resets it. */
             model?: string;
+            /** @description Default model options, by harness config option id. Changing the harness resets them. */
+            modelOptions?: {
+                [key: string]: string;
+            };
             /** @enum {string} */
             permissionPolicy?: "auto-approve" | "ask";
+        };
+        ModelChoice: {
+            /** @description Model id ('' keeps the default). */
+            model: string;
+            /** @description Values by option id (ModelOption.id). */
+            options?: {
+                [key: string]: string;
+            };
+        };
+        ModelCatalog: {
+            harness: string;
+            /**
+             * @description harness: what the harness reported the last time it ran (seenAt). fallback: agenthold's list for the
+             *     harness, shown until the harness has reported its own; it may not match what the account can use.
+             * @enum {string}
+             */
+            source: "harness" | "fallback";
+            /**
+             * Format: date-time
+             * @description When the harness reported the list (source harness).
+             */
+            seenAt?: string;
+            /**
+             * @description The harness switches models within a conversation, from the next message on. Otherwise a new default
+             *     applies when the harness restarts, and conversations cannot choose their own.
+             */
+            switchable: boolean;
+            /** @description The harness accepts model ids it does not list (OpenCode's provider/model). */
+            customModels: boolean;
+            models: components["schemas"]["CatalogModel"][];
+        };
+        CatalogModel: {
+            id: string;
+            name: string;
+            description?: string;
+            /** @description Heading in the picker (provider or family). */
+            group?: string;
+            /** @description The model's options; absent while unknown (the harness describes a model's options once it was used). */
+            options?: components["schemas"]["ModelOption"][];
+        };
+        ModelOption: {
+            /** @description The harness's config option id. */
+            id: string;
+            name: string;
+            description?: string;
+            /**
+             * @description effort: reasoning effort levels. toggle: on/off (fast mode); its values are off then on.
+             * @enum {string}
+             */
+            kind: "effort" | "toggle";
+            values: components["schemas"]["ModelOptionValue"][];
+        };
+        ModelOptionValue: {
+            value: string;
+            name: string;
+            description?: string;
         };
         SandboxLimits: {
             driver: string;
@@ -1855,6 +2131,8 @@ export interface components {
             };
             title: string;
             running: boolean;
+            /** @description The session's own model choice; absent when it uses the agent's default. */
+            model?: components["schemas"]["ModelChoice"];
             createdBy: components["schemas"]["User"];
             /** Format: date-time */
             createdAt: string;
@@ -2423,6 +2701,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NodeInfo"][];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    getAdminOverview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The overview. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminOverview"];
                 };
             };
             401: components["responses"]["Error"];
@@ -3409,6 +3709,31 @@ export interface operations {
             409: components["responses"]["Error"];
         };
     };
+    listModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The model catalog. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCatalog"];
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
     listSessions: {
         parameters: {
             query?: never;
@@ -3536,6 +3861,35 @@ export interface operations {
                     "application/json": components["schemas"]["Session"];
                 };
             };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    setSessionModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelChoice"];
+            };
+        };
+        responses: {
+            /** @description Set. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };

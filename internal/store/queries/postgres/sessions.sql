@@ -43,7 +43,7 @@ SELECT * FROM agent_session_events WHERE session_id = $1 AND seq > $2 ORDER BY s
 UPDATE agents SET permission_policy = $1, updated_at = $2 WHERE id = $3;
 
 -- name: SetAgentHarness :exec
-UPDATE agents SET harness = $1, model = $2, updated_at = $3 WHERE id = $4;
+UPDATE agents SET harness = $1, model = $2, model_options = $3, updated_at = $4 WHERE id = $5;
 
 -- name: MarkCredentialsInSandbox :exec
 UPDATE agents SET credentials_in_sandbox = 1 WHERE id = $1;
@@ -54,3 +54,16 @@ UPDATE agent_sessions SET origin_agent_id = $1, origin_session_id = $2 WHERE id 
 -- name: LinkedSessions :many
 -- Sessions of an agent that another agent started, newest first.
 SELECT * FROM agent_sessions WHERE agent_id = $1 AND origin_agent_id = $2 ORDER BY updated_at DESC;
+
+-- name: SetAgentModel :exec
+UPDATE agents SET model = $1, model_options = $2, updated_at = $3 WHERE id = $4;
+
+-- name: SetSessionModel :exec
+UPDATE agent_sessions SET model = $1, model_options = $2 WHERE id = $3;
+
+-- name: GetModelCatalog :one
+SELECT * FROM agent_model_catalogs WHERE agent_id = $1;
+
+-- name: UpsertModelCatalog :exec
+INSERT INTO agent_model_catalogs (agent_id, harness, data, seen_at) VALUES ($1, $2, $3, $4)
+ON CONFLICT (agent_id) DO UPDATE SET harness = excluded.harness, data = excluded.data, seen_at = excluded.seen_at;

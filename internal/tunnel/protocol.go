@@ -118,6 +118,27 @@ type Stats struct {
 	CPUTicks uint64 `json:"cpuTicks"`
 	// Processes is the number of processes, excluding sandboxd.
 	Processes int `json:"processes"`
+
+	// The rest is live usage of the whole machine for the admin overview. A
+	// guest that cannot report a value (an older sandboxd, a platform without
+	// procfs) leaves it zero.
+	//
+	// CPUBusyTicks and CPUTotalTicks are the machine's cumulative CPU time in
+	// USER_HZ ticks, all processes and services included: busy is everything
+	// but idle and iowait, total is the sum over all vCPUs. The usage between
+	// two readings is the busy delta over the total delta.
+	CPUBusyTicks  uint64 `json:"cpuBusyTicks,omitempty"`
+	CPUTotalTicks uint64 `json:"cpuTotalTicks,omitempty"`
+	// MemTotalBytes is the guest's RAM, MemUsedBytes what is not available
+	// (total minus the kernel's MemAvailable).
+	MemTotalBytes uint64 `json:"memTotalBytes,omitempty"`
+	MemUsedBytes  uint64 `json:"memUsedBytes,omitempty"`
+	// HomeTotalBytes and HomeUsedBytes describe the persistent home volume,
+	// RootTotalBytes and RootUsedBytes the system (overlay) volume.
+	HomeTotalBytes uint64 `json:"homeTotalBytes,omitempty"`
+	HomeUsedBytes  uint64 `json:"homeUsedBytes,omitempty"`
+	RootTotalBytes uint64 `json:"rootTotalBytes,omitempty"`
+	RootUsedBytes  uint64 `json:"rootUsedBytes,omitempty"`
 }
 
 // Stderr carries one line of a harness's stderr.

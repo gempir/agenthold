@@ -92,6 +92,7 @@ type Manager struct {
 	activity func(agentID string)
 	tools    Tools
 	logins   Logins
+	catMu    sync.Mutex // serializes model catalog updates
 }
 
 // Logins supplies the account login of an agent's harness: files are written
@@ -463,6 +464,9 @@ func (m *Manager) run(t *turn, sess db.AgentSession, text string, status func(st
 		return nil, err
 	}
 	conn.bind(acpID, sess.ID)
+	if err := m.applyChoice(ctx, conn, sess.ID, acpID, notice); err != nil {
+		return nil, err
+	}
 
 	m.mu.Lock()
 	if t.cancelled {
@@ -588,23 +592,31 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 	if sess.AcpSessionID != "" {
 		sid := acp.SessionId(sess.AcpSessionID)
 		var err error
+		var config []acp.SessionConfigOption
 		switch {
 		case caps.LoadSession:
 			// The replay is not stored again: the session is bound to this
 			// connection only after it is active.
+			var res acp.LoadSessionResponse
 			err = m.step(ctx, conn, "session/load", func(ctx context.Context) error {
-				_, err := conn.acp.LoadSession(ctx, acp.LoadSessionRequest{SessionId: sid, Cwd: HomeDir, McpServers: mcp})
+				var err error
+				res, err = conn.acp.LoadSession(ctx, acp.LoadSessionRequest{SessionId: sid, Cwd: HomeDir, McpServers: mcp})
 				return err
 			})
+			config = res.ConfigOptions
 		case caps.SessionCapabilities.Resume != nil:
+			var res acp.ResumeSessionResponse
 			err = m.step(ctx, conn, "session/resume", func(ctx context.Context) error {
-				_, err := conn.acp.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: sid, Cwd: HomeDir, McpServers: mcp})
+				var err error
+				res, err = conn.acp.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: sid, Cwd: HomeDir, McpServers: mcp})
 				return err
 			})
+			config = res.ConfigOptions
 		default:
 			err = errors.New("the harness cannot restore sessions")
 		}
 		if err == nil {
+			m.observe(conn, sess.AcpSessionID, config, false)
 			conn.markActive(sess.AcpSessionID)
 			return sess.AcpSessionID, nil
 		}
@@ -615,13 +627,16 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 		m.lg.Warn("restoring the session failed, starting a new one", "session", sess.ID, "err", err)
 	}
 	newSession := func() (acp.SessionId, error) {
-		var id acp.SessionId
+		var res acp.NewSessionResponse
 		err := m.step(ctx, conn, "session/new", func(ctx context.Context) error {
-			res, err := conn.acp.NewSession(ctx, acp.NewSessionRequest{Cwd: HomeDir, McpServers: mcp})
-			id = res.SessionId
+			var err error
+			res, err = conn.acp.NewSession(ctx, acp.NewSessionRequest{Cwd: HomeDir, McpServers: mcp})
 			return err
 		})
-		return id, err
+		if err == nil {
+			m.observe(conn, string(res.SessionId), res.ConfigOptions, true)
+		}
+		return res.SessionId, err
 	}
 	acpID, err := newSession()
 	if err != nil && authRequired(err) {
@@ -937,7 +952,15 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 		}
 		return nil, err
 	}
+	// The default model goes into the environment only while the harness is
+	// not known to switch models through its session config options: then
+	// sessions start on the harness's own default and the turn applies it.
 	cfg := harness.Config{Model: agent.Model}
+	if c, ok, _ := m.Catalog(ctx, agentID); ok && c.Harness == ad.ID {
+		if _, switches := c.ModelOption(); switches {
+			cfg.Model = ""
+		}
+	}
 	env := ad.Environment(cfg)
 	if m.logins != nil {
 		lctx, lcancel := context.WithTimeout(ctx, loginsTimeout)
@@ -956,6 +979,7 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 	}
 
 	hc := newHarnessConn(m, agentID, ad, ts)
+	hc.startModel = cfg.Model
 	proc, err := m.open(ctx, hc, ts, ad.Command, env)
 	if err != nil {
 		return nil, err

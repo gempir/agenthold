@@ -119,6 +119,14 @@ type Attacher interface {
 	Attach(ctx context.Context, id ID) error
 }
 
+// DiskAccounter is implemented by drivers that know the disk their sandboxes'
+// files occupy.
+type DiskAccounter interface {
+	// AllocatedDiskBytes is the space (st_blocks, not the apparent size of the
+	// sparse files) all sandboxes' disks occupy on the node.
+	AllocatedDiskBytes(ctx context.Context) (uint64, error)
+}
+
 // ErrNotFound is returned by Start and Stop for unknown sandboxes.
 var ErrNotFound = errors.New("sandbox not found")
 

@@ -56,7 +56,7 @@ func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role aut
 		Harness: ag.Harness, Cpus: float32(ag.Cpus), MemoryMb: ag.MemoryMb, IdleMinutes: int(ag.IdleMinutes),
 		State: gen.SandboxState(sb.State), StateError: sb.Error, StateChangedAt: ts(sb.StateChangedAt),
 		NeedsRebuild: a.Sandboxes.NeedsRebuild(ag, sb), Role: gen.AgentRole(role),
-		Model: ag.Model, PermissionPolicy: gen.AgentPermissionPolicy(ag.PermissionPolicy),
+		Model: ag.Model, ModelOptions: session.ParseOptions(ag.ModelOptions), PermissionPolicy: gen.AgentPermissionPolicy(ag.PermissionPolicy),
 		CredentialsInSandbox: ag.CredentialsInSandbox == 1, Login: login, IsTemplate: ag.IsTemplate == 1,
 		CreatedAt: ts(ag.CreatedAt), UpdatedAt: ts(ag.UpdatedAt),
 	}
@@ -105,7 +105,7 @@ func (a *API) validateSettings(s *agentSettings) error {
 		return badRequest("unknown harness")
 	}
 	s.model = strings.TrimSpace(s.model)
-	if len(s.model) > 100 || strings.ContainsAny(s.model, " \t\n") {
+	if !validModelID(s.model) {
 		return badRequest("invalid model")
 	}
 	if s.policy == "" {
@@ -252,6 +252,14 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	}
 	if b.Model != nil {
 		s.model = *b.Model
+	} else if b.Harness != nil && *b.Harness != ag.Harness {
+		s.model = "" // another harness's model id means nothing to this one
+	}
+	options := session.ParseOptions(ag.ModelOptions)
+	if b.ModelOptions != nil {
+		options = *b.ModelOptions
+	} else if b.Harness != nil && *b.Harness != ag.Harness {
+		options = map[string]string{}
 	}
 	if b.PermissionPolicy != nil {
 		s.policy = string(*b.PermissionPolicy)
@@ -271,6 +279,20 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	if err := a.validateSettings(&s); err != nil {
 		return nil, err
 	}
+	harnessChanged := s.harness != ag.Harness
+	choice := session.Choice{Model: s.model, Options: options}
+	modelChanged := harnessChanged || s.model != ag.Model || session.EncodeOptions(options) != session.EncodeOptions(session.ParseOptions(ag.ModelOptions))
+	if modelChanged && !harnessChanged {
+		if err := a.validateChoice(ctx, ag, choice, session.AgentChoice(ag), true); err != nil {
+			return nil, err
+		}
+	} else if harnessChanged && s.model != "" {
+		target := ag
+		target.Harness = s.harness
+		if err := a.validateChoice(ctx, target, choice, session.Choice{}, true); err != nil {
+			return nil, err
+		}
+	}
 	// Everything is validated before anything changes: the template change
 	// has preconditions of its own, and stopping the machine is the only step
 	// with an effect outside the transaction below.
@@ -286,7 +308,9 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 			return nil, err
 		}
 	}
-	harnessChanged := s.harness != ag.Harness || s.model != ag.Model
+	// A running harness switches its sessions to a new default at their next
+	// turn; one that offers no model choice only reads it when it starts.
+	restart := modelChanged && !harnessChanged && !a.Sessions.LiveSwitchable(ag.ID)
 	now := a.Now().Unix()
 	if err := a.Store.Tx(ctx, func(q *db.Queries) error {
 		if err := q.UpdateAgent(ctx, db.UpdateAgentParams{
@@ -298,8 +322,13 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 		if err := q.SetPermissionPolicy(ctx, db.SetPermissionPolicyParams{PermissionPolicy: s.policy, UpdatedAt: now, ID: ag.ID}); err != nil {
 			return err
 		}
-		if harnessChanged {
-			if err := q.SetAgentHarness(ctx, db.SetAgentHarnessParams{Harness: s.harness, Model: s.model, UpdatedAt: now, ID: ag.ID}); err != nil {
+		switch {
+		case harnessChanged:
+			if err := q.SetAgentHarness(ctx, db.SetAgentHarnessParams{Harness: s.harness, Model: s.model, ModelOptions: session.EncodeOptions(options), UpdatedAt: now, ID: ag.ID}); err != nil {
+				return err
+			}
+		case modelChanged:
+			if err := q.SetAgentModel(ctx, db.SetAgentModelParams{Model: s.model, ModelOptions: session.EncodeOptions(options), UpdatedAt: now, ID: ag.ID}); err != nil {
 				return err
 			}
 		}
@@ -324,6 +353,8 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	if harnessChanged {
 		a.Sessions.Disconnect(ag.ID) // the next prompt starts the new harness
 		a.Egress.Invalidate()        // and the proxy injects that harness's login
+	} else if restart {
+		a.Sessions.Restart(ag.ID)
 	}
 	if toTemplate || toAgent {
 		convertedTo := "agent"
@@ -338,7 +369,7 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	}
 	a.record(ctx, ag, audit.AgentUpdate, ag.Name, map[string]any{
 		"name": s.name, "cpus": s.cpus, "memoryMb": s.memoryMB, "idleMinutes": s.idleMinutes,
-		"harness": s.harness, "model": s.model, "permissionPolicy": s.policy,
+		"harness": s.harness, "model": s.model, "modelOptions": options, "permissionPolicy": s.policy,
 	})
 	return gen.UpdateAgent200JSONResponse(g), nil
 }
@@ -519,6 +550,9 @@ func (a *API) CloneAgent(ctx context.Context, req gen.CloneAgentRequestObject) (
 			CredentialsInSandbox: src.CredentialsInSandbox, LoginUserID: loginUser,
 			IsTemplate: b2i(asTemplate), ClonedFrom: src.ID, CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
+			return err
+		}
+		if err := q.SetAgentModel(ctx, db.SetAgentModelParams{Model: src.Model, ModelOptions: src.ModelOptions, UpdatedAt: now, ID: dstID}); err != nil {
 			return err
 		}
 		if isApp {

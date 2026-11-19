@@ -44,7 +44,7 @@ func (q *Queries) DeleteAgentSession(ctx context.Context, id string) error {
 }
 
 const getAgentSession = `-- name: GetAgentSession :one
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id FROM agent_sessions WHERE id = $1
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options FROM agent_sessions WHERE id = $1
 `
 
 func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession, error) {
@@ -61,6 +61,24 @@ func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession,
 		&i.UpdatedAt,
 		&i.OriginAgentID,
 		&i.OriginSessionID,
+		&i.Model,
+		&i.ModelOptions,
+	)
+	return i, err
+}
+
+const getModelCatalog = `-- name: GetModelCatalog :one
+SELECT agent_id, harness, data, seen_at FROM agent_model_catalogs WHERE agent_id = $1
+`
+
+func (q *Queries) GetModelCatalog(ctx context.Context, agentID string) (AgentModelCatalog, error) {
+	row := q.db.QueryRowContext(ctx, getModelCatalog, agentID)
+	var i AgentModelCatalog
+	err := row.Scan(
+		&i.AgentID,
+		&i.Harness,
+		&i.Data,
+		&i.SeenAt,
 	)
 	return i, err
 }
@@ -91,7 +109,7 @@ func (q *Queries) InsertSessionEvent(ctx context.Context, arg InsertSessionEvent
 }
 
 const linkedSessions = `-- name: LinkedSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id FROM agent_sessions WHERE agent_id = $1 AND origin_agent_id = $2 ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options FROM agent_sessions WHERE agent_id = $1 AND origin_agent_id = $2 ORDER BY updated_at DESC
 `
 
 type LinkedSessionsParams struct {
@@ -120,6 +138,8 @@ func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) 
 			&i.UpdatedAt,
 			&i.OriginAgentID,
 			&i.OriginSessionID,
+			&i.Model,
+			&i.ModelOptions,
 		); err != nil {
 			return nil, err
 		}
@@ -135,7 +155,7 @@ func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) 
 }
 
 const listAgentSessions = `-- name: ListAgentSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id FROM agent_sessions WHERE agent_id = $1 ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options FROM agent_sessions WHERE agent_id = $1 ORDER BY updated_at DESC
 `
 
 func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]AgentSession, error) {
@@ -158,6 +178,8 @@ func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]Agen
 			&i.UpdatedAt,
 			&i.OriginAgentID,
 			&i.OriginSessionID,
+			&i.Model,
+			&i.ModelOptions,
 		); err != nil {
 			return nil, err
 		}
@@ -289,20 +311,43 @@ func (q *Queries) ResetRunningSessions(ctx context.Context) error {
 }
 
 const setAgentHarness = `-- name: SetAgentHarness :exec
-UPDATE agents SET harness = $1, model = $2, updated_at = $3 WHERE id = $4
+UPDATE agents SET harness = $1, model = $2, model_options = $3, updated_at = $4 WHERE id = $5
 `
 
 type SetAgentHarnessParams struct {
-	Harness   string
-	Model     string
-	UpdatedAt int64
-	ID        string
+	Harness      string
+	Model        string
+	ModelOptions string
+	UpdatedAt    int64
+	ID           string
 }
 
 func (q *Queries) SetAgentHarness(ctx context.Context, arg SetAgentHarnessParams) error {
 	_, err := q.db.ExecContext(ctx, setAgentHarness,
 		arg.Harness,
 		arg.Model,
+		arg.ModelOptions,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	return err
+}
+
+const setAgentModel = `-- name: SetAgentModel :exec
+UPDATE agents SET model = $1, model_options = $2, updated_at = $3 WHERE id = $4
+`
+
+type SetAgentModelParams struct {
+	Model        string
+	ModelOptions string
+	UpdatedAt    int64
+	ID           string
+}
+
+func (q *Queries) SetAgentModel(ctx context.Context, arg SetAgentModelParams) error {
+	_, err := q.db.ExecContext(ctx, setAgentModel,
+		arg.Model,
+		arg.ModelOptions,
 		arg.UpdatedAt,
 		arg.ID,
 	)
@@ -338,6 +383,21 @@ func (q *Queries) SetSessionACPID(ctx context.Context, arg SetSessionACPIDParams
 	return err
 }
 
+const setSessionModel = `-- name: SetSessionModel :exec
+UPDATE agent_sessions SET model = $1, model_options = $2 WHERE id = $3
+`
+
+type SetSessionModelParams struct {
+	Model        string
+	ModelOptions string
+	ID           string
+}
+
+func (q *Queries) SetSessionModel(ctx context.Context, arg SetSessionModelParams) error {
+	_, err := q.db.ExecContext(ctx, setSessionModel, arg.Model, arg.ModelOptions, arg.ID)
+	return err
+}
+
 const setSessionOrigin = `-- name: SetSessionOrigin :exec
 UPDATE agent_sessions SET origin_agent_id = $1, origin_session_id = $2 WHERE id = $3
 `
@@ -365,5 +425,27 @@ type SetSessionStatusParams struct {
 
 func (q *Queries) SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error {
 	_, err := q.db.ExecContext(ctx, setSessionStatus, arg.Status, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const upsertModelCatalog = `-- name: UpsertModelCatalog :exec
+INSERT INTO agent_model_catalogs (agent_id, harness, data, seen_at) VALUES ($1, $2, $3, $4)
+ON CONFLICT (agent_id) DO UPDATE SET harness = excluded.harness, data = excluded.data, seen_at = excluded.seen_at
+`
+
+type UpsertModelCatalogParams struct {
+	AgentID string
+	Harness string
+	Data    string
+	SeenAt  int64
+}
+
+func (q *Queries) UpsertModelCatalog(ctx context.Context, arg UpsertModelCatalogParams) error {
+	_, err := q.db.ExecContext(ctx, upsertModelCatalog,
+		arg.AgentID,
+		arg.Harness,
+		arg.Data,
+		arg.SeenAt,
+	)
 	return err
 }

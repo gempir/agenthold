@@ -24,7 +24,7 @@ func TestCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.CPUs != runtime.NumCPU() || got.MemoryBytes == 0 || got.DiskBytes == 0 {
+	if got.CPUs != runtime.NumCPU() || got.MemoryBytes == 0 || got.DiskBytes == 0 || got.MemoryTotalBytes < got.MemoryBytes {
 		t.Fatalf("unexpected capacity: %+v", got)
 	}
 	n.SetDataDir(filepath.Join(dir, "missing"))

@@ -1,10 +1,12 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -43,6 +45,9 @@ type harnessConn struct {
 	// lastActive is when the harness last showed life (unix nanoseconds): an
 	// ACP message or a stderr line.
 	lastActive atomic.Int64
+	// updatesSeen counts the session/update notifications read off the
+	// harness's stdout, updatesHandled those SessionUpdate has finished.
+	updatesSeen, updatesHandled atomic.Int64
 
 	mu       sync.Mutex
 	sessions map[string]string          // ACP session id -> our session id
@@ -89,7 +94,7 @@ func (c *harnessConn) idleSince(since time.Time) time.Duration {
 // the SDK's limit).
 func (c *harnessConn) start(proc *tunnel.Process) {
 	c.proc = proc
-	c.acp = acp.NewClientSideConnection(c, proc, proc.Stdout)
+	c.acp = acp.NewClientSideConnection(c, proc, &updateCounter{r: proc.Stdout, seen: &c.updatesSeen})
 	c.acp.SetLogger(c.m.lg.With("agent", c.agentID, "component", "acp"))
 	go func() {
 		select {
@@ -107,6 +112,79 @@ func (c *harnessConn) start(proc *tunnel.Process) {
 		}
 		c.close("")
 	}()
+}
+
+// drainWait bounds how long a turn waits for the updates already read off a
+// dead connection to be handled.
+var drainWait = 500 * time.Millisecond
+
+// drainUpdates waits (bounded) until every session/update read off the wire
+// has been handled, if the ACP stream has ended. The SDK fails a pending
+// request as soon as the stream ends, while notifications it already read
+// are still queued for SessionUpdate: ending the turn first would persist
+// the harness's last output after the turn's error and end.
+func (c *harnessConn) drainUpdates() {
+	select {
+	case <-c.acp.Done():
+	default:
+		return
+	}
+	deadline := time.Now().Add(drainWait)
+	for c.updatesHandled.Load() < c.updatesSeen.Load() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// updateCounter counts the session/update notifications in the line-delimited
+// stream passing through it (the stream's reader is a single goroutine).
+type updateCounter struct {
+	r    io.Reader
+	seen *atomic.Int64
+	line []byte
+	over bool // the current line outgrew maxCountedLine: not tracked further
+}
+
+// maxCountedLine bounds the bytes kept per line to find its method. A longer
+// notification is not counted; the drain then simply does not wait for it.
+const maxCountedLine = 1 << 20
+
+func (u *updateCounter) Read(p []byte) (int, error) {
+	n, err := u.r.Read(p)
+	for rest := p[:n]; len(rest) > 0; {
+		i := bytes.IndexByte(rest, '\n')
+		seg := rest
+		if i >= 0 {
+			seg = rest[:i]
+		}
+		if !u.over {
+			if len(u.line)+len(seg) > maxCountedLine {
+				u.over = true
+			} else {
+				u.line = append(u.line, seg...)
+			}
+		}
+		if i < 0 {
+			break
+		}
+		u.endLine()
+		rest = rest[i+1:]
+	}
+	return n, err
+}
+
+func (u *updateCounter) endLine() {
+	line, over := u.line, u.over
+	u.line, u.over = u.line[:0], false
+	if over || !bytes.Contains(line, []byte("session/update")) {
+		return
+	}
+	var m struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+	}
+	if json.Unmarshal(line, &m) == nil && m.Method == "session/update" && len(m.ID) == 0 {
+		u.seen.Add(1)
+	}
 }
 
 // exitWait is how long a connection whose ACP stream ended waits for the
@@ -334,6 +412,7 @@ func (c *harnessConn) sessionFor(acpID acp.SessionId) (string, bool) {
 
 // SessionUpdate implements acp.Client.
 func (c *harnessConn) SessionUpdate(ctx context.Context, n acp.SessionNotification) error {
+	defer c.updatesHandled.Add(1)
 	c.alive() // also for sessions being loaded: a long replay is progress
 	if u := n.Update.ConfigOptionUpdate; u != nil {
 		// Harness state, not conversation: recorded, not logged.

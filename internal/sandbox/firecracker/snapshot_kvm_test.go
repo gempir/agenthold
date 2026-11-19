@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -101,7 +102,8 @@ func TestSnapshotResumeKVM(t *testing.T) {
 	hub := tunnel.NewHub(func(_ context.Context, agent, got string) error {
 		tokenMu.Lock()
 		defer tokenMu.Unlock()
-		if !strings.HasPrefix(agent, "ag_kvmsnap_") || got != token {
+		other := strings.HasSuffix(agent, "_b") && got == "kvm-snap-other"
+		if !strings.HasPrefix(agent, "ag_kvmsnap_") || got != token && !other {
 			return errors.New("unexpected guest identity")
 		}
 		return nil
@@ -146,7 +148,11 @@ func TestSnapshotResumeKVM(t *testing.T) {
 		}
 		return s.Shutdown(ctx)
 	}
+	var slowSuspend atomic.Bool
 	cfg.Suspend = func(ctx context.Context, id sandbox.ID) error {
+		if slowSuspend.Swap(false) {
+			time.Sleep(4 * time.Second) // a slow guest flush
+		}
 		s, err := session(id)
 		if err != nil {
 			return err
@@ -271,8 +277,39 @@ func TestSnapshotResumeKVM(t *testing.T) {
 	// what the balloon is for.
 	execIn(s, `python3 -c "b = b'\x01' * (400 << 20)"`)
 
-	// Sleep with the memory kept, and wake.
+	// Sleep with the memory kept, and wake. The sleep is slowed down: another
+	// machine boots meanwhile, which the sleep must not hold up.
+	other := sandbox.Spec{AgentID: spec.AgentID + "_b", Resources: sandbox.Resources{CPUs: 1, MemoryMB: 512}}
+	otherID, err := d.Create(ctx, other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = d.Destroy(c, otherID, sandbox.DestroyOpts{})
+	})
+	slowSuspend.Store(true)
+	otherDone := make(chan time.Time, 1)
+	go func() {
+		time.Sleep(500 * time.Millisecond) // the sleep has begun
+		if st, err := d.Status(ctx, id); err != nil || st.State != sandbox.StateRunning {
+			t.Errorf("status during the sleep: %+v %v", st, err)
+		}
+		if err := d.Start(ctx, otherID, sandbox.Boot{AgentID: other.AgentID, Token: "kvm-snap-other", TunnelPort: port}); err != nil {
+			t.Errorf("start of another machine during a sleep: %v", err)
+		}
+		otherDone <- time.Now()
+	}()
 	took := sleep()
+	sleptAt := time.Now()
+	if at := <-otherDone; !at.Before(sleptAt) {
+		t.Fatalf("another machine's start waited for the sleep (done %s after it)", at.Sub(sleptAt))
+	}
+	if err := d.Destroy(ctx, otherID, sandbox.DestroyOpts{}); err != nil { // a shutdown, no snapshot
+		t.Fatal(err)
+	}
+	took -= 4 * time.Second
 	if !d.HasSnapshot(id) {
 		t.Fatal("no snapshot after sleep")
 	}

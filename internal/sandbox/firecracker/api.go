@@ -21,7 +21,7 @@ type api struct {
 
 func newAPI(socket string) *api {
 	t := &http.Transport{Proxy: nil, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
+		return dialSocket(ctx, socket)
 	}, DisableKeepAlives: true}
 	return &api{client: &http.Client{Transport: t, Timeout: 3 * time.Second}, transport: t}
 }

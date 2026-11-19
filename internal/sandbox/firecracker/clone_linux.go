@@ -114,7 +114,7 @@ func (d *Driver) Clone(ctx context.Context, src sandbox.ID, s sandbox.Spec) (res
 		return "", err
 	}
 	defer release()
-	unlock, err := d.lock(ctx)
+	unlock, err := d.lockIdle(ctx, src)
 	if err != nil {
 		return "", err
 	}

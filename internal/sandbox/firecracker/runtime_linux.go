@@ -119,7 +119,15 @@ func (d *Driver) prepareResume(ctx context.Context, id sandbox.ID, m *manifest) 
 	for _, f := range []struct {
 		source, name string
 		ro           bool
-	}{{m.BaseImagePath, "base.ext4", true}, {filepath.Join(d.dir(id), "overlay.ext4"), "overlay.ext4", false}, {filepath.Join(d.dir(id), "home.ext4"), "home.ext4", false}, {filepath.Join(d.snapDir(id), "config.img"), "config.img", true}} {
+	}{
+		{m.BaseImagePath, "base.ext4", true},
+		{filepath.Join(d.dir(id), "overlay.ext4"), "overlay.ext4", false},
+		{filepath.Join(d.dir(id), "home.ext4"), "home.ext4", false},
+		// The store's files (root's, see snapshot_linux.go), read-only.
+		{filepath.Join(d.snapDir(id), "config.img"), "config.img", true},
+		{filepath.Join(d.snapDir(id), "vmstate"), jailVMState, true},
+		{filepath.Join(d.snapDir(id), "memory"), jailMemory, true},
+	} {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -130,11 +138,15 @@ func (d *Driver) prepareResume(ctx context.Context, id sandbox.ID, m *manifest) 
 	return d.bindSnapDir(id, m)
 }
 
-// bindSnapDir makes <dir>/snapshot the jail's /snap, where Firecracker
-// writes and reads snapshots as the VMM user.
+// bindSnapDir makes a new, empty <dir>/snapout the jail's /snap, where
+// Firecracker writes snapshots as the VMM user. Whatever an earlier VMM left
+// there is removed unread.
 func (d *Driver) bindSnapDir(id sandbox.ID, m *manifest) error {
-	src := d.snapDir(id)
-	if err := os.Mkdir(src, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+	src := d.snapOut(id)
+	if err := os.RemoveAll(src); err != nil {
+		return err
+	}
+	if err := os.Mkdir(src, 0o700); err != nil {
 		return err
 	}
 	if err := os.Chown(src, int(m.UID), int(m.GID)); err != nil {
@@ -369,8 +381,9 @@ func (d *Driver) finish(ctx context.Context, id sandbox.ID, m *manifest) error {
 	errs = append(errs, d.deleteTap(id))
 	// Unmount before RemoveAll: removing through a live bind could delete data.
 	clean := true
-	for _, name := range []string{jailSnapDir, "config.img", "home.ext4", "overlay.ext4", "base.ext4", "initrd", "kernel"} {
-		err = unix.Unmount(filepath.Join(d.jailRoot(id), name), 0)
+	for _, name := range []string{jailSnapDir, jailVMState, jailMemory, "config.img", "home.ext4", "overlay.ext4", "base.ext4", "initrd", "kernel"} {
+		// The jail is the VMM user's: never follow a symlink it put there.
+		err = unix.Unmount(filepath.Join(d.jailRoot(id), name), unix.UMOUNT_NOFOLLOW)
 		if err != nil && !errors.Is(err, unix.EINVAL) && !errors.Is(err, unix.ENOENT) {
 			errs = append(errs, err)
 			clean = false

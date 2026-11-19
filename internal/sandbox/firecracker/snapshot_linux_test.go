@@ -6,10 +6,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -67,12 +70,15 @@ func TestSnapshotCompatibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.Resumable = true
+	m.UID = uint32(os.Getuid()) // the files below are "the VMM's"
+	unprivilegedChown(t)
 	dir := d.snapDir(id)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	out := d.snapOut(id)
+	if err := os.MkdirAll(out, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"vmstate.new", "memory.new"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(name), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(out, name), []byte(name), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -83,7 +89,7 @@ func TestSnapshotCompatibility(t *testing.T) {
 		Format: snapshotFormat, Firecracker: "fc", Kernel: "k", HostCPU: "cpu", HostKernel: "6.8", ResumeVersion: sandboxd.ResumeVersion,
 		Sandboxd: "abc.cpio", BaseImagePath: m.BaseImagePath, VCPUs: 1, MemoryMiB: 256,
 	}
-	if err := d.finalizeSnapshot(id, &info); err != nil {
+	if err := d.finalizeSnapshot(id, m, &info); err != nil {
 		t.Fatal(err)
 	}
 	s, err := d.readSnapshot(id)
@@ -119,8 +125,16 @@ func TestSnapshotCompatibility(t *testing.T) {
 			t.Errorf("%s change was accepted", name)
 		}
 	}
-	// finish keeps a valid snapshot, minus stray partial files.
-	if err := os.WriteFile(filepath.Join(dir, "memory.new"), []byte("partial"), 0o600); err != nil {
+	if st, err := os.Stat(dir); err != nil || st.Mode().Perm() != 0o700 {
+		t.Fatalf("store %v %v", st, err)
+	}
+	for _, name := range []string{"vmstate", "memory", "config.img", snapshotManifest} {
+		if _, err := os.Lstat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("store lacks %s: %v", name, err)
+		}
+	}
+	// finish keeps a valid snapshot, minus whatever the VMM left behind.
+	if err := os.WriteFile(filepath.Join(out, "memory.new"), []byte("partial"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.finish(context.Background(), id, m); err != nil {
@@ -129,8 +143,8 @@ func TestSnapshotCompatibility(t *testing.T) {
 	if !d.HasSnapshot(id) {
 		t.Fatal("finish dropped a valid snapshot")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "memory.new")); !os.IsNotExist(err) {
-		t.Fatal("partial file kept")
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Fatal("outbox kept")
 	}
 	// Without its manifest (consumed by a resume) nothing is kept.
 	if err := os.Remove(filepath.Join(dir, snapshotManifest)); err != nil {
@@ -154,5 +168,198 @@ func TestSnapshotCompatibility(t *testing.T) {
 	}
 	if d.HasSnapshot(id) {
 		t.Fatal("rebuild kept the snapshot")
+	}
+}
+
+// unprivilegedChown lets the store's files stay the test user's when the
+// test cannot give them to root.
+func unprivilegedChown(t *testing.T) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		return
+	}
+	old := fchownRoot
+	fchownRoot = func(int, uint32) error { return nil }
+	t.Cleanup(func() { fchownRoot = old })
+}
+
+// The outbox is the VMM user's: what it plants there is refused without
+// being followed, read or blocked on.
+func TestTakeFileRefusesPlantedFiles(t *testing.T) {
+	unprivilegedChown(t)
+	base := t.TempDir()
+	out, store := filepath.Join(base, "out"), filepath.Join(base, "store")
+	for _, p := range []string{out, store} {
+		if err := os.Mkdir(p, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	victim := filepath.Join(base, "host-file")
+	content := make([]byte, 64<<10) // zero pages: punching would deallocate them
+	if err := os.WriteFile(victim, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	uid, gid := uint32(os.Getuid()), uint32(os.Getgid())
+	if err := os.Symlink(victim, filepath.Join(out, "symlink")); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Mkfifo(filepath.Join(out, "fifo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(victim, filepath.Join(out, "hardlink")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(out, "dir"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(out, "good"), []byte("snapshot"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outFD, err := openDir(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(outFD)
+	storeFD, err := openDir(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(storeFD)
+	for _, name := range []string{"symlink", "fifo", "hardlink", "dir", "missing"} {
+		done := make(chan error, 1)
+		go func() { _, err := takeFile(outFD, name, storeFD, name, uid, gid, true); done <- err }()
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Errorf("%s was taken", name)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s blocked the host", name)
+		}
+		if _, err := os.Lstat(filepath.Join(store, name)); !os.IsNotExist(err) {
+			t.Errorf("%s reached the store", name)
+		}
+	}
+	// A file of another user is refused too.
+	if _, err := takeFile(outFD, "good", storeFD, "good", uid+1, gid, false); err == nil {
+		t.Error("a file of another user was taken")
+	}
+	var st unix.Stat_t
+	if err := unix.Stat(victim, &st); err != nil || st.Blocks*512 < int64(len(content)) {
+		t.Fatalf("the host file was punched: %d bytes allocated, %v", st.Blocks*512, err)
+	}
+	size, err := takeFile(outFD, "good", storeFD, "memory", uid, gid, true)
+	if err != nil || size != 8 {
+		t.Fatalf("regular file: %d %v", size, err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(store, "memory")); string(got) != "snapshot" {
+		t.Fatalf("moved file %q", got)
+	}
+}
+
+// Sockets in a jail are dialed without following a symlink the VMM put there.
+func TestDialSocketRefusesSymlinks(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "ahsock-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	real := filepath.Join(dir, "host.sock")
+	ln, err := net.Listen("unix", real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	c, err := dialSocket(context.Background(), real)
+	if err != nil {
+		t.Fatal("real socket:", err)
+	}
+	_ = c.Close()
+	link := filepath.Join(dir, "api.sock")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := dialSocket(context.Background(), link); err == nil {
+		_ = c.Close()
+		t.Fatal("dialed through a symlink")
+	}
+	file := filepath.Join(dir, "file.sock")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dialSocket(context.Background(), file); err == nil {
+		t.Fatal("dialed a regular file")
+	}
+}
+
+// While a machine sleeps (snapshot written without the driver lock), the
+// other machines' operations go on, its Status says running without
+// touching it, and its own operations wait for the sleep to end.
+func TestSuspendingMachineDoesNotHoldTheDriver(t *testing.T) {
+	d := unitDriver(t)
+	ctx := context.Background()
+	for _, id := range []string{"ag_a", "ag_b"} {
+		if _, err := d.Create(ctx, sandbox.Spec{AgentID: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unlock, err := d.lock(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.beginSuspend("ag_a")
+	unlock()
+	quick := func(what string, fn func() error) {
+		t.Helper()
+		done := make(chan error, 1)
+		go func() { done <- fn() }()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("%s: %v", what, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s waited for another machine's sleep", what)
+		}
+	}
+	quick("status of the sleeping machine", func() error {
+		st, err := d.Status(ctx, "ag_a")
+		if err == nil && st.State != sandbox.StateRunning {
+			err = fmt.Errorf("state %s", st.State)
+		}
+		return err
+	})
+	quick("status of another machine", func() error { _, err := d.Status(ctx, "ag_b"); return err })
+	quick("create", func() error { _, err := d.Create(ctx, sandbox.Spec{AgentID: "ag_c"}); return err })
+	quick("destroy of another machine", func() error { return d.Destroy(ctx, "ag_c", sandbox.DestroyOpts{}) })
+	destroyed := make(chan error, 1)
+	go func() { destroyed <- d.Destroy(ctx, "ag_a", sandbox.DestroyOpts{}) }()
+	select {
+	case err := <-destroyed:
+		t.Fatalf("destroy of the sleeping machine did not wait: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	unlock, err = d.lock(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.endSuspend("ag_a")
+	unlock()
+	select {
+	case err := <-destroyed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("destroy did not go on after the sleep")
 	}
 }

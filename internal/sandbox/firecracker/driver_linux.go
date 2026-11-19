@@ -40,6 +40,9 @@ type Driver struct {
 	// without the driver lock held, so nothing else may start or remove them.
 	cloningMu sync.Mutex
 	cloning   map[sandbox.ID]int
+	// suspending are the machines a sleep is snapshotting without the driver
+	// lock (see lockIdle); the channel closes when it is done.
+	suspending map[sandbox.ID]chan struct{}
 	// destinations are the ids a Clone is currently writing (see claimDestination).
 	destinations map[sandbox.ID]chan struct{}
 }
@@ -380,6 +383,10 @@ func (d *Driver) Status(ctx context.Context, id sandbox.ID) (sandbox.Status, err
 	if err != nil {
 		return sandbox.Status{}, err
 	}
+	if d.suspendingNow(id) != nil {
+		// Running until its sleep is done; its VM is paused on purpose.
+		return sandbox.Status{State: sandbox.StateRunning, Subnet: m.Subnet, GatewayIP: m.Subnet.Addr().Next().String()}, nil
+	}
 	running, err := d.running(m)
 	if err != nil {
 		return sandbox.Status{}, err
@@ -390,7 +397,7 @@ func (d *Driver) Status(ctx context.Context, id sandbox.ID) (sandbox.Status, err
 			return sandbox.Status{}, e
 		}
 		if state == "Paused" {
-			d.unpause(ctx, id, m)
+			d.unpause(ctx, id, m, sandbox.Boot{})
 		}
 		if state != "Running" && state != "Paused" {
 			if e = d.kill(m); e != nil {
@@ -416,7 +423,7 @@ func (d *Driver) Status(ctx context.Context, id sandbox.ID) (sandbox.Status, err
 
 // Attach implements sandbox.Attacher.
 func (d *Driver) Attach(ctx context.Context, id sandbox.ID) error {
-	unlock, err := d.lock(ctx)
+	unlock, err := d.lockIdle(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -460,7 +467,7 @@ func (d *Driver) Start(ctx context.Context, id sandbox.ID, boot sandbox.Boot) er
 		return ctx.Err()
 	}
 	d.cfg.Log.Warn("resumed guest did not reconnect; cold booting", "sandbox", id, "err", err)
-	unlock, err := d.lock(ctx)
+	unlock, err := d.lockIdle(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -487,7 +494,7 @@ func (d *Driver) Start(ctx context.Context, id sandbox.ID, boot sandbox.Boot) er
 // start boots or resumes the VM with the driver lock held. It returns the
 // resumed VMM's process when it resumed one.
 func (d *Driver) start(ctx context.Context, id sandbox.ID, boot sandbox.Boot, allowResume bool) (resumed *process, err error) {
-	unlock, err := d.lock(ctx)
+	unlock, err := d.lockIdle(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -509,7 +516,7 @@ func (d *Driver) start(ctx context.Context, id sandbox.ID, boot sandbox.Boot, al
 			return nil, e
 		}
 		if state == "Paused" {
-			d.unpause(ctx, id, m)
+			d.unpause(ctx, id, m, boot)
 		}
 		if state == "Running" || state == "Paused" {
 			return nil, nil
@@ -575,24 +582,44 @@ func (d *Driver) start(ctx context.Context, id sandbox.ID, boot sandbox.Boot, al
 
 // Stop implements sandbox.Driver.
 func (d *Driver) Stop(ctx context.Context, id sandbox.ID) error {
-	unlock, err := d.lock(ctx)
+	unlock, err := d.lockIdle(ctx, id)
 	if err != nil {
 		return err
 	}
-	defer unlock()
 	m, err := d.load(id)
 	if err != nil {
+		unlock()
 		return err
 	}
-	if running, e := d.running(m); e == nil && running && d.canSnapshot(m) {
-		if err = d.suspend(ctx, id, m); err == nil {
-			return nil
+	if running, e := d.running(m); e == nil && running && d.canSnapshot(m) && d.notCloning(id) == nil {
+		// The snapshot takes seconds: other machines' operations go on, this
+		// one's wait (lockIdle), and Status reports it running meanwhile.
+		d.beginSuspend(id)
+		unlock()
+		err = d.suspend(ctx, id, m)
+		relock, lerr := d.lock(context.WithoutCancel(ctx))
+		d.endSuspend(id)
+		if lerr != nil {
+			return errors.Join(err, lerr)
+		}
+		unlock = relock
+		if err == nil {
+			// finish only now, under the lock: network, jail, cgroup.
+			err = d.finish(context.WithoutCancel(ctx), id, m)
+			unlock()
+			return err
 		}
 		d.cfg.Log.Warn("sleep without a memory snapshot", "sandbox", id, "err", err)
 		if ctx.Err() != nil {
+			unlock()
 			return ctx.Err()
 		}
+		if m, err = d.load(id); err != nil {
+			unlock()
+			return err
+		}
 	}
+	defer unlock()
 	return d.stop(ctx, id, m)
 }
 
@@ -638,7 +665,7 @@ func (d *Driver) stop(ctx context.Context, id sandbox.ID, m *manifest) error {
 
 // Destroy implements sandbox.Driver.
 func (d *Driver) Destroy(ctx context.Context, id sandbox.ID, opts sandbox.DestroyOpts) error {
-	unlock, err := d.lock(ctx)
+	unlock, err := d.lockIdle(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -684,7 +711,7 @@ func (d *Driver) Rebuild(ctx context.Context, id sandbox.ID, s sandbox.Spec) err
 	if string(id) != s.AgentID {
 		return errors.New("reset system: sandbox id does not match agent")
 	}
-	unlock, err := d.lock(ctx)
+	unlock, err := d.lockIdle(ctx, id)
 	if err != nil {
 		return err
 	}

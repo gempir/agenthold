@@ -6,9 +6,10 @@ package firecracker
 //
 // Sleep (Stop with Config.Snapshots): sandboxd flushes the guest's
 // filesystems (tunnel op "suspend"), the balloon is inflated to the guest's
-// free memory, the VM is paused, Firecracker writes a full snapshot (vmstate
-// and memory file) into <dir>/snapshot through the jail's /snap bind mount,
-// and the VMM is killed. snapshot.json, written last, makes the snapshot
+// free memory, sandboxd syncs once more, the VM is paused, Firecracker
+// writes a full snapshot (vmstate and memory file) into <dir>/snapout (the
+// jail's /snap), and the VMM is killed. The host then moves the files into
+// <dir>/snapshot and writes snapshot.json last, which makes the snapshot
 // valid: it records what a resume must find unchanged (Firecracker, kernel,
 // sandboxd, host CPU and kernel, VM shape, base image, disk sizes and mtimes).
 //
@@ -29,7 +30,20 @@ package firecracker
 //
 // While a resumed VM runs, its memory file stays in <dir>/snapshot: it is
 // Firecracker's MAP_PRIVATE backing of guest memory. It is removed when that
-// VMM exits, or replaced by the next snapshot (written as *.new first).
+// VMM exits, or replaced by the next snapshot.
+//
+// Trust: <dir>/snapout is writable by the VMM user (Firecracker creates the
+// snapshot files there), so the host never opens, binds or renames anything
+// there by path as root. It opens each file it expects without following
+// symlinks and without blocking, checks it is a regular file of the VMM user
+// with one link, and works on that descriptor only (punch, fsync, chown to
+// root, renameat into the store). <dir>/snapshot is the store: root's, 0700,
+// never mounted writable into a jail; resume binds its files read-only. The
+// VMM user can read them through its group.
+//
+// The slow part of a sleep runs without the driver lock: the machine is
+// marked suspending, and every other operation on it waits for the mark to
+// go (Status answers "running" without touching the VM).
 
 import (
 	"bufio"
@@ -40,7 +54,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -55,10 +68,15 @@ import (
 
 const (
 	snapshotDirName  = "snapshot"
+	snapOutDirName   = "snapout"
 	snapshotManifest = "snapshot.json"
 	snapshotFormat   = 1
-	// jailSnapDir is where <dir>/snapshot is bind-mounted inside the jail.
+	// jailSnapDir is where <dir>/snapout is bind-mounted inside the jail;
+	// jailVMState and jailMemory are the store's files, bound read-only for
+	// a resume.
 	jailSnapDir = "snap"
+	jailVMState = "snap-vmstate"
+	jailMemory  = "snap-memory"
 	// vsockPath is the vsock device's Unix socket inside the jail. It is part
 	// of the snapshot: it must not change.
 	vsockPath = "/v.sock"
@@ -113,6 +131,53 @@ type hostIdentity struct {
 }
 
 func (d *Driver) snapDir(id sandbox.ID) string { return filepath.Join(d.dir(id), snapshotDirName) }
+func (d *Driver) snapOut(id sandbox.ID) string { return filepath.Join(d.dir(id), snapOutDirName) }
+
+// beginSuspend marks id as being snapshotted until endSuspend. Callers hold
+// the driver lock for both.
+func (d *Driver) beginSuspend(id sandbox.ID) {
+	d.cloningMu.Lock()
+	defer d.cloningMu.Unlock()
+	if d.suspending == nil {
+		d.suspending = map[sandbox.ID]chan struct{}{}
+	}
+	d.suspending[id] = make(chan struct{})
+}
+
+func (d *Driver) endSuspend(id sandbox.ID) {
+	d.cloningMu.Lock()
+	defer d.cloningMu.Unlock()
+	if ch, ok := d.suspending[id]; ok {
+		delete(d.suspending, id)
+		close(ch)
+	}
+}
+
+func (d *Driver) suspendingNow(id sandbox.ID) chan struct{} {
+	d.cloningMu.Lock()
+	defer d.cloningMu.Unlock()
+	return d.suspending[id]
+}
+
+// lockIdle takes the driver lock once id is not being snapshotted.
+func (d *Driver) lockIdle(ctx context.Context, id sandbox.ID) (func(), error) {
+	for {
+		unlock, err := d.lock(ctx)
+		if err != nil {
+			return nil, err
+		}
+		ch := d.suspendingNow(id)
+		if ch == nil {
+			return unlock, nil
+		}
+		unlock()
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
 
 func fileSHA256(path string) (string, error) {
 	f, err := os.Open(path)
@@ -197,6 +262,15 @@ func (d *Driver) diskStamps(id sandbox.ID) (map[string]diskStamp, error) {
 
 // readSnapshot returns the machine's valid snapshot, nil if it has none.
 func (d *Driver) readSnapshot(id sandbox.ID) (*snapshotInfo, error) {
+	var st unix.Stat_t
+	if err := unix.Lstat(d.snapDir(id), &st); errors.Is(err, unix.ENOENT) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	if st.Mode&unix.S_IFMT != unix.S_IFDIR || st.Uid != uint32(os.Geteuid()) || st.Mode&0o077 != 0 {
+		return nil, errors.New("snapshot store is not a private directory of the driver")
+	}
 	data, err := os.ReadFile(filepath.Join(d.snapDir(id), snapshotManifest))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -278,24 +352,18 @@ func (d *Driver) discardSnapshot(id sandbox.ID) error {
 	if err := syncDir(dir); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	return os.RemoveAll(dir)
+	return errors.Join(os.RemoveAll(dir), os.RemoveAll(dir+".pending"), os.RemoveAll(d.snapOut(id)))
 }
 
 // cleanSnapshotFiles removes what a stopped machine keeps of an invalid,
 // consumed or half-written snapshot (finish calls it; the VMM has exited).
 func (d *Driver) cleanSnapshotFiles(id sandbox.ID) error {
-	s, err := d.readSnapshot(id)
-	if err == nil && s != nil {
-		dir := d.snapDir(id)
-		var errs []error
-		for _, name := range []string{"vmstate.new", "memory.new"} {
-			if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
-				errs = append(errs, err)
-			}
-		}
-		return errors.Join(errs...)
+	// What the VMM wrote and the host did not take is never trusted.
+	err := errors.Join(os.RemoveAll(d.snapOut(id)), os.RemoveAll(d.snapDir(id)+".pending"))
+	if s, e := d.readSnapshot(id); e == nil && s != nil {
+		return err
 	}
-	return os.RemoveAll(d.snapDir(id))
+	return errors.Join(err, os.RemoveAll(d.snapDir(id)))
 }
 
 // SnapshotBytes is the disk space all snapshot files of this node take,
@@ -310,9 +378,12 @@ func (d *Driver) SnapshotBytes() (int64, error) {
 		if !e.IsDir() {
 			continue
 		}
-		files, err := os.ReadDir(filepath.Join(d.cfg.DataDir, "agents", e.Name(), snapshotDirName))
-		if err != nil {
-			continue
+		var files []os.DirEntry
+		for _, sub := range []string{snapshotDirName, snapOutDirName} {
+			fs, err := os.ReadDir(filepath.Join(d.cfg.DataDir, "agents", e.Name(), sub))
+			if err == nil {
+				files = append(files, fs...)
+			}
 		}
 		for _, f := range files {
 			info, err := f.Info()
@@ -330,7 +401,11 @@ func (d *Driver) SnapshotBytes() (int64, error) {
 }
 
 // snapshotRoom fails when a snapshot of memMiB would break the node's cap or
-// its free-space reserve.
+// its free-space reserve. It is deliberately conservative: it asks for the
+// full memory size although the stored file ends up sparse (Firecracker writes
+// it fully allocated before the zero pages are punched, so that much must be
+// free for a moment), and the node's total counts the memory files backing
+// resumed VMs, including the one this snapshot will replace.
 func (d *Driver) snapshotRoom(memMiB int64) error {
 	need := memMiB << 20
 	if d.cfg.SnapshotMaxBytes > 0 {
@@ -359,7 +434,8 @@ func (d *Driver) canSnapshot(m *manifest) bool {
 
 // suspend snapshots a running VM and stops its VMM. On error the VM is left
 // running (resumed, if it was paused) or stopped; the caller then shuts it
-// down the cold way. The driver lock is held.
+// down the cold way. It runs without the driver lock, with id marked
+// suspending; the caller calls finish afterwards, under the lock.
 func (d *Driver) suspend(ctx context.Context, id sandbox.ID, m *manifest) (err error) {
 	started := time.Now()
 	_, mem, vcpus := resources(m)
@@ -384,6 +460,15 @@ func (d *Driver) suspend(ctx context.Context, id sandbox.ID, m *manifest) (err e
 	var balloon int64
 	if m.Balloon {
 		balloon = d.inflate(ctx, a, mem)
+		// The guest ran on while the balloon grew: flush again right before
+		// the pause.
+		sctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err = d.cfg.Suspend(sctx, id)
+		cancel()
+		if err != nil {
+			d.deflate(ctx, a, balloon)
+			return fmt.Errorf("sandboxd suspend: %w", err)
+		}
 	}
 	tPaused := time.Now()
 	if err = a.patch(ctx, "/vm", map[string]string{"state": "Paused"}); err != nil {
@@ -394,8 +479,7 @@ func (d *Driver) suspend(ctx context.Context, id sandbox.ID, m *manifest) (err e
 	defer func() {
 		if err != nil {
 			// The VM still runs from its disks: undo the pause and the balloon.
-			_ = os.Remove(filepath.Join(dir, "vmstate.new"))
-			_ = os.Remove(filepath.Join(dir, "memory.new"))
+			// (Partial files in the outbox go at finish.)
 			if alive, _ := d.running(m); alive {
 				_ = a.patch(context.WithoutCancel(ctx), "/vm", map[string]string{"state": "Resumed"})
 				d.deflate(context.WithoutCancel(ctx), a, balloon)
@@ -425,10 +509,7 @@ func (d *Driver) suspend(ctx context.Context, id sandbox.ID, m *manifest) (err e
 	}
 	// From here a failure must not resume the VM (it is gone): the caller's
 	// cold stop finds it stopped and finish removes the partial files.
-	if err = d.finalizeSnapshot(id, &info); err != nil {
-		return errors.Join(err, d.finish(context.WithoutCancel(ctx), id, m))
-	}
-	if err = d.finish(context.WithoutCancel(ctx), id, m); err != nil {
+	if err = d.finalizeSnapshot(id, m, &info); err != nil {
 		return err
 	}
 	d.cfg.Log.Info("snapshot taken", "sandbox", id, "memoryMib", mem, "balloonMib", balloon,
@@ -500,47 +581,66 @@ func isZero(b []byte) bool {
 	return true
 }
 
-// finalizeSnapshot moves the written files into place and writes the
-// manifest last. The VMM has exited.
-func (d *Driver) finalizeSnapshot(id sandbox.ID, info *snapshotInfo) error {
-	dir := d.snapDir(id)
+// finalizeSnapshot moves the written files from the outbox into the store,
+// fsyncs the disks and writes the manifest last. The VMM has exited (it was
+// killed and waited for), and no other process runs as its user, so nothing
+// changes the outbox while this runs; the files are still checked through
+// their descriptors (see the trust note above).
+func (d *Driver) finalizeSnapshot(id sandbox.ID, m *manifest, info *snapshotInfo) error {
+	store := d.snapDir(id)
+	if err := os.RemoveAll(store + ".pending"); err != nil {
+		return err
+	}
+	// A fresh store: a resumed VM's files (vmstate, memory backing a VMM that
+	// has exited, config drive) are replaced, the config drive moved over.
+	if err := os.Mkdir(store+".pending", 0o700); err != nil {
+		return err
+	}
+	pending := store + ".pending"
+	defer os.RemoveAll(pending)
+	out, err := openDir(d.snapOut(id))
+	if err != nil {
+		return err
+	}
+	defer unix.Close(out)
+	dst, err := openDir(pending)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(dst)
 	for _, name := range []string{"vmstate", "memory"} {
-		f, err := os.OpenFile(filepath.Join(dir, name+".new"), os.O_RDWR, 0)
+		size, err := takeFile(out, name+".new", dst, name, m.UID, m.GID, name == "memory")
 		if err != nil {
-			return err
-		}
-		if name == "memory" {
-			err = punchZeros(f)
-		}
-		var st os.FileInfo
-		if err == nil {
-			st, err = f.Stat()
-		}
-		if err == nil {
-			err = f.Sync()
-		}
-		_ = f.Close()
-		if err != nil {
-			return err
+			return fmt.Errorf("snapshot %s: %w", name, err)
 		}
 		if name == "vmstate" {
-			info.VMStateBytes = st.Size()
+			info.VMStateBytes = size
 		} else {
-			info.MemoryBytes = st.Size()
-		}
-		// Replaces the file that backed a resumed VM's memory, if any.
-		if err := os.Rename(filepath.Join(dir, name+".new"), filepath.Join(dir, name)); err != nil {
-			return err
+			info.MemoryBytes = size
 		}
 	}
 	// The config drive is part of the VM: a resume attaches the same file.
-	// A cold-booted VM's is in the machine's directory; a resumed VM's is
-	// already in the snapshot directory.
-	if err := os.Rename(filepath.Join(d.dir(id), "config.img"), filepath.Join(dir, "config.img")); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+	// A cold-booted VM's is in the machine's directory (root's); a resumed
+	// VM's is in the store.
+	config := filepath.Join(d.dir(id), "config.img")
+	if _, err := os.Lstat(config); errors.Is(err, os.ErrNotExist) {
+		config = filepath.Join(store, "config.img")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "config.img")); err != nil {
-		return err
+	if err := moveRootFile(config, filepath.Join(pending, "config.img"), m.GID, 0o440); err != nil {
+		return fmt.Errorf("snapshot config drive: %w", err)
+	}
+	// Firecracker flushed its writes; make them durable on the host before
+	// the manifest says the disks belong to this snapshot.
+	for _, name := range diskNames {
+		f, err := os.Open(filepath.Join(d.dir(id), name))
+		if err != nil {
+			return err
+		}
+		err = f.Sync()
+		_ = f.Close()
+		if err != nil {
+			return fmt.Errorf("sync %s: %w", name, err)
+		}
 	}
 	disks, err := d.diskStamps(id)
 	if err != nil {
@@ -551,7 +651,94 @@ func (d *Driver) finalizeSnapshot(id sandbox.ID, info *snapshotInfo) error {
 	if err != nil {
 		return err
 	}
-	return atomicWrite(filepath.Join(dir, snapshotManifest), data, 0o600)
+	if err := atomicWrite(filepath.Join(pending, snapshotManifest), data, 0o600); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(store); err != nil {
+		return err
+	}
+	if err := os.Rename(pending, store); err != nil {
+		return err
+	}
+	return syncDir(d.dir(id))
+}
+
+// fchownRoot gives a file to root (the driver), group gid. Unprivileged
+// unit tests replace it.
+var fchownRoot = func(fd int, gid uint32) error { return unix.Fchown(fd, 0, int(gid)) }
+
+func openDir(path string) (int, error) {
+	return unix.Open(path, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+}
+
+// takeFile moves name from the VMM-writable directory fromDir into the
+// root-owned toDir as to: opened without following symlinks or blocking
+// (a FIFO), it must be a regular file of uid with one link; it is punched
+// (punch), fsynced, given to root (group gid, 0640: the VMM reads it on
+// resume) and renamed, and the renamed entry must be the same file.
+func takeFile(fromDir int, name string, toDir int, to string, uid, gid uint32, punch bool) (int64, error) {
+	fd, err := unix.Openat(fromDir, name, unix.O_RDWR|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return 0, err
+	}
+	f := os.NewFile(uintptr(fd), name)
+	defer f.Close()
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		return 0, err
+	}
+	if st.Mode&unix.S_IFMT != unix.S_IFREG || st.Uid != uid || st.Nlink != 1 {
+		return 0, fmt.Errorf("%s is not a regular file of the VMM user", name)
+	}
+	if punch {
+		if err := punchZeros(f); err != nil {
+			return 0, err
+		}
+	}
+	if err := f.Sync(); err != nil {
+		return 0, err
+	}
+	if err := fchownRoot(fd, gid); err != nil {
+		return 0, err
+	}
+	if err := unix.Fchmod(fd, 0o640); err != nil {
+		return 0, err
+	}
+	if err := unix.Renameat(fromDir, name, toDir, to); err != nil {
+		return 0, err
+	}
+	var moved unix.Stat_t
+	if err := unix.Fstatat(toDir, to, &moved, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		return 0, err
+	}
+	if moved.Dev != st.Dev || moved.Ino != st.Ino {
+		return 0, fmt.Errorf("%s changed while it was moved", name)
+	}
+	return st.Size, unix.Fsync(toDir)
+}
+
+// moveRootFile renames a file between root-owned directories and makes it
+// root's (group gid, mode).
+func moveRootFile(from, to string, gid uint32, mode uint32) error {
+	fd, err := unix.Open(from, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(fd)
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		return err
+	}
+	if st.Mode&unix.S_IFMT != unix.S_IFREG {
+		return fmt.Errorf("%s is not a regular file", from)
+	}
+	if err := fchownRoot(fd, gid); err != nil {
+		return err
+	}
+	if err := unix.Fchmod(fd, mode); err != nil {
+		return err
+	}
+	return os.Rename(from, to)
 }
 
 type balloonStats struct {
@@ -612,7 +799,11 @@ func (d *Driver) deflate(ctx context.Context, a *api, balloon int64) {
 // unpause resumes a VM found paused with the driver lock held: only suspend
 // pauses, under the lock, so a node died while it snapshotted the VM. The VM
 // runs on from its disks; its half-written snapshot goes at its next stop.
-func (d *Driver) unpause(ctx context.Context, id sandbox.ID, m *manifest) {
+//
+// The guest then gets a resume message: the host clock (it lagged while the
+// VM was paused) and boot's token if it has one. Without (Status), sandboxd
+// keeps its token, which the node still accepts, and redials at once.
+func (d *Driver) unpause(ctx context.Context, id sandbox.ID, m *manifest, boot sandbox.Boot) {
 	d.cfg.Log.Warn("found a paused VM (interrupted sleep); resuming it", "sandbox", id)
 	a := newAPI(d.socket(id))
 	defer a.close()
@@ -622,6 +813,15 @@ func (d *Driver) unpause(ctx context.Context, id sandbox.ID, m *manifest) {
 	}
 	if m.Balloon {
 		d.deflate(ctx, a, 1)
+	}
+	if !m.Resumable {
+		return
+	}
+	if boot.AgentID == "" {
+		boot = sandbox.Boot{AgentID: m.Spec.AgentID}
+	}
+	if _, err := d.sendResume(ctx, id, boot); err != nil {
+		d.cfg.Log.Warn("resume message to a VM that was left paused", "sandbox", id, "err", err)
 	}
 }
 
@@ -676,8 +876,8 @@ func (d *Driver) resume(ctx context.Context, id sandbox.ID, m *manifest, boot sa
 	loadCtx, cancel := context.WithTimeout(ctx, d.cfg.SnapshotTimeout)
 	defer cancel()
 	if err = newAPI(d.socket(id)).slow(d.cfg.SnapshotTimeout).put(loadCtx, "/snapshot/load", map[string]any{
-		"snapshot_path": "/" + jailSnapDir + "/vmstate",
-		"mem_backend":   map[string]string{"backend_type": "File", "backend_path": "/" + jailSnapDir + "/memory"},
+		"snapshot_path": "/" + jailVMState,
+		"mem_backend":   map[string]string{"backend_type": "File", "backend_path": "/" + jailMemory},
 		"resume_vm":     true,
 	}); err != nil {
 		return false, err
@@ -725,7 +925,7 @@ func (d *Driver) sendResume(ctx context.Context, id sandbox.ID, boot sandbox.Boo
 
 func (d *Driver) trySendResume(ctx context.Context, id sandbox.ID, boot sandbox.Boot) (sandboxd.ResumeReply, error) {
 	var reply sandboxd.ResumeReply
-	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(d.jailRoot(id), strings.TrimPrefix(vsockPath, "/")))
+	conn, err := dialSocket(ctx, filepath.Join(d.jailRoot(id), strings.TrimPrefix(vsockPath, "/")))
 	if err != nil {
 		return reply, err
 	}

@@ -430,7 +430,8 @@ func TestAppTools(t *testing.T) {
 		t.Fatalf("served: %d %q", r.status, r.body)
 	}
 	// Apps are not agents to message.
-	if out, _ := e.tool(ag, "list_agents", nil); strings.Contains(out, "web") {
+	// Match the name field: agent ids are random and can contain "web" by chance.
+	if out, _ := e.tool(ag, "list_agents", nil); strings.Contains(out, `"name": "web"`) {
 		t.Fatalf("list_agents shows the app: %s", out)
 	}
 	if out, err = e.tool(ag, "list_apps", nil); err != nil || !strings.Contains(out, `"createdByYou": "yes"`) || strings.Contains(out, `"id"`) {

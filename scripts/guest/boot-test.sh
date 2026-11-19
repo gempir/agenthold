@@ -304,9 +304,17 @@ table ip agenthold_boottest {
   chain boottest_forward { type filter hook forward priority 0; iifname "$TAP" accept; oifname "$TAP" ct state established,related accept; }
 }
 NFT
+  # The command documented for running Docker in a machine (start_service name=docker command=...):
+  # dockerd's own managed containerd gets only 15 s to open its socket, which a cold first start in a
+  # small VM can exceed (dockerd then exits with "timeout waiting for containerd to start"), so
+  # containerd runs next to it and dockerd waits for it as long as it needs.
+  DOCKER_SERVICE_CMD='sudo sh -c '"'"'containerd & until [ -S /run/containerd/containerd.sock ]; do sleep 0.2; done; exec dockerd --containerd=/run/containerd/containerd.sock'"'"
+  DOCKER_START="setsid $DOCKER_SERVICE_CMD >/var/log/dockerd.log 2>&1 </dev/null &"
+  DOCKER_START_B64="$(printf '%s' "$DOCKER_START" | base64 -w0)"
+  DOCKER_WAIT='for i in $(seq 1 300); do [ -S /var/run/docker.sock ] && sudo docker version --format "{{.Server.Version}}" >/dev/null 2>&1 && break; sleep 1; done; sudo docker version --format "{{.Server.Version}}" || { sudo tail -60 /var/log/dockerd.log; ps -eo pid,stat,cmd | grep -E "docker|containerd"; exit 1; }; sudo docker info --format "server={{.ServerVersion}} storage={{.Driver}} cgroup={{.CgroupDriver}}/v{{.CgroupVersion}}"'
   boot docker 2048 -dns "$HOST_IP:53" -cmd-timeout 15m \
     -run 'sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker.io >/tmp/apt.log 2>&1; echo apt=$?; tail -3 /tmp/apt.log; docker --version' \
-    -run 'echo "cgroup: $(cat /proc/self/cgroup)"; sudo sh -c "setsid dockerd --debug >/var/log/dockerd.log 2>&1 </dev/null &"; for i in $(seq 1 120); do sudo docker version --format "{{.Server.Version}}" >/dev/null 2>&1 && break; sleep 0.5; done; sudo docker version --format "{{.Server.Version}}" || { sudo tail -60 /var/log/dockerd.log; echo --- containerd; sudo tail -40 /run/docker/containerd/containerd.log; echo --- cgroups; cat /proc/self/cgroup; sudo cat /sys/fs/cgroup/cgroup.subtree_control; ls -la /run/docker /run/containerd; exit 1; }; sudo docker info --format "server={{.ServerVersion}} storage={{.Driver}} cgroup={{.CgroupDriver}}/v{{.CgroupVersion}}"' \
+    -run "echo $DOCKER_START_B64 | base64 -d | sh; $DOCKER_WAIT" \
     -run 'sudo docker run --rm hello-world 2>&1 | grep -m1 "Hello from Docker"' \
     -run 'sudo docker run --rm busybox sh -c "nslookup deb.debian.org >/dev/null && wget -qO /tmp/Release http://deb.debian.org/debian/dists/trixie/Release && head -3 /tmp/Release"' \
     -run 'sudo grep -iE "level=(warn|error)" /var/log/dockerd.log | cut -c1-300 | head -20; true' \

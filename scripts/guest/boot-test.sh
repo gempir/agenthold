@@ -188,7 +188,7 @@ boot() {
   fcapi /drives/base "{\"drive_id\": \"base\", \"path_on_host\": \"$BASE\", \"is_root_device\": false, \"is_read_only\": true}"
   fcapi /drives/overlay "{\"drive_id\": \"overlay\", \"path_on_host\": \"$OVERLAY\", \"is_root_device\": false, \"is_read_only\": false}"
   fcapi /drives/home "{\"drive_id\": \"home\", \"path_on_host\": \"$HOME_DISK\", \"is_root_device\": false, \"is_read_only\": false}"
-  fcapi /drives/config "{\"drive_id\": \"config\", \"path_on_host\": \"$RUN/config.img\", \"is_root_device\": false, \"is_read_only\": true}"
+  fcapi /drives/config "{\"drive_id\": \"config\", \"path_on_host\": \"${CONFIG_IMG:-$RUN/config.img}\", \"is_root_device\": false, \"is_read_only\": true}"
   fcapi /network-interfaces/eth0 "{\"iface_id\": \"eth0\", \"guest_mac\": \"$GUEST_MAC\", \"host_dev_name\": \"$TAP\"}"
   T_START=$(ms)
   fcapi /actions '{"action_type": "InstanceStart"}'
@@ -304,27 +304,35 @@ table ip agenthold_boottest {
   chain boottest_forward { type filter hook forward priority 0; iifname "$TAP" accept; oifname "$TAP" ct state established,related accept; }
 }
 NFT
-  # The command documented for running Docker in a machine (start_service name=docker command=...):
-  # dockerd's own managed containerd gets only 15 s to open its socket, which a cold first start in a
-  # small VM can exceed (dockerd then exits with "timeout waiting for containerd to start"), so
-  # containerd runs next to it and dockerd waits for it as long as it needs.
+  # The command documented for running Docker in a machine (a service named docker, see Docker in a
+  # machine in the docs): dockerd's own managed containerd gets only 15 s to open its socket, which a
+  # cold first start in a small VM can exceed (dockerd then exits with "timeout waiting for containerd
+  # to start"), so containerd runs next to it and dockerd waits for it as long as it needs.
   DOCKER_SERVICE_CMD='sudo sh -c '"'"'containerd & until [ -S /run/containerd/containerd.sock ]; do sleep 0.2; done; exec dockerd --containerd=/run/containerd/containerd.sock'"'"
-  DOCKER_START="setsid $DOCKER_SERVICE_CMD >/tmp/dockerd.log 2>&1 </dev/null &"
-  DOCKER_START_B64="$(printf '%s' "$DOCKER_START" | base64 -w0)"
-  DOCKER_WAIT='for i in $(seq 1 300); do [ -S /var/run/docker.sock ] && sudo docker version --format "{{.Server.Version}}" >/dev/null 2>&1 && break; sleep 1; done; sudo docker version --format "{{.Server.Version}}" || { tail -60 /tmp/dockerd.log; ps -eo pid,stat,cmd | grep -E "docker|containerd"; exit 1; }; sudo docker info --format "server={{.ServerVersion}} storage={{.Driver}} cgroup={{.CgroupDriver}}/v{{.CgroupVersion}}"'
-  boot docker 2048 -dns "$HOST_IP:53" -cmd-timeout 15m \
+  # Boot 1 installs Docker; boot 2 starts it as a supervised service from the boot services file, the way
+  # a machine does (a command's own background processes end with the command's cgroup).
+  boot dockerinstall 2048 -dns "$HOST_IP:53" -cmd-timeout 15m \
     -run 'sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker.io >/tmp/apt.log 2>&1; echo apt=$?; tail -3 /tmp/apt.log; docker --version' \
-    -run "echo $DOCKER_START_B64 | base64 -d | sh; $DOCKER_WAIT" \
+    -shutdown
+  check_conn dockerinstall
+  [[ "$(out dockerinstall 0)" == *"apt=0"* && "$(out dockerinstall 0)" == *"Docker version"* ]] && pass "docker: installed docker.io" || fail "docker: install: $(out dockerinstall 0 | tail -5)"
+  check_exit dockerinstall
+  jq -n --arg cmd "$DOCKER_SERVICE_CMD" '[{name: "docker", command: $cmd, enabled: true}]' >"$RUN/services.json"
+  "$TESTHOST" -write-config "$RUN/config-docker.img" -agent "$AGENT" -token "$TOKEN" -port "$TUNNEL_PORT" \
+    -hostname boottest -file "/etc/agenthold/services.json=$RUN/services.json"
+  DOCKER_WAIT='for i in $(seq 1 300); do [ -S /var/run/docker.sock ] && sudo docker version --format "{{.Server.Version}}" >/dev/null 2>&1 && break; sleep 1; done; sudo docker version --format "{{.Server.Version}}" || { tail -60 ~/.agenthold/services/docker/log; ps -eo pid,stat,cmd | grep -E "docker|containerd"; exit 1; }; sudo docker info --format "server={{.ServerVersion}} storage={{.Driver}} cgroup={{.CgroupDriver}}/v{{.CgroupVersion}}"'
+  CONFIG_IMG="$RUN/config-docker.img" boot docker 2048 -dns "$HOST_IP:53" -cmd-timeout 15m \
+    -run "$DOCKER_WAIT" \
     -run 'sudo docker run --rm hello-world 2>&1 | grep -m1 "Hello from Docker"' \
     -run 'sudo docker run --rm busybox sh -c "nslookup deb.debian.org >/dev/null && wget -qO /tmp/Release http://deb.debian.org/debian/dists/trixie/Release && head -3 /tmp/Release"' \
-    -run 'grep -iE "level=(warn|error)" /tmp/dockerd.log | cut -c1-300 | head -20; true' \
+    -run 'grep -iE "level=(warn|error)" ~/.agenthold/services/docker/log | cut -c1-300 | head -20; true' \
     -shutdown
   check_conn docker
   echo "--- docker results"
   jq -r '.results[] | "$ \(.cmd | .[0:80])...\n  exit \(.code)\n\(.stdout)\(.stderr)"' "$RUN/docker.json"
-  [[ "$(out docker 1)" == *"storage=overlay2"* && "$(out docker 1)" == *"/v2"* ]] && pass "docker: overlay2 on native ext4 and cgroup v2" || fail "docker: storage/cgroup setup failed"
-  [[ "$(code docker 2)" == 0 && "$(out docker 2)" == *"Hello from Docker"* ]] && pass "docker: hello-world ran" || fail "docker: hello-world failed"
-  [[ "$(code docker 3)" == 0 && "$(out docker 3)" == *"Origin: Debian"* ]] && pass "docker: container reached the internet" || fail "docker: container networking failed"
+  [[ "$(out docker 0)" == *"storage=overlay2"* && "$(out docker 0)" == *"/v2"* ]] && pass "docker: overlay2 on native ext4 and cgroup v2" || fail "docker: storage/cgroup setup failed"
+  [[ "$(code docker 1)" == 0 && "$(out docker 1)" == *"Hello from Docker"* ]] && pass "docker: hello-world ran" || fail "docker: hello-world failed"
+  [[ "$(code docker 2)" == 0 && "$(out docker 2)" == *"Origin: Debian"* ]] && pass "docker: container reached the internet" || fail "docker: container networking failed"
   check_exit docker
 fi
 

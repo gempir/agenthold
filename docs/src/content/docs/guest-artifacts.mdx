@@ -16,7 +16,7 @@ On macOS, [start the Lima dev VM](/development), then run these commands from th
 ```sh
 scripts/guest/build-kernel.sh
 scripts/guest/build-rootfs.sh
-scripts/guest/boot-test.sh --docker
+scripts/guest/boot-test.sh --docker        # --docker-only skips the four main boots
 ```
 
 Each script re-runs itself inside the `agenthold` VM. On Linux, run them directly; the kernel and
@@ -143,7 +143,8 @@ The boot test authenticates sandboxd, checks commands run as uid 1000 in `/home/
 files and environment, and writes both home and system files plus a dpkg-installed package. It
 boots the same disks again to check persistence, replaces only the overlay to check system reset,
 and tests shutdown from inside the guest. The optional Docker boot installs Debian's
-`26.1.5+dfsg1`, starts dockerd with overlay2 and cgroup v2, runs hello-world, and checks container DNS
+`26.1.5+dfsg1`, starts dockerd the way the docs tell machines to (containerd and dockerd in one command, from the
+agent's own cgroup), runs hello-world with overlay2 and cgroup v2, and checks container DNS
 and HTTP access to Debian. NAT and a small DNS relay exist only for this test; production egress
 uses the node's proxy. Reports and serial logs remain in `/var/lib/agenthold-boot-test` in Lima.
 
@@ -162,8 +163,8 @@ the second with a sandboxd-only change, produced exactly these bytes. The initra
 under 1 KiB of cpio headers. On one old base, four boots each: sandboxd started at 0.82–0.90 s guest uptime from
 the base (`init=`) and at 0.90–0.92 s from the initramfs (about 45 ms for unpacking and mounting the base); the
 tunnel connected after 2.04 s and 2.14 s on average, within the run-to-run spread. The Docker boot (`--docker`)
-currently fails in the same way with both boot paths: dockerd gives up waiting for its managed containerd, while
-containerd started by hand boots in one second.
+failed with both boot paths: dockerd gave up waiting for its managed containerd (see [Docker in a
+machine](/sandboxes/#docker-in-a-machine); fixed since).
 
 The amd64 build path and pins are present; amd64 is not built or KVM-tested by the project (the demo host is arm64), so amd64 users build from source.
 

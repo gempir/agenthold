@@ -23,6 +23,7 @@ const agent = (over: Partial<Agent> = {}): Agent => ({
   owner: me.user,
   harness: 'claude-code',
   model: '',
+  modelOptions: {},
   permissionPolicy: 'ask',
   credentialsInSandbox: false,
   login: { source: 'sandbox', connected: false, mine: false },

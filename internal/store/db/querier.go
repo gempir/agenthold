@@ -74,6 +74,7 @@ type Querier interface {
 	GetExposureByPort(ctx context.Context, arg GetExposureByPortParams) (Exposure, error)
 	GetIdentity(ctx context.Context, arg GetIdentityParams) (Identity, error)
 	GetMCPServer(ctx context.Context, id string) (McpServer, error)
+	GetModelCatalog(ctx context.Context, agentID string) (AgentModelCatalog, error)
 	GetNode(ctx context.Context, id string) (Node, error)
 	GetNodeByFingerprint(ctx context.Context, certFingerprint string) (Node, error)
 	GetPreviewSessionUser(ctx context.Context, arg GetPreviewSessionUserParams) (GetPreviewSessionUserRow, error)
@@ -138,6 +139,7 @@ type Querier interface {
 	ResetRunningSessions(ctx context.Context) error
 	SetAgentHarness(ctx context.Context, arg SetAgentHarnessParams) error
 	SetAgentLoginUser(ctx context.Context, arg SetAgentLoginUserParams) error
+	SetAgentModel(ctx context.Context, arg SetAgentModelParams) error
 	SetAgentTemplate(ctx context.Context, arg SetAgentTemplateParams) error
 	SetBootToken(ctx context.Context, arg SetBootTokenParams) error
 	SetExposurePort(ctx context.Context, arg SetExposurePortParams) error
@@ -153,6 +155,7 @@ type Querier interface {
 	SetSandboxSubnet(ctx context.Context, arg SetSandboxSubnetParams) error
 	SetServiceEnabled(ctx context.Context, arg SetServiceEnabledParams) (int64, error)
 	SetSessionACPID(ctx context.Context, arg SetSessionACPIDParams) error
+	SetSessionModel(ctx context.Context, arg SetSessionModelParams) error
 	SetSessionOrigin(ctx context.Context, arg SetSessionOriginParams) error
 	SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error
 	ShareAgent(ctx context.Context, arg ShareAgentParams) error
@@ -175,5 +178,6 @@ type Querier interface {
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
 	UpdateWebhook(ctx context.Context, arg UpdateWebhookParams) error
 	UpsertLocalNode(ctx context.Context, arg UpsertLocalNodeParams) error
+	UpsertModelCatalog(ctx context.Context, arg UpsertModelCatalogParams) error
 	UpsertService(ctx context.Context, arg UpsertServiceParams) error
 }

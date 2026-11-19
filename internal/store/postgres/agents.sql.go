@@ -130,7 +130,7 @@ func (q *Queries) DeleteAgent(ctx context.Context, id string) error {
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, permission_policy, credentials_in_sandbox, login_user_id, created_at, updated_at, is_template, cloned_from, kind, created_by_agent_id FROM agents WHERE id = $1
+SELECT id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, permission_policy, credentials_in_sandbox, login_user_id, created_at, updated_at, is_template, cloned_from, kind, created_by_agent_id, model_options FROM agents WHERE id = $1
 `
 
 func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
@@ -155,12 +155,13 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
 		&i.ClonedFrom,
 		&i.Kind,
 		&i.CreatedByAgentID,
+		&i.ModelOptions,
 	)
 	return i, err
 }
 
 const getAgentWithSandbox = `-- name: GetAgentWithSandbox :one
-SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, agents.is_template, agents.cloned_from, agents.kind, agents.created_by_agent_id, sandboxes.agent_id, sandboxes.node_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet, sandboxes.resume
+SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, agents.is_template, agents.cloned_from, agents.kind, agents.created_by_agent_id, agents.model_options, sandboxes.agent_id, sandboxes.node_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet, sandboxes.resume
 FROM agents JOIN sandboxes ON sandboxes.agent_id = agents.id
 WHERE agents.id = $1
 `
@@ -192,6 +193,7 @@ func (q *Queries) GetAgentWithSandbox(ctx context.Context, id string) (GetAgentW
 		&i.Agent.ClonedFrom,
 		&i.Agent.Kind,
 		&i.Agent.CreatedByAgentID,
+		&i.Agent.ModelOptions,
 		&i.Sandbox.AgentID,
 		&i.Sandbox.NodeID,
 		&i.Sandbox.Driver,
@@ -231,7 +233,7 @@ func (q *Queries) GetSandbox(ctx context.Context, agentID string) (Sandbox, erro
 }
 
 const listAllMachines = `-- name: ListAllMachines :many
-SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, agents.is_template, agents.cloned_from, agents.kind, agents.created_by_agent_id, sandboxes.agent_id, sandboxes.node_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet, sandboxes.resume, users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at
+SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, agents.is_template, agents.cloned_from, agents.kind, agents.created_by_agent_id, agents.model_options, sandboxes.agent_id, sandboxes.node_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet, sandboxes.resume, users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at
 FROM agents
 JOIN sandboxes ON sandboxes.agent_id = agents.id
 JOIN users ON users.id = agents.owner_id
@@ -273,6 +275,7 @@ func (q *Queries) ListAllMachines(ctx context.Context) ([]ListAllMachinesRow, er
 			&i.Agent.ClonedFrom,
 			&i.Agent.Kind,
 			&i.Agent.CreatedByAgentID,
+			&i.Agent.ModelOptions,
 			&i.Sandbox.AgentID,
 			&i.Sandbox.NodeID,
 			&i.Sandbox.Driver,
@@ -377,7 +380,7 @@ func (q *Queries) ListSandboxes(ctx context.Context) ([]Sandbox, error) {
 }
 
 const listUserAgents = `-- name: ListUserAgents :many
-SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, agents.is_template, agents.cloned_from, agents.kind, agents.created_by_agent_id, sandboxes.agent_id, sandboxes.node_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet, sandboxes.resume
+SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, agents.is_template, agents.cloned_from, agents.kind, agents.created_by_agent_id, agents.model_options, sandboxes.agent_id, sandboxes.node_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet, sandboxes.resume
 FROM agents JOIN sandboxes ON sandboxes.agent_id = agents.id
 WHERE agents.owner_id = $1
    OR agents.id IN (SELECT agent_shares.agent_id FROM agent_shares WHERE agent_shares.user_id = $1)
@@ -418,6 +421,7 @@ func (q *Queries) ListUserAgents(ctx context.Context, userID string) ([]ListUser
 			&i.Agent.ClonedFrom,
 			&i.Agent.Kind,
 			&i.Agent.CreatedByAgentID,
+			&i.Agent.ModelOptions,
 			&i.Sandbox.AgentID,
 			&i.Sandbox.NodeID,
 			&i.Sandbox.Driver,

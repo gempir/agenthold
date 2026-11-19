@@ -27,6 +27,14 @@ func init() {
 		// Claude Code keeps subscription logins here (Linux).
 		CredentialPaths: []string{".claude/.credentials.json"},
 		SkillsDir:       ".claude/skills",
-		Login:           logins{},
+		// Aliases ANTHROPIC_MODEL and the adapter's model option both resolve
+		// to the newest model of the family the account can use.
+		FallbackModels: []harness.Model{
+			{ID: "default", Name: "Default", Description: "The recommended model for the account", Group: "Claude"},
+			{ID: "opus", Name: "Opus", Description: "Newest Opus", Group: "Claude"},
+			{ID: "sonnet", Name: "Sonnet", Description: "Newest Sonnet", Group: "Claude"},
+			{ID: "haiku", Name: "Haiku", Description: "Newest Haiku", Group: "Claude"},
+		},
+		Login: logins{},
 	})
 }

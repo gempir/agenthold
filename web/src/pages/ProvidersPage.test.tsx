@@ -75,6 +75,7 @@ const agent = (login: Agent['login'], role: Agent['role']): Agent => ({
   owner: me.user,
   harness: 'claude-code',
   model: '',
+  modelOptions: {},
   permissionPolicy: 'ask',
   credentialsInSandbox: false,
   login,

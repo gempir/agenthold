@@ -125,7 +125,7 @@ func (q *Queries) GetService(ctx context.Context, arg GetServiceParams) (Service
 }
 
 const listAgentApps = `-- name: ListAgentApps :many
-SELECT id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, permission_policy, credentials_in_sandbox, login_user_id, created_at, updated_at, is_template, cloned_from, kind, created_by_agent_id FROM agents WHERE kind = 'app' AND created_by_agent_id = ? ORDER BY name, id
+SELECT id, owner_id, name, image, harness, model, cpus, memory_mb, idle_minutes, permission_policy, credentials_in_sandbox, login_user_id, created_at, updated_at, is_template, cloned_from, kind, created_by_agent_id, model_options FROM agents WHERE kind = 'app' AND created_by_agent_id = ? ORDER BY name, id
 `
 
 // Apps created by an agent.
@@ -157,6 +157,7 @@ func (q *Queries) ListAgentApps(ctx context.Context, createdByAgentID string) ([
 			&i.ClonedFrom,
 			&i.Kind,
 			&i.CreatedByAgentID,
+			&i.ModelOptions,
 		); err != nil {
 			return nil, err
 		}

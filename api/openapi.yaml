@@ -841,6 +841,24 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /agents/{agentId}/models:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listModels
+      tags: [sessions]
+      description: |
+        The models the agent's harness offers and their options (reasoning effort, fast mode), as the harness last
+        reported them, or agenthold's small fallback list for the harness when it never did. Does not wake the agent.
+      responses:
+        "200":
+          description: The model catalog.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelCatalog" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
   /agents/{agentId}/sessions:
     parameters:
       - $ref: "#/components/parameters/AgentId"
@@ -916,6 +934,30 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/model:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    put:
+      operationId: setSessionModel
+      tags: [sessions]
+      description: |
+        The session's own model and options. An empty model with no options returns the session to the agent's
+        default. It applies from the next message on (a running turn keeps its model).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ModelChoice" }
+      responses:
+        "200":
+          description: Set.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
 
   /sessions/{sessionId}/prompt:
     parameters:
@@ -2080,7 +2122,7 @@ components:
 
     Agent:
       type: object
-      required: [id, name, owner, harness, model, permissionPolicy, credentialsInSandbox, login, cpus, memoryMb, idleMinutes, state, stateError, stateChangedAt, needsRebuild, isTemplate, role, createdAt, updatedAt]
+      required: [id, name, owner, harness, model, modelOptions, permissionPolicy, credentialsInSandbox, login, cpus, memoryMb, idleMinutes, state, stateError, stateChangedAt, needsRebuild, isTemplate, role, createdAt, updatedAt]
       properties:
         id: { type: string }
         name: { type: string }
@@ -2097,7 +2139,11 @@ components:
         needsRebuild:
           type: boolean
           description: Resources or environment changed since the sandbox was built.
-        model: { type: string }
+        model: { type: string, description: The default model ('' is the harness's own default). }
+        modelOptions:
+          type: object
+          additionalProperties: { type: string }
+          description: Default model options, by harness config option id (see ModelCatalog).
         permissionPolicy: { type: string, enum: [auto-approve, ask] }
         credentialsInSandbox:
           type: boolean
@@ -2155,8 +2201,82 @@ components:
         memoryMb: { type: integer, format: int64 }
         idleMinutes: { type: integer, minimum: 1, maximum: 10080 }
         harness: { type: string, description: Harness id (see /harnesses). Default claude-code. }
-        model: { type: string }
+        model: { type: string, description: The default model. Changing the harness without a model resets it. }
+        modelOptions:
+          type: object
+          additionalProperties: { type: string }
+          description: Default model options, by harness config option id. Changing the harness resets them.
         permissionPolicy: { type: string, enum: [auto-approve, ask] }
+
+    ModelChoice:
+      type: object
+      required: [model]
+      properties:
+        model: { type: string, maxLength: 200, description: "Model id ('' keeps the default)." }
+        options:
+          type: object
+          additionalProperties: { type: string, maxLength: 100 }
+          description: Values by option id (ModelOption.id).
+
+    ModelCatalog:
+      type: object
+      required: [harness, source, switchable, customModels, models]
+      properties:
+        harness: { type: string }
+        source:
+          type: string
+          enum: [harness, fallback]
+          description: |
+            harness: what the harness reported the last time it ran (seenAt). fallback: agenthold's list for the
+            harness, shown until the harness has reported its own; it may not match what the account can use.
+        seenAt: { type: string, format: date-time, description: When the harness reported the list (source harness). }
+        switchable:
+          type: boolean
+          description: |
+            The harness switches models within a conversation, from the next message on. Otherwise a new default
+            applies when the harness restarts, and conversations cannot choose their own.
+        customModels:
+          type: boolean
+          description: The harness accepts model ids it does not list (OpenCode's provider/model).
+        models:
+          type: array
+          items: { $ref: "#/components/schemas/CatalogModel" }
+
+    CatalogModel:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        group: { type: string, description: Heading in the picker (provider or family). }
+        options:
+          type: array
+          description: The model's options; absent while unknown (the harness describes a model's options once it was used).
+          items: { $ref: "#/components/schemas/ModelOption" }
+
+    ModelOption:
+      type: object
+      required: [id, name, kind, values]
+      properties:
+        id: { type: string, description: The harness's config option id. }
+        name: { type: string }
+        description: { type: string }
+        kind:
+          type: string
+          enum: [effort, toggle]
+          description: "effort: reasoning effort levels. toggle: on/off (fast mode); its values are off then on."
+        values:
+          type: array
+          items: { $ref: "#/components/schemas/ModelOptionValue" }
+
+    ModelOptionValue:
+      type: object
+      required: [value, name]
+      properties:
+        value: { type: string }
+        name: { type: string }
+        description: { type: string }
 
     SandboxLimits:
       type: object
@@ -2368,6 +2488,9 @@ components:
             sessionId: { type: string, description: The other agent's session that sent the messages. }
         title: { type: string }
         running: { type: boolean }
+        model:
+          $ref: "#/components/schemas/ModelChoice"
+          description: The session's own model choice; absent when it uses the agent's default.
         createdBy: { $ref: "#/components/schemas/User" }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }

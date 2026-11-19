@@ -27,11 +27,19 @@ type Agent struct {
 	ClonedFrom           string
 	Kind                 string
 	CreatedByAgentID     string
+	ModelOptions         string
 }
 
 type AgentMcpServer struct {
 	AgentID  string
 	ServerID string
+}
+
+type AgentModelCatalog struct {
+	AgentID string
+	Harness string
+	Data    string
+	SeenAt  int64
 }
 
 type AgentSecret struct {
@@ -52,6 +60,8 @@ type AgentSession struct {
 	UpdatedAt       int64
 	OriginAgentID   string
 	OriginSessionID string
+	Model           string
+	ModelOptions    string
 }
 
 type AgentSessionEvent struct {

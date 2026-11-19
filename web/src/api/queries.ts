@@ -114,6 +114,19 @@ export const sessionsQuery = (agentId: string) =>
     retry: false,
   });
 
+/** The models of the agent's harness (what it last reported, or a fallback). */
+export const modelsQuery = (agentId: string) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'models'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/models', {
+          params: { path: { agentId } },
+        }),
+      ),
+    retry: false,
+  });
+
 export const harnessesQuery = queryOptions({
   queryKey: ['harnesses'],
   queryFn: () => unwrap(api.GET('/harnesses')),

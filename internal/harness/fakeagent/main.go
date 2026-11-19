@@ -257,9 +257,12 @@ func (a *agent) Initialize(context.Context, acp.InitializeRequest) (acp.Initiali
 	}
 	exe, _ := os.Executable()
 	return acp.InitializeResponse{
-		ProtocolVersion:   acp.ProtocolVersionNumber,
-		AgentInfo:         &acp.Implementation{Name: "fakeagent", Version: "1.0"},
-		AgentCapabilities: acp.AgentCapabilities{LoadSession: !a.flag("no-load"), McpCapabilities: acp.McpCapabilities{Http: true}},
+		ProtocolVersion: acp.ProtocolVersionNumber,
+		AgentInfo:       &acp.Implementation{Name: "fakeagent", Version: "1.0"},
+		AgentCapabilities: acp.AgentCapabilities{
+			LoadSession: !a.flag("no-load"), McpCapabilities: acp.McpCapabilities{Http: true},
+			SessionCapabilities: acp.SessionCapabilities{Close: &acp.SessionCloseCapabilities{}},
+		},
 		AuthMethods: []acp.AuthMethod{
 			{Terminal: &acp.AuthMethodTerminalInline{
 				Id: "fake-login", Name: "Fake subscription", Type: "terminal", Args: []string{"login"},

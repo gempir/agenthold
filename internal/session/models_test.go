@@ -240,3 +240,152 @@ func TestCatalogBounded(t *testing.T) {
 		t.Fatalf("%d options, %d values, name %d", len(out), len(out[0].Values), len(out[0].Name))
 	}
 }
+
+func TestModelProbeDescribesEveryModel(t *testing.T) {
+	e := newEnv(t)
+	e.m.SetModelProbe(true)
+	e.ok("hello") // the harness has only described swift-1 (the current model)
+	waitFor(t, "every model described", func() bool {
+		c, ok, _ := e.m.Catalog(context.Background(), agentID)
+		if !ok {
+			return false
+		}
+		_, deep := c.ByModel["deep-1"]
+		_, tiny := c.ByModel["tiny-1"]
+		return deep && tiny
+	})
+	c := e.catalog()
+	if opts := c.ByModel["deep-1"]; len(opts) != 1 || opts[0].Kind != KindEffort || len(opts[0].Values) != 5 {
+		t.Fatalf("deep-1 options %+v", opts)
+	}
+	if opts := c.ByModel["tiny-1"]; opts == nil || len(opts) != 0 {
+		t.Fatalf("tiny-1 has no options, got %+v", opts)
+	}
+	// broken-1 refuses to be selected: not described, not tried again.
+	if _, ok := c.ByModel["broken-1"]; ok {
+		t.Fatal("a refused model has options")
+	}
+	// The probe used a session of its own: the conversation did not move and
+	// the harness's defaults are those of its first session.
+	if r := e.ok("model"); r.text != "model=swift-1 effort=medium fast=off" || len(r.notices) != 0 {
+		t.Fatalf("text %q, notices %q", r.text, r.notices)
+	}
+	if c.Defaults["model"] != "swift-1" || c.Defaults["effort"] != "medium" {
+		t.Fatalf("defaults %v", c.Defaults)
+	}
+	if n := len(e.pids()); n != 1 {
+		t.Fatalf("%d harness processes", n)
+	}
+}
+
+func TestModelProbeOffByDefault(t *testing.T) {
+	e := newEnv(t)
+	e.ok("hello")
+	if err := e.m.ProbeModels(context.Background(), agentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := e.catalog().ByModel["deep-1"]; !ok {
+		t.Fatal("an explicit probe describes the models")
+	}
+}
+
+func TestModelProbeYieldsToTurns(t *testing.T) {
+	e := newEnv(t)
+	e.ok("hello")
+	sub := e.startAndWait("slow 20")
+	// A turn uses the harness: nothing is probed.
+	if err := e.m.ProbeModels(context.Background(), agentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := e.catalog().ByModel["deep-1"]; ok {
+		t.Fatal("probed while a turn runs")
+	}
+	if err := e.m.Cancel(context.Background(), e.sid); err != nil {
+		t.Fatal(err)
+	}
+	e.wait(sub, 5*time.Second)
+}
+
+func TestEffortInModelIdsIsSplit(t *testing.T) {
+	e := newEnv(t)
+	e.script("effort-in-model")
+	e.ok("hello")
+	c := e.catalog()
+	mo, _ := c.ModelOption()
+	var ids []string
+	for _, v := range mo.Values {
+		ids = append(ids, v.Value)
+	}
+	if strings.Join(ids, " ") != "swift-1 deep-1 tiny-1 broken-1" || mo.Current != "swift-1" {
+		t.Fatalf("model option %q current %q", ids, mo.Current)
+	}
+	if mo.Values[0].Name != "Swift 1" {
+		t.Fatalf("name %q", mo.Values[0].Name)
+	}
+	var levels []string
+	for _, o := range c.ByModel["deep-1"] {
+		if o.ID != VariantEffortID || o.Kind != KindEffort {
+			t.Fatalf("option %+v", o)
+		}
+		for _, v := range o.Values {
+			levels = append(levels, v.Value)
+		}
+	}
+	if strings.Join(levels, " ") != "low medium high xhigh max" {
+		t.Fatalf("deep-1 efforts %q", levels)
+	}
+	if opts, ok := c.ByModel["tiny-1"]; !ok || len(opts) != 0 {
+		t.Fatalf("tiny-1 %+v", c.ByModel["tiny-1"])
+	}
+	// The choice is one model id on the harness.
+	e.setSessionChoice(Choice{Model: "deep-1", Options: map[string]string{VariantEffortID: "xhigh"}})
+	if r := e.ok("model"); r.text != "model=deep-1 effort=xhigh fast=off" || len(r.notices) != 0 {
+		t.Fatalf("text %q, notices %q", r.text, r.notices)
+	}
+	e.setSessionChoice(Choice{Model: "deep-1", Options: map[string]string{VariantEffortID: "nope"}})
+	r := e.ok("model")
+	if !strings.HasPrefix(r.text, "model=deep-1 ") || len(r.notices) != 1 || !strings.Contains(r.notices[0], `"nope" is not available`) {
+		t.Fatalf("text %q, notices %q", r.text, r.notices)
+	}
+	// Nothing to probe: the catalog knew the efforts from the start.
+	if err := e.m.ProbeModels(context.Background(), agentID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSplitVariantsNeedsTwoLevels(t *testing.T) {
+	mo := ConfigOption{ID: "model", Kind: KindModel, Type: "select", Current: "a/high", Values: []ConfigValue{
+		{Value: "a/high", Name: "A"}, {Value: "b/low", Name: "B"}, {Value: "b/medium", Name: "B"},
+	}}
+	s, ok := splitVariants(mo)
+	if !ok {
+		t.Fatal("not split")
+	}
+	if _, isBase := s.efforts["a"]; isBase {
+		t.Fatal("a model with one effort-like suffix is taken apart")
+	}
+	v := s.view()
+	if len(v.Values) != 2 || v.Values[0].Value != "a/high" || v.Values[1].Value != "b" || v.Current != "a/high" {
+		t.Fatalf("view %+v", v)
+	}
+	if got, ok := s.compose("b", "medium", "a/high"); got != "b/medium" || !ok {
+		t.Fatalf("compose %q %v", got, ok)
+	}
+	if got, ok := s.compose("b", "", "b/medium"); got != "b/medium" || !ok {
+		t.Fatalf("compose keeps the current variant: %q %v", got, ok)
+	}
+	if got, ok := s.compose("b", "max", "a/high"); got != "b/low" || ok {
+		t.Fatalf("compose %q %v", got, ok)
+	}
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for: %s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

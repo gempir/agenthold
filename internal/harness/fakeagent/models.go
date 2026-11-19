@@ -15,6 +15,7 @@ import (
 // a "fast" on/off select while the current model supports it. Script flags:
 //
 //	no-config      advertise no config options (like a harness without them)
+//	effort-in-model  encode effort in model ids ("deep-1/high", no effort option)
 //	session/set_config_option <action> [arg]   fail one set request (see main.go)
 //
 // A "mode" select (category mode) stands for a harness's permission mode:
@@ -79,21 +80,32 @@ func (a *agent) configOptions(sid string) []acp.SessionConfigOption {
 		return nil
 	}
 	c := a.config(sid)
+	inModel := a.flag("effort-in-model")
 	groups := acp.SessionConfigSelectOptionsGrouped{}
 	for _, m := range fakeModels {
 		if len(groups) == 0 || string(groups[len(groups)-1].Group) != m.group {
 			groups = append(groups, acp.SessionConfigSelectGroup{Group: acp.SessionConfigGroupId(strings.ToLower(strings.ReplaceAll(m.group, " ", "-"))), Name: m.group})
 		}
 		g := &groups[len(groups)-1]
+		if inModel && len(m.efforts) > 0 {
+			for _, e := range m.efforts {
+				g.Options = append(g.Options, acp.SessionConfigSelectOption{Value: acp.SessionConfigValueId(m.id + "/" + e), Name: m.name + " (" + strings.ToUpper(e[:1]) + e[1:] + ")"})
+			}
+			continue
+		}
 		g.Options = append(g.Options, acp.SessionConfigSelectOption{Value: acp.SessionConfigValueId(m.id), Name: m.name})
+	}
+	current := c.model
+	if cm, _ := findModel(c.model); inModel && len(cm.efforts) > 0 {
+		current += "/" + c.effort
 	}
 	model := acp.SessionConfigOptionCategoryModel
 	opts := []acp.SessionConfigOption{{Select: &acp.SessionConfigOptionSelect{
 		Id: "model", Name: "Model", Category: &model, Type: "select",
-		CurrentValue: acp.SessionConfigValueId(c.model), Options: acp.SessionConfigSelectOptions{Grouped: &groups},
+		CurrentValue: acp.SessionConfigValueId(current), Options: acp.SessionConfigSelectOptions{Grouped: &groups},
 	}}}
 	m, _ := findModel(c.model)
-	if len(m.efforts) > 0 {
+	if len(m.efforts) > 0 && !inModel {
 		levels := acp.SessionConfigSelectOptionsUngrouped{}
 		for _, e := range m.efforts {
 			levels = append(levels, acp.SessionConfigSelectOption{Value: acp.SessionConfigValueId(e), Name: strings.ToUpper(e[:1]) + e[1:]})
@@ -143,6 +155,12 @@ func (a *agent) SetSessionConfigOption(ctx context.Context, p acp.SetSessionConf
 	switch id {
 	case "model":
 		nm, ok := findModel(value)
+		if i := strings.LastIndex(value, "/"); !ok && i > 0 && a.flag("effort-in-model") {
+			if vm, found := findModel(value[:i]); found && contains(vm.efforts, value[i+1:]) {
+				nm, ok = vm, true
+				c.effort = value[i+1:]
+			}
+		}
 		if !ok {
 			return acp.SetSessionConfigOptionResponse{}, acp.NewInvalidParams(fmt.Sprintf("unknown model %q", value))
 		}

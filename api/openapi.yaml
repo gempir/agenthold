@@ -2241,6 +2241,13 @@ components:
         models:
           type: array
           items: { $ref: "#/components/schemas/CatalogModel" }
+        provisionalOptions:
+          type: array
+          description: |
+            Effort levels the harness reported for other models, for the models whose options are still unknown
+            (a harness describes only its current model; agenthold probes the others once the agent is idle).
+            The harness has the last word at the next message: a level the model lacks is refused with a notice.
+          items: { $ref: "#/components/schemas/ModelOption" }
 
     CatalogModel:
       type: object
@@ -2252,7 +2259,7 @@ components:
         group: { type: string, description: Heading in the picker (provider or family). }
         options:
           type: array
-          description: The model's options; absent while unknown (the harness describes a model's options once it was used).
+          description: The model's options; absent while unknown (the harness describes a model's options only while it is the current one, agenthold learns the others when the agent is idle).
           items: { $ref: "#/components/schemas/ModelOption" }
 
     ModelOption:

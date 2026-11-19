@@ -64,23 +64,57 @@ export function optionsOf(
   return catalog?.models.find((m) => m.id === id)?.options;
 }
 
+export interface ShownOptions {
+  options: ModelOption[];
+  /** Not reported for this model: the levels other models of the harness have. */
+  provisional: boolean;
+}
+
+/**
+ * What the picker offers for a model: its own options, or while the harness
+ * has not described it, the effort levels it reported for other models
+ * (the harness refuses a level the model lacks, with a notice).
+ */
+export function modelOptionsFor(
+  catalog: ModelCatalog | undefined,
+  id: string,
+): ShownOptions | undefined {
+  if (!id) return undefined;
+  const known = optionsOf(catalog, id);
+  if (known) return { options: known, provisional: false };
+  const prov = catalog?.provisionalOptions;
+  return prov?.length ? { options: prov, provisional: true } : undefined;
+}
+
 /** The value of a toggle that means on. */
 export const onValue = (o: ModelOption) => o.values[o.values.length - 1]?.value;
 
+/** "Extra High" for xhigh, whatever the harness calls it ("Xhigh"). */
+export const valueLabel = (
+  o: ModelOption,
+  v: { value: string; name: string },
+) =>
+  o.kind === 'effort' && /^x-?high$/i.test(v.value) ? 'Extra High' : v.name;
+
+/** The labels of a fast mode toggle's two states. */
+export const toggleLabels = (o: ModelOption): [string, string] =>
+  /fast/i.test(`${o.id} ${o.name}`) ? ['Standard', 'Fast'] : ['Off', 'On'];
+
 /**
  * The options of choice that the model still has (all of them while its
- * options are unknown), for a switch to model.
+ * options are unknown; while only the provisional levels are, the levels
+ * among them), for a switch to model.
  */
 export function keepOptions(
   catalog: ModelCatalog | undefined,
   model: string,
   options: Record<string, string>,
 ): Record<string, string> {
-  const known = optionsOf(catalog, model);
-  if (!known) return { ...options };
+  const shown = modelOptionsFor(catalog, model);
+  if (!shown) return { ...options };
   const out: Record<string, string> = {};
   for (const [id, v] of Object.entries(options)) {
-    const o = known.find((x) => x.id === id);
+    const o = shown.options.find((x) => x.id === id);
     if (o?.values.some((x) => x.value === v)) out[id] = v;
   }
   return out;
@@ -103,17 +137,18 @@ export function choiceLabel(
   fallback = 'Default model',
 ): string {
   const parts = [c.model ? modelName(catalog, c.model) : fallback];
-  const known = c.model ? optionsOf(catalog, c.model) : undefined;
+  const shown = modelOptionsFor(catalog, c.model);
   for (const [id, v] of Object.entries(c.options)) {
-    const o = known?.find((x) => x.id === id);
+    const o = shown?.options.find((x) => x.id === id);
     if (!o) {
-      if (!known) parts.push(v);
+      if (!shown) parts.push(v);
       continue;
     }
     if (o.kind === 'toggle') {
       if (v === onValue(o)) parts.push(o.name.replace(/ mode$/i, ''));
     } else {
-      parts.push(o.values.find((x) => x.value === v)?.name ?? v);
+      const value = o.values.find((x) => x.value === v);
+      parts.push(value ? valueLabel(o, value) : v);
     }
   }
   return parts.join(' · ');

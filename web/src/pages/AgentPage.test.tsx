@@ -438,7 +438,7 @@ it('a new chat starts with the model picked in the composer', async () => {
   });
   await user.click(trigger);
   await user.click(await screen.findByRole('option', { name: /Opus 5.5/ }));
-  await user.click(trigger);
+  // The picker stays open: reasoning is set right after the model.
   await user.click(screen.getByRole('radio', { name: 'High' }));
   expect(trigger).toHaveTextContent('Opus 5.5 · High');
   await user.type(

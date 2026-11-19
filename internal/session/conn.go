@@ -48,6 +48,8 @@ type harnessConn struct {
 	// updatesSeen counts the session/update notifications read off the
 	// harness's stdout, updatesHandled those SessionUpdate has finished.
 	updatesSeen, updatesHandled atomic.Int64
+	// probing: a model probe is scheduled or running (see probe.go).
+	probing atomic.Bool
 
 	mu       sync.Mutex
 	sessions map[string]string          // ACP session id -> our session id

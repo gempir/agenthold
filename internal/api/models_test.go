@@ -190,3 +190,43 @@ func TestDefaultModelWithoutConfigOptions(t *testing.T) {
 		t.Fatalf("after clearing %q", got)
 	}
 }
+
+func TestModelEffortForModelsNotUsedYet(t *testing.T) {
+	e := newEnv(t)
+	alice := e.login("alice", "Alice", "a@example.com")
+	ag := e.fakeAgent(alice, "")
+	var sess gen.Session
+	expect(t, "session", alice.do("POST", "/agents/"+ag.Id+"/sessions", map[string]string{}, &sess), 201)
+	e.turnText(alice, sess.Id, "model")
+
+	// The harness has described its current model only: the other models
+	// show the levels it reported (provisional), with its own values only.
+	var cat gen.ModelCatalog
+	expect(t, "models", alice.do("GET", "/agents/"+ag.Id+"/models", nil, &cat), 200)
+	if cat.ProvisionalOptions == nil || len(*cat.ProvisionalOptions) != 1 {
+		t.Fatalf("provisional options %+v", cat.ProvisionalOptions)
+	}
+	prov := (*cat.ProvisionalOptions)[0]
+	if prov.Id != "effort" || prov.Kind != gen.Effort || len(prov.Values) != 3 || prov.Values[2].Value != "high" {
+		t.Fatalf("provisional effort %+v", prov)
+	}
+	expect(t, "provisional level", alice.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "deep-1", Options: &map[string]string{"effort": "high"}}, nil), 200)
+	// The permission mode is no model option, whatever the model.
+	expect(t, "mode", alice.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "deep-1", Options: &map[string]string{"mode": "bypass"}}, nil), 400)
+
+	// Once the agent is idle the harness is asked about every model.
+	if err := e.sessions.ProbeModels(t.Context(), ag.Id); err != nil {
+		t.Fatal(err)
+	}
+	expect(t, "models", alice.do("GET", "/agents/"+ag.Id+"/models", nil, &cat), 200)
+	deep := cat.Models[1]
+	if deep.Id != "deep-1" || deep.Options == nil || len(*deep.Options) != 1 || len((*deep.Options)[0].Values) != 5 {
+		t.Fatalf("deep-1 after the probe %+v", deep)
+	}
+	expect(t, "exact level", alice.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "deep-1", Options: &map[string]string{"effort": "max"}}, nil), 200)
+	expect(t, "level the model lacks", alice.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "swift-1", Options: &map[string]string{"effort": "max"}}, nil), 400)
+	// The refused choice changed nothing.
+	if got, _ := e.turnText(alice, sess.Id, "model"); got != "model=deep-1 effort=max fast=off" {
+		t.Fatalf("turn %q", got)
+	}
+}

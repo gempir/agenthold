@@ -255,6 +255,35 @@ func (m *Manager) Catalog(ctx context.Context, agentID string) (Catalog, bool, e
 	return c, true, nil
 }
 
+// catalogView is what the catalog stores of a report: the options with the
+// model option reduced to base models when the harness encodes effort levels
+// in model ids, and the effort option of each base model.
+func catalogView(opts []ConfigOption) ([]ConfigOption, map[string][]ConfigOption) {
+	mo, ok := modelOption(opts)
+	if !ok {
+		return opts, nil
+	}
+	s, ok := splitVariants(mo)
+	if !ok {
+		return opts, nil
+	}
+	view := slices.Clone(opts)
+	extras := map[string][]ConfigOption{}
+	for i, o := range view {
+		if o.ID == mo.ID && o.Kind == KindModel {
+			view[i] = s.view()
+		}
+	}
+	// Every model is described: those without effort levels have no options.
+	for _, v := range view[slices.IndexFunc(view, func(o ConfigOption) bool { return o.ID == mo.ID && o.Kind == KindModel })].Values {
+		extras[v.Value] = []ConfigOption{}
+		if s.efforts[v.Value] != nil {
+			extras[v.Value] = []ConfigOption{s.effortOption(v.Value)}
+		}
+	}
+	return view, extras
+}
+
 // observe records the config options a harness reported for a session.
 // fresh: the report is a session/new answer, whose values are the harness's
 // defaults. A report without options is recorded too: the harness offers no
@@ -270,6 +299,9 @@ func (m *Manager) observe(conn *harnessConn, acpID string, in []acp.SessionConfi
 		}
 	}
 	conn.mu.Unlock()
+	// The catalog shows effort levels encoded in model ids as a separate
+	// option (see variants.go); the session keeps the harness's own ids.
+	view, extras := catalogView(opts)
 	m.catMu.Lock()
 	defer m.catMu.Unlock()
 	ctx := context.WithoutCancel(m.ctx)
@@ -285,22 +317,39 @@ func (m *Manager) observe(conn *harnessConn, acpID string, in []acp.SessionConfi
 	if c.ByModel == nil {
 		c.ByModel = map[string][]ConfigOption{}
 	}
-	c.Options = opts
+	c.Options = view
 	if fresh {
 		c.Defaults = map[string]string{}
 		for _, o := range opts {
 			c.Defaults[o.ID] = o.Current
 		}
 	}
-	if mo, ok := modelOption(opts); ok && mo.Current != "" {
+	if mo, ok := modelOption(view); ok && mo.Current != "" {
 		picker := []ConfigOption{}
 		for _, o := range opts {
 			if o.Picker() {
 				picker = append(picker, o)
 			}
 		}
-		if _, known := c.ByModel[mo.Current]; known || len(c.ByModel) < maxCatalogModel {
-			c.ByModel[mo.Current] = picker
+		for base, ex := range extras {
+			var keep []ConfigOption
+			if base == mo.Current {
+				keep = picker
+			} else {
+				for _, o := range c.ByModel[base] {
+					if o.ID != VariantEffortID {
+						keep = append(keep, o)
+					}
+				}
+			}
+			if _, known := c.ByModel[base]; known || len(c.ByModel) < maxCatalogModel {
+				c.ByModel[base] = append(slices.Clone(keep), ex...)
+			}
+		}
+		if _, split := extras[mo.Current]; !split {
+			if _, known := c.ByModel[mo.Current]; known || len(c.ByModel) < maxCatalogModel {
+				c.ByModel[mo.Current] = picker
+			}
 		}
 		// Forget models the harness no longer lists.
 		for id := range c.ByModel {
@@ -398,6 +447,14 @@ func (m *Manager) applyChoice(ctx context.Context, conn *harnessConn, sessionID,
 	targetModel := want.Model
 	if targetModel == "" {
 		targetModel = defaults[mo.ID] // '' while unknown: keep the current model
+	} else if sp, ok := splitVariants(mo); ok {
+		// The harness encodes effort levels in model ids: the chosen model
+		// and effort are one value.
+		v, valid := sp.compose(targetModel, want.Options[VariantEffortID], mo.Current)
+		if !valid && conn.warnOnce(acpID, "opt:"+VariantEffortID) {
+			notice(fmt.Sprintf("Reasoning effort: %q is not available for %s, so this turn uses %q.", want.Options[VariantEffortID], valueName(sp.view(), targetModel), valueName(mo, v)))
+		}
+		targetModel = v
 	}
 	// fatal: the connection or the turn is over.
 	fatal := func(err error) bool {

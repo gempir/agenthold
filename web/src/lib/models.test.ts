@@ -3,6 +3,7 @@ import {
   choiceLabel,
   groupModels,
   keepOptions,
+  modelOptionsFor,
   type ModelCatalog,
 } from './models';
 
@@ -65,4 +66,40 @@ it('labels choices and keeps only valid options', () => {
   expect(keepOptions(catalog, 'openai/gpt', { effort: 'max' })).toEqual({
     effort: 'max',
   });
+});
+
+it('uses the harness levels of other models while a model is not described', () => {
+  const withProvisional: ModelCatalog = {
+    ...catalog,
+    provisionalOptions: [
+      {
+        id: 'effort',
+        name: 'Effort',
+        kind: 'effort',
+        values: [
+          { value: 'low', name: 'Low' },
+          { value: 'xhigh', name: 'Xhigh' },
+        ],
+      },
+    ],
+  };
+  expect(modelOptionsFor(withProvisional, 'openai/gpt')).toMatchObject({
+    provisional: true,
+  });
+  expect(modelOptionsFor(withProvisional, 'anthropic/opus')).toMatchObject({
+    provisional: false,
+  });
+  expect(modelOptionsFor(withProvisional, '')).toBeUndefined();
+  expect(
+    choiceLabel(withProvisional, {
+      model: 'openai/gpt',
+      options: { effort: 'xhigh' },
+    }),
+  ).toBe('GPT · Extra High');
+  expect(
+    keepOptions(withProvisional, 'openai/gpt', { effort: 'xhigh', fast: 'on' }),
+  ).toEqual({ effort: 'xhigh' });
+  expect(keepOptions(withProvisional, 'openai/gpt', { effort: 'max' })).toEqual(
+    {},
+  );
 });

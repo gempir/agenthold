@@ -93,6 +93,7 @@ type Manager struct {
 	tools    Tools
 	logins   Logins
 	catMu    sync.Mutex // serializes model catalog updates
+	probe    bool       // describe unknown models after turns (SetModelProbe)
 }
 
 // Logins supplies the account login of an agent's harness: files are written
@@ -427,6 +428,9 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 		}
 		release()
 		_ = m.log.append(lctx, sessionID, EventTurnEnd, "", end)
+		if err == nil && t.conn != nil {
+			m.probeLater(t.conn)
+		}
 	}()
 	return nil
 }

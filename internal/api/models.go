@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/gempir/agenthold/internal/api/gen"
@@ -55,6 +56,10 @@ func (a *API) catalog(ctx context.Context, agent db.Agent) (catalog, error) {
 			}
 			c.api.Models = append(c.api.Models, m)
 		}
+		if prov := provisionalEfforts(rep.ByModel); len(prov) > 0 && slices.ContainsFunc(c.api.Models, func(m gen.CatalogModel) bool { return m.Options == nil }) {
+			list := apiModelOptions(prov)
+			c.api.ProvisionalOptions = &list
+		}
 		return c, nil
 	}
 	// Never reported or reported by another harness: the fallback list, and
@@ -72,6 +77,43 @@ func (a *API) catalog(ctx context.Context, agent db.Agent) (catalog, error) {
 		c.api.Models = append(c.api.Models, gen.CatalogModel{Id: m.ID, Name: m.Name, Description: opt(m.Description), Group: opt(m.Group)})
 	}
 	return c, nil
+}
+
+// provisionalEfforts merges the effort options the harness reported for
+// its models, by option id: what a model not described yet probably offers.
+// Values are kept in the order of the longest list, then those only shorter
+// lists have.
+func provisionalEfforts(byModel map[string][]session.ConfigOption) []session.ConfigOption {
+	var out []session.ConfigOption
+	ids := make([]string, 0, len(byModel))
+	for id := range byModel {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids) // deterministic
+	for _, id := range ids {
+		for _, o := range byModel[id] {
+			if o.Kind != session.KindEffort {
+				continue
+			}
+			i := slices.IndexFunc(out, func(x session.ConfigOption) bool { return x.ID == o.ID })
+			if i < 0 {
+				o.Values = slices.Clone(o.Values)
+				out = append(out, o)
+				continue
+			}
+			merged := out[i].Values
+			if len(o.Values) > len(merged) {
+				merged, o.Values = slices.Clone(o.Values), merged
+			}
+			for _, v := range o.Values {
+				if !slices.ContainsFunc(merged, func(x session.ConfigValue) bool { return x.Value == v.Value }) {
+					merged = append(merged, v)
+				}
+			}
+			out[i].Values = merged
+		}
+	}
+	return out
 }
 
 func opt(s string) *string {

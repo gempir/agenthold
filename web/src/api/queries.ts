@@ -55,6 +55,17 @@ export const nodesQuery = queryOptions({
   retry: false,
 });
 
+/** Everything running on this installation. Admins only. React Query's
+ * interval polling pauses while the tab is hidden. */
+export const OVERVIEW_POLL_MS = 5000;
+export const overviewQuery = queryOptions({
+  queryKey: ['admin', 'overview'],
+  queryFn: () => unwrap(api.GET('/admin/overview')),
+  refetchInterval: OVERVIEW_POLL_MS,
+  refetchIntervalInBackground: false,
+  retry: false,
+});
+
 export const sandboxLimitsQuery = queryOptions({
   queryKey: ['sandbox', 'limits'],
   queryFn: () => unwrap(api.GET('/sandbox/limits')),
@@ -100,6 +111,19 @@ export const sessionsQuery = (agentId: string) =>
         }),
       ),
     refetchInterval: 5000,
+    retry: false,
+  });
+
+/** The models of the agent's harness (what it last reported, or a fallback). */
+export const modelsQuery = (agentId: string) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'models'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/models', {
+          params: { path: { agentId } },
+        }),
+      ),
     retry: false,
   });
 

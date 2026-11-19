@@ -27,11 +27,19 @@ type Agent struct {
 	ClonedFrom           string
 	Kind                 string
 	CreatedByAgentID     string
+	ModelOptions         string
 }
 
 type AgentMcpServer struct {
 	AgentID  string
 	ServerID string
+}
+
+type AgentModelCatalog struct {
+	AgentID string
+	Harness string
+	Data    string
+	SeenAt  int64
 }
 
 type AgentSecret struct {
@@ -52,6 +60,8 @@ type AgentSession struct {
 	UpdatedAt       int64
 	OriginAgentID   string
 	OriginSessionID string
+	Model           string
+	ModelOptions    string
 }
 
 type AgentSessionEvent struct {
@@ -147,15 +157,18 @@ type McpServer struct {
 }
 
 type Node struct {
-	ID              string
-	Name            string
-	CertFingerprint string
-	State           string
-	Cpus            int64
-	MemoryBytes     int64
-	DiskBytes       int64
-	LastSeenAt      int64
-	CreatedAt       int64
+	ID                 string
+	Name               string
+	CertFingerprint    string
+	State              string
+	Cpus               int64
+	MemoryBytes        int64
+	DiskBytes          int64
+	LastSeenAt         int64
+	CreatedAt          int64
+	Version            string
+	MemoryTotalBytes   int64
+	DiskAllocatedBytes int64
 }
 
 type NodeJoinToken struct {

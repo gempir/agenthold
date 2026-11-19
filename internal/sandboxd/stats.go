@@ -12,9 +12,11 @@ import (
 // stats sums the CPU time of every process in the sandbox except sandboxd
 // and supervised services. The server compares successive readings to tell
 // idle sandboxes from busy ones (a long build keeps an agent awake; a
-// service alone does not).
-func stats() tunnel.Stats {
+// service alone does not). It also reports the machine's live usage (see
+// tunnel.Stats) for the admin overview; home is the persistent home volume.
+func stats(home string) tunnel.Stats {
 	var st tunnel.Stats
+	addUsage(&st, home)
 	self := os.Getpid()
 	entries, err := os.ReadDir("/proc")
 	if err != nil {

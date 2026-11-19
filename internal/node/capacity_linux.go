@@ -40,6 +40,43 @@ func parseMemAvailable(r io.Reader) (uint64, error) {
 	return 0, errors.New("MemAvailable not found")
 }
 
+// parseMemTotal reads only MemTotal, in bytes.
+func parseMemTotal(r io.Reader) (uint64, error) {
+	scanner := bufio.NewScanner(io.LimitReader(r, 1<<20))
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) == 0 || fields[0] != "MemTotal:" {
+			continue
+		}
+		if len(fields) != 3 || fields[2] != "kB" {
+			return 0, errors.New("invalid MemTotal entry")
+		}
+		kb, err := strconv.ParseUint(fields[1], 10, 64)
+		if err != nil || kb > math.MaxUint64/1024 {
+			return 0, errors.New("invalid MemTotal value")
+		}
+		return kb * 1024, nil
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+	return 0, errors.New("MemTotal not found")
+}
+
+// linuxTotalMemory is best effort: the overview shows no memory bar without it.
+func linuxTotalMemory() uint64 {
+	f, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	total, err := parseMemTotal(f)
+	if err != nil {
+		return 0
+	}
+	return total
+}
+
 func linuxAvailableMemory() (uint64, error) {
 	return readLinuxAvailableMemory("/proc/meminfo", linuxSysinfoMemory)
 }
@@ -106,5 +143,5 @@ func hostCapacity(ctx context.Context, dir string) (Capacity, error) {
 	if err := ctx.Err(); err != nil {
 		return Capacity{}, err
 	}
-	return Capacity{CPUs: runtime.NumCPU(), MemoryBytes: memory, DiskBytes: fs.Bavail * uint64(unit)}, nil
+	return Capacity{CPUs: runtime.NumCPU(), MemoryBytes: memory, DiskBytes: fs.Bavail * uint64(unit), MemoryTotalBytes: linuxTotalMemory()}, nil
 }

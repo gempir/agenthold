@@ -26,6 +26,10 @@ func init() {
 		SecretPresets:   []string{"anthropic", "openai", "openrouter"},
 		CredentialPaths: []string{".local/share/opencode/auth.json"},
 		SkillsDir:       ".config/opencode/skills",
+		// Its models depend on the providers configured in the sandbox (API
+		// keys, logins, config): there is no list that holds for every agent,
+		// but any "provider/model" id can be set.
+		CustomModels: true,
 		// OpenCode advertises its login without the command to run.
 		TerminalLogins: map[string][]string{"opencode-login": {"opencode", "auth", "login"}},
 	})

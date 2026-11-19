@@ -22,6 +22,7 @@ import { HomePage } from '@/pages/HomePage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NewChatPage } from '@/pages/NewChatPage';
 import { NodesPage } from '@/pages/NodesPage';
+import { OverviewPage } from '@/pages/OverviewPage';
 import { ProvidersPage } from '@/pages/ProvidersPage';
 import {
   AgentsSettingsPage,
@@ -111,6 +112,12 @@ const agentSettingsRoute = createRoute({
   },
 });
 
+const overviewRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/overview',
+  component: OverviewPage,
+});
+
 const appPageRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/apps/$appId',
@@ -183,6 +190,7 @@ const routeTree = rootRoute.addChildren([
     agentRoute,
     agentSettingsRoute,
     appPageRoute,
+    overviewRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
       agentsSettingsRoute,

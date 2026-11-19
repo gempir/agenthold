@@ -21,6 +21,7 @@ const agent = (over: Partial<Agent> = {}): Agent => ({
   owner: me.user,
   harness: 'claude-code',
   model: '',
+  modelOptions: {},
   permissionPolicy: 'ask',
   credentialsInSandbox: false,
   login: { source: 'sandbox', connected: false, mine: false },
@@ -385,4 +386,74 @@ it('toggles the agent panel with its chats and manage links', async () => {
   expect(
     screen.queryByRole('complementary', { name: 'Agent panel' }),
   ).toBeNull();
+});
+
+it('a new chat starts with the model picked in the composer', async () => {
+  const { calls } = mockApi({
+    'GET /me': me,
+    'GET /agents/a1': agent({ role: 'owner', state: 'running' }),
+    'GET /agents/a1/sessions': [],
+    'GET /harnesses': [],
+    'GET /agents/a1/models': {
+      harness: 'claude-code',
+      source: 'harness',
+      seenAt: '2030-01-01T00:00:00Z',
+      switchable: true,
+      customModels: false,
+      models: [
+        {
+          id: 'opus',
+          name: 'Opus 5.5',
+          group: 'Anthropic',
+          options: [
+            {
+              id: 'effort',
+              name: 'Effort',
+              kind: 'effort',
+              values: [
+                { value: 'low', name: 'Low' },
+                { value: 'high', name: 'High' },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    'POST /agents/a1/sessions': {
+      id: 's1',
+      agentId: 'a1',
+      title: 'New session',
+      running: false,
+      createdBy: me.user,
+      createdAt: '2030-01-01T00:00:00Z',
+      updatedAt: '2030-01-01T00:00:00Z',
+    },
+    'PUT /sessions/s1/model': {},
+    'POST /sessions/s1/prompt': { status: 202 },
+  });
+  renderApp('/a/a1');
+  const user = userEvent.setup();
+  const trigger = await screen.findByRole('button', {
+    name: /Model for this conversation: Agent default/,
+  });
+  await user.click(trigger);
+  await user.click(await screen.findByRole('option', { name: /Opus 5.5/ }));
+  await user.click(trigger);
+  await user.click(screen.getByRole('radio', { name: 'High' }));
+  expect(trigger).toHaveTextContent('Opus 5.5 · High');
+  await user.type(
+    screen.getByRole('textbox', { name: 'Message' }),
+    'hi{Enter}',
+  );
+  await vi.waitFor(() =>
+    expect(calls.map((c) => c.key)).toContain('POST /sessions/s1/prompt'),
+  );
+  const keys = calls.map((c) => c.key);
+  expect(keys.indexOf('PUT /sessions/s1/model')).toBeLessThan(
+    keys.indexOf('POST /sessions/s1/prompt'),
+  );
+  expect(calls.find((c) => c.key === 'PUT /sessions/s1/model')?.body).toEqual({
+    model: 'opus',
+    options: { effort: 'high' },
+  });
 });

@@ -21,6 +21,7 @@ import (
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/tunnel"
+	"github.com/gempir/agenthold/internal/version"
 )
 
 // LocalID is the node id of the controller's built-in node.
@@ -38,6 +39,9 @@ type Info struct {
 	Capacity  Capacity
 	LastSeen  time.Time
 	Agents    int
+	// Version is the agenthold release the node announced when it last
+	// connected, empty when unknown (nodes of earlier releases do not say).
+	Version string
 }
 
 // JoinToken is a newly created join token. Token is shown once.
@@ -184,6 +188,16 @@ func (c *Cluster) pump(ctx context.Context, n Node) {
 	}()
 }
 
+// ServePeer is Serve for a peer enrollment authenticated: it also records the
+// agenthold version the node announced.
+func (c *Cluster) ServePeer(ctx context.Context, p enrollment.Peer, conn net.Conn) {
+	// An empty version (a node of an earlier release) clears what was known.
+	if err := c.cfg.Store.SetNodeVersion(ctx, db.SetNodeVersionParams{Version: p.Version, ID: p.ID}); err != nil {
+		c.log.Warn("record node version", "node", p.ID, "err", err)
+	}
+	c.Serve(ctx, p.ID, conn)
+}
+
 // Serve runs an authenticated edge node connection until it breaks or ctx
 // ends. A newer connection from the same node replaces an older one.
 func (c *Cluster) Serve(ctx context.Context, nodeID string, conn net.Conn) {
@@ -281,6 +295,7 @@ func (c *Cluster) refresh(ctx context.Context, nodeID string, n Node) {
 	}
 	_ = c.cfg.Store.SetNodeCapacity(ctx, db.SetNodeCapacityParams{
 		Cpus: int64(capacity.CPUs), MemoryBytes: clampInt64(capacity.MemoryBytes), DiskBytes: clampInt64(capacity.DiskBytes),
+		MemoryTotalBytes: clampInt64(capacity.MemoryTotalBytes), DiskAllocatedBytes: clampInt64(capacity.DiskAllocatedBytes),
 		LastSeenAt: c.now().Unix(), ID: nodeID,
 	})
 }
@@ -402,10 +417,17 @@ func (c *Cluster) Nodes(ctx context.Context) ([]Info, error) {
 		_, connected := live[r.ID]
 		info := Info{
 			ID: r.ID, Name: r.Name, Local: r.ID == LocalID, Connected: connected, Agents: agents[r.ID],
-			Capacity: Capacity{CPUs: int(r.Cpus), MemoryBytes: uint64(max(r.MemoryBytes, 0)), DiskBytes: uint64(max(r.DiskBytes, 0))},
+			Capacity: Capacity{
+				CPUs: int(r.Cpus), MemoryBytes: uint64(max(r.MemoryBytes, 0)), DiskBytes: uint64(max(r.DiskBytes, 0)),
+				MemoryTotalBytes: uint64(max(r.MemoryTotalBytes, 0)), DiskAllocatedBytes: uint64(max(r.DiskAllocatedBytes, 0)),
+			},
+			Version: r.Version,
 		}
 		if r.LastSeenAt > 0 {
 			info.LastSeen = time.Unix(r.LastSeenAt, 0).UTC()
+		}
+		if info.Local {
+			info.Version = version.Version
 		}
 		out = append(out, info)
 	}

@@ -309,15 +309,15 @@ NFT
   # small VM can exceed (dockerd then exits with "timeout waiting for containerd to start"), so
   # containerd runs next to it and dockerd waits for it as long as it needs.
   DOCKER_SERVICE_CMD='sudo sh -c '"'"'containerd & until [ -S /run/containerd/containerd.sock ]; do sleep 0.2; done; exec dockerd --containerd=/run/containerd/containerd.sock'"'"
-  DOCKER_START="setsid $DOCKER_SERVICE_CMD >/var/log/dockerd.log 2>&1 </dev/null &"
+  DOCKER_START="setsid $DOCKER_SERVICE_CMD >/tmp/dockerd.log 2>&1 </dev/null &"
   DOCKER_START_B64="$(printf '%s' "$DOCKER_START" | base64 -w0)"
-  DOCKER_WAIT='for i in $(seq 1 300); do [ -S /var/run/docker.sock ] && sudo docker version --format "{{.Server.Version}}" >/dev/null 2>&1 && break; sleep 1; done; sudo docker version --format "{{.Server.Version}}" || { sudo tail -60 /var/log/dockerd.log; ps -eo pid,stat,cmd | grep -E "docker|containerd"; exit 1; }; sudo docker info --format "server={{.ServerVersion}} storage={{.Driver}} cgroup={{.CgroupDriver}}/v{{.CgroupVersion}}"'
+  DOCKER_WAIT='for i in $(seq 1 300); do [ -S /var/run/docker.sock ] && sudo docker version --format "{{.Server.Version}}" >/dev/null 2>&1 && break; sleep 1; done; sudo docker version --format "{{.Server.Version}}" || { tail -60 /tmp/dockerd.log; ps -eo pid,stat,cmd | grep -E "docker|containerd"; exit 1; }; sudo docker info --format "server={{.ServerVersion}} storage={{.Driver}} cgroup={{.CgroupDriver}}/v{{.CgroupVersion}}"'
   boot docker 2048 -dns "$HOST_IP:53" -cmd-timeout 15m \
     -run 'sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker.io >/tmp/apt.log 2>&1; echo apt=$?; tail -3 /tmp/apt.log; docker --version' \
     -run "echo $DOCKER_START_B64 | base64 -d | sh; $DOCKER_WAIT" \
     -run 'sudo docker run --rm hello-world 2>&1 | grep -m1 "Hello from Docker"' \
     -run 'sudo docker run --rm busybox sh -c "nslookup deb.debian.org >/dev/null && wget -qO /tmp/Release http://deb.debian.org/debian/dists/trixie/Release && head -3 /tmp/Release"' \
-    -run 'sudo grep -iE "level=(warn|error)" /var/log/dockerd.log | cut -c1-300 | head -20; true' \
+    -run 'grep -iE "level=(warn|error)" /tmp/dockerd.log | cut -c1-300 | head -20; true' \
     -shutdown
   check_conn docker
   echo "--- docker results"

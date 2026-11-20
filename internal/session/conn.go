@@ -99,8 +99,13 @@ func (c *harnessConn) idleSince(since time.Time) time.Duration {
 // the SDK's limit).
 func (c *harnessConn) start(proc *tunnel.Process) {
 	c.proc = proc
-	c.acp = acp.NewClientSideConnection(c, proc, &updateCounter{r: proc.Stdout, seen: &c.updatesSeen})
+	// The SDK starts reading in its constructor but takes the logger only
+	// afterwards: hold the first read back until the logger is set, or a
+	// harness that exits at once races the SDK logging its end.
+	ready := make(chan struct{})
+	c.acp = acp.NewClientSideConnection(c, proc, &updateCounter{r: proc.Stdout, seen: &c.updatesSeen, ready: ready})
 	c.acp.SetLogger(c.m.lg.With("agent", c.agentID, "component", "acp"))
+	close(ready)
 	go func() {
 		select {
 		case <-proc.Done():
@@ -145,8 +150,10 @@ func (c *harnessConn) drainUpdates() {
 type updateCounter struct {
 	r    io.Reader
 	seen *atomic.Int64
-	line []byte
-	over bool // the current line outgrew maxCountedLine: not tracked further
+	// ready, when set, is closed before the first read may happen.
+	ready <-chan struct{}
+	line  []byte
+	over  bool // the current line outgrew maxCountedLine: not tracked further
 }
 
 // maxCountedLine bounds the bytes kept per line to find its method. A longer
@@ -154,6 +161,10 @@ type updateCounter struct {
 const maxCountedLine = 1 << 20
 
 func (u *updateCounter) Read(p []byte) (int, error) {
+	if u.ready != nil {
+		<-u.ready
+		u.ready = nil
+	}
 	n, err := u.r.Read(p)
 	for rest := p[:n]; len(rest) > 0; {
 		i := bytes.IndexByte(rest, '\n')

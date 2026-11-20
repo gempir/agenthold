@@ -167,7 +167,11 @@ func TestSlackLongAnswerSplits(t *testing.T) {
 	se.link(alice, "U1")
 
 	se.dm("U1", "800.1", "", strings.Repeat("wörd ", 5000))
-	se.fake.waitFor("answer", shows("chat.update", "Done"))
+	// The last part carries the footer: an update of the turn's message, or a
+	// new message when the answer had already been split before it ended.
+	se.fake.waitFor("answer", func(c slackCall) bool {
+		return shows("chat.update", "Done")(c) || shows("chat.postMessage", "Done")(c)
+	})
 	parts := 0
 	for _, c := range se.fake.all() {
 		if c.method != "chat.postMessage" && c.method != "chat.update" {

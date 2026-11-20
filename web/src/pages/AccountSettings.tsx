@@ -4,6 +4,7 @@ import {
   Bot,
   KeyRound,
   LockKeyhole,
+  MessageSquare,
   Plug,
   Server,
   Wrench,
@@ -32,6 +33,7 @@ export const ACCOUNT_SETTINGS_NAV: {
   { to: '/settings/tools', label: 'Tools', icon: Wrench },
   { to: '/settings/providers', label: 'Provider logins', icon: Plug },
   { to: '/settings/tokens', label: 'API tokens', icon: KeyRound },
+  { to: '/settings/slack', label: 'Slack', icon: MessageSquare },
   { to: '/settings/nodes', label: 'Nodes', icon: Server, admin: true },
 ];
 

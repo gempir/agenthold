@@ -43,6 +43,8 @@ type Querier interface {
 	CreateSecret(ctx context.Context, arg CreateSecretParams) error
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
 	CreateSkill(ctx context.Context, arg CreateSkillParams) error
+	CreateSlackLinkCode(ctx context.Context, arg CreateSlackLinkCodeParams) error
+	CreateSlackThread(ctx context.Context, arg CreateSlackThreadParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
 	CreateWebhook(ctx context.Context, arg CreateWebhookParams) error
 	DeleteAPIToken(ctx context.Context, arg DeleteAPITokenParams) (int64, error)
@@ -52,6 +54,7 @@ type Querier interface {
 	DeleteExpiredPreviewCodes(ctx context.Context, expiresAt int64) error
 	DeleteExpiredPreviewSessions(ctx context.Context, expiresAt int64) error
 	DeleteExpiredSessions(ctx context.Context, expiresAt int64) error
+	DeleteExpiredSlackLinkCodes(ctx context.Context, expiresAt int64) error
 	DeleteExposure(ctx context.Context, id string) (int64, error)
 	DeleteMCPServer(ctx context.Context, id string) error
 	DeleteNode(ctx context.Context, id string) error
@@ -63,6 +66,11 @@ type Querier interface {
 	DeleteService(ctx context.Context, arg DeleteServiceParams) (int64, error)
 	DeleteSession(ctx context.Context, tokenHash string) error
 	DeleteSkill(ctx context.Context, id string) error
+	DeleteSlackInstallation(ctx context.Context) error
+	DeleteSlackLinkCode(ctx context.Context, codeHash string) (int64, error)
+	DeleteSlackLinkCodesOf(ctx context.Context, arg DeleteSlackLinkCodesOfParams) error
+	DeleteSlackThread(ctx context.Context, arg DeleteSlackThreadParams) error
+	DeleteSlackUser(ctx context.Context, arg DeleteSlackUserParams) (int64, error)
 	DeleteStaleNodeJoinTokens(ctx context.Context, before int64) error
 	DeleteUserPreviewSessions(ctx context.Context, userID string) error
 	DeleteWebhook(ctx context.Context, id string) error
@@ -97,6 +105,11 @@ type Querier interface {
 	GetSessionUser(ctx context.Context, arg GetSessionUserParams) (GetSessionUserRow, error)
 	GetShare(ctx context.Context, arg GetShareParams) (AgentShare, error)
 	GetSkill(ctx context.Context, id string) (Skill, error)
+	GetSlackChannelAgent(ctx context.Context, arg GetSlackChannelAgentParams) (SlackChannelAgent, error)
+	GetSlackInstallation(ctx context.Context) (SlackInstallation, error)
+	GetSlackLinkCode(ctx context.Context, codeHash string) (SlackLinkCode, error)
+	GetSlackThread(ctx context.Context, arg GetSlackThreadParams) (SlackThread, error)
+	GetSlackUser(ctx context.Context, arg GetSlackUserParams) (SlackUser, error)
 	GetTokenUser(ctx context.Context, arg GetTokenUserParams) (GetTokenUserRow, error)
 	GetUser(ctx context.Context, id string) (User, error)
 	GetWebhook(ctx context.Context, id string) (Webhook, error)
@@ -131,6 +144,8 @@ type Querier interface {
 	ListSandboxes(ctx context.Context) ([]Sandbox, error)
 	ListServices(ctx context.Context, agentID string) ([]Service, error)
 	ListSessionEvents(ctx context.Context, arg ListSessionEventsParams) ([]AgentSessionEvent, error)
+	ListSlackThreadSessions(ctx context.Context) ([]string, error)
+	ListSlackThreadsOfSession(ctx context.Context, sessionID string) ([]SlackThread, error)
 	// Sessions whose last prompt has no turn_end after it: their turn was cut off.
 	ListUnfinishedSessions(ctx context.Context) ([]string, error)
 	// Agents the user owns or that are shared with them.
@@ -141,12 +156,16 @@ type Querier interface {
 	ListUserProviderLogins(ctx context.Context, userID string) ([]ProviderLogin, error)
 	ListUserSecrets(ctx context.Context, ownerID string) ([]Secret, error)
 	ListUserSkills(ctx context.Context, ownerID string) ([]Skill, error)
+	ListUserSlackUsers(ctx context.Context, userID string) ([]SlackUser, error)
 	// Users with this verified email, for sharing. Emails are compared case-insensitively.
 	ListUsersByVerifiedEmail(ctx context.Context, lower string) ([]User, error)
 	// A clone of an app is an app of its cloner, managed by no agent.
 	MakeAppClone(ctx context.Context, id string) error
 	MarkCredentialsInSandbox(ctx context.Context, id string) error
 	MaxSessionSeq(ctx context.Context, sessionID string) (int64, error)
+	PutSlackChannelAgent(ctx context.Context, arg PutSlackChannelAgentParams) error
+	PutSlackInstallation(ctx context.Context, arg PutSlackInstallationParams) error
+	PutSlackUser(ctx context.Context, arg PutSlackUserParams) error
 	RecordScheduleRun(ctx context.Context, arg RecordScheduleRunParams) error
 	RecordWebhookDelivery(ctx context.Context, arg RecordWebhookDeliveryParams) error
 	ReleaseExposureName(ctx context.Context, arg ReleaseExposureNameParams) error
@@ -177,6 +196,7 @@ type Querier interface {
 	SetSessionModel(ctx context.Context, arg SetSessionModelParams) error
 	SetSessionOrigin(ctx context.Context, arg SetSessionOriginParams) error
 	SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error
+	SetSlackThreadHeader(ctx context.Context, arg SetSlackThreadHeaderParams) error
 	ShareAgent(ctx context.Context, arg ShareAgentParams) error
 	// Only if nobody replaced the credential meanwhile.
 	StoreRefreshedLogin(ctx context.Context, arg StoreRefreshedLoginParams) (int64, error)

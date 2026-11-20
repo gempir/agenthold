@@ -180,6 +180,16 @@ func (m *Manager) endInterruptedTurns(ctx context.Context) {
 	}
 }
 
+// Observe calls fn with every event appended to any session's log, after it
+// is stored, in order per session. fn runs while the log is locked: it must
+// return at once and never call back into the Manager (hand the event to a
+// goroutine of its own).
+func (m *Manager) Observe(fn func(sessionID string, ev Event)) {
+	m.log.mu.Lock()
+	defer m.log.mu.Unlock()
+	m.log.observers = append(m.log.observers, fn)
+}
+
 // OnActivity is called with an agent id whenever a session is used.
 func (m *Manager) OnActivity(fn func(agentID string)) { m.activity = fn }
 

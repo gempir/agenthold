@@ -73,6 +73,12 @@ type env struct {
 	platform *platform.Service
 	apps     *apps.Manager
 
+	// api, auth and box are the in-process API and its services (the Slack
+	// integration calls the handlers directly).
+	api  *api.API
+	auth *auth.Service
+	box  *secrets.Box
+
 	statsMu sync.Mutex
 	statsFn api.StatsFunc
 }
@@ -242,6 +248,7 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins,
 		Preview: e.preview, Identity: e.identity, Apps: e.apps,
 	})
+	e.api, e.auth, e.box = a, authSvc, box
 	e.sessions.SetWaker(a.Wake)
 	e.apps.Wake = a.Wake
 	e.sandboxes.SetBusy(e.sessions.AgentBusy)

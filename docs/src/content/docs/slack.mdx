@@ -1,0 +1,98 @@
+---
+title: "Slack"
+description: "Chat with your agents from Slack: DMs, channel threads and a slash command, as your linked agenthold account."
+---
+
+The Slack app does in Slack what the chat does in the web UI: start chats with any agent you can use, see the
+answer stream in (tool calls, plan, notices, errors), stop a turn, answer permission requests, choose a chat's
+model, effort and fast mode, and list, continue, rename and delete chats. Creating and configuring agents stays in
+the web UI.
+
+The app uses [Socket Mode](https://docs.slack.dev/apis/events-api/using-socket-mode): agenthold opens an outbound
+WebSocket to Slack. It needs no public endpoint and no signing secret, and works behind NAT.
+
+## Setup
+
+An admin (the local admin or a user in `auth.admins`) connects one workspace per installation.
+
+1. Create the app from agenthold's manifest. **Settings → Slack** offers a **Create Slack app** link,
+   `https://api.slack.com/apps?new_app=1&manifest_json=<manifest>`, with the manifest of
+   `GET /api/v1/admin/slack/manifest` URL-encoded. It sets up the bot user, the App Home (messages and home tab),
+   Socket Mode, interactivity, the `/agenthold` command, the bot scopes (`app_mentions:read`, `chat:write`,
+   `commands`, `im:history`, `im:read`, `im:write`, `channels:history`, `groups:history`, `mpim:history`,
+   `reactions:write`, `users:read`) and the bot events (`app_mention`, `message.im`, `message.channels`,
+   `message.groups`, `message.mpim`, `app_home_opened`).
+2. Install the app to the workspace (**Install App**) and copy the **Bot User OAuth Token** (`xoxb-…`).
+3. Under **Basic Information → App-Level Tokens**, create a token with the `connections:write` scope (`xapp-…`).
+4. Paste both tokens in **Settings → Slack** (`PUT /api/v1/admin/slack`). agenthold checks the bot token with
+   `auth.test` and the app token by opening a Socket Mode connection, records the workspace and bot user, stores
+   both tokens encrypted with the master key and connects. No restart is needed.
+
+The settings page shows whether the connection is up and its last error. Disconnecting
+(`DELETE /api/v1/admin/slack`) forgets the tokens; linked users and threads stay for a later reconnect.
+
+## Linking your account
+
+Everything a Slack user does runs as the agenthold user linked to them, with that user's access: the same
+checks, waking and audit as in the web UI (audit entries made from Slack have `via: slack`). The app never acts
+for an unlinked Slack user.
+
+The first time you message the bot, it answers (only to you) with **Connect your agenthold account**. The link
+opens agenthold at `/slack/link?code=…`; sign in and confirm. The code works once, for 15 minutes. The bot then
+confirms in a DM. `/agenthold link` offers a new link, `/agenthold unlink` disconnects; your linked Slack users
+are also listed under your account settings (`GET /api/v1/me/slack`).
+
+## Chatting
+
+- **DMs.** A message to the bot starts a new chat, in a thread on your message. Replies in the thread continue it.
+- **Channels.** Mention the bot (`@agenthold fix the build`) to start a chat in a thread on that message. Invite
+  the bot first. Replies in that thread go to the chat without a mention, from anyone linked who can use the
+  agent; each message is sent as its author. Messages elsewhere, edits and other bots are ignored. A mention
+  inside some other thread binds that thread to a new chat.
+- **Which agent.** The channel's (or DM's) default agent; otherwise, if you can use exactly one agent, that one;
+  otherwise the bot asks you to choose, and sends your message once you did (optionally making the choice the
+  default). `/agenthold use <agent>` sets the default; agents are found by name or id, case-insensitively.
+- **Busy.** A message written while a turn runs waits (it gets :hourglass_flowing_sand:) and is sent when the
+  turn ends, in order. The web UI does not queue.
+
+Every thread starts with a header: the agent, its state, the chat's model and effort, the agent that started
+the chat if any, and buttons: **Model** (a dialog with the same choices and rules as the web picker: users the
+agent is shared with choose among the models the harness reported), **Rename** and **Delete chat** (under ⋯),
+and **Open in web**.
+
+A turn is one bot message, updated as it streams (at most once a second): what the agent is doing (waking,
+thinking, the running tool), the last tool calls, the plan, then the answer in Markdown, with **Stop** while it
+runs and a footer when it ends (done, cancelled or failed, and how long it took). Thoughts are not shown. Long
+answers continue in a new message after about 10,000 characters. Permission requests (agents with the `ask`
+policy) get a message with the harness's options as buttons; it shows who answered. Notices and errors appear
+as small notes.
+
+## Commands
+
+| Command | Does |
+| --- | --- |
+| `/agenthold help` | lists the commands |
+| `/agenthold agents` | your agents and their state, with **Start chat** and **Use here** |
+| `/agenthold use <agent>` | makes the agent the default here |
+| `/agenthold new [agent] [message]` | starts a chat (in a new thread), optionally with a first message |
+| `/agenthold chats [agent]` | recent chats: **Continue in Slack** posts a new thread bound to the chat, with its last answer; **Open in web** |
+| `/agenthold link` / `unlink` | connects or disconnects your agenthold account |
+
+The **Home** tab of the app lists your agents and recent chats the same way.
+
+## What is mirrored
+
+A thread shows its chat's whole activity from when it was bound, whatever started it: a prompt from the web UI,
+another Slack thread, a schedule, a webhook or another agent appears with its author ("*Alice* (web): …"),
+followed by the answer. The rendering follows the session's event log, so nothing depends on where the prompt
+came from. Deleting a chat (in Slack or the web UI) unbinds its threads; deleting an agent or a user removes its
+bindings.
+
+## Security
+
+- Tokens are encrypted at rest with the master key, never returned by the API and never logged.
+- Slack user ids are mapped to agenthold users only through the one-time link a signed-in user confirms. Link
+  codes are random, stored as SHA-256 hashes and compared in constant time.
+- Access is checked on every action, as the acting user: losing access to an agent stops its Slack threads for
+  that user too. In a channel, a chat's answers are visible to everyone in the channel, like the thread itself;
+  use DMs or private channels for private work.

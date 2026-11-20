@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -991,5 +992,28 @@ func TestUpdateCounter(t *testing.T) {
 	}
 	if got := seen.Load(); got != 3 {
 		t.Fatalf("counted %d session/update notifications, want 3", got)
+	}
+}
+
+func TestObserveSeesEveryAppend(t *testing.T) {
+	e := newEnv(t)
+	var mu sync.Mutex
+	var got []Event
+	e.m.Observe(func(sessionID string, ev Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		if sessionID == e.sid {
+			got = append(got, ev)
+		}
+	})
+	for _, typ := range []string{EventNotice, EventError} {
+		if err := e.m.log.append(t.Context(), e.sid, typ, "", map[string]string{"message": typ}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 2 || got[0].Seq != 1 || got[1].Seq != 2 || got[1].Type != EventError {
+		t.Fatalf("observed %+v", got)
 	}
 }

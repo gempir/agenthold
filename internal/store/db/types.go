@@ -129,6 +129,7 @@ type SetSessionACPIDParams = sqlite.SetSessionACPIDParams
 type SetSessionModelParams = sqlite.SetSessionModelParams
 type SetSessionOriginParams = sqlite.SetSessionOriginParams
 type SetSessionStatusParams = sqlite.SetSessionStatusParams
+type SetSlackThreadCursorParams = sqlite.SetSlackThreadCursorParams
 type SetSlackThreadHeaderParams = sqlite.SetSlackThreadHeaderParams
 type ShareAgentParams = sqlite.ShareAgentParams
 type Skill = sqlite.Skill

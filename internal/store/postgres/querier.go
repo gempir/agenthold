@@ -145,6 +145,7 @@ type Querier interface {
 	ListServices(ctx context.Context, agentID string) ([]Service, error)
 	ListSessionEvents(ctx context.Context, arg ListSessionEventsParams) ([]AgentSessionEvent, error)
 	ListSlackThreadSessions(ctx context.Context) ([]string, error)
+	ListSlackThreads(ctx context.Context) ([]SlackThread, error)
 	ListSlackThreadsOfSession(ctx context.Context, sessionID string) ([]SlackThread, error)
 	// Sessions whose last prompt has no turn_end after it: their turn was cut off.
 	ListUnfinishedSessions(ctx context.Context) ([]string, error)
@@ -196,6 +197,7 @@ type Querier interface {
 	SetSessionModel(ctx context.Context, arg SetSessionModelParams) error
 	SetSessionOrigin(ctx context.Context, arg SetSessionOriginParams) error
 	SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error
+	SetSlackThreadCursor(ctx context.Context, arg SetSlackThreadCursorParams) error
 	SetSlackThreadHeader(ctx context.Context, arg SetSlackThreadHeaderParams) error
 	ShareAgent(ctx context.Context, arg ShareAgentParams) error
 	// Only if nobody replaced the credential meanwhile.

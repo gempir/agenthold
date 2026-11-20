@@ -134,6 +134,7 @@ type Querier interface {
 	ListServices(ctx context.Context, agentID string) ([]Service, error)
 	ListSessionEvents(ctx context.Context, arg ListSessionEventsParams) ([]AgentSessionEvent, error)
 	ListSlackThreadSessions(ctx context.Context) ([]string, error)
+	ListSlackThreads(ctx context.Context) ([]SlackThread, error)
 	ListSlackThreadsOfSession(ctx context.Context, sessionID string) ([]SlackThread, error)
 	ListUnfinishedSessions(ctx context.Context) ([]string, error)
 	ListUserAgents(ctx context.Context, userID string) ([]ListUserAgentsRow, error)
@@ -177,6 +178,7 @@ type Querier interface {
 	SetSessionModel(ctx context.Context, arg SetSessionModelParams) error
 	SetSessionOrigin(ctx context.Context, arg SetSessionOriginParams) error
 	SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error
+	SetSlackThreadCursor(ctx context.Context, arg SetSlackThreadCursorParams) error
 	SetSlackThreadHeader(ctx context.Context, arg SetSlackThreadHeaderParams) error
 	ShareAgent(ctx context.Context, arg ShareAgentParams) error
 	StoreRefreshedLogin(ctx context.Context, arg StoreRefreshedLoginParams) (int64, error)

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gempir/agenthold/internal/api/gen"
 )
@@ -66,5 +67,18 @@ func TestFooterAndManifest(t *testing.T) {
 	settings := m["settings"].(map[string]any)
 	if settings["socket_mode_enabled"] != true {
 		t.Fatalf("settings %v", settings)
+	}
+}
+
+func TestTail(t *testing.T) {
+	s := strings.Repeat("ä", 10) // 20 bytes
+	for n := 0; n <= 21; n++ {
+		got := tail(s, n)
+		if !utf8.ValidString(got) || len(got) > n || len(got) < n-1 {
+			t.Fatalf("tail(%d) = %q", n, got)
+		}
+	}
+	if tail("abc", 2) != "bc" || tail("abc", 5) != "abc" {
+		t.Fatal("ascii tail")
 	}
 }

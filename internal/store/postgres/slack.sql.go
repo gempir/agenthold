@@ -36,8 +36,8 @@ func (q *Queries) CreateSlackLinkCode(ctx context.Context, arg CreateSlackLinkCo
 }
 
 const createSlackThread = `-- name: CreateSlackThread :exec
-INSERT INTO slack_threads (team_id, channel_id, thread_ts, session_id, agent_id, created_by, header_ts, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO slack_threads (team_id, channel_id, thread_ts, session_id, agent_id, created_by, header_ts, created_at, last_seq)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `
 
 type CreateSlackThreadParams struct {
@@ -49,6 +49,7 @@ type CreateSlackThreadParams struct {
 	CreatedBy string
 	HeaderTs  string
 	CreatedAt int64
+	LastSeq   int64
 }
 
 func (q *Queries) CreateSlackThread(ctx context.Context, arg CreateSlackThreadParams) error {
@@ -61,6 +62,7 @@ func (q *Queries) CreateSlackThread(ctx context.Context, arg CreateSlackThreadPa
 		arg.CreatedBy,
 		arg.HeaderTs,
 		arg.CreatedAt,
+		arg.LastSeq,
 	)
 	return err
 }
@@ -205,7 +207,7 @@ func (q *Queries) GetSlackLinkCode(ctx context.Context, codeHash string) (SlackL
 }
 
 const getSlackThread = `-- name: GetSlackThread :one
-SELECT team_id, channel_id, thread_ts, session_id, agent_id, created_by, header_ts, created_at FROM slack_threads WHERE team_id = $1 AND channel_id = $2 AND thread_ts = $3
+SELECT team_id, channel_id, thread_ts, session_id, agent_id, created_by, header_ts, created_at, last_seq, turn_seq, turn_ts FROM slack_threads WHERE team_id = $1 AND channel_id = $2 AND thread_ts = $3
 `
 
 type GetSlackThreadParams struct {
@@ -226,6 +228,9 @@ func (q *Queries) GetSlackThread(ctx context.Context, arg GetSlackThreadParams) 
 		&i.CreatedBy,
 		&i.HeaderTs,
 		&i.CreatedAt,
+		&i.LastSeq,
+		&i.TurnSeq,
+		&i.TurnTs,
 	)
 	return i, err
 }
@@ -280,8 +285,47 @@ func (q *Queries) ListSlackThreadSessions(ctx context.Context) ([]string, error)
 	return items, nil
 }
 
+const listSlackThreads = `-- name: ListSlackThreads :many
+SELECT team_id, channel_id, thread_ts, session_id, agent_id, created_by, header_ts, created_at, last_seq, turn_seq, turn_ts FROM slack_threads ORDER BY created_at
+`
+
+func (q *Queries) ListSlackThreads(ctx context.Context) ([]SlackThread, error) {
+	rows, err := q.db.QueryContext(ctx, listSlackThreads)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SlackThread{}
+	for rows.Next() {
+		var i SlackThread
+		if err := rows.Scan(
+			&i.TeamID,
+			&i.ChannelID,
+			&i.ThreadTs,
+			&i.SessionID,
+			&i.AgentID,
+			&i.CreatedBy,
+			&i.HeaderTs,
+			&i.CreatedAt,
+			&i.LastSeq,
+			&i.TurnSeq,
+			&i.TurnTs,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSlackThreadsOfSession = `-- name: ListSlackThreadsOfSession :many
-SELECT team_id, channel_id, thread_ts, session_id, agent_id, created_by, header_ts, created_at FROM slack_threads WHERE session_id = $1 ORDER BY created_at
+SELECT team_id, channel_id, thread_ts, session_id, agent_id, created_by, header_ts, created_at, last_seq, turn_seq, turn_ts FROM slack_threads WHERE session_id = $1 ORDER BY created_at
 `
 
 func (q *Queries) ListSlackThreadsOfSession(ctx context.Context, sessionID string) ([]SlackThread, error) {
@@ -302,6 +346,9 @@ func (q *Queries) ListSlackThreadsOfSession(ctx context.Context, sessionID strin
 			&i.CreatedBy,
 			&i.HeaderTs,
 			&i.CreatedAt,
+			&i.LastSeq,
+			&i.TurnSeq,
+			&i.TurnTs,
 		); err != nil {
 			return nil, err
 		}
@@ -433,6 +480,31 @@ func (q *Queries) PutSlackUser(ctx context.Context, arg PutSlackUserParams) erro
 		arg.SlackName,
 		arg.TeamName,
 		arg.CreatedAt,
+	)
+	return err
+}
+
+const setSlackThreadCursor = `-- name: SetSlackThreadCursor :exec
+UPDATE slack_threads SET last_seq = $1, turn_seq = $2, turn_ts = $3 WHERE team_id = $4 AND channel_id = $5 AND thread_ts = $6
+`
+
+type SetSlackThreadCursorParams struct {
+	LastSeq   int64
+	TurnSeq   int64
+	TurnTs    string
+	TeamID    string
+	ChannelID string
+	ThreadTs  string
+}
+
+func (q *Queries) SetSlackThreadCursor(ctx context.Context, arg SetSlackThreadCursorParams) error {
+	_, err := q.db.ExecContext(ctx, setSlackThreadCursor,
+		arg.LastSeq,
+		arg.TurnSeq,
+		arg.TurnTs,
+		arg.TeamID,
+		arg.ChannelID,
+		arg.ThreadTs,
 	)
 	return err
 }

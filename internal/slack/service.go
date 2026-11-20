@@ -72,10 +72,15 @@ type Service struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
-	// events carries appended session events of bound sessions to the
-	// dispatcher; overflow makes it poke every thread instead.
-	events   chan observed
+	// events carries the session ids of events appended to bound sessions
+	// to the dispatcher; overflow makes it resync every thread instead.
+	events   chan string
 	overflow chan struct{}
+
+	// cfgMu serializes (re)configuration: Start, Configure and Remove hold
+	// it across storing, disconnecting and connecting, so two of them
+	// cannot both leave a connection running.
+	cfgMu sync.Mutex
 
 	mu        sync.Mutex
 	closed    bool
@@ -94,11 +99,9 @@ type Service struct {
 	// thread does not repeat its own messages.
 	sent   []sentPrompt
 	claims map[claimKey]threadKey
-}
-
-type observed struct {
-	sessionID string
-	seq       int64
+	// prompted is when an unlinked Slack user was last asked to link in a
+	// thread (thread/user → time).
+	prompted map[string]time.Time
 }
 
 type sentPrompt struct {
@@ -133,9 +136,9 @@ func New(o Options) *Service {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{
 		o: o, lg: o.Log.With("component", "slack"), ctx: ctx, cancel: cancel,
-		events: make(chan observed, 4096), overflow: make(chan struct{}, 1),
+		events: make(chan string, 4096), overflow: make(chan struct{}, 1),
 		bound: map[string]bool{}, keys: map[string][]threadKey{}, threads: map[threadKey]*thread{},
-		picks: map[string]*pick{}, claims: map[claimKey]threadKey{},
+		picks: map[string]*pick{}, claims: map[claimKey]threadKey{}, prompted: map[string]time.Time{},
 	}
 	if o.Sessions != nil {
 		o.Sessions.Observe(s.observe)
@@ -145,8 +148,12 @@ func New(o Options) *Service {
 	return s
 }
 
-// Start loads the stored installation and connects to Slack.
+// Start loads the stored installation and connects to Slack. Bound
+// threads then catch up on what happened while the server was down, and
+// finish the turns it left open.
 func (s *Service) Start(ctx context.Context) error {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
 	ids, err := s.o.Store.ListSlackThreadSessions(ctx)
 	if err != nil {
 		return err
@@ -169,6 +176,7 @@ func (s *Service) Start(ctx context.Context) error {
 		return nil // a wrong master key must not stop the server
 	}
 	s.use(row, bot, app)
+	s.resync(ctx)
 	return nil
 }
 
@@ -253,7 +261,8 @@ func (s *Service) openTokens(row db.SlackInstallation) (string, string, error) {
 	return string(bot), string(app), nil
 }
 
-// use switches to an installation and (re)starts its connection.
+// use switches to an installation and (re)starts its connection (cfgMu
+// held).
 func (s *Service) use(row db.SlackInstallation, bot, app string) {
 	s.disconnect()
 	client := s.newClient(bot, app)
@@ -342,6 +351,8 @@ func (s *Service) Configure(ctx context.Context, userID, bot, app string) (gen.S
 		BotToken: sealedBot, AppToken: sealedApp, TeamID: at.TeamID, TeamName: at.Team,
 		BotUserID: at.UserID, BotID: at.BotID, UpdatedBy: userID, UpdatedAt: s.now().Unix(), Enabled: 1,
 	}
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
 	if err := s.o.Store.PutSlackInstallation(ctx, db.PutSlackInstallationParams{
 		BotToken: row.BotToken, AppToken: row.AppToken, TeamID: row.TeamID, TeamName: row.TeamName,
 		BotUserID: row.BotUserID, BotID: row.BotID, UpdatedBy: userID, UpdatedAt: row.UpdatedAt,
@@ -355,6 +366,8 @@ func (s *Service) Configure(ctx context.Context, userID, bot, app string) (gen.S
 
 // Remove implements api.Slack.
 func (s *Service) Remove(ctx context.Context) error {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
 	s.disconnect()
 	s.mu.Lock()
 	s.inst = installation{}

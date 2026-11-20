@@ -123,7 +123,7 @@ func (s *Service) observe(sessionID string, ev session.Event) {
 		return
 	}
 	select {
-	case s.events <- observed{sessionID: sessionID, seq: ev.Seq}:
+	case s.events <- sessionID:
 	default:
 		select {
 		case s.overflow <- struct{}{}:
@@ -140,19 +140,42 @@ func (s *Service) dispatch() {
 		select {
 		case <-s.ctx.Done():
 			return
-		case o := <-s.events:
-			s.pokeSession(o.sessionID, o.seq)
+		case id := <-s.events:
+			s.pokeSession(id)
 		case <-s.overflow:
-			s.mu.Lock()
-			for _, t := range s.threads {
-				t.poke()
-			}
-			s.mu.Unlock()
+			// Events were dropped: every thread behind its session's log
+			// catches up from its persisted cursor.
+			s.resync(s.ctx)
 		}
 	}
 }
 
-func (s *Service) pokeSession(sessionID string, seq int64) {
+// resync wakes the worker of every bound thread that has events it has not
+// rendered or a turn it left open, starting it as needed.
+func (s *Service) resync(ctx context.Context) {
+	rows, err := s.o.Store.ListSlackThreads(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.lg.Warn("list slack threads", "err", err)
+		}
+		return
+	}
+	last := map[string]int64{}
+	for _, r := range rows {
+		seq, ok := last[r.SessionID]
+		if !ok {
+			if seq, err = s.o.Store.MaxSessionSeq(ctx, r.SessionID); err != nil {
+				continue
+			}
+			last[r.SessionID] = seq
+		}
+		if seq > r.LastSeq || r.TurnSeq > 0 {
+			s.withWorker(threadKey{r.TeamID, r.ChannelID, r.ThreadTs}, r.SessionID, (*thread).poke)
+		}
+	}
+}
+
+func (s *Service) pokeSession(sessionID string) {
 	s.mu.Lock()
 	keys, ok := s.keys[sessionID]
 	s.mu.Unlock()
@@ -173,6 +196,6 @@ func (s *Service) pokeSession(sessionID string, seq int64) {
 		s.mu.Unlock()
 	}
 	for _, k := range keys {
-		s.worker(k, sessionID, seq-1).poke()
+		s.withWorker(k, sessionID, (*thread).poke)
 	}
 }

@@ -771,6 +771,18 @@ func (p postgresQueries) ListSlackThreadSessions(ctx context.Context) ([]string,
 	return result, nil
 }
 
+func (p postgresQueries) ListSlackThreads(ctx context.Context) ([]db.SlackThread, error) {
+	value, err := p.q.ListSlackThreads(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.SlackThread, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.SlackThread(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListSlackThreadsOfSession(ctx context.Context, sessionID string) ([]db.SlackThread, error) {
 	value, err := p.q.ListSlackThreadsOfSession(ctx, sessionID)
 	if err != nil {
@@ -1023,6 +1035,10 @@ func (p postgresQueries) SetSessionOrigin(ctx context.Context, arg db.SetSession
 
 func (p postgresQueries) SetSessionStatus(ctx context.Context, arg db.SetSessionStatusParams) error {
 	return p.q.SetSessionStatus(ctx, postgres.SetSessionStatusParams(arg))
+}
+
+func (p postgresQueries) SetSlackThreadCursor(ctx context.Context, arg db.SetSlackThreadCursorParams) error {
+	return p.q.SetSlackThreadCursor(ctx, postgres.SetSlackThreadCursorParams(arg))
 }
 
 func (p postgresQueries) SetSlackThreadHeader(ctx context.Context, arg db.SetSlackThreadHeaderParams) error {

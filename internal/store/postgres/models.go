@@ -331,6 +331,9 @@ type SlackThread struct {
 	CreatedBy string
 	HeaderTs  string
 	CreatedAt int64
+	LastSeq   int64
+	TurnSeq   int64
+	TurnTs    string
 }
 
 type SlackUser struct {

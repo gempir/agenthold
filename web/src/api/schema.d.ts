@@ -1503,7 +1503,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Links the Slack user a code was issued to (the bot sends the code as a link) to your account. A code works once and expires 15 minutes after it was issued. The bot then confirms in a direct message. */
+        /** @description Links the Slack user a code was issued to (the bot sends the code as a link) to your account. A code works once and expires 15 minutes after it was issued. The bot then confirms in a direct message. Only a signed-in session can link (403 with an API token): a link must not outlive a token's revocation. */
         post: operations["linkSlack"];
         delete?: never;
         options?: never;
@@ -5366,6 +5366,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };
     };

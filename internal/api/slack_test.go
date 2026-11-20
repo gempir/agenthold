@@ -29,6 +29,16 @@ type fakeSlack struct {
 	mu    sync.Mutex
 	calls []slackCall
 	ts    int
+	// fail, when set, makes a call fail with the Slack error it returns
+	// (none for "").
+	fail func(slackCall) string
+}
+
+// failWith sets the fake's failure rule.
+func (f *fakeSlack) failWith(fn func(slackCall) string) {
+	f.mu.Lock()
+	f.fail = fn
+	f.mu.Unlock()
 }
 
 type slackCall struct {
@@ -76,7 +86,16 @@ func (f *fakeSlack) serve(w http.ResponseWriter, r *http.Request) {
 	f.calls = append(f.calls, call)
 	f.ts++
 	ts := fmt.Sprintf("1700000000.%06d", f.ts)
+	failure := ""
+	if f.fail != nil {
+		failure = f.fail(call)
+	}
 	f.mu.Unlock()
+	if failure != "" {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": failure})
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/respond/") {
 		_, _ = w.Write([]byte("ok"))
 		return
@@ -94,7 +113,8 @@ func (f *fakeSlack) serve(w http.ResponseWriter, r *http.Request) {
 			out = map[string]any{"ok": false, "error": "invalid_auth"}
 			break
 		}
-		out["url"] = "wss://slack.invalid/link"
+		// Socket Mode dials it and fails: the fake has no WebSocket.
+		out["url"] = "ws" + strings.TrimPrefix(f.srv.URL, "http") + "/socket"
 	case "chat.postMessage":
 		ch := call.params.Get("channel")
 		if strings.HasPrefix(ch, "U") {
@@ -179,23 +199,33 @@ type slackEnv struct {
 
 // newSlackEnv is an environment with a connected Slack app (no socket:
 // tests hand events to the service).
-func newSlackEnv(t *testing.T) *slackEnv {
+func newSlackEnv(t *testing.T) *slackEnv { return newSlackEnvWith(t, false) }
+
+// newSlackEnvWith starts the Socket Mode connection too when socket is set
+// (it never gets up: the fake has no WebSocket).
+func newSlackEnvWith(t *testing.T, socket bool) *slackEnv {
 	e := newEnvWith(t, func(c *config.Config) { c.Auth.Admins = []string{"admin@example.com"} })
-	f := newFakeSlack(t)
-	clk := &clock{t: time.Now()}
+	se := &slackEnv{env: e, fake: newFakeSlack(t), clock: &clock{t: time.Now()}}
+	se.slack = se.newService(!socket)
+	e.api.Slack = se.slack
+	if _, err := se.slack.Configure(t.Context(), "", "xoxb-good", "xapp-good"); err != nil {
+		t.Fatal(err)
+	}
+	return se
+}
+
+// newService starts a Slack service on the environment, as a server
+// (re)start does.
+func (se *slackEnv) newService(noSocket bool) *slackapp.Service {
 	svc := slackapp.New(slackapp.Options{
-		Store: e.store, Box: e.box, API: e.api, Auth: e.auth, Sessions: e.sessions, PublicURL: e.srv.URL,
-		APIURL: f.srv.URL + "/api/", NoSocket: true, Throttle: 20 * time.Millisecond, Now: clk.Now,
+		Store: se.store, Box: se.box, API: se.api, Auth: se.auth, Sessions: se.sessions, PublicURL: se.srv.URL,
+		APIURL: se.fake.srv.URL + "/api/", NoSocket: noSocket, Throttle: 20 * time.Millisecond, Now: se.clock.Now,
 	})
-	e.api.Slack = svc
-	t.Cleanup(svc.Close)
-	if err := svc.Start(t.Context()); err != nil {
-		t.Fatal(err)
+	se.t.Cleanup(svc.Close)
+	if err := svc.Start(se.t.Context()); err != nil {
+		se.t.Fatal(err)
 	}
-	if _, err := svc.Configure(t.Context(), "", "xoxb-good", "xapp-good"); err != nil {
-		t.Fatal(err)
-	}
-	return &slackEnv{env: e, slack: svc, fake: f, clock: clk}
+	return svc
 }
 
 func (se *slackEnv) event(inner any) {
@@ -338,11 +368,23 @@ func TestSlackLinking(t *testing.T) {
 	code := se.linkCode("U1")
 	var preview gen.SlackLinkPreview
 	expect(t, "peek", alice.do("GET", "/me/slack/links/"+url.PathEscape(code), nil, &preview), 200)
-	if preview.SlackUserId != "U1" || preview.SlackUserName != "Display U1" || preview.TeamName != "Acme" {
+	if preview.SlackUserId != "U1" || preview.SlackUserName != "Display U1" || preview.TeamId != "T1" || preview.TeamName != "Acme" {
 		t.Fatalf("preview %+v", preview)
 	}
 	expect(t, "peek again: not consumed", alice.do("GET", "/me/slack/links/"+url.PathEscape(code), nil, nil), 200)
 	expect(t, "wrong code", alice.do("POST", "/me/slack/links", map[string]string{"code": code + "x"}, nil), 404)
+	// A link outlives tokens: an API token cannot make one.
+	var tok gen.CreatedAPIToken
+	expect(t, "token", alice.do("POST", "/me/tokens", map[string]string{"name": "script"}, &tok), 201)
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, se.srv.URL+"/api/v1/me/slack/links", strings.NewReader(`{"code":"`+code+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tok.Token)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	expect(t, "link with a token", res.StatusCode, 403)
 	var id gen.SlackIdentity
 	expect(t, "link", alice.do("POST", "/me/slack/links", map[string]string{"code": code}, &id), 200)
 	if id.SlackUserId != "U1" || id.TeamId != "T1" {

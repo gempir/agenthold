@@ -39,6 +39,9 @@ CREATE TABLE slack_link_codes (
 CREATE INDEX slack_link_codes_user ON slack_link_codes(team_id, slack_user_id);
 
 -- Slack threads bound to sessions. header_ts is the bot's header message.
+-- last_seq is the last session event the thread rendered; turn_seq is the
+-- first event of the turn it is rendering (0 for none) and turn_ts that
+-- turn's current message, so a restart can finish what it left open.
 CREATE TABLE slack_threads (
     team_id    TEXT NOT NULL,
     channel_id TEXT NOT NULL,
@@ -48,6 +51,9 @@ CREATE TABLE slack_threads (
     created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     header_ts  TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
+    last_seq   INTEGER NOT NULL DEFAULT 0,
+    turn_seq   INTEGER NOT NULL DEFAULT 0,
+    turn_ts    TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (team_id, channel_id, thread_ts)
 );
 CREATE INDEX slack_threads_session ON slack_threads(session_id);

@@ -43,8 +43,8 @@ DELETE FROM slack_link_codes WHERE team_id = $1 AND slack_user_id = $2;
 DELETE FROM slack_link_codes WHERE expires_at < $1;
 
 -- name: CreateSlackThread :exec
-INSERT INTO slack_threads (team_id, channel_id, thread_ts, session_id, agent_id, created_by, header_ts, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+INSERT INTO slack_threads (team_id, channel_id, thread_ts, session_id, agent_id, created_by, header_ts, created_at, last_seq)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 
 -- name: GetSlackThread :one
 SELECT * FROM slack_threads WHERE team_id = $1 AND channel_id = $2 AND thread_ts = $3;
@@ -57,6 +57,12 @@ SELECT DISTINCT session_id FROM slack_threads;
 
 -- name: SetSlackThreadHeader :exec
 UPDATE slack_threads SET header_ts = $1 WHERE team_id = $2 AND channel_id = $3 AND thread_ts = $4;
+
+-- name: ListSlackThreads :many
+SELECT * FROM slack_threads ORDER BY created_at;
+
+-- name: SetSlackThreadCursor :exec
+UPDATE slack_threads SET last_seq = $1, turn_seq = $2, turn_ts = $3 WHERE team_id = $4 AND channel_id = $5 AND thread_ts = $6;
 
 -- name: DeleteSlackThread :exec
 DELETE FROM slack_threads WHERE team_id = $1 AND channel_id = $2 AND thread_ts = $3;

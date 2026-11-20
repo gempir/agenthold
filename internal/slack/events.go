@@ -89,15 +89,18 @@ func (s *Service) incoming(ctx context.Context, in incoming) {
 		s.lg.Warn("slack user lookup", "err", err)
 		return
 	}
+	key := threadKey{in.team, in.channel, threadTS}
 	if !ok {
+		if in.threadTS != "" && in.threadTS != in.ts && !in.mention && !s.linkPromptDue(key, in.user) {
+			return // asked in this thread not long ago
+		}
 		s.askToLink(ctx, r, in.team)
 		return
 	}
-	key := threadKey{in.team, in.channel, threadTS}
 	if in.threadTS != "" && in.threadTS != in.ts {
 		if row, err := s.o.Store.GetSlackThread(ctx, db.GetSlackThreadParams{TeamID: in.team, ChannelID: in.channel, ThreadTs: in.threadTS}); err == nil {
 			if text != "" {
-				s.enqueue(ctx, key, row.SessionID, &queued{userID: u.ID, slackUser: in.user, text: text, msgTS: in.ts})
+				s.enqueue(key, row.SessionID, &queued{userID: u.ID, slackUser: in.user, text: text, msgTS: in.ts})
 			}
 			return
 		}
@@ -300,25 +303,54 @@ func (s *Service) startChat(ctx context.Context, c chatStart) {
 		_, _ = s.post(ctx, channel, threadTS, name+": "+truncate(c.text, 200), []slackgo.Block{sectionBlock("*" + escape(name) + "*: " + escape(truncate(c.text, 2800)))})
 	}
 	if c.text != "" {
-		s.enqueue(ctx, key, sess.Id, &queued{userID: c.userID, slackUser: c.slackUser, text: c.text, msgTS: c.msgTS})
+		s.enqueue(key, sess.Id, &queued{userID: c.userID, slackUser: c.slackUser, text: c.text, msgTS: c.msgTS})
 	}
 }
 
-// bind binds a thread to a session; its worker renders what comes next.
+// bind binds a thread to a session; its worker renders what comes after
+// the session's current last event.
 func (s *Service) bind(ctx context.Context, k threadKey, sessionID, agentID, userID, headerTS string) error {
+	seq, err := s.o.Store.MaxSessionSeq(ctx, sessionID)
+	if err != nil {
+		return err
+	}
 	if err := s.o.Store.CreateSlackThread(ctx, db.CreateSlackThreadParams{
 		TeamID: k.team, ChannelID: k.channel, ThreadTs: k.ts, SessionID: sessionID, AgentID: agentID,
-		CreatedBy: userID, HeaderTs: headerTS, CreatedAt: s.now().Unix(),
+		CreatedBy: userID, HeaderTs: headerTS, CreatedAt: s.now().Unix(), LastSeq: seq,
 	}); err != nil {
 		return err
 	}
-	seq, _ := s.o.Store.MaxSessionSeq(ctx, sessionID)
 	s.mu.Lock()
 	s.bound[sessionID] = true
 	delete(s.keys, sessionID)
 	s.mu.Unlock()
-	s.worker(k, sessionID, seq)
+	s.withWorker(k, sessionID, nil)
 	return nil
+}
+
+// linkPromptEvery is how often an unlinked Slack user writing in a thread
+// is asked to link their account.
+const linkPromptEvery = time.Hour
+
+// linkPromptDue tells whether an unlinked Slack user writing in a thread is
+// to be shown the link prompt (again), and notes that they were.
+func (s *Service) linkPromptDue(k threadKey, slackUser string) bool {
+	now := s.now()
+	key := k.String() + "/" + slackUser
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if at, ok := s.prompted[key]; ok && now.Sub(at) < linkPromptEvery {
+		return false
+	}
+	if len(s.prompted) >= 1000 {
+		for k, at := range s.prompted {
+			if now.Sub(at) >= linkPromptEvery {
+				delete(s.prompted, k)
+			}
+		}
+	}
+	s.prompted[key] = now
+	return true
 }
 
 // forgetSession drops a deleted session's threads from the caches.

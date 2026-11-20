@@ -2,6 +2,7 @@ package slack
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,7 +29,12 @@ const (
 	maxText = 10000
 	// maxTools is how many tool calls a turn's message lists.
 	maxTools = 8
+	// maxPushes is how often a turn's message is tried when Slack fails;
+	// pushRetry is the time between two tries.
+	maxPushes = 5
 )
+
+var pushRetry = 2 * time.Second
 
 // thread mirrors one session into one Slack thread and sends the prompts
 // written there, one at a time. Its goroutine is the only one rendering the
@@ -45,9 +51,17 @@ type thread struct {
 	// Owned by the worker goroutine.
 	row     db.SlackThread
 	cursor  int64
+	saved   cursorState // what the store holds
 	running bool
 	turn    *turnView
-	perms   map[string]*permView
+	// unsent are ended turns whose last render Slack refused; they are
+	// tried again.
+	unsent []*turnView
+	perms  map[string]*permView
+	// replaying rebuilds a turn's view from the log without posting.
+	replaying bool
+	// gone is set once the thread is unbound: the worker stops.
+	gone bool
 }
 
 // queued is a message written in the thread, waiting to be sent.
@@ -60,6 +74,7 @@ type queued struct {
 }
 
 type turnView struct {
+	seq     int64 // the turn's first event
 	started time.Time
 	status  string
 	tools   []*toolView
@@ -70,6 +85,10 @@ type turnView struct {
 	pushed  time.Time
 	ended   bool
 	footer  string
+	// fails counts the pushes Slack refused in a row; the next is due at
+	// retryAt.
+	fails   int
+	retryAt time.Time
 }
 
 type toolView struct{ id, title, status string }
@@ -90,22 +109,25 @@ type permOption struct {
 	Kind     string `json:"kind"`
 }
 
-// worker returns the thread's worker, starting it with the given cursor
-// (the last event it must not render) when it is not running.
-func (s *Service) worker(k threadKey, sessionID string, cursor int64) *thread {
+// withWorker runs fn with the thread's worker, starting the worker when it
+// is not running (from the thread's persisted cursor). fn runs under s.mu,
+// which an idle worker holds to exit, so the worker fn is given cannot exit
+// without seeing what fn queued or poked.
+func (s *Service) withWorker(k threadKey, sessionID string, fn func(*thread)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if t := s.threads[k]; t != nil {
-		return t
+	t := s.threads[k]
+	if t == nil {
+		t = &thread{s: s, key: k, sessionID: sessionID, wake: make(chan struct{}, 1), perms: map[string]*permView{}}
+		s.threads[k] = t
+		if !s.closed {
+			s.wg.Add(1)
+			go t.run()
+		}
 	}
-	t := &thread{s: s, key: k, sessionID: sessionID, cursor: max(cursor, 0), wake: make(chan struct{}, 1), perms: map[string]*permView{}}
-	s.threads[k] = t
-	if s.closed {
-		return t
+	if fn != nil {
+		fn(t)
 	}
-	s.wg.Add(1)
-	go t.run()
-	return t
 }
 
 func (t *thread) poke() {
@@ -116,13 +138,11 @@ func (t *thread) poke() {
 }
 
 // enqueue queues a message of the thread for its session.
-func (s *Service) enqueue(ctx context.Context, k threadKey, sessionID string, q *queued) {
-	seq, _ := s.o.Store.MaxSessionSeq(ctx, sessionID)
-	t := s.worker(k, sessionID, seq)
-	s.mu.Lock()
-	t.queue = append(t.queue, q)
-	s.mu.Unlock()
-	t.poke()
+func (s *Service) enqueue(k threadKey, sessionID string, q *queued) {
+	s.withWorker(k, sessionID, func(t *thread) {
+		t.queue = append(t.queue, q)
+		t.poke()
+	})
 }
 
 func (t *thread) run() {
@@ -131,20 +151,32 @@ func (t *thread) run() {
 	row, err := t.s.o.Store.GetSlackThread(ctx, db.GetSlackThreadParams{TeamID: t.key.team, ChannelID: t.key.channel, ThreadTs: t.key.ts})
 	if err != nil {
 		t.s.mu.Lock()
-		delete(t.s.threads, t.key)
+		t.deregister()
 		t.s.mu.Unlock()
 		return
 	}
-	t.row = row
+	t.row, t.cursor = row, row.LastSeq
+	t.saved = cursorState{row.LastSeq, row.TurnSeq, row.TurnTs}
+	if row.TurnSeq > 0 {
+		t.resume(ctx)
+	}
+	if ok, known := t.access(ctx); !ok && known {
+		t.unbind(ctx)
+		return
+	}
 	idle := time.NewTimer(idleAfter)
 	defer idle.Stop()
 	var flushC <-chan time.Time
 	for {
 		t.catchUp(ctx)
+		if t.gone {
+			return
+		}
 		t.sendQueued(ctx)
 		if d := t.flush(ctx, false); d > 0 && flushC == nil {
 			flushC = time.After(d)
 		}
+		t.save(ctx)
 		select {
 		case <-ctx.Done():
 			return
@@ -166,19 +198,58 @@ func (t *thread) run() {
 	}
 }
 
+// deregister removes the worker from the running ones (s.mu held). A
+// worker the map no longer holds (its session was deleted) leaves alone the
+// one that replaced it.
+func (t *thread) deregister() {
+	if t.s.threads[t.key] == t {
+		delete(t.s.threads, t.key)
+	}
+}
+
 func (t *thread) tryExit() bool {
 	t.s.mu.Lock()
 	defer t.s.mu.Unlock()
-	if t.running || t.turn != nil || len(t.queue) > 0 || len(t.wake) > 0 {
+	if t.running || t.turn != nil || len(t.unsent) > 0 || len(t.queue) > 0 || len(t.wake) > 0 {
 		return false
 	}
-	delete(t.s.threads, t.key)
+	t.deregister()
 	return true
 }
 
-// catchUp renders the session's events after the cursor.
+// cursorState is what a thread persists of its rendering: the last event
+// it rendered, and the turn (its first event and current message) it is in.
+type cursorState struct {
+	seq, turnSeq int64
+	turnTS       string
+}
+
+// save persists the rendering state when it changed.
+func (t *thread) save(ctx context.Context) {
+	st := cursorState{seq: t.cursor}
+	if t.turn != nil {
+		st.turnSeq, st.turnTS = t.turn.seq, t.turn.ts
+	}
+	if st == t.saved {
+		return
+	}
+	if err := t.s.o.Store.SetSlackThreadCursor(ctx, db.SetSlackThreadCursorParams{
+		LastSeq: st.seq, TurnSeq: st.turnSeq, TurnTs: st.turnTS, TeamID: t.key.team, ChannelID: t.key.channel, ThreadTs: t.key.ts,
+	}); err != nil {
+		if ctx.Err() == nil {
+			t.s.lg.Warn("save slack thread cursor", "thread", t.key.String(), "err", err)
+		}
+		return
+	}
+	t.saved = st
+}
+
+// catchUp renders the session's events after the cursor. A prompt starts a
+// turn only once the thread's creator may still read the session; when
+// that cannot be told now, it stops before the prompt and tries again on
+// the next wake.
 func (t *thread) catchUp(ctx context.Context) {
-	for {
+	for !t.gone {
 		rows, err := t.s.o.Store.ListSessionEvents(ctx, db.ListSessionEventsParams{SessionID: t.sessionID, Seq: t.cursor, Limit: 500})
 		if err != nil {
 			if ctx.Err() == nil {
@@ -187,6 +258,14 @@ func (t *thread) catchUp(ctx context.Context) {
 			return
 		}
 		for _, r := range rows {
+			if r.Type == session.EventPrompt {
+				if ok, known := t.access(ctx); !ok {
+					if known {
+						t.unbind(ctx)
+					}
+					return
+				}
+			}
 			t.apply(ctx, session.Event{Seq: r.Seq, At: time.UnixMilli(r.At).UTC(), Type: r.Type, UserID: r.UserID, Data: json.RawMessage(r.Data)})
 			t.cursor = r.Seq
 		}
@@ -194,6 +273,99 @@ func (t *thread) catchUp(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// resume rebuilds, from the log and without posting, the turn a previous
+// process was rendering when it stopped (its message still shows Stop): the
+// events after the cursor then finish it in that message.
+func (t *thread) resume(ctx context.Context) {
+	end := t.cursor
+	t.replaying = true
+	t.cursor = t.row.TurnSeq - 1
+replay:
+	for t.cursor < end {
+		rows, err := t.s.o.Store.ListSessionEvents(ctx, db.ListSessionEventsParams{SessionID: t.sessionID, Seq: t.cursor, Limit: 500})
+		if err != nil || len(rows) == 0 {
+			break
+		}
+		for _, r := range rows {
+			if r.Seq > end {
+				break replay
+			}
+			t.apply(ctx, session.Event{Seq: r.Seq, At: time.UnixMilli(r.At).UTC(), Type: r.Type, UserID: r.UserID, Data: json.RawMessage(r.Data)})
+			t.cursor = r.Seq
+		}
+	}
+	t.replaying, t.cursor = false, end
+	if tv := t.turn; tv != nil {
+		tv.ts, tv.dirty = t.row.TurnTs, true
+	}
+}
+
+// access tells whether the thread's creator still may read its session
+// and still has their Slack account linked: a thread shows the session as
+// them, so it must stop when they lose access. known is false when that
+// could not be told (a store error).
+func (t *thread) access(ctx context.Context) (ok, known bool) {
+	links, err := t.s.o.Store.ListUserSlackUsers(ctx, t.row.CreatedBy)
+	if err != nil {
+		return false, false
+	}
+	linked := false
+	for _, l := range links {
+		linked = linked || l.TeamID == t.key.team
+	}
+	if !linked {
+		return false, true
+	}
+	uctx, err := t.s.userContext(ctx, t.row.CreatedBy)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, true
+	}
+	if err != nil {
+		return false, false
+	}
+	if _, err := t.s.o.API.GetSession(uctx, gen.GetSessionRequestObject{SessionId: t.sessionID}); err != nil {
+		switch status, _ := api.ErrorStatus(err); status {
+		case http.StatusForbidden, http.StatusNotFound:
+			return false, true
+		}
+		return false, false
+	}
+	return true, true
+}
+
+// unbind ends the thread's binding after its creator lost access: the
+// thread stops showing the session, and says so.
+func (t *thread) unbind(ctx context.Context) {
+	if err := t.s.o.Store.DeleteSlackThread(ctx, db.DeleteSlackThreadParams{TeamID: t.key.team, ChannelID: t.key.channel, ThreadTs: t.key.ts}); err != nil {
+		t.s.lg.Warn("unbind slack thread", "thread", t.key.String(), "err", err)
+		return
+	}
+	t.s.lg.Info("slack thread unbound: its creator lost access", "thread", t.key.String(), "session", t.sessionID, "user", t.row.CreatedBy)
+	if tv := t.turn; tv != nil {
+		tv.ended, tv.dirty, tv.footer = true, true, ":lock: No longer shown here"
+		t.push(ctx, tv, true)
+	}
+	t.endPerms(ctx)
+	t.turn, t.running, t.gone = nil, false, true
+	t.s.mu.Lock()
+	t.deregister()
+	delete(t.s.keys, t.sessionID)
+	queue := t.queue
+	t.queue = nil
+	t.s.mu.Unlock()
+	for _, q := range queue {
+		if q.reacted {
+			_ = t.s.unreact(ctx, t.key.channel, q.msgTS)
+		}
+	}
+	name := "the person who started it here"
+	if u, err := t.s.o.Store.GetUser(ctx, t.row.CreatedBy); err == nil && u.Name != "" {
+		name = "*" + escape(u.Name) + "*"
+	}
+	text := ":lock: This thread no longer follows its chat: " + name + " lost access to it, or disconnected Slack. Mention me to start a new chat."
+	_, _ = t.s.post(ctx, t.key.channel, t.key.ts, "This thread no longer follows its chat", []slackgo.Block{contextBlock(text)})
 }
 
 func (t *thread) apply(ctx context.Context, ev session.Event) {
@@ -214,6 +386,9 @@ func (t *thread) apply(ctx context.Context, ev session.Event) {
 		icon := ":information_source:"
 		if ev.Type == session.EventError {
 			icon = ":warning:"
+		}
+		if t.replaying {
+			return
 		}
 		t.flush(ctx, true) // the answer so far comes before the note
 		_, _ = t.s.post(ctx, t.key.channel, t.key.ts, d.Message, []slackgo.Block{contextBlock(icon + " " + escape(truncate(d.Message, 2900)))})
@@ -239,25 +414,32 @@ func (t *thread) onPrompt(ctx context.Context, ev session.Event) {
 	if t.turn != nil {
 		t.finish(ctx, ev.At, "")
 	}
-	from, fromSlack := t.s.claim(t.sessionID, ev.Seq, d.User.ID, d.Text)
-	if !fromSlack || from != t.key {
-		name := d.User.Name
-		if name == "" {
-			name = "Someone"
-		}
-		label := "*" + escape(name) + "*"
-		switch {
-		case fromSlack:
-			label += " (Slack)"
-		case d.Origin == nil && !strings.Contains(name, "("):
-			label += " (web)"
-		}
-		body := label + ": " + escape(truncate(d.Text, 2800))
-		_, _ = t.s.post(ctx, t.key.channel, t.key.ts, name+": "+truncate(d.Text, 200), []slackgo.Block{sectionBlock(body)})
+	if !t.replaying { // a replayed prompt was shown before the restart
+		t.showPrompt(ctx, ev.Seq, d.Text, d.User.ID, d.User.Name, d.Origin != nil)
 	}
 	t.running = true
-	t.turn = &turnView{started: ev.At, status: t.initialStatus(ctx), dirty: true}
+	t.turn = &turnView{seq: ev.Seq, started: ev.At, status: t.initialStatus(ctx), dirty: true}
 	t.flush(ctx, true)
+}
+
+// showPrompt shows a prompt in the thread, unless the thread sent it.
+func (t *thread) showPrompt(ctx context.Context, seq int64, text, userID, name string, hasOrigin bool) {
+	from, fromSlack := t.s.claim(t.sessionID, seq, userID, text)
+	if fromSlack && from == t.key {
+		return
+	}
+	if name == "" {
+		name = "Someone"
+	}
+	label := "*" + escape(name) + "*"
+	switch {
+	case fromSlack:
+		label += " (Slack)"
+	case !hasOrigin && !strings.Contains(name, "("):
+		label += " (web)"
+	}
+	body := label + ": " + escape(truncate(text, 2800))
+	_, _ = t.s.post(ctx, t.key.channel, t.key.ts, name+": "+truncate(text, 200), []slackgo.Block{sectionBlock(body)})
 }
 
 // initialStatus is what a turn shows before the harness answers.
@@ -273,9 +455,9 @@ func (t *thread) initialStatus(ctx context.Context) string {
 
 // current returns the turn being rendered, starting one for events of a
 // turn whose prompt came before the thread was bound.
-func (t *thread) current(at time.Time) *turnView {
+func (t *thread) current(ev session.Event) *turnView {
 	if t.turn == nil {
-		t.turn = &turnView{started: at, status: "Working…"}
+		t.turn = &turnView{seq: ev.Seq, started: ev.At, status: "Working…"}
 		t.running = true
 	}
 	return t.turn
@@ -298,7 +480,7 @@ func (t *thread) onUpdate(ctx context.Context, ev session.Event) {
 	default:
 		return
 	}
-	tv := t.current(ev.At)
+	tv := t.current(ev)
 	switch u.Kind {
 	case "agent_message_chunk":
 		var c struct {
@@ -307,7 +489,7 @@ func (t *thread) onUpdate(ctx context.Context, ev session.Event) {
 		_ = json.Unmarshal(u.Content, &c)
 		tv.text += c.Text
 		tv.status = "Writing…"
-		if len(tv.text) > maxText {
+		for len(tv.text) > maxText {
 			t.split(ctx, tv)
 		}
 	case "agent_thought_chunk":
@@ -340,19 +522,20 @@ func (t *thread) onUpdate(ctx context.Context, ev session.Event) {
 	tv.dirty = true
 }
 
-// split ends the current message at a line break near maxText and goes on
-// in a new one.
+// split ends the current message at a line break near maxText (on a rune
+// boundary) and goes on in a new one.
 func (t *thread) split(ctx context.Context, tv *turnView) {
 	cut := splitPoint(tv.text, maxText)
 	head, rest := tv.text[:cut], strings.TrimLeft(tv.text[cut:], "\n")
 	blocks := []slackgo.Block{markdownBlock(head)}
-	if tv.ts == "" {
-		ts, _ := t.s.post(ctx, t.key.channel, t.key.ts, truncate(head, 150), blocks)
-		_ = ts
-	} else {
+	switch {
+	case t.replaying:
+	case tv.ts == "":
+		_, _ = t.s.post(ctx, t.key.channel, t.key.ts, truncate(head, 150), blocks)
+	default:
 		_ = t.s.update(ctx, t.key.channel, tv.ts, truncate(head, 150), blocks)
 	}
-	tv.text, tv.ts, tv.pushed, tv.dirty = rest, "", time.Time{}, true
+	tv.text, tv.ts, tv.pushed, tv.dirty, tv.fails, tv.retryAt = rest, "", time.Time{}, true, 0, time.Time{}
 }
 
 func splitPoint(s string, limit int) int {
@@ -389,8 +572,11 @@ func (t *thread) onPermission(ctx context.Context, ev session.Event) {
 	if title == "" {
 		title = "Permission requested"
 	}
-	tv := t.current(ev.At)
+	tv := t.current(ev)
 	tv.status, tv.dirty = "Waiting for approval", true
+	if t.replaying {
+		return // its message is not known anymore
+	}
 	t.flush(ctx, true)
 	buttons := []slackgo.BlockElement{}
 	for i, o := range d.Options {
@@ -468,16 +654,24 @@ func (t *thread) finish(ctx context.Context, at time.Time, reason string) {
 		tv.ended, tv.dirty = true, true
 		tv.footer = footer(reason, d)
 		t.flush(ctx, true)
+		if tv.dirty && !t.replaying {
+			t.unsent = append(t.unsent, tv) // Slack refused the final state: try again
+		}
 	}
+	t.endPerms(ctx)
+	t.turn, t.running = nil, false
+	if reason != "" && !t.replaying {
+		t.s.refreshHeader(ctx, t.row)
+	}
+}
+
+// endPerms closes the permission requests still shown.
+func (t *thread) endPerms(ctx context.Context) {
 	for id, p := range t.perms {
 		_ = t.s.update(ctx, t.key.channel, p.ts, "Permission request ended", []slackgo.Block{
 			sectionBlock(":lock: " + escape(truncate(p.title, 2800)) + "\n_The turn ended before it was answered._"),
 		})
 		delete(t.perms, id)
-	}
-	t.turn, t.running = nil, false
-	if reason != "" {
-		t.s.refreshHeader(ctx, t.row)
 	}
 }
 
@@ -507,31 +701,71 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dh %dm", m/60, m%60)
 }
 
-// flush pushes the turn's message when it changed and the throttle allows
-// (force skips the throttle). It returns how long to wait otherwise.
+// flush pushes the messages of the turn and of ended turns Slack refused
+// before, when they changed and the throttle allows (force skips it). It
+// returns how long to wait otherwise.
 func (t *thread) flush(ctx context.Context, force bool) time.Duration {
-	tv := t.turn
-	if tv == nil || !tv.dirty {
+	if t.replaying {
 		return 0
 	}
-	if !force && tv.ts != "" {
-		if wait := t.s.o.Throttle - time.Since(tv.pushed); wait > 0 {
+	var wait time.Duration
+	later := func(d time.Duration) {
+		if d > 0 && (wait == 0 || d < wait) {
+			wait = d
+		}
+	}
+	kept := t.unsent[:0]
+	for _, tv := range t.unsent {
+		later(t.push(ctx, tv, force))
+		if tv.dirty {
+			kept = append(kept, tv)
+		}
+	}
+	clear(t.unsent[len(kept):])
+	t.unsent = kept
+	if t.turn != nil {
+		later(t.push(ctx, t.turn, force))
+	}
+	return wait
+}
+
+// push posts or updates a turn's message. A message Slack refused stays
+// dirty and is tried again after pushRetry, up to maxPushes times.
+func (t *thread) push(ctx context.Context, tv *turnView, force bool) time.Duration {
+	if !tv.dirty {
+		return 0
+	}
+	if !force {
+		if wait := time.Until(tv.retryAt); wait > 0 {
 			return wait
+		}
+		if tv.ts != "" {
+			if wait := t.s.o.Throttle - time.Since(tv.pushed); wait > 0 {
+				return wait
+			}
 		}
 	}
 	blocks, text := t.render(tv)
+	var err error
 	if tv.ts == "" {
-		ts, err := t.s.post(ctx, t.key.channel, t.key.ts, text, blocks)
-		if err != nil {
-			tv.dirty = false
+		var ts string
+		if ts, err = t.s.post(ctx, t.key.channel, t.key.ts, text, blocks); err == nil {
+			tv.ts = ts
+		}
+	} else {
+		err = t.s.update(ctx, t.key.channel, tv.ts, text, blocks)
+	}
+	if err != nil {
+		tv.fails++
+		if tv.fails >= maxPushes || ctx.Err() != nil {
+			tv.dirty = false // given up: the next change tries again
+			tv.fails = 0
 			return 0
 		}
-		tv.ts = ts
-	} else if err := t.s.update(ctx, t.key.channel, tv.ts, text, blocks); err != nil {
-		tv.dirty = false
-		return 0
+		tv.retryAt = time.Now().Add(pushRetry)
+		return pushRetry
 	}
-	tv.pushed, tv.dirty = time.Now(), false
+	tv.pushed, tv.dirty, tv.fails, tv.retryAt = time.Now(), false, 0, time.Time{}
 	return 0
 }
 

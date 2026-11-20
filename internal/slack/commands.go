@@ -278,7 +278,7 @@ func (s *Service) continueChat(ctx context.Context, team, channel, userID, sessi
 	}
 	if answer := s.lastAnswer(uctx, sessionID); answer != "" {
 		if len(answer) > maxText {
-			answer = "…" + answer[len(answer)-maxText:]
+			answer = "…" + tail(answer, maxText)
 		}
 		_, _ = s.post(ctx, ch, ts, truncate(answer, 150), []slackgo.Block{contextBlock("Last answer:"), markdownBlock(answer)})
 	}

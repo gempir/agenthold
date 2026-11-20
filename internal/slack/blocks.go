@@ -56,6 +56,18 @@ func truncate(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
+// tail is the end of s: at most n bytes, starting on a rune boundary.
+func tail(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	i := len(s) - n
+	for i < len(s) && !utf8.RuneStart(s[i]) {
+		i++
+	}
+	return s[i:]
+}
+
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // post posts a message (in a thread when threadTS is set) and returns its ts.

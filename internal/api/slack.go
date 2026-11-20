@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gempir/agenthold/internal/api/gen"
+	"github.com/gempir/agenthold/internal/auth"
 )
 
 // Slack is the Slack integration (internal/slack) as the API sees it. Its
@@ -115,6 +116,11 @@ func (a *API) GetSlackLink(ctx context.Context, req gen.GetSlackLinkRequestObjec
 func (a *API) LinkSlack(ctx context.Context, req gen.LinkSlackRequestObject) (gen.LinkSlackResponseObject, error) {
 	if a.Slack == nil {
 		return nil, errNoSlack
+	}
+	if auth.ViaToken(ctx) {
+		// A link is a long-lived credential: it must not outlive the
+		// token's revocation.
+		return nil, errStatus(http.StatusForbidden, "Slack accounts can only be connected when signed in, not with a token")
 	}
 	out, err := a.Slack.Link(ctx, strings.TrimSpace(req.Body.Code), me(ctx).ID)
 	if err != nil {

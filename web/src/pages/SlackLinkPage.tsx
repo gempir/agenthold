@@ -82,6 +82,16 @@ export function SlackLinkPage({ code }: { code?: string }) {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+            <dt className="text-muted-foreground">Slack user</dt>
+            <dd className="font-mono">{p.slackUserId}</dd>
+            <dt className="text-muted-foreground">Workspace</dt>
+            <dd className="font-mono">{p.teamId}</dd>
+          </dl>
+          <p className="text-sm text-muted-foreground">
+            Only connect if you asked the bot for this link yourself. Someone
+            who sends you their link would get your access.
+          </p>
           <ErrorText error={link.error} />
           <div className="flex gap-2">
             <Button disabled={link.isPending} onClick={() => link.mutate()}>

@@ -143,6 +143,14 @@ func (p postgresQueries) CreateSkill(ctx context.Context, arg db.CreateSkillPara
 	return p.q.CreateSkill(ctx, postgres.CreateSkillParams(arg))
 }
 
+func (p postgresQueries) CreateSlackLinkCode(ctx context.Context, arg db.CreateSlackLinkCodeParams) error {
+	return p.q.CreateSlackLinkCode(ctx, postgres.CreateSlackLinkCodeParams(arg))
+}
+
+func (p postgresQueries) CreateSlackThread(ctx context.Context, arg db.CreateSlackThreadParams) error {
+	return p.q.CreateSlackThread(ctx, postgres.CreateSlackThreadParams(arg))
+}
+
 func (p postgresQueries) CreateUser(ctx context.Context, arg db.CreateUserParams) error {
 	return p.q.CreateUser(ctx, postgres.CreateUserParams(arg))
 }
@@ -178,6 +186,10 @@ func (p postgresQueries) DeleteExpiredPreviewSessions(ctx context.Context, expir
 
 func (p postgresQueries) DeleteExpiredSessions(ctx context.Context, expiresAt int64) error {
 	return p.q.DeleteExpiredSessions(ctx, expiresAt)
+}
+
+func (p postgresQueries) DeleteExpiredSlackLinkCodes(ctx context.Context, expiresAt int64) error {
+	return p.q.DeleteExpiredSlackLinkCodes(ctx, expiresAt)
 }
 
 func (p postgresQueries) DeleteExposure(ctx context.Context, id string) (int64, error) {
@@ -225,6 +237,28 @@ func (p postgresQueries) DeleteSession(ctx context.Context, tokenHash string) er
 
 func (p postgresQueries) DeleteSkill(ctx context.Context, id string) error {
 	return p.q.DeleteSkill(ctx, id)
+}
+
+func (p postgresQueries) DeleteSlackInstallation(ctx context.Context) error {
+	return p.q.DeleteSlackInstallation(ctx)
+}
+
+func (p postgresQueries) DeleteSlackLinkCode(ctx context.Context, codeHash string) (int64, error) {
+	value, err := p.q.DeleteSlackLinkCode(ctx, codeHash)
+	return value, err
+}
+
+func (p postgresQueries) DeleteSlackLinkCodesOf(ctx context.Context, arg db.DeleteSlackLinkCodesOfParams) error {
+	return p.q.DeleteSlackLinkCodesOf(ctx, postgres.DeleteSlackLinkCodesOfParams(arg))
+}
+
+func (p postgresQueries) DeleteSlackThread(ctx context.Context, arg db.DeleteSlackThreadParams) error {
+	return p.q.DeleteSlackThread(ctx, postgres.DeleteSlackThreadParams(arg))
+}
+
+func (p postgresQueries) DeleteSlackUser(ctx context.Context, arg db.DeleteSlackUserParams) (int64, error) {
+	value, err := p.q.DeleteSlackUser(ctx, postgres.DeleteSlackUserParams(arg))
+	return value, err
 }
 
 func (p postgresQueries) DeleteStaleNodeJoinTokens(ctx context.Context, before int64) error {
@@ -396,6 +430,31 @@ func (p postgresQueries) GetShare(ctx context.Context, arg db.GetShareParams) (d
 func (p postgresQueries) GetSkill(ctx context.Context, id string) (db.Skill, error) {
 	value, err := p.q.GetSkill(ctx, id)
 	return db.Skill(value), err
+}
+
+func (p postgresQueries) GetSlackChannelAgent(ctx context.Context, arg db.GetSlackChannelAgentParams) (db.SlackChannelAgent, error) {
+	value, err := p.q.GetSlackChannelAgent(ctx, postgres.GetSlackChannelAgentParams(arg))
+	return db.SlackChannelAgent(value), err
+}
+
+func (p postgresQueries) GetSlackInstallation(ctx context.Context) (db.SlackInstallation, error) {
+	value, err := p.q.GetSlackInstallation(ctx)
+	return db.SlackInstallation(value), err
+}
+
+func (p postgresQueries) GetSlackLinkCode(ctx context.Context, codeHash string) (db.SlackLinkCode, error) {
+	value, err := p.q.GetSlackLinkCode(ctx, codeHash)
+	return db.SlackLinkCode(value), err
+}
+
+func (p postgresQueries) GetSlackThread(ctx context.Context, arg db.GetSlackThreadParams) (db.SlackThread, error) {
+	value, err := p.q.GetSlackThread(ctx, postgres.GetSlackThreadParams(arg))
+	return db.SlackThread(value), err
+}
+
+func (p postgresQueries) GetSlackUser(ctx context.Context, arg db.GetSlackUserParams) (db.SlackUser, error) {
+	value, err := p.q.GetSlackUser(ctx, postgres.GetSlackUserParams(arg))
+	return db.SlackUser(value), err
 }
 
 func (p postgresQueries) GetTokenUser(ctx context.Context, arg db.GetTokenUserParams) (db.GetTokenUserRow, error) {
@@ -700,6 +759,42 @@ func (p postgresQueries) ListSessionEvents(ctx context.Context, arg db.ListSessi
 	return result, nil
 }
 
+func (p postgresQueries) ListSlackThreadSessions(ctx context.Context) ([]string, error) {
+	value, err := p.q.ListSlackThreadSessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]string, 0, len(value))
+	for _, row := range value {
+		result = append(result, row)
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListSlackThreads(ctx context.Context) ([]db.SlackThread, error) {
+	value, err := p.q.ListSlackThreads(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.SlackThread, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.SlackThread(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListSlackThreadsOfSession(ctx context.Context, sessionID string) ([]db.SlackThread, error) {
+	value, err := p.q.ListSlackThreadsOfSession(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.SlackThread, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.SlackThread(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListUnfinishedSessions(ctx context.Context) ([]string, error) {
 	value, err := p.q.ListUnfinishedSessions(ctx)
 	if err != nil {
@@ -784,6 +879,18 @@ func (p postgresQueries) ListUserSkills(ctx context.Context, ownerID string) ([]
 	return result, nil
 }
 
+func (p postgresQueries) ListUserSlackUsers(ctx context.Context, userID string) ([]db.SlackUser, error) {
+	value, err := p.q.ListUserSlackUsers(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.SlackUser, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.SlackUser(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListUsersByVerifiedEmail(ctx context.Context, lower string) ([]db.User, error) {
 	value, err := p.q.ListUsersByVerifiedEmail(ctx, lower)
 	if err != nil {
@@ -807,6 +914,18 @@ func (p postgresQueries) MarkCredentialsInSandbox(ctx context.Context, id string
 func (p postgresQueries) MaxSessionSeq(ctx context.Context, sessionID string) (int64, error) {
 	value, err := p.q.MaxSessionSeq(ctx, sessionID)
 	return value, err
+}
+
+func (p postgresQueries) PutSlackChannelAgent(ctx context.Context, arg db.PutSlackChannelAgentParams) error {
+	return p.q.PutSlackChannelAgent(ctx, postgres.PutSlackChannelAgentParams(arg))
+}
+
+func (p postgresQueries) PutSlackInstallation(ctx context.Context, arg db.PutSlackInstallationParams) error {
+	return p.q.PutSlackInstallation(ctx, postgres.PutSlackInstallationParams(arg))
+}
+
+func (p postgresQueries) PutSlackUser(ctx context.Context, arg db.PutSlackUserParams) error {
+	return p.q.PutSlackUser(ctx, postgres.PutSlackUserParams(arg))
 }
 
 func (p postgresQueries) RecordScheduleRun(ctx context.Context, arg db.RecordScheduleRunParams) error {
@@ -916,6 +1035,14 @@ func (p postgresQueries) SetSessionOrigin(ctx context.Context, arg db.SetSession
 
 func (p postgresQueries) SetSessionStatus(ctx context.Context, arg db.SetSessionStatusParams) error {
 	return p.q.SetSessionStatus(ctx, postgres.SetSessionStatusParams(arg))
+}
+
+func (p postgresQueries) SetSlackThreadCursor(ctx context.Context, arg db.SetSlackThreadCursorParams) error {
+	return p.q.SetSlackThreadCursor(ctx, postgres.SetSlackThreadCursorParams(arg))
+}
+
+func (p postgresQueries) SetSlackThreadHeader(ctx context.Context, arg db.SetSlackThreadHeaderParams) error {
+	return p.q.SetSlackThreadHeader(ctx, postgres.SetSlackThreadHeaderParams(arg))
 }
 
 func (p postgresQueries) ShareAgent(ctx context.Context, arg db.ShareAgentParams) error {

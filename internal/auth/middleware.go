@@ -66,3 +66,28 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+type viaKey struct{}
+
+// WithVia marks ctx as acting through an integration (such as "slack"),
+// which audit entries record.
+func WithVia(ctx context.Context, via string) context.Context {
+	return context.WithValue(ctx, viaKey{}, via)
+}
+
+// Via returns the integration ctx acts through, or "".
+func Via(ctx context.Context) string {
+	v, _ := ctx.Value(viaKey{}).(string)
+	return v
+}
+
+// UserContext returns ctx carrying the user with userID, for services that
+// call the API handlers in-process on a user's behalf (the Slack app). The
+// handlers then check that user's permissions as for a request of theirs.
+func (s *Service) UserContext(ctx context.Context, userID string) (context.Context, *db.User, error) {
+	u, err := s.store.GetUser(ctx, userID)
+	if err != nil {
+		return ctx, nil, err
+	}
+	return WithUser(ctx, &u), &u, nil
+}

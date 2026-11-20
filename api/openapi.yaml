@@ -48,6 +48,8 @@ tags:
     description: Machines without a harness that run services.
   - name: streams
     description: WebSocket endpoints. Not generated as JSON handlers.
+  - name: slack
+    description: Linking Slack users to agenthold accounts.
   - name: meta
 
 paths:
@@ -191,6 +193,73 @@ paths:
               schema: { $ref: "#/components/schemas/AdminOverview" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+
+  /admin/slack:
+    get:
+      operationId: getSlackSettings
+      tags: [admin]
+      description: >-
+        The Slack app this installation is connected to, if any, and the state of its Socket Mode connection.
+        Tokens are never returned. Admins only.
+      responses:
+        "200":
+          description: The Slack settings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SlackSettings" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      operationId: configureSlack
+      tags: [admin]
+      description: >-
+        Connects a Slack app: the bot token is checked with auth.test and the app-level token by opening a
+        Socket Mode connection; the workspace and bot user are recorded, the tokens stored encrypted and the
+        connection (re)started. A token Slack refuses is answered with 400 and Slack's error. Admins only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SlackTokens" }
+      responses:
+        "200":
+          description: Connected.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SlackSettings" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteSlack
+      tags: [admin]
+      description: Disconnects the Slack app and forgets its tokens. Linked users and threads are kept. Admins only.
+      responses:
+        "204": { description: Disconnected. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /admin/slack/manifest:
+    get:
+      operationId: getSlackManifest
+      tags: [admin]
+      description: >-
+        The Slack app manifest for this server (Socket Mode, the /agenthold command, App Home, the bot scopes
+        and events the integration uses). Create the app from it at api.slack.com. Admins only.
+      responses:
+        "200":
+          description: The manifest.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
 
   /nodes/join-tokens:
     post:
@@ -1706,6 +1775,76 @@ paths:
         "204": { description: Disconnected. }
         "404": { $ref: "#/components/responses/Error" }
 
+  /me/slack:
+    get:
+      operationId: listSlackLinks
+      tags: [slack]
+      description: The Slack users linked to your account. Everything they do in Slack runs as you.
+      responses:
+        "200":
+          description: Linked Slack users.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SlackIdentity" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /me/slack/links:
+    post:
+      operationId: linkSlack
+      tags: [slack]
+      description: >-
+        Links the Slack user a code was issued to (the bot sends the code as a link) to your account. A code
+        works once and expires 15 minutes after it was issued. The bot then confirms in a direct message.
+        Only a signed-in session can link (403 with an API token): a link must not outlive a token's
+        revocation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        "200":
+          description: Linked.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SlackIdentity" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /me/slack/links/{code}:
+    parameters:
+      - { name: code, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getSlackLink
+      tags: [slack]
+      description: What a link code would link, without using it. 404 for an unknown, used or expired code.
+      responses:
+        "200":
+          description: The Slack user and workspace.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SlackLinkPreview" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /me/slack/{teamId}/{slackUserId}:
+    parameters:
+      - { name: teamId, in: path, required: true, schema: { type: string } }
+      - { name: slackUserId, in: path, required: true, schema: { type: string } }
+    delete:
+      operationId: unlinkSlack
+      tags: [slack]
+      description: Unlinks one of your Slack users; it can no longer act as you.
+      responses:
+        "204": { description: Unlinked. }
+        "404": { $ref: "#/components/responses/Error" }
+
   /agents/{agentId}/login:
     parameters:
       - $ref: "#/components/parameters/AgentId"
@@ -1943,6 +2082,42 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
 
   schemas:
+    SlackSettings:
+      type: object
+      required: [configured, enabled, connected]
+      properties:
+        configured: { type: boolean, description: Tokens are stored. }
+        enabled: { type: boolean }
+        teamId: { type: string }
+        teamName: { type: string }
+        botUserId: { type: string }
+        connected: { type: boolean, description: The Socket Mode connection is up. }
+        lastError: { type: string, description: Why the connection last failed. }
+        updatedAt: { type: string, format: date-time }
+    SlackTokens:
+      type: object
+      required: [botToken, appToken]
+      properties:
+        botToken: { type: string, description: "Bot User OAuth Token (xoxb-…)." }
+        appToken: { type: string, description: "App-level token with connections:write (xapp-…)." }
+    SlackIdentity:
+      type: object
+      required: [teamId, teamName, slackUserId, slackUserName, createdAt]
+      properties:
+        teamId: { type: string }
+        teamName: { type: string }
+        slackUserId: { type: string }
+        slackUserName: { type: string }
+        createdAt: { type: string, format: date-time }
+    SlackLinkPreview:
+      type: object
+      required: [teamId, teamName, slackUserId, slackUserName, expiresAt]
+      properties:
+        teamId: { type: string }
+        teamName: { type: string }
+        slackUserId: { type: string }
+        slackUserName: { type: string }
+        expiresAt: { type: string, format: date-time }
     Error:
       type: object
       required: [error]

@@ -10,12 +10,19 @@ import (
 
 	"github.com/gempir/agenthold/internal/api/gen"
 	"github.com/gempir/agenthold/internal/audit"
+	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/store/db"
 )
 
 // record writes an audit entry for an agent action by the current user.
 func (a *API) record(ctx context.Context, ag db.Agent, action, target string, details map[string]any) {
+	if via := auth.Via(ctx); via != "" {
+		if details == nil {
+			details = map[string]any{}
+		}
+		details["via"] = via
+	}
 	a.Audit.Record(ctx, audit.Entry{
 		AgentID: ag.ID, UserID: me(ctx).ID,
 		Action: action, Target: target, Details: details,

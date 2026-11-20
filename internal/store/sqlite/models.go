@@ -292,6 +292,59 @@ type Skill struct {
 	UpdatedAt   int64
 }
 
+type SlackChannelAgent struct {
+	TeamID    string
+	ChannelID string
+	AgentID   string
+	SetBy     string
+	UpdatedAt int64
+}
+
+type SlackInstallation struct {
+	ID        int64
+	BotToken  []byte
+	AppToken  []byte
+	TeamID    string
+	TeamName  string
+	BotUserID string
+	BotID     string
+	Enabled   int64
+	UpdatedBy string
+	UpdatedAt int64
+}
+
+type SlackLinkCode struct {
+	CodeHash    string
+	TeamID      string
+	SlackUserID string
+	SlackName   string
+	TeamName    string
+	ExpiresAt   int64
+}
+
+type SlackThread struct {
+	TeamID    string
+	ChannelID string
+	ThreadTs  string
+	SessionID string
+	AgentID   string
+	CreatedBy string
+	HeaderTs  string
+	CreatedAt int64
+	LastSeq   int64
+	TurnSeq   int64
+	TurnTs    string
+}
+
+type SlackUser struct {
+	TeamID      string
+	SlackUserID string
+	UserID      string
+	SlackName   string
+	TeamName    string
+	CreatedAt   int64
+}
+
 type User struct {
 	ID            string
 	Email         string

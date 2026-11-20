@@ -42,6 +42,8 @@ type log struct {
 	mu   sync.Mutex
 	seq  map[string]int64
 	subs map[string]map[*Subscription]struct{}
+	// observers see every appended event (Manager.Observe).
+	observers []func(sessionID string, ev Event)
 }
 
 func newLog(st *store.Store) *log {
@@ -72,6 +74,9 @@ func (l *log) append(ctx context.Context, sessionID, typ, userID string, data an
 	l.seq[sessionID] = seq
 	for s := range l.subs[sessionID] {
 		s.push(ev)
+	}
+	for _, fn := range l.observers {
+		fn(sessionID, ev)
 	}
 	return nil
 }

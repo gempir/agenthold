@@ -170,6 +170,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/slack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The Slack app this installation is connected to, if any, and the state of its Socket Mode connection. Tokens are never returned. Admins only. */
+        get: operations["getSlackSettings"];
+        /** @description Connects a Slack app: the bot token is checked with auth.test and the app-level token by opening a Socket Mode connection; the workspace and bot user are recorded, the tokens stored encrypted and the connection (re)started. A token Slack refuses is answered with 400 and Slack's error. Admins only. */
+        put: operations["configureSlack"];
+        post?: never;
+        /** @description Disconnects the Slack app and forgets its tokens. Linked users and threads are kept. Admins only. */
+        delete: operations["deleteSlack"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/slack/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The Slack app manifest for this server (Socket Mode, the /agenthold command, App Home, the bot scopes and events the integration uses). Create the app from it at api.slack.com. Admins only. */
+        get: operations["getSlackManifest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/nodes/join-tokens": {
         parameters: {
             query?: never;
@@ -1441,6 +1477,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/slack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The Slack users linked to your account. Everything they do in Slack runs as you. */
+        get: operations["listSlackLinks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/slack/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Links the Slack user a code was issued to (the bot sends the code as a link) to your account. A code works once and expires 15 minutes after it was issued. The bot then confirms in a direct message. Only a signed-in session can link (403 with an API token): a link must not outlive a token's revocation. */
+        post: operations["linkSlack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/slack/links/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        /** @description What a link code would link, without using it. 404 for an unknown, used or expired code. */
+        get: operations["getSlackLink"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/slack/{teamId}/{slackUserId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: string;
+                slackUserId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Unlinks one of your Slack users; it can no longer act as you. */
+        delete: operations["unlinkSlack"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agentId}/login": {
         parameters: {
             query?: never;
@@ -1591,6 +1700,42 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        SlackSettings: {
+            /** @description Tokens are stored. */
+            configured: boolean;
+            enabled: boolean;
+            teamId?: string;
+            teamName?: string;
+            botUserId?: string;
+            /** @description The Socket Mode connection is up. */
+            connected: boolean;
+            /** @description Why the connection last failed. */
+            lastError?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+        };
+        SlackTokens: {
+            /** @description Bot User OAuth Token (xoxb-…). */
+            botToken: string;
+            /** @description App-level token with connections:write (xapp-…). */
+            appToken: string;
+        };
+        SlackIdentity: {
+            teamId: string;
+            teamName: string;
+            slackUserId: string;
+            slackUserName: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        SlackLinkPreview: {
+            teamId: string;
+            teamName: string;
+            slackUserId: string;
+            slackUserName: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
         Error: {
             error: string;
         };
@@ -2733,6 +2878,103 @@ export interface operations {
             };
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
+        };
+    };
+    getSlackSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Slack settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackSettings"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    configureSlack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SlackTokens"];
+            };
+        };
+        responses: {
+            /** @description Connected. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackSettings"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteSlack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disconnected. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    getSlackManifest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The manifest. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
         };
     };
     createNodeJoinToken: {
@@ -5069,6 +5311,101 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Disconnected. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    listSlackLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Linked Slack users. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackIdentity"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    linkSlack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    code: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Linked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackIdentity"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    getSlackLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Slack user and workspace. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackLinkPreview"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    unlinkSlack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: string;
+                slackUserId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unlinked. */
             204: {
                 headers: {
                     [name: string]: unknown;

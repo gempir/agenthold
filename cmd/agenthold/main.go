@@ -42,6 +42,7 @@ import (
 	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/server"
 	"github.com/gempir/agenthold/internal/session"
+	slackapp "github.com/gempir/agenthold/internal/slack"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/tools"
@@ -312,6 +313,15 @@ func run() error {
 	sessions.SetWaker(apiSrv.Wake)
 	appsMgr.Wake = apiSrv.Wake
 	sandboxes.SetBusy(sessions.AgentBusy)
+	// Slack acts through the API's handlers, as the linked users.
+	slackSvc := slackapp.New(slackapp.Options{
+		Store: st, Box: box, API: apiSrv, Auth: authSvc, Sessions: sessions, PublicURL: cfg.PublicURL, Log: logger,
+	})
+	apiSrv.Slack = slackSvc
+	if err := slackSvc.Start(ctx); err != nil {
+		logger.Error("start slack", "err", err)
+	}
+	defer slackSvc.Close()
 
 	srvCfg := server.Config{Web: web.Dist(), Logger: logger, API: apiSrv.Mount, DL: downloads}
 	if cfg.DevProxy != "" {

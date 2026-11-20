@@ -53,6 +53,8 @@ type Deps struct {
 	// Stats reads a running machine's live stats for the admin overview. Nil
 	// asks the machine's sandboxd through its node.
 	Stats StatsFunc
+	// Slack is the Slack integration; nil disables its endpoints.
+	Slack Slack
 	// ShowTestHarness lists the scripted test harness (development).
 	ShowTestHarness bool
 	Limits          config.Sandbox

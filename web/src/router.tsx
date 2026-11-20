@@ -24,6 +24,8 @@ import { NewChatPage } from '@/pages/NewChatPage';
 import { NodesPage } from '@/pages/NodesPage';
 import { OverviewPage } from '@/pages/OverviewPage';
 import { ProvidersPage } from '@/pages/ProvidersPage';
+import { SlackLinkPage } from '@/pages/SlackLinkPage';
+import { SlackPage } from '@/pages/SlackPage';
 import {
   AgentsSettingsPage,
   SecretsSettingsPage,
@@ -131,6 +133,19 @@ const appPageRoute = createRoute({
   },
 });
 
+// Where the Slack bot's "Connect your agenthold account" link lands.
+const slackLinkRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/slack/link',
+  validateSearch: (s: Record<string, unknown>): { code?: string } => ({
+    ...(str(s.code) && { code: str(s.code) }),
+  }),
+  component: function SlackLink() {
+    const { code } = slackLinkRoute.useSearch();
+    return <SlackLinkPage code={code} />;
+  },
+});
+
 // Account settings: /settings/<page>, framed by AccountSettings' nav.
 const settingsRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -176,6 +191,12 @@ const secretsRoute = createRoute({
   component: SecretsSettingsPage,
 });
 
+const slackRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/slack',
+  component: SlackPage,
+});
+
 const toolsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: '/tools',
@@ -191,12 +212,14 @@ const routeTree = rootRoute.addChildren([
     agentSettingsRoute,
     appPageRoute,
     overviewRoute,
+    slackLinkRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
       agentsSettingsRoute,
       secretsRoute,
       toolsRoute,
       tokensRoute,
+      slackRoute,
       providersRoute,
       nodesRoute,
     ]),

@@ -40,7 +40,8 @@ for an unlinked Slack user.
 The first time you message the bot, it answers (only to you) with **Connect your agenthold account**. The link
 opens agenthold at `/slack/link?code=…`; sign in and confirm. The code works once, for 15 minutes. The bot then
 confirms in a DM. `/agenthold link` offers a new link, `/agenthold unlink` disconnects; your linked Slack users
-are also listed under your account settings (`GET /api/v1/me/slack`).
+are also listed, with an **Unlink** button, under **Settings → Slack** (`GET /api/v1/me/slack`); the same page holds
+the admin's workspace connection.
 
 ## Chatting
 

@@ -99,6 +99,7 @@ export const agentQuery = (agentId: string) =>
   });
 
 export type Session = components['schemas']['Session'];
+export type SessionGit = components['schemas']['SessionGit'];
 export type HarnessType = components['schemas']['HarnessType'];
 
 export const sessionsQuery = (agentId: string) =>
@@ -227,3 +228,85 @@ export const adminUsersQuery = queryOptions({
   queryFn: () => unwrap(api.GET('/admin/users')),
   retry: false,
 });
+
+export type GitSettings = components['schemas']['GitSettings'];
+export type GitCredential = components['schemas']['GitCredential'];
+export type GitRepo = components['schemas']['GitRepo'];
+export type GitRepoList = components['schemas']['GitRepoList'];
+export type GitRepoStatus = components['schemas']['GitRepoStatus'];
+
+/** Your git author identity and connected HTTPS credentials. */
+export const gitSettingsQuery = queryOptions({
+  queryKey: ['me', 'git'],
+  queryFn: () => unwrap(api.GET('/me/git')),
+  retry: false,
+});
+
+/** Git repositories and worktrees found in a running agent's home. */
+export const agentGitReposQuery = (agentId: string) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'git', 'repos'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/git/repos', {
+          params: { path: { agentId } },
+        }),
+      ),
+    refetchInterval: 15_000,
+    retry: false,
+  });
+
+/** Status and branches of one repository (path relative to home). */
+export const agentGitStatusQuery = (agentId: string, path: string) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'git', 'status', path],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/git/status', {
+          params: { path: { agentId }, query: { path } },
+        }),
+      ),
+    retry: false,
+  });
+
+export type BuiltinBaseImage = components['schemas']['BuiltinBaseImage'];
+export type CustomImage = components['schemas']['CustomImage'];
+export type CustomImageDetail = components['schemas']['CustomImageDetail'];
+export type ImageBuild = components['schemas']['ImageBuild'];
+export type ImageBuildDetail = components['schemas']['ImageBuildDetail'];
+export type ImageInput = components['schemas']['ImageInput'];
+export type ImageList = components['schemas']['ImageList'];
+
+/** Built-in base image and organization custom images. */
+export const imagesQuery = queryOptions({
+  queryKey: ['images'],
+  queryFn: () => unwrap(api.GET('/images')),
+  refetchInterval: (q) =>
+    q.state.data?.images.some((i) => i.building) ? 3000 : false,
+  retry: false,
+});
+
+export const imageQuery = (imageId: string) =>
+  queryOptions({
+    queryKey: ['images', imageId],
+    queryFn: () =>
+      unwrap(api.GET('/images/{imageId}', { params: { path: { imageId } } })),
+    refetchInterval: (q) => (q.state.data?.building ? 2000 : false),
+    retry: false,
+  });
+
+export const imageBuildQuery = (imageId: string, buildId: string) =>
+  queryOptions({
+    queryKey: ['images', imageId, 'builds', buildId],
+    queryFn: () =>
+      unwrap(
+        api.GET('/images/{imageId}/builds/{buildId}', {
+          params: { path: { imageId, buildId } },
+        }),
+      ),
+    refetchInterval: (q) =>
+      q.state.data?.status === 'queued' || q.state.data?.status === 'building'
+        ? 1500
+        : false,
+    retry: false,
+  });

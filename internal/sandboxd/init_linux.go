@@ -107,6 +107,13 @@ func (in *initState) setup() error {
 	if err != nil {
 		return err
 	}
+	baseDev := BaseDevice(args)
+	for _, layer := range boot.Layers {
+		switch layer.Device {
+		case baseDev, in.layout.Overlay, in.layout.Home, in.layout.Config:
+			return fmt.Errorf("layer device %s collides with a core guest device", layer.Device)
+		}
+	}
 
 	uid, gid, err := lookupAgent("/etc/passwd")
 	if err != nil {
@@ -120,7 +127,7 @@ func (in *initState) setup() error {
 		return err
 	}
 
-	if err := runSteps(RootMounts(in.layout)); err != nil {
+	if err := runSteps(RootMounts(in.layout, boot.Layers...)); err != nil {
 		return err
 	}
 	if err := pivot(NewRoot()); err != nil {
@@ -147,6 +154,9 @@ func (in *initState) setup() error {
 	}
 	if homeFormatted {
 		_ = os.Remove(filepath.Join(AgentHome, "lost+found"))
+		if err := SeedHomeFromSkel(SkelDir, AgentHome, uid, gid); err != nil {
+			return fmt.Errorf("seed %s from %s: %w", AgentHome, SkelDir, err)
+		}
 	}
 	if err := os.Chown(AgentHome, uid, gid); err != nil {
 		return fmt.Errorf("chown %s: %w", AgentHome, err)
@@ -201,33 +211,22 @@ func (in *initState) setup() error {
 		return err
 	}
 	in.env = childEnv(bootEnv, in.log)
+	for _, kv := range in.env {
+		if pathVal, ok := strings.CutPrefix(kv, "PATH="); ok {
+			_ = os.MkdirAll("/etc/profile.d", 0o755)
+			_ = writeFileAtomic("/etc/profile.d/agenthold-path.sh", []byte(ProfilePathScript(pathVal)), 0o644)
+			break
+		}
+	}
 	in.log.Info("system ready", "uptime", uptime(), "agent", boot.AgentID, "tunnel", daemonBoot.TunnelURL,
 		"overlay", in.layout.Overlay, "home", in.layout.Home)
 	return nil
 }
 
 // childEnv is the daemon's environment: defaults, then the image's
-// image.env, then the host's per-boot variables.
+// image.env and image.env.d/*.env, then the host's per-boot variables.
 func childEnv(boot map[string]string, log *slog.Logger) []string {
-	env := map[string]string{
-		"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-		"LANG": "C.UTF-8",
-	}
-	if f, err := os.Open(ImageEnvFile); err == nil {
-		img, err := ParseEnvFile(f)
-		_ = f.Close()
-		if err != nil {
-			log.Warn("image env", "file", ImageEnvFile, "err", err)
-		}
-		maps.Copy(env, img)
-	}
-	maps.Copy(env, boot)
-	env[EnvInitChild] = "1"
-	out := make([]string, 0, len(env))
-	for _, k := range slices.Sorted(maps.Keys(env)) {
-		out = append(out, k+"="+env[k])
-	}
-	return out
+	return BuildChildEnv(ImageEnvFile, ImageEnvDir, boot, log)
 }
 
 func readGuestBoot(dev string) (GuestBoot, error) {

@@ -50,9 +50,11 @@ func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role aut
 			sleepsAt = &s
 		}
 	}
+	imgMeta := a.machineImageMeta(ctx, ag)
 	result := gen.Agent{
 		LastActivityAt: lastActivity, SleepsAt: sleepsAt,
 		Id: ag.ID, Name: ag.Name, Owner: apiUser(owner),
+		ImageId: &imgMeta.id, ImageName: &imgMeta.name, ImageRevision: &imgMeta.revision, ImageUpdateAvailable: &imgMeta.updateAvailable,
 		Harness: ag.Harness, Cpus: float32(ag.Cpus), MemoryMb: ag.MemoryMb, IdleMinutes: int(ag.IdleMinutes),
 		State: gen.SandboxState(sb.State), StateError: sb.Error, StateChangedAt: ts(sb.StateChangedAt),
 		NeedsRebuild: a.Sandboxes.NeedsRebuild(ag, sb), Role: gen.AgentRole(role),
@@ -182,13 +184,30 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 	if err := a.validateSettings(&s); err != nil {
 		return nil, err
 	}
+	var imageID string
+	var imageRev int64
+	var allowedArches []string
+	if a.Images != nil {
+		reqImg := ""
+		if b.ImageId != nil {
+			reqImg = *b.ImageId
+		}
+		var err error
+		imageID, imageRev, allowedArches, err = a.Images.ResolveForNewMachine(ctx, reqImg)
+		if err != nil {
+			return nil, mapImageErr(err)
+		}
+	} else if b.ImageId != nil && strings.TrimSpace(*b.ImageId) != "" && strings.TrimSpace(*b.ImageId) != "base" {
+		return nil, badRequest("custom images are not configured on this server")
+	}
 	// Choosing the node is for admins, like seeing nodes at all.
-	var placeReq sandbox.PlaceRequest
+	placeReq := sandbox.PlaceRequest{AllowedArches: allowedArches}
 	if b.NodeId != nil && strings.TrimSpace(*b.NodeId) != "" {
 		if err := a.requireAdmin(ctx); err != nil {
 			return nil, err
 		}
-		placeReq = sandbox.PlaceRequest{NodeID: strings.TrimSpace(*b.NodeId), MemoryMB: s.memoryMB}
+		placeReq.NodeID = strings.TrimSpace(*b.NodeId)
+		placeReq.MemoryMB = s.memoryMB
 	}
 	// Placement queries the store and the nodes, so it happens before the transaction.
 	place, err := a.Sandboxes.PlaceNew(ctx, placeReq)
@@ -210,6 +229,11 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 			PermissionPolicy: s.policy, LoginUserID: u.ID, CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
 			return err
+		}
+		if imageID != "" {
+			if err := q.SetAgentImage(ctx, db.SetAgentImageParams{ImageID: imageID, ImageRevision: imageRev, UpdatedAt: now, ID: agentID}); err != nil {
+				return err
+			}
 		}
 		var err error
 		provision, err = a.Sandboxes.ProvisionAt(ctx, q, agentID, place)
@@ -296,6 +320,10 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	if err := a.validateSettings(&s); err != nil {
 		return nil, err
 	}
+	newImageID, newImageRev, imageChanged, err := a.resolveMachineImagePatch(ctx, ag, b.ImageId, b.ImageRevision)
+	if err != nil {
+		return nil, err
+	}
 	harnessChanged := s.harness != ag.Harness
 	choice := session.Choice{Model: s.model, Options: options}
 	modelChanged := harnessChanged || s.model != ag.Model || session.EncodeOptions(options) != session.EncodeOptions(session.ParseOptions(ag.ModelOptions))
@@ -339,6 +367,11 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 			UpdatedAt: now, ID: ag.ID,
 		}); err != nil {
 			return err
+		}
+		if imageChanged {
+			if err := q.SetAgentImage(ctx, db.SetAgentImageParams{ImageID: newImageID, ImageRevision: newImageRev, UpdatedAt: now, ID: ag.ID}); err != nil {
+				return err
+			}
 		}
 		if err := q.SetPermissionPolicy(ctx, db.SetPermissionPolicyParams{PermissionPolicy: s.policy, UpdatedAt: now, ID: ag.ID}); err != nil {
 			return err
@@ -586,6 +619,11 @@ func (a *API) CloneAgent(ctx context.Context, req gen.CloneAgentRequestObject) (
 		}
 		if err := q.SetAgentModel(ctx, db.SetAgentModelParams{Model: src.Model, ModelOptions: src.ModelOptions, UpdatedAt: now, ID: dstID}); err != nil {
 			return err
+		}
+		if src.ImageID != "" {
+			if err := q.SetAgentImage(ctx, db.SetAgentImageParams{ImageID: src.ImageID, ImageRevision: src.ImageRevision, UpdatedAt: now, ID: dstID}); err != nil {
+				return err
+			}
 		}
 		if isApp {
 			if err := q.MakeAppClone(ctx, dstID); err != nil {

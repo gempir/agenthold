@@ -143,5 +143,5 @@ func hostCapacity(ctx context.Context, dir string) (Capacity, error) {
 	if err := ctx.Err(); err != nil {
 		return Capacity{}, err
 	}
-	return Capacity{CPUs: runtime.NumCPU(), MemoryBytes: memory, DiskBytes: fs.Bavail * uint64(unit), MemoryTotalBytes: linuxTotalMemory()}, nil
+	return Capacity{Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), MemoryBytes: memory, DiskBytes: fs.Bavail * uint64(unit), MemoryTotalBytes: linuxTotalMemory()}, nil
 }

@@ -37,6 +37,16 @@ npm cache clean --force
 
 ln -sf /usr/bin/fdfind /usr/local/bin/fd
 
+# Git defaults: system-level so ~/.gitconfig and repo .git/config still win.
+git lfs install --system --skip-repo
+git config --system init.defaultBranch main
+git config --system push.autoSetupRemote true
+git config --system advice.detachedHead false
+git config --system core.autocrlf input
+git config --system safe.directory '*'
+git config --system include.path /etc/agenthold/gitconfig
+git config --system --add include.path /home/agent/.config/agenthold/gitconfig
+
 # The agent account. Passwordless sudo: the VM is the isolation boundary.
 id agent >/dev/null 2>&1 || useradd --create-home --home-dir /home/agent --shell /bin/bash --uid 1000 --user-group agent
 echo 'agent ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/agent

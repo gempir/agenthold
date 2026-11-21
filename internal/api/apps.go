@@ -73,9 +73,12 @@ func (a *API) apiApp(ctx context.Context, ag db.Agent, sb db.Sandbox, role authz
 	if err != nil {
 		return gen.App{}, err
 	}
+	imgMeta := a.machineImageMeta(ctx, ag)
 	base := "/api/v1/agents/" + ag.ID
 	out := gen.App{
-		Id: ag.ID, Name: ag.Name, Owner: apiUser(owner), Cpus: float32(ag.Cpus), MemoryMb: ag.MemoryMb,
+		Id: ag.ID, Name: ag.Name, Owner: apiUser(owner),
+		ImageId: &imgMeta.id, ImageName: &imgMeta.name, ImageRevision: &imgMeta.revision, ImageUpdateAvailable: &imgMeta.updateAvailable,
+		Cpus: float32(ag.Cpus), MemoryMb: ag.MemoryMb,
 		IdleMinutes: int(ag.IdleMinutes), State: gen.SandboxState(sb.State), StateError: sb.Error,
 		StateChangedAt: ts(sb.StateChangedAt), NeedsRebuild: a.Sandboxes.NeedsRebuild(ag, sb), Role: gen.AgentRole(role),
 		IsTemplate: ag.IsTemplate == 1,
@@ -203,7 +206,26 @@ func (a *API) CreateApp(ctx context.Context, req gen.CreateAppRequestObject) (ge
 	if err := a.validateApp(&s); err != nil {
 		return nil, err
 	}
-	ag, err := a.Apps.Create(ctx, apps.CreateParams{OwnerID: u.ID, Name: s.name, CPUs: s.cpus, MemoryMB: s.memoryMB, IdleMinutes: s.idleMinutes})
+	var imageID string
+	var imageRev int64
+	var allowedArches []string
+	if a.Images != nil {
+		reqImg := ""
+		if b.ImageId != nil {
+			reqImg = *b.ImageId
+		}
+		var err error
+		imageID, imageRev, allowedArches, err = a.Images.ResolveForNewMachine(ctx, reqImg)
+		if err != nil {
+			return nil, mapImageErr(err)
+		}
+	} else if b.ImageId != nil && strings.TrimSpace(*b.ImageId) != "" && strings.TrimSpace(*b.ImageId) != "base" {
+		return nil, badRequest("custom images are not configured on this server")
+	}
+	ag, err := a.Apps.Create(ctx, apps.CreateParams{
+		OwnerID: u.ID, Name: s.name, CPUs: s.cpus, MemoryMB: s.memoryMB, IdleMinutes: s.idleMinutes,
+		ImageID: imageID, ImageRevision: imageRev, AllowedArches: allowedArches,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -252,6 +274,10 @@ func (a *API) UpdateApp(ctx context.Context, req gen.UpdateAppRequestObject) (ge
 	if err := a.validateApp(&s); err != nil {
 		return nil, err
 	}
+	newImageID, newImageRev, imageChanged, err := a.resolveMachineImagePatch(ctx, ag, b.ImageId, b.ImageRevision)
+	if err != nil {
+		return nil, err
+	}
 	if s.name != ag.Name && !apps.ValidAppName(s.name) {
 		return nil, badRequest("an app name is 1 to 40 lowercase letters, digits and hyphens, starting and ending with a letter or digit")
 	}
@@ -279,6 +305,11 @@ func (a *API) UpdateApp(ctx context.Context, req gen.UpdateAppRequestObject) (ge
 			return nil, apps.ErrNameTaken
 		}
 		return nil, err
+	}
+	if imageChanged {
+		if err := a.Store.SetAgentImage(ctx, db.SetAgentImageParams{ImageID: newImageID, ImageRevision: newImageRev, UpdatedAt: a.Now().Unix(), ID: ag.ID}); err != nil {
+			return nil, err
+		}
 	}
 	a.record(ctx, ag, audit.AppUpdate, ag.Name, map[string]any{"name": s.name, "cpus": s.cpus, "memoryMb": s.memoryMB, "idleMinutes": s.idleMinutes, "isTemplate": b.IsTemplate})
 	out, err := a.reloadApp(ctx, ag.ID, acc.Role)

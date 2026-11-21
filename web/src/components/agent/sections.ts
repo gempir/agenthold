@@ -2,6 +2,7 @@ import {
   Activity,
   Cpu,
   FolderOpen,
+  GitBranch,
   Globe,
   KeyRound,
   Plug,
@@ -16,6 +17,7 @@ import {
 export type AgentSection =
   | 'general'
   | 'harness'
+  | 'git'
   | 'files'
   | 'terminal'
   | 'preview'
@@ -51,6 +53,13 @@ export const AGENT_SECTIONS: {
     label: 'Harness',
     hint: 'Harness, model, permissions, sign-in',
     icon: Cpu,
+    show: () => true,
+  },
+  {
+    id: 'git',
+    label: 'Git',
+    hint: 'Repositories, branches and worktrees',
+    icon: GitBranch,
     show: () => true,
   },
   {

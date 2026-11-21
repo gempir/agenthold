@@ -34,8 +34,10 @@ type harnessConn struct {
 	name    string // the adapter's name, for messages
 	proc    *tunnel.Process
 	ts      *tunnel.Session
-	acp     *acp.ClientSideConnection
-	init    acp.InitializeResponse
+	// home is the agent account's home in the sandbox.
+	home string
+	acp  *acp.ClientSideConnection
+	init acp.InitializeResponse
 	// stale: restart once no turn uses it (guarded by Manager.mu). staleWhy
 	// says why.
 	stale    bool
@@ -555,6 +557,12 @@ func (c *harnessConn) SessionUpdate(ctx context.Context, n acp.SessionNotificati
 	}
 	if at := c.promptAt.Swap(0); at != 0 {
 		c.m.lg.Info("harness: first update of the turn", "agent", c.agentID, "session", sessionID, "took", time.Since(time.Unix(0, at)))
+	}
+	if tc := n.Update.ToolCall; tc != nil && len(tc.Locations) > 0 {
+		c.m.noteLocations(sessionID, tc.Locations)
+	}
+	if tc := n.Update.ToolCallUpdate; tc != nil && len(tc.Locations) > 0 {
+		c.m.noteLocations(sessionID, tc.Locations)
 	}
 	raw, err := json.Marshal(n.Update)
 	if err != nil {

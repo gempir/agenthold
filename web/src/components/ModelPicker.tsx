@@ -1,6 +1,7 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -276,6 +277,11 @@ function PickerPanel({
   const [expanded, setExpanded] = useState<string[]>([]);
   const [pending, setPending] = useState<{ harness: string; model: string }>();
   const input = useRef<HTMLInputElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const listEl = useRef<HTMLUListElement>(null);
+  // The list gives way when the popover would reach past the top of the page
+  // (a draft composer sits mid-page; the switch question adds height).
+  const [listMax, setListMax] = useState<number>();
   // Back to the list, with the search box focused again for the keyboard.
   const cancelPending = () => {
     setPending(undefined);
@@ -593,9 +599,22 @@ function PickerPanel({
     );
   };
 
+  useLayoutEffect(() => {
+    const p = panel.current;
+    const l = listEl.current;
+    const host = p?.parentElement;
+    if (!p || !l || !host) return;
+    const r = host.getBoundingClientRect();
+    const room =
+      side === 'top' ? r.top - 64 : window.innerHeight - r.bottom - 16;
+    const chrome = p.offsetHeight - l.offsetHeight;
+    setListMax(Math.min(256, Math.max(96, room - chrome - 8)));
+  }, [side, pending]);
+
   const currentHarness = catalog?.harness;
   return (
     <div
+      ref={panel}
       role="dialog"
       aria-label={`Choose ${label.toLowerCase()}`}
       onKeyDown={(e) => {
@@ -640,6 +659,8 @@ function PickerPanel({
         />
       </div>
       <ul
+        ref={listEl}
+        style={{ maxHeight: listMax }}
         id={`${id}-list`}
         role="listbox"
         aria-label="Models"

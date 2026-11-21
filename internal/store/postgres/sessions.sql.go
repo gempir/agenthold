@@ -310,6 +310,16 @@ func (q *Queries) ResetRunningSessions(ctx context.Context) error {
 	return err
 }
 
+const resetSessionModels = `-- name: ResetSessionModels :exec
+UPDATE agent_sessions SET model = '', model_options = '{}' WHERE agent_id = $1
+`
+
+// A new harness knows nothing of the models chosen on the old one.
+func (q *Queries) ResetSessionModels(ctx context.Context, agentID string) error {
+	_, err := q.db.ExecContext(ctx, resetSessionModels, agentID)
+	return err
+}
+
 const setAgentHarness = `-- name: SetAgentHarness :exec
 UPDATE agents SET harness = $1, model = $2, model_options = $3, updated_at = $4 WHERE id = $5
 `

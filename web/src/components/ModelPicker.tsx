@@ -1,27 +1,142 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, Info, Search } from 'lucide-react';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Info,
+  Loader2,
+  Search,
+  TriangleAlert,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import {
   choiceLabel,
   groupModels,
   isCustom,
   keepOptions,
+  modelName,
   modelOptionsFor,
   onValue,
   toggleLabels,
   valueLabel,
   type Choice,
   type ModelCatalog,
+  type ModelGroup,
   type ModelOption,
 } from '@/lib/models';
 import { relTime, useNow } from '@/lib/time';
 import { cn } from '@/lib/utils';
 
+/** A harness the agent can be switched to, with what is known of its models. */
+export interface HarnessChoice {
+  id: string;
+  name: string;
+  /** Its catalog: what it reported, or the built-in list; undefined while unknown. */
+  catalog?: ModelCatalog;
+}
+
+/**
+ * Lets the picker switch the agent's harness: the other harnesses are listed
+ * under the current one, and picking one of their models asks to confirm.
+ * The harness belongs to the agent, so the switch applies to all its chats.
+ */
+export interface HarnessSwitch {
+  agentName: string;
+  others: HarnessChoice[];
+  /** Does the switch (rejects with the reason it could not). */
+  onSwitch: (harness: string, model: string) => Promise<unknown>;
+  /** A conversation is running: the harness cannot be stopped now. */
+  busy?: boolean;
+  /** Where to connect a login, shown with a missing-login warning. */
+  loginLink?: ReactNode;
+}
+
 type Entry =
   | { kind: 'default' }
   | { kind: 'model'; id: string; name: string }
-  | { kind: 'custom'; id: string };
+  | { kind: 'custom'; id: string }
+  /** The heading row of another harness; opens and closes its models. */
+  | { kind: 'harness'; harness: string }
+  /** A model of another harness ('' for its default). */
+  | { kind: 'other'; harness: string; id: string };
 
-const entryModel = (e: Entry) => (e.kind === 'default' ? '' : e.id);
+const entryKey = (e: Entry) => {
+  switch (e.kind) {
+    case 'default':
+      return 'default';
+    case 'harness':
+      return `h:${e.harness}`;
+    case 'other':
+      return `o:${e.harness}:${e.id}`;
+    default:
+      return `${e.kind}:${e.id}`;
+  }
+};
+
+/** The model of an entry of the current harness. */
+const entryModel = (e: Entry) =>
+  e.kind === 'model' || e.kind === 'custom' ? e.id : '';
+
+const isCurrentEntry = (e: Entry) =>
+  e.kind === 'default' || e.kind === 'model' || e.kind === 'custom';
+
+/** What the picker lists of another harness for the query. */
+interface OtherView {
+  h: HarnessChoice;
+  /** No models known: one row stands for the whole harness. */
+  single: boolean;
+  /** The heading toggles (no search going on, models known). */
+  toggles: boolean;
+  open: boolean;
+  defaultRow: boolean;
+  groups: ModelGroup[];
+}
+
+const words = (q: string) => q.toLowerCase().split(/\s+/).filter(Boolean);
+
+function otherView(h: HarnessChoice, query: string, open: boolean): OtherView {
+  const w = words(query);
+  const hay = `${h.name} agent default`.toLowerCase();
+  const nameMatch = w.every((x) => h.name.toLowerCase().includes(x));
+  const groups = groupModels(h.catalog, nameMatch ? '' : query, '');
+  const count = h.catalog?.models.length ?? 0;
+  const single = count === 0;
+  const defaultRow = w.every((x) => hay.includes(x));
+  return {
+    h,
+    single,
+    toggles: !single && w.length === 0,
+    open: w.length > 0 || open,
+    defaultRow,
+    groups,
+  };
+}
+
+/**
+ * What switching to a harness would find missing: no login the harness could
+ * start with (an account login that is not connected or broken).
+ */
+function loginProblem(h: HarnessChoice): string | undefined {
+  const l = h.catalog?.login;
+  if (!l || l.source !== 'account') return undefined;
+  const whose = l.mine
+    ? 'your account has'
+    : `${l.user?.name ?? 'the login owner'}'s account has`;
+  if (!l.connected) {
+    return l.reason ?? `No ${h.name} login: ${whose} none connected.`;
+  }
+  if (l.status === 'error') {
+    return `The ${h.name} login of ${l.mine ? 'your account' : (l.user?.name ?? 'the login owner')} needs to be connected again.`;
+  }
+  return undefined;
+}
 
 /**
  * The model picker: a compact trigger ("Opus 5.5 · Medium") that opens a
@@ -31,6 +146,9 @@ const entryModel = (e: Entry) => (e.kind === 'default' ? '' : e.id);
  * and the popover stays open, so a model and its reasoning are set in one go.
  * Arrows move, Enter picks, Escape closes, Alt+1…9 picks the n-th model,
  * ←/→ change the effort while the search box is empty.
+ *
+ * With harnessSwitch the other harnesses follow the current one; picking one
+ * of their models asks to switch the agent (all its chats) to that harness.
  */
 export function ModelPicker({
   catalog,
@@ -43,6 +161,9 @@ export function ModelPicker({
   side = 'top',
   label = 'Model',
   note,
+  leading,
+  harnessSwitch,
+  footer,
   className,
 }: {
   catalog: ModelCatalog | undefined;
@@ -59,6 +180,11 @@ export function ModelPicker({
   label?: string;
   /** A line under the list (when a change takes effect). */
   note?: string;
+  /** Shown in the trigger before the choice (the harness). */
+  leading?: ReactNode;
+  harnessSwitch?: HarnessSwitch;
+  /** Under the note (a link to the settings). */
+  footer?: ReactNode;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -91,6 +217,7 @@ export function ModelPicker({
         onClick={() => setOpen((o) => !o)}
         className="flex max-w-full min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-left hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
       >
+        {leading}
         <span className="truncate">
           {choiceLabel(catalog, value, defaultLabel)}
         </span>
@@ -108,6 +235,8 @@ export function ModelPicker({
           side={side}
           label={label}
           note={note}
+          harnessSwitch={harnessSwitch}
+          footer={footer}
         />
       )}
     </div>
@@ -125,6 +254,8 @@ function PickerPanel({
   side,
   label,
   note,
+  harnessSwitch,
+  footer,
 }: {
   catalog: ModelCatalog | undefined;
   value: Choice;
@@ -136,13 +267,29 @@ function PickerPanel({
   side: 'top' | 'bottom';
   label: string;
   note?: string;
+  harnessSwitch?: HarnessSwitch;
+  footer?: ReactNode;
 }) {
   const id = useId();
   const now = useNow(60_000);
   const [query, setQuery] = useState('');
+  const [expanded, setExpanded] = useState<string[]>([]);
+  const [pending, setPending] = useState<{ harness: string; model: string }>();
+  const input = useRef<HTMLInputElement>(null);
+  // Back to the list, with the search box focused again for the keyboard.
+  const cancelPending = () => {
+    setPending(undefined);
+    input.current?.focus();
+  };
   const groups = useMemo(
     () => groupModels(catalog, query, value.model),
     [catalog, query, value.model],
+  );
+  const others = harnessSwitch?.others;
+  const otherViews = useMemo(
+    () =>
+      (others ?? []).map((h) => otherView(h, query, expanded.includes(h.id))),
+    [others, query, expanded],
   );
 
   // The flat list the keyboard moves through.
@@ -163,17 +310,52 @@ function PickerPanel({
     !/\s/.test(q) &&
     !entries.some((e) => e.kind === 'model' && e.id === q);
   if (custom) entries.push({ kind: 'custom', id: q });
+  for (const v of otherViews) {
+    const hasRows = v.defaultRow || v.groups.length > 0;
+    if (!hasRows) continue;
+    if (v.single) {
+      entries.push({ kind: 'other', harness: v.h.id, id: '' });
+      continue;
+    }
+    if (v.toggles) entries.push({ kind: 'harness', harness: v.h.id });
+    if (!v.open) continue;
+    if (v.defaultRow) entries.push({ kind: 'other', harness: v.h.id, id: '' });
+    for (const g of v.groups) {
+      for (const m of g.models) {
+        entries.push({ kind: 'other', harness: v.h.id, id: m.id });
+      }
+    }
+  }
 
   const currentIndex = Math.max(
     0,
-    entries.findIndex((e) => entryModel(e) === value.model),
+    entries.findIndex(
+      (e) => isCurrentEntry(e) && entryModel(e) === value.model,
+    ),
   );
   const [active, setActive] = useState(currentIndex);
   const index = Math.min(active, entries.length - 1);
   const activeEntry = index >= 0 ? entries[index] : undefined;
 
   const pick = (model: string) => {
+    setPending(undefined);
     onChange({ model, options: keepOptions(catalog, model, value.options) });
+  };
+  const toggle = (harness: string) =>
+    setExpanded((x) =>
+      x.includes(harness) ? x.filter((y) => y !== harness) : [...x, harness],
+    );
+  const activate = (e: Entry) => {
+    switch (e.kind) {
+      case 'harness':
+        toggle(e.harness);
+        break;
+      case 'other':
+        setPending({ harness: e.harness, model: e.id });
+        break;
+      default:
+        pick(entryModel(e));
+    }
   };
   const setOption = (o: ModelOption, v: string) =>
     onChange({ model: value.model, options: { ...value.options, [o.id]: v } });
@@ -223,12 +405,7 @@ function PickerPanel({
         break;
       case 'Enter':
         e.preventDefault();
-        if (activeEntry) pick(entryModel(activeEntry));
-        break;
-      case 'Escape':
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
+        if (activeEntry) activate(activeEntry);
         break;
       case 'ArrowLeft':
       case 'ArrowRight': {
@@ -251,36 +428,50 @@ function PickerPanel({
     title: string,
     description?: string,
     tag?: string,
+    detail?: string,
   ) => {
-    const model = entryModel(e);
-    const i = entries.findIndex(
-      (x) => x.kind === e.kind && entryModel(x) === model,
-    );
-    const pos = modelEntries.findIndex((x) => entryModel(x) === model);
+    const key = entryKey(e);
+    const i = entries.findIndex((x) => entryKey(x) === key);
+    const model = isCurrentEntry(e) ? entryModel(e) : undefined;
+    const pos = modelEntries.findIndex((x) => entryKey(x) === key);
     const n = e.kind === 'model' && pos >= 0 && pos < 9 ? pos + 1 : undefined;
-    const current = model === value.model;
+    const current = model !== undefined && model === value.model;
+    const chosenForSwitch =
+      e.kind === 'other' &&
+      pending?.harness === e.harness &&
+      pending.model === e.id;
     return (
       <li
-        key={`${e.kind}-${model}`}
+        key={key}
         id={optionId(i)}
         role="option"
         aria-selected={i === index}
         aria-description={description}
         data-current={current || undefined}
-        title={model || undefined}
+        data-pending={chosenForSwitch || undefined}
+        title={e.kind === 'other' ? e.id || undefined : model || undefined}
         onMouseMove={() => i !== index && setActive(i)}
         onMouseDown={(ev) => ev.preventDefault()}
-        onClick={() => pick(model)}
+        onClick={() => activate(e)}
         className={cn(
           'flex h-8 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm',
           i === index && 'bg-accent',
         )}
       >
         <Check
-          className={cn('size-3.5 shrink-0', !current && 'invisible')}
+          className={cn(
+            'size-3.5 shrink-0',
+            !current && !chosenForSwitch && 'invisible',
+            chosenForSwitch && 'text-sky-500',
+          )}
           aria-hidden
         />
         <span className="min-w-0 flex-1 truncate">{title}</span>
+        {detail && (
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {detail}
+          </span>
+        )}
         {tag && (
           <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground uppercase">
             {tag}
@@ -299,10 +490,122 @@ function PickerPanel({
     );
   };
 
+  const renderGroups = (list: ModelGroup[], harness?: HarnessChoice) =>
+    list.map((g) => (
+      <li key={`g-${harness?.id ?? ''}-${g.name}`} role="presentation">
+        <ul role="group" aria-label={g.name || 'Models'}>
+          {g.name && (
+            <li
+              role="presentation"
+              className="px-2 pt-2 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
+            >
+              {g.name}
+            </li>
+          )}
+          {g.models.map((m) =>
+            harness
+              ? renderEntry(
+                  { kind: 'other', harness: harness.id, id: m.id },
+                  m.name,
+                  m.description,
+                )
+              : renderEntry(
+                  { kind: 'model', id: m.id, name: m.name },
+                  m.name,
+                  m.description,
+                  isCustom(catalog, m.id) ? 'custom' : undefined,
+                ),
+          )}
+        </ul>
+      </li>
+    ));
+
+  const renderOther = (v: OtherView) => {
+    if (!v.defaultRow && v.groups.length === 0) return null;
+    if (v.single) {
+      return (
+        <li key={`oh-${v.h.id}`} role="presentation">
+          <ul role="group" aria-label={v.h.name}>
+            {renderEntry(
+              { kind: 'other', harness: v.h.id, id: '' },
+              v.h.name,
+              `Switches the agent to ${v.h.name} on its own default model`,
+              undefined,
+              'Agent default',
+            )}
+          </ul>
+        </li>
+      );
+    }
+    const headingKey = entryKey({ kind: 'harness', harness: v.h.id });
+    const hi = entries.findIndex((x) => entryKey(x) === headingKey);
+    return (
+      <li key={`oh-${v.h.id}`} role="presentation">
+        <ul role="group" aria-label={v.h.name}>
+          {v.toggles ? (
+            <li
+              id={optionId(hi)}
+              role="option"
+              aria-selected={hi === index}
+              aria-label={`${v.h.name}, ${v.open ? 'hide' : 'show'} models`}
+              data-expanded={v.open}
+              onMouseMove={() => hi !== index && setActive(hi)}
+              onMouseDown={(ev) => ev.preventDefault()}
+              onClick={() => toggle(v.h.id)}
+              className={cn(
+                'flex h-8 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm',
+                hi === index && 'bg-accent',
+              )}
+            >
+              <ChevronRight
+                className={cn(
+                  'size-3.5 shrink-0 text-muted-foreground transition-transform',
+                  v.open && 'rotate-90',
+                )}
+                aria-hidden
+              />
+              <span className="min-w-0 flex-1 truncate">{v.h.name}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {v.h.catalog?.models.length} models
+              </span>
+            </li>
+          ) : (
+            <li
+              role="presentation"
+              className="px-2 pt-2 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
+            >
+              {v.h.name}
+            </li>
+          )}
+          {v.open && (
+            <>
+              {v.defaultRow &&
+                renderEntry(
+                  { kind: 'other', harness: v.h.id, id: '' },
+                  'Agent default',
+                  `Switches the agent to ${v.h.name} on its own default model`,
+                )}
+              {renderGroups(v.groups, v.h)}
+            </>
+          )}
+        </ul>
+      </li>
+    );
+  };
+
+  const currentHarness = catalog?.harness;
   return (
     <div
       role="dialog"
       aria-label={`Choose ${label.toLowerCase()}`}
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape') return;
+        e.preventDefault();
+        e.stopPropagation();
+        // The question about switching goes first.
+        if (pending) cancelPending();
+        else onClose();
+      }}
       className={cn(
         'absolute left-0 z-40 flex w-[min(22rem,calc(100vw-2rem))] flex-col rounded-xl border bg-card text-sm text-foreground shadow-xl shadow-black/30',
         side === 'top' ? 'bottom-full mb-2' : 'top-full mt-1',
@@ -314,6 +617,7 @@ function PickerPanel({
           aria-hidden
         />
         <input
+          ref={input}
           autoFocus
           role="combobox"
           aria-label="Search models"
@@ -343,52 +647,133 @@ function PickerPanel({
       >
         {entries[0]?.kind === 'default' &&
           renderEntry(entries[0], defaultLabel, defaultDescription)}
-        {groups.map((g) => (
-          <li key={`g-${g.name}`} role="presentation">
-            <ul role="group" aria-label={g.name || 'Models'}>
-              {g.name && (
-                <li
-                  role="presentation"
-                  className="px-2 pt-2 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
-                >
-                  {g.name}
-                </li>
-              )}
-              {g.models.map((m) =>
-                renderEntry(
-                  { kind: 'model', id: m.id, name: m.name },
-                  m.name,
-                  m.description,
-                  isCustom(catalog, m.id) ? 'custom' : undefined,
-                ),
-              )}
-            </ul>
-          </li>
-        ))}
+        {renderGroups(groups)}
         {custom &&
           renderEntry(
             { kind: 'custom', id: q },
             `Use “${q}”`,
             'A model id the harness does not list',
           )}
+        {otherViews.length > 0 && (
+          <li
+            role="presentation"
+            className="px-2 pt-3 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
+          >
+            Switch {harnessSwitch?.agentName} to
+          </li>
+        )}
+        {otherViews.map(renderOther)}
         {entries.length === 0 && (
           <li role="presentation" className="px-2 py-3 text-muted-foreground">
             No model matches.
           </li>
         )}
       </ul>
-      <Reasoning
-        model={value.model}
-        shown={shown}
-        value={value}
-        onSet={setOption}
-      />
+      {pending && harnessSwitch ? (
+        <SwitchConfirm
+          key={`${pending.harness}:${pending.model}`}
+          sw={harnessSwitch}
+          target={otherViews.find((v) => v.h.id === pending.harness)?.h}
+          model={pending.model}
+          onCancel={cancelPending}
+          onDone={onClose}
+        />
+      ) : (
+        <Reasoning
+          model={value.model}
+          shown={shown}
+          value={value}
+          onSet={setOption}
+        />
+      )}
       <p className="border-t px-3 py-2 text-xs text-muted-foreground">
         {catalog?.source === 'harness' && catalog.seenAt
-          ? `As ${catalog.harness} reported them ${relTime(catalog.seenAt, now) === 'now' ? 'just now' : `${relTime(catalog.seenAt, now)} ago`}.`
+          ? `As ${currentHarness} reported them ${relTime(catalog.seenAt, now) === 'now' ? 'just now' : `${relTime(catalog.seenAt, now)} ago`}.`
           : 'Built-in list: the harness reports its own models once the agent has run.'}
         {note && <> {note}</>}
+        {footer && <span className="mt-1 block">{footer}</span>}
       </p>
+    </div>
+  );
+}
+
+/**
+ * The question before a harness switch, inline under the list: the harness is
+ * the agent's, so it applies to all its chats, and the model starts over.
+ */
+function SwitchConfirm({
+  sw,
+  target,
+  model,
+  onCancel,
+  onDone,
+}: {
+  sw: HarnessSwitch;
+  target: HarnessChoice | undefined;
+  model: string;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  if (!target) return null;
+  const modelLabel = model
+    ? modelName(target.catalog, model)
+    : `${target.name}'s default model`;
+  const problem = loginProblem(target);
+  const go = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await sw.onSwitch(target.id, model);
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not switch the harness');
+      setBusy(false);
+    }
+  };
+  return (
+    <div
+      role="group"
+      aria-label={`Switch to ${target.name}`}
+      className="grid gap-2 border-t p-3"
+    >
+      <p className="font-medium">
+        Switches {sw.agentName} to {target.name} (all chats)
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Model: {modelLabel}. {target.name} starts with the next message. The
+        chats keep their history but begin with a fresh context.
+      </p>
+      {sw.busy && (
+        <p role="alert" className="text-xs text-amber-600 dark:text-amber-400">
+          A chat is still running. Switch once it has finished (or stop it): the
+          harness restarts.
+        </p>
+      )}
+      {problem && (
+        <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+          <TriangleAlert className="mt-0.5 size-3 shrink-0" aria-hidden />
+          <span>
+            {problem} {sw.loginLink} Or sign in inside the sandbox after
+            switching.
+          </span>
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <Button size="sm" disabled={busy || sw.busy} onClick={go}>
+          {busy && <Loader2 className="animate-spin" aria-hidden />}
+          {problem ? 'Switch anyway' : `Switch to ${target.name}`}
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
     </div>
   );
 }

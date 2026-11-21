@@ -175,6 +175,8 @@ type Querier interface {
 	ReplaceProviderLogin(ctx context.Context, arg ReplaceProviderLoginParams) error
 	// After a restart no turn is running anymore.
 	ResetRunningSessions(ctx context.Context) error
+	// A new harness knows nothing of the models chosen on the old one.
+	ResetSessionModels(ctx context.Context, agentID string) error
 	SetAgentHarness(ctx context.Context, arg SetAgentHarnessParams) error
 	SetAgentLoginUser(ctx context.Context, arg SetAgentLoginUserParams) error
 	SetAgentModel(ctx context.Context, arg SetAgentModelParams) error

@@ -359,6 +359,18 @@ func (m *Manager) Subscribe(ctx context.Context, sessionID string, after int64, 
 	return m.log.subscribe(ctx, sessionID, after, viewer)
 }
 
+// Busy reports whether a turn of the agent is in progress.
+func (m *Manager) Busy(agentID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, t := range m.turns {
+		if t.agentID == agentID {
+			return true
+		}
+	}
+	return false
+}
+
 // Running reports whether a turn is in progress.
 func (m *Manager) Running(sessionID string) bool {
 	m.mu.Lock()

@@ -185,28 +185,17 @@ it('shows presence avatars and marks you', async () => {
   expect(await screen.findByTitle('Alice (you)')).toBeInTheDocument();
 });
 
-it('offers the live activity log while a turn waits for its first answer', async () => {
-  mockApi({
-    'GET /agents/a1/activity': [
-      {
-        seq: 1,
-        at: '2030-01-01T00:00:00Z',
-        level: 'info',
-        source: 'machine',
-        message: 'wake: machine started, waiting for sandboxd took=420ms',
-      },
-      {
-        seq: 2,
-        at: '2030-01-01T00:00:01Z',
-        level: 'warn',
-        source: 'tunnel',
-        message: 'tunnel: rejected err="invalid boot token"',
-      },
-    ],
-  });
+it('links to the Activity tab while a turn waits for its first answer', async () => {
+  mockApi({});
+  const onOpenActivity = vi.fn();
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <ChatView sessionId="s1" agentId="a1" canUse agentState="sleeping" />
+      <ChatView
+        sessionId="s1"
+        onOpenActivity={onOpenActivity}
+        canUse
+        agentState="sleeping"
+      />
     </QueryClientProvider>,
   );
   act(() => {
@@ -215,10 +204,35 @@ it('offers the live activity log while a turn waits for its first answer', async
     );
     FakeSocket.all[0].emit({ type: 'status', running: true });
   });
+  // No inline log any more: a small link that opens the tab.
   await userEvent.click(
     await screen.findByRole('button', { name: /What is happening/ }),
   );
-  const log = await screen.findByTestId('live-log');
-  expect(await screen.findByText(/invalid boot token/)).toBeInTheDocument();
-  expect(log).toHaveTextContent('waiting for sandboxd');
+  expect(onOpenActivity).toHaveBeenCalledOnce();
+  expect(screen.queryByTestId('live-log')).toBeNull();
+});
+
+it('offers the Activity tab after a failed turn, and nothing without one', async () => {
+  mockApi({});
+  const onOpenActivity = vi.fn();
+  const { rerender } = render(
+    <QueryClientProvider client={new QueryClient()}>
+      <ChatView sessionId="s1" onOpenActivity={onOpenActivity} canUse />
+    </QueryClientProvider>,
+  );
+  act(() => {
+    FakeSocket.all[0].emit(ev(1, 'error', { message: 'boom' }));
+  });
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Show what happened' }),
+  );
+  expect(onOpenActivity).toHaveBeenCalledOnce();
+  rerender(
+    <QueryClientProvider client={new QueryClient()}>
+      <ChatView sessionId="s1" canUse />
+    </QueryClientProvider>,
+  );
+  expect(
+    screen.queryByRole('button', { name: 'Show what happened' }),
+  ).toBeNull();
 });

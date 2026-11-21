@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { sessionsQuery, type Agent } from '@/api/queries';
 import { FilesTab } from '@/components/FilesTab';
+import { LiveLog } from '@/components/chat/LiveLog';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
 import { AgentControls, AgentDetails } from '@/components/agent/AgentControls';
@@ -25,13 +26,18 @@ const TerminalTab = lazy(() =>
   import('@/components/TerminalTab').then((m) => ({ default: m.TerminalTab })),
 );
 
-export type PanelTab = 'overview' | 'files' | 'terminal';
+export type PanelTab = 'overview' | 'files' | 'terminal' | 'activity';
 export const isPanelTab = (v: unknown): v is PanelTab =>
-  v === 'overview' || v === 'files' || v === 'terminal';
+  v === 'overview' || v === 'files' || v === 'terminal' || v === 'activity';
+
+/** Tabs only those who may use the agent get. */
+export const panelTabNeedsUse = (t: PanelTab) =>
+  t === 'terminal' || t === 'activity';
 
 /**
  * The floating right-hand panel next to a chat: the agent's status, its other
- * conversations, quick files and terminal, and the way into its settings.
+ * conversations, quick files, terminal and live activity, and the way into
+ * its settings.
  */
 export function AgentPanel({
   agent,
@@ -55,7 +61,12 @@ export function AgentPanel({
   const tabs: { id: PanelTab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'files', label: 'Files' },
-    ...(access.canUse ? [{ id: 'terminal' as const, label: 'Terminal' }] : []),
+    ...(access.canUse
+      ? [
+          { id: 'terminal' as const, label: 'Terminal' },
+          { id: 'activity' as const, label: 'Activity' },
+        ]
+      : []),
   ];
   return (
     <>
@@ -116,11 +127,22 @@ export function AgentPanel({
               <X className="size-4" />
             </Button>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div
+            className={cn(
+              'min-h-0 flex-1 p-4',
+              // The log scrolls on its own and takes the panel's height.
+              tab === 'activity'
+                ? 'flex flex-col overflow-hidden'
+                : 'overflow-y-auto',
+            )}
+          >
             {tab === 'overview' && (
               <Overview agent={agent} access={access} sessionId={sessionId} />
             )}
             {tab === 'files' && <PanelFiles agent={agent} access={access} />}
+            {tab === 'activity' && access.canUse && (
+              <LiveLog key={agent.id} agentId={agent.id} live fill />
+            )}
             {tab === 'terminal' && access.canUse && (
               <>
                 {agent.state === 'sleeping' && (

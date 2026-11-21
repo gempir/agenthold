@@ -227,7 +227,7 @@ it('shared user chats but sees no activity, owner settings or share form', async
   await userEvent.click(screen.getByRole('link', { name: 'Agent settings' }));
   const nav = await screen.findByRole('navigation', { name: 'Agent settings' });
   expect(within(nav).getByRole('link', { name: 'Terminal' })).toBeVisible();
-  expect(within(nav).queryByRole('link', { name: 'Activity' })).toBeNull();
+  expect(within(nav).queryByRole('link', { name: 'Audit log' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
   await userEvent.click(within(nav).getByRole('link', { name: 'Sharing' }));
@@ -456,4 +456,258 @@ it('a new chat starts with the model picked in the composer', async () => {
     model: 'opus',
     options: { effort: 'high' },
   });
+});
+
+const logLines = [
+  {
+    seq: 1,
+    at: '2030-01-01T00:00:00Z',
+    level: 'info',
+    source: 'machine',
+    message: 'wake: machine started, waiting for sandboxd took=420ms',
+  },
+  {
+    seq: 2,
+    at: '2030-01-01T00:00:01Z',
+    level: 'warn',
+    source: 'tunnel',
+    message: 'tunnel: rejected err="invalid boot token"',
+  },
+];
+
+it('streams the activity log in its own panel tab', async () => {
+  vi.stubGlobal('WebSocket', FakeSocket);
+  const { calls } = mockApi({
+    'GET /me': me,
+    'GET /harnesses': [],
+    'GET /agents/a1': agent({ role: 'owner', state: 'running' }),
+    'GET /agents/a1/sessions': [session()],
+    'GET /agents/a1/activity': logLines,
+  });
+  const { router } = renderApp('/a/a1?s=s1&panel=activity');
+  const panel = await screen.findByRole('complementary', {
+    name: 'Agent panel',
+  });
+  const tab = within(panel).getByRole('tab', { name: 'Activity' });
+  expect(tab).toHaveAttribute('aria-selected', 'true');
+  expect(await within(panel).findByText(/invalid boot token/)).toBeVisible();
+  expect(within(panel).getByTestId('live-log')).toHaveTextContent(
+    'waiting for sandboxd',
+  );
+  expect(calls.some((c) => c.key === 'GET /agents/a1/activity')).toBe(true);
+  // The tabs: Overview, Files, Terminal, Activity.
+  expect(
+    within(panel)
+      .getAllByRole('tab')
+      .map((t) => t.textContent),
+  ).toEqual(['Overview', 'Files', 'Terminal', 'Activity']);
+  await userEvent.click(within(panel).getByRole('tab', { name: 'Overview' }));
+  expect(router.state.location.search).toEqual({ s: 's1', panel: 'overview' });
+  expect(screen.queryByTestId('live-log')).toBeNull();
+});
+
+it('the chat links to the Activity tab while it waits', async () => {
+  vi.stubGlobal('WebSocket', FakeSocket);
+  mockApi({
+    'GET /me': me,
+    'GET /harnesses': [],
+    'GET /agents/a1': agent({ role: 'owner', state: 'sleeping' }),
+    'GET /agents/a1/sessions': [session({ running: true })],
+    'GET /agents/a1/activity': logLines,
+  });
+  const { router } = renderApp('/a/a1?s=s1');
+  await userEvent.click(
+    await screen.findByRole('button', { name: /What is happening/ }),
+  );
+  expect(router.state.location.search).toEqual({ s: 's1', panel: 'activity' });
+  const panel = await screen.findByRole('complementary', {
+    name: 'Agent panel',
+  });
+  expect(await within(panel).findByText(/invalid boot token/)).toBeVisible();
+});
+
+const harnessTypes = [
+  { id: 'claude-code', name: 'Claude Code', default: true },
+  { id: 'codex', name: 'Codex', default: false },
+  { id: 'opencode', name: 'OpenCode', default: false },
+];
+const claudeModels = {
+  harness: 'claude-code',
+  source: 'harness',
+  seenAt: '2030-01-01T00:00:00Z',
+  switchable: true,
+  customModels: false,
+  models: [{ id: 'opus', name: 'Opus 5.5', group: 'Anthropic' }],
+  login: { source: 'account', connected: true, mine: true },
+};
+const codexModels = {
+  harness: 'codex',
+  source: 'fallback',
+  switchable: true,
+  customModels: false,
+  models: [],
+  login: { source: 'account', connected: true, mine: true },
+};
+const opencodeModels = {
+  harness: 'opencode',
+  source: 'harness',
+  seenAt: '2030-01-01T00:00:00Z',
+  switchable: true,
+  customModels: true,
+  models: [
+    { id: 'anthropic/sonnet', name: 'Sonnet', group: 'anthropic' },
+    { id: 'openai/gpt-5', name: 'GPT-5', group: 'openai' },
+  ],
+  login: { source: 'sandbox', connected: false, mine: true },
+};
+
+it('the owner switches the agent to another harness from the model picker', async () => {
+  let harness = 'claude-code';
+  const { calls } = mockApi({
+    'GET /me': me,
+    'GET /harnesses': harnessTypes,
+    'GET /agents/a1': () => ({
+      body: agent({ role: 'owner', state: 'running', harness, name: 'demo2' }),
+    }),
+    'GET /agents/a1/sessions': [],
+    'GET /agents/a1/models': claudeModels,
+    'GET /agents/a1/models?harness=codex': codexModels,
+    'GET /agents/a1/models?harness=opencode': opencodeModels,
+    'PATCH /agents/a1': ({ body }: { body: unknown }) => {
+      harness = (body as { harness: string }).harness;
+      return {
+        body: agent({
+          role: 'owner',
+          state: 'running',
+          harness,
+          name: 'demo2',
+        }),
+      };
+    },
+  });
+  renderApp('/a/a1');
+  const user = userEvent.setup();
+  const trigger = await screen.findByRole('button', {
+    name: /Model for this conversation: Agent default/,
+  });
+  expect(trigger).toHaveTextContent('Claude Code');
+  await user.click(trigger);
+  const list = await screen.findByRole('listbox', { name: 'Models' });
+  // Codex never reported: one row, "Agent default".
+  await user.click(await within(list).findByRole('option', { name: /Codex/ }));
+  const confirm = screen.getByRole('group', { name: 'Switch to Codex' });
+  expect(confirm).toHaveTextContent('Switches demo2 to Codex (all chats)');
+  await user.click(
+    within(confirm).getByRole('button', { name: 'Switch to Codex' }),
+  );
+  await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(calls.find((c) => c.key === 'PATCH /agents/a1')?.body).toEqual({
+    harness: 'codex',
+    model: '',
+    modelOptions: {},
+  });
+  // The composer now names the new harness.
+  await vi.waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: /Model for this conversation/ }),
+    ).toHaveTextContent('Codex'),
+  );
+});
+
+it('switching to a model of another harness sends it along', async () => {
+  const { calls } = mockApi({
+    'GET /me': me,
+    'GET /harnesses': harnessTypes,
+    'GET /agents/a1': agent({ role: 'owner', state: 'running' }),
+    'GET /agents/a1/sessions': [],
+    'GET /agents/a1/models': claudeModels,
+    'GET /agents/a1/models?harness=codex': codexModels,
+    'GET /agents/a1/models?harness=opencode': opencodeModels,
+    'PATCH /agents/a1': agent({
+      role: 'owner',
+      state: 'running',
+      harness: 'opencode',
+      model: 'openai/gpt-5',
+    }),
+  });
+  renderApp('/a/a1');
+  const user = userEvent.setup();
+  await user.click(
+    await screen.findByRole('button', { name: /Model for this conversation/ }),
+  );
+  const list = await screen.findByRole('listbox', { name: 'Models' });
+  await user.click(
+    await within(list).findByRole('option', { name: /OpenCode/ }),
+  );
+  await user.click(within(list).getByRole('option', { name: 'GPT-5' }));
+  const confirm = screen.getByRole('group', { name: 'Switch to OpenCode' });
+  // It has no account login: signing in inside the sandbox is the way.
+  expect(confirm).toHaveTextContent('Model: GPT-5');
+  await user.click(within(confirm).getByRole('button', { name: /Switch/ }));
+  await vi.waitFor(() =>
+    expect(calls.find((c) => c.key === 'PATCH /agents/a1')?.body).toEqual({
+      harness: 'opencode',
+      model: 'openai/gpt-5',
+      modelOptions: {},
+    }),
+  );
+});
+
+it('says when the new harness has no login and shows the server error of a refused switch', async () => {
+  mockApi({
+    'GET /me': me,
+    'GET /harnesses': harnessTypes,
+    'GET /agents/a1': agent({ role: 'owner', state: 'running' }),
+    'GET /agents/a1/sessions': [],
+    'GET /agents/a1/models': claudeModels,
+    'GET /agents/a1/models?harness=codex': {
+      ...codexModels,
+      login: { source: 'account', connected: false, mine: true },
+    },
+    'GET /agents/a1/models?harness=opencode': opencodeModels,
+    'PATCH /agents/a1': () => ({
+      status: 409,
+      body: { error: 'a conversation of this agent is still running' },
+    }),
+  });
+  renderApp('/a/a1');
+  const user = userEvent.setup();
+  await user.click(
+    await screen.findByRole('button', { name: /Model for this conversation/ }),
+  );
+  await user.click(await screen.findByRole('option', { name: /Codex/ }));
+  const confirm = screen.getByRole('group', { name: 'Switch to Codex' });
+  expect(confirm).toHaveTextContent('No Codex login');
+  expect(
+    within(confirm).getByRole('link', { name: /Provider logins/ }),
+  ).toHaveAttribute('href', '/settings/providers');
+  await user.click(
+    within(confirm).getByRole('button', { name: 'Switch anyway' }),
+  );
+  expect(await within(confirm).findByRole('alert')).toHaveTextContent(
+    'still running',
+  );
+  expect(screen.getByRole('dialog')).toBeVisible();
+});
+
+it('shared users see only the current harness in the model picker', async () => {
+  const { calls } = mockApi({
+    'GET /me': { user: bob },
+    'GET /harnesses': harnessTypes,
+    'GET /agents/a1': agent({ role: 'shared', state: 'running' }),
+    'GET /agents/a1/sessions': [],
+    'GET /agents/a1/models': claudeModels,
+  });
+  renderApp('/a/a1');
+  const user = userEvent.setup();
+  await user.click(
+    await screen.findByRole('button', { name: /Model for this conversation/ }),
+  );
+  const list = await screen.findByRole('listbox', { name: 'Models' });
+  expect(within(list).getByRole('option', { name: /Opus/ })).toBeVisible();
+  expect(within(list).queryByRole('option', { name: /Codex/ })).toBeNull();
+  expect(screen.queryByText(/Switch .* to/)).toBeNull();
+  expect(screen.queryByRole('link', { name: 'Harness settings' })).toBeNull();
+  // Not even asked: other harnesses are the owner's to see.
+  expect(calls.some((c) => c.key.includes('models?harness'))).toBe(false);
 });

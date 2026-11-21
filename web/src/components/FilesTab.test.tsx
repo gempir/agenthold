@@ -80,5 +80,5 @@ it('shows write controls and the terminal to shared users', async () => {
   ).toBeVisible();
   const nav = screen.getByRole('navigation', { name: 'Agent settings' });
   expect(within(nav).getByRole('link', { name: 'Terminal' })).toBeVisible();
-  expect(within(nav).queryByRole('link', { name: 'Activity' })).toBeNull();
+  expect(within(nav).queryByRole('link', { name: 'Audit log' })).toBeNull();
 });

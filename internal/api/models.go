@@ -160,10 +160,26 @@ func (a *API) ListModels(ctx context.Context, req gen.ListModelsRequestObject) (
 	if acc.Row.Agent.Kind == "app" {
 		return nil, errStatus(http.StatusConflict, session.ErrNoHarness.Error())
 	}
-	c, err := a.catalog(ctx, acc.Row.Agent)
+	ag := acc.Row.Agent
+	if h := req.Params.Harness; h != nil && *h != ag.Harness {
+		// Another harness's catalog is for the one who may switch to it.
+		if _, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentConfigure); err != nil {
+			return nil, err
+		}
+		if _, ok := harness.Get(*h); !ok {
+			return nil, badRequest(fmt.Sprintf("unknown harness %q", *h))
+		}
+		ag.Harness = *h
+	}
+	c, err := a.catalog(ctx, ag)
 	if err != nil {
 		return nil, err
 	}
+	login, err := a.agentLogin(ctx, ag)
+	if err != nil {
+		return nil, err
+	}
+	c.api.Login = &login
 	return gen.ListModels200JSONResponse(c.api), nil
 }
 

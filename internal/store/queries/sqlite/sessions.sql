@@ -58,6 +58,10 @@ SELECT * FROM agent_sessions WHERE agent_id = ? AND origin_agent_id = ? ORDER BY
 -- name: SetAgentModel :exec
 UPDATE agents SET model = ?, model_options = ?, updated_at = ? WHERE id = ?;
 
+-- name: ResetSessionModels :exec
+-- A new harness knows nothing of the models chosen on the old one.
+UPDATE agent_sessions SET model = '', model_options = '{}' WHERE agent_id = ?;
+
 -- name: SetSessionModel :exec
 UPDATE agent_sessions SET model = ?, model_options = ? WHERE id = ?;
 

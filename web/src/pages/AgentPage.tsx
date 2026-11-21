@@ -8,7 +8,11 @@ import { Loading } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
 import { AgentLoadError } from '@/components/agent/AgentLoadError';
 import { AgentNotice } from '@/components/agent/AgentNotice';
-import { AgentPanel, type PanelTab } from '@/components/agent/AgentPanel';
+import {
+  AgentPanel,
+  panelTabNeedsUse,
+  type PanelTab,
+} from '@/components/agent/AgentPanel';
 import { HarnessMeta } from '@/components/agent/HarnessMeta';
 import { DraftChat } from '@/components/chat/DraftChat';
 import { Crumb, CrumbSep, TopBar } from '@/components/layout/TopBar';
@@ -170,7 +174,9 @@ export function AgentPage({
             <ChatView
               key={sessionId}
               sessionId={sessionId}
-              agentId={agentId}
+              onOpenActivity={
+                access.canUse ? () => onPanel('activity') : undefined
+              }
               canUse={access.canUse}
               agentState={a.state}
               initialRunning={selected?.running}
@@ -225,7 +231,7 @@ export function AgentPage({
         <AgentPanel
           agent={a}
           access={access}
-          tab={panel === 'terminal' && !access.canUse ? 'overview' : panel}
+          tab={panelTabNeedsUse(panel) && !access.canUse ? 'overview' : panel}
           sessionId={sessionId}
           wide={wide}
           onTab={onPanel}

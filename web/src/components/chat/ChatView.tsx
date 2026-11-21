@@ -24,7 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Composer } from '@/components/chat/Composer';
 import { ToolCard } from '@/components/chat/ToolCard';
 import { useSessionStream } from '@/components/chat/useSessionStream';
-import { ActivityDisclosure } from '@/components/chat/LiveLog';
+import { ActivityLink } from '@/components/chat/LiveLog';
 import { meQuery, type SandboxState } from '@/api/queries';
 import { Avatar } from '@/components/Avatar';
 import {
@@ -345,16 +345,16 @@ function Presence({ viewers }: { viewers: Viewer[] }) {
 }
 
 /**
- * "Working 12s", counted from when this component mounted. With an agent, it
- * offers the live activity log: what the wake or the harness start is doing.
+ * "Working 12s", counted from when this component mounted. It links to the
+ * Activity tab: what the wake or the harness start is doing.
  */
 function WorkingStatus({
   label,
-  agentId,
+  onOpenActivity,
   waiting,
 }: {
   label: string;
-  agentId?: string;
+  onOpenActivity?: () => void;
   /** No answer yet in this turn: the log is the exit hatch. */
   waiting: boolean;
 }) {
@@ -373,10 +373,9 @@ function WorkingStatus({
           {elapsed(now - start)}
         </span>
       </p>
-      {agentId && (waiting || slow) && (
-        <ActivityDisclosure
-          agentId={agentId}
-          live
+      {onOpenActivity && (waiting || slow) && (
+        <ActivityLink
+          onOpen={onOpenActivity}
           label={
             waiting && slow
               ? 'Taking a while? See what is happening'
@@ -457,7 +456,7 @@ function SessionComposer({
 
 export default function ChatView({
   sessionId,
-  agentId,
+  onOpenActivity,
   canUse,
   initialRunning = false,
   agentState,
@@ -465,8 +464,8 @@ export default function ChatView({
   notice,
 }: {
   sessionId: string;
-  /** Enables the live activity log while the agent wakes or starts. */
-  agentId?: string;
+  /** Opens the agent's Activity tab: offered while the agent wakes or starts, and after an error. */
+  onOpenActivity?: () => void;
   canUse: boolean;
   agentState?: SandboxState;
   initialRunning?: boolean;
@@ -543,16 +542,12 @@ export default function ChatView({
             ),
           )}
           {state.plan && state.plan.length > 0 && <Plan entries={state.plan} />}
-          {!running && agentId && last?.kind === 'error' && (
-            <ActivityDisclosure
-              agentId={agentId}
-              live={false}
-              label="Show what happened"
-            />
+          {!running && onOpenActivity && last?.kind === 'error' && (
+            <ActivityLink onOpen={onOpenActivity} label="Show what happened" />
           )}
           {running && (
             <WorkingStatus
-              agentId={agentId}
+              onOpenActivity={onOpenActivity}
               waiting={!answeredSinceLastPrompt(state.items)}
               label={
                 agentState === 'sleeping' || agentState === 'starting'

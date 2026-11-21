@@ -138,9 +138,11 @@ type turn struct {
 	acpID     string
 	prompting bool // session/prompt was sent
 	cancelled bool
-	finished  bool                                   // run returned; nothing may act on the turn anymore
-	killTimer *time.Timer                            // armed by Cancel
-	perms     map[string]chan acp.PermissionOptionId // pending permission requests
+	finished  bool // run returned; nothing may act on the turn anymore
+	// touchedPath is the last file a tool call of the turn reported.
+	touchedPath string
+	killTimer   *time.Timer                            // armed by Cancel
+	perms       map[string]chan acp.PermissionOptionId // pending permission requests
 }
 
 // NewManager returns a session manager. Turns that were running when the
@@ -341,6 +343,20 @@ func (m *Manager) Wait() { m.wg.Wait() }
 
 // Create starts a new, empty session.
 func (m *Manager) Create(ctx context.Context, agentID, userID, title string) (db.AgentSession, error) {
+	return m.CreateWith(ctx, agentID, userID, title, CreateOpts{})
+}
+
+// CreateOpts are optional settings of a new session.
+type CreateOpts struct {
+	// Cwd is the harness's working directory, relative to the home ('' the
+	// home itself).
+	Cwd string
+	// GitProject, GitBranch and GitRepoPath describe the repository Cwd is in.
+	GitProject, GitBranch, GitRepoPath string
+}
+
+// CreateWith is Create with options.
+func (m *Manager) CreateWith(ctx context.Context, agentID, userID, title string, opts CreateOpts) (db.AgentSession, error) {
 	if ag, err := m.store.GetAgent(ctx, agentID); err == nil && ag.Kind == "app" {
 		return db.AgentSession{}, ErrNoHarness
 	}
@@ -349,8 +365,18 @@ func (m *Manager) Create(ctx context.Context, agentID, userID, title string) (db
 	if s.Title == "" {
 		s.Title = "New session"
 	}
-	err := m.store.CreateAgentSession(ctx, db.CreateAgentSessionParams{ID: s.ID, AgentID: agentID, Title: s.Title, CreatedBy: userID, CreatedAt: now, UpdatedAt: now})
-	return s, err
+	if err := m.store.CreateAgentSession(ctx, db.CreateAgentSessionParams{ID: s.ID, AgentID: agentID, Title: s.Title, CreatedBy: userID, CreatedAt: now, UpdatedAt: now}); err != nil {
+		return s, err
+	}
+	if opts != (CreateOpts{}) {
+		if err := m.store.SetSessionGit(ctx, db.SetSessionGitParams{
+			Cwd: opts.Cwd, GitProject: opts.GitProject, GitBranch: opts.GitBranch, GitRepoPath: opts.GitRepoPath, ID: s.ID,
+		}); err != nil {
+			return s, err
+		}
+		s.Cwd, s.GitProject, s.GitBranch, s.GitRepoPath = opts.Cwd, opts.GitProject, opts.GitBranch, opts.GitRepoPath
+	}
+	return s, nil
 }
 
 // Subscribe returns events after `after` and a live subscription. A non-nil
@@ -493,7 +519,11 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 		}
 		t.cancelPermissions()
 		cancelled := t.cancelled
+		touched := t.touchedPath
 		m.mu.Unlock()
+		if c := t.conn; c != nil && !c.closed() {
+			m.refreshSessionGit(lctx, c, sess, touched)
+		}
 		switch {
 		case err != nil && cancelled:
 			// What failed after a cancel is the cancel taking effect, unless
@@ -681,6 +711,7 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 	if sess.AcpSessionID != "" && conn.isActive(sess.AcpSessionID) {
 		return sess.AcpSessionID, nil
 	}
+	cwd := sessionCwd(conn.home, sess.Cwd)
 	caps := conn.init.AgentCapabilities
 	mcp := []acp.McpServer{}
 	if m.tools != nil {
@@ -697,13 +728,13 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 	if sess.AcpSessionID != "" {
 		sid := acp.SessionId(sess.AcpSessionID)
 		resume := func(ctx context.Context) ([]acp.SessionConfigOption, error) {
-			res, err := conn.acp.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: sid, Cwd: HomeDir, McpServers: mcp})
+			res, err := conn.acp.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: sid, Cwd: cwd, McpServers: mcp})
 			return res.ConfigOptions, err
 		}
 		// The replay is not stored again: the session is bound to this
 		// connection only after it is active.
 		load := func(ctx context.Context) ([]acp.SessionConfigOption, error) {
-			res, err := conn.acp.LoadSession(ctx, acp.LoadSessionRequest{SessionId: sid, Cwd: HomeDir, McpServers: mcp})
+			res, err := conn.acp.LoadSession(ctx, acp.LoadSessionRequest{SessionId: sid, Cwd: cwd, McpServers: mcp})
 			return res.ConfigOptions, err
 		}
 		// Resume first: the log already has the conversation, and a load
@@ -748,7 +779,7 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 		var res acp.NewSessionResponse
 		err := m.step(ctx, conn, "session/new", func(ctx context.Context) error {
 			var err error
-			res, err = conn.acp.NewSession(ctx, acp.NewSessionRequest{Cwd: HomeDir, McpServers: mcp})
+			res, err = conn.acp.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: mcp})
 			return err
 		})
 		if err == nil {
@@ -1104,6 +1135,7 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 
 	hc := newHarnessConn(m, agentID, ad, ts)
 	hc.startModel = cfg.Model
+	hc.home = sandboxHome(ctx, ts)
 	spawned := time.Now()
 	proc, err := m.open(ctx, hc, ts, ad.Command, env)
 	if err != nil {

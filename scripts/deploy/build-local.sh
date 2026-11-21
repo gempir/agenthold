@@ -292,6 +292,10 @@ phase web user make web
 if [[ "$RELEASES" == local ]]; then
   phase binary user env VERSION="$version" bash scripts/release/build.sh --out "$rel"
   check_release
+else
+  # make test-kvm boots the pinned Firecracker and jailer from build/runtime; build.sh fetches them
+  # for a local binary, a release binary only embeds them.
+  phase runtime user bash scripts/guest/fetch-runtime.sh --out build/runtime
 fi
 
 # The guest kernel only changes with its inputs: cache it by its key.

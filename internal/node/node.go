@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"runtime"
 	"sync"
 
 	"github.com/gempir/agenthold/internal/egress"
@@ -65,18 +66,21 @@ func (s *ownedStream) Close() error {
 
 // Local owns the in-process driver, tunnel endpoint and proxy state.
 type Local struct {
-	driver     sandbox.Driver
-	hub        *tunnel.Hub
-	incoming   chan incomingStream
-	proxy      *proxyDirectory
-	tokensMu   sync.RWMutex
-	tokens     map[string]string
-	caMu       sync.RWMutex
-	ca         *egress.CA
-	capacityMu sync.RWMutex
-	dataDir    string
-	tunnelPort int
+	driver       sandbox.Driver
+	hub          *tunnel.Hub
+	incoming     chan incomingStream
+	proxy        *proxyDirectory
+	tokensMu     sync.RWMutex
+	tokens       map[string]string
+	caMu         sync.RWMutex
+	ca           *egress.CA
+	capacityMu   sync.RWMutex
+	dataDir      string
+	tunnelPort   int
+	layerBuilder LayerBuilder
 }
+
+var _ LayerHost = (*Local)(nil)
 
 // NewLocal constructs a node around a driver and its tunnel endpoint.
 func NewLocal(driver sandbox.Driver, hub *tunnel.Hub) *Local {
@@ -293,6 +297,8 @@ func (n *Local) CACertificate(ctx context.Context) ([]byte, error) {
 // the host's total memory.
 // DiskBytes is space available to an unprivileged user on the data filesystem.
 type Capacity struct {
+	// Arch is the host CPU architecture (runtime.GOARCH: "arm64" or "amd64").
+	Arch        string `json:",omitempty"`
 	CPUs        int
 	MemoryBytes uint64
 	DiskBytes   uint64
@@ -308,12 +314,60 @@ type Capacity struct {
 // boot configuration. Configure it before starting sandboxes.
 func (n *Local) SetTunnelPort(port int) { n.tunnelPort = port }
 
+// SetLayerBuilder configures how this node builds custom image layers.
+func (n *Local) SetLayerBuilder(b LayerBuilder) { n.layerBuilder = b }
+
 // SetDataDir selects the filesystem whose available disk space is reported.
 // Configure it before reporting capacity; it must already exist.
 func (n *Local) SetDataDir(path string) {
 	n.capacityMu.Lock()
 	defer n.capacityMu.Unlock()
 	n.dataDir = path
+}
+
+func (n *Local) layerStore() (*LayerStore, error) {
+	n.capacityMu.RLock()
+	dir := n.dataDir
+	n.capacityMu.RUnlock()
+	if dir == "" {
+		return nil, errors.New("node data directory is not configured")
+	}
+	return NewLayerStore(dir), nil
+}
+
+// HasLayer implements LayerHost.
+func (n *Local) HasLayer(ctx context.Context, ref, sha string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	ls, err := n.layerStore()
+	if err != nil {
+		return false, err
+	}
+	return ls.HasLayer(ref, sha)
+}
+
+// PutLayer implements LayerHost.
+func (n *Local) PutLayer(ctx context.Context, meta LayerArtifact, zstdStream io.Reader) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	ls, err := n.layerStore()
+	if err != nil {
+		return err
+	}
+	return ls.InstallFromZstd(meta, zstdStream)
+}
+
+// BuildLayer implements LayerHost.
+func (n *Local) BuildLayer(ctx context.Context, req LayerBuildRequest, onLog func(line string)) (LayerBuildResult, io.ReadCloser, error) {
+	if err := ctx.Err(); err != nil {
+		return LayerBuildResult{}, nil, err
+	}
+	if n.layerBuilder == nil {
+		return LayerBuildResult{}, nil, errors.New("image building is not configured on this node")
+	}
+	return n.layerBuilder(ctx, req, onLog)
 }
 
 // Capacity implements Node.
@@ -330,6 +384,9 @@ func (n *Local) Capacity(ctx context.Context) (Capacity, error) {
 	c, err := hostCapacity(ctx, dir)
 	if err != nil {
 		return c, err
+	}
+	if c.Arch == "" {
+		c.Arch = runtime.GOARCH
 	}
 	if a, ok := n.driver.(sandbox.DiskAccounter); ok {
 		// Best effort: a failure leaves the figure unreported.

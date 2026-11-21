@@ -153,6 +153,11 @@ function NodeItem({
     <li className="rounded-xl border p-4">
       <div className="flex flex-wrap items-center gap-2">
         <strong>{node.name}</strong>
+        {node.arch && (
+          <span className="rounded border px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+            {node.arch}
+          </span>
+        )}
         <span className="text-xs text-muted-foreground">
           {node.local ? 'built-in' : node.id}
         </span>

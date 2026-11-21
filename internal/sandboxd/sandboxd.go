@@ -281,6 +281,8 @@ func (d *Daemon) handle(ctx context.Context, st net.Conn, o tunnel.Open) {
 		err = d.service(ctx, st, o)
 	case tunnel.OpExec:
 		err = d.exec(ctx, st, o)
+	case tunnel.OpGit:
+		err = d.git(ctx, st, o)
 	default:
 		err = fmt.Errorf("unknown operation %q", o.Op)
 	}

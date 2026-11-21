@@ -201,3 +201,61 @@ it('blocks submit while limits are loading and for values under the floor', asyn
   await userEvent.type(mem, '2048');
   expect(create).toBeEnabled();
 });
+
+it('lets the user pick a ready custom image and sends imageId', async () => {
+  const { calls } = mockApi({
+    'GET /sandbox/limits': limits,
+    'GET /harnesses': [],
+    'GET /images': {
+      base: {
+        id: 'base',
+        name: 'agenthold Base',
+        description: 'Built-in base',
+        isDefault: true,
+      },
+      images: [
+        {
+          id: 'img_py',
+          name: 'Python ML',
+          description: 'Python + uv',
+          aptPackages: ['python3-venv'],
+          setupScript: '',
+          env: {},
+          secretIds: [],
+          isDefault: false,
+          latestRevision: 2,
+          readyArches: ['arm64'],
+          building: false,
+          agentCount: 0,
+          createdAt: '2030-01-01T00:00:00Z',
+          updatedAt: '2030-01-01T00:00:00Z',
+        },
+        {
+          id: 'img_unbuilt',
+          name: 'Draft Image',
+          description: '',
+          aptPackages: [],
+          setupScript: '',
+          env: {},
+          secretIds: [],
+          isDefault: false,
+          latestRevision: 0,
+          readyArches: [],
+          building: false,
+          agentCount: 0,
+          createdAt: '2030-01-01T00:00:00Z',
+          updatedAt: '2030-01-01T00:00:00Z',
+        },
+      ],
+    },
+    'POST /agents': { status: 500, body: { error: 'stop' } },
+  });
+  renderDialog();
+  const select = await screen.findByLabelText('Image');
+  expect(screen.queryByRole('option', { name: /Draft Image/ })).toBeNull();
+  await userEvent.selectOptions(select, 'img_py');
+  await userEvent.type(screen.getByLabelText('Name'), 'ml-bot');
+  await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+  const post = calls.find((c) => c.key === 'POST /agents');
+  expect(post?.body).toMatchObject({ name: 'ml-bot', imageId: 'img_py' });
+});

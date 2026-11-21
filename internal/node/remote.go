@@ -21,19 +21,23 @@ import (
 const nodeWireLimit = 64 << 20
 
 type wireRequest struct {
-	Version   int                 `json:"version"`
-	Method    string              `json:"method"`
-	AgentID   string              `json:"agentId,omitempty"`
-	ID        sandbox.ID          `json:"id,omitempty"`
-	Spec      sandbox.Spec        `json:"spec,omitempty"`
-	Boot      sandbox.Boot        `json:"boot,omitempty"`
-	Destroy   sandbox.DestroyOpts `json:"destroy,omitempty"`
-	Open      tunnel.Open         `json:"open,omitempty"`
-	Configs   []AgentConfig       `json:"configs,omitempty"`
-	Hash      string              `json:"hash,omitempty"`
-	Intercept InterceptRequest    `json:"intercept,omitempty"`
-	CACert    []byte              `json:"caCert,omitempty"`
-	CAKey     []byte              `json:"caKey,omitempty"`
+	Version    int                 `json:"version"`
+	Method     string              `json:"method"`
+	AgentID    string              `json:"agentId,omitempty"`
+	ID         sandbox.ID          `json:"id,omitempty"`
+	Spec       sandbox.Spec        `json:"spec,omitempty"`
+	Boot       sandbox.Boot        `json:"boot,omitempty"`
+	Destroy    sandbox.DestroyOpts `json:"destroy,omitempty"`
+	Open       tunnel.Open         `json:"open,omitempty"`
+	Configs    []AgentConfig       `json:"configs,omitempty"`
+	Hash       string              `json:"hash,omitempty"`
+	Intercept  InterceptRequest    `json:"intercept,omitempty"`
+	CACert     []byte              `json:"caCert,omitempty"`
+	CAKey      []byte              `json:"caKey,omitempty"`
+	LayerRef   string              `json:"layerRef,omitempty"`
+	LayerSHA   string              `json:"layerSha,omitempty"`
+	Layer      *LayerArtifact      `json:"layer,omitempty"`
+	LayerBuild *LayerBuildRequest  `json:"layerBuild,omitempty"`
 }
 type wireResponse struct {
 	Error       string         `json:"error,omitempty"`
@@ -44,6 +48,14 @@ type wireResponse struct {
 	Connected   bool           `json:"connected,omitempty"`
 	Certificate []byte         `json:"certificate,omitempty"`
 	Capacity    Capacity       `json:"capacity,omitempty"`
+	HasLayer    bool           `json:"hasLayer,omitempty"`
+}
+type buildEvent struct {
+	Type   string            `json:"type"` // "log", "result", "error"
+	Line   string            `json:"line,omitempty"`
+	Result *LayerBuildResult `json:"result,omitempty"`
+	Error  string            `json:"error,omitempty"`
+	Code   string            `json:"code,omitempty"`
 }
 type remoteIncoming struct {
 	info   Incoming
@@ -67,7 +79,10 @@ type Remote struct {
 	intercepts chan remoteIntercept
 }
 
-var _ Node = (*Remote)(nil)
+var (
+	_ Node      = (*Remote)(nil)
+	_ LayerHost = (*Remote)(nil)
+)
 
 func wireConfig() *yamux.Config {
 	cfg := yamux.DefaultConfig()
@@ -352,6 +367,10 @@ func serveWire(parent context.Context, stream *yamux.Stream, backend Node, opts 
 		_ = writeWire(stream, encodeWireError(errors.New("unsupported node protocol version")))
 		return
 	}
+	if req.Method == "put_layer" {
+		servePutLayer(ctx, stream, backend, req)
+		return
+	}
 	ready := make(chan bool, 1)
 	// Unary calls send no more data. OpenStream sends a zero handshake byte
 	// only after the reply. EOF at either stage cancels the backend operation.
@@ -405,6 +424,15 @@ func serveWire(parent context.Context, stream *yamux.Stream, backend Node, opts 
 		} else {
 			err = opts.SetEgressCA(req.CACert, req.CAKey)
 		}
+	case "has_layer":
+		if lh, ok := backend.(LayerHost); !ok {
+			err = errors.New("node does not support custom image layers")
+		} else {
+			out.HasLayer, err = lh.HasLayer(ctx, req.LayerRef, req.LayerSHA)
+		}
+	case "build_layer":
+		serveBuildLayer(ctx, stream, backend, req)
+		return
 	case "open":
 		var target io.ReadWriteCloser
 		target, err = backend.OpenStream(ctx, req.AgentID, req.Open)
@@ -630,3 +658,208 @@ func (r *Remote) Capacity(ctx context.Context) (Capacity, error) {
 	v, _, e := r.call(ctx, wireRequest{Method: "capacity"}, false)
 	return v.Capacity, e
 }
+
+// HasLayer implements LayerHost.
+func (r *Remote) HasLayer(ctx context.Context, ref, sha string) (bool, error) {
+	v, _, e := r.call(ctx, wireRequest{Method: "has_layer", LayerRef: ref, LayerSHA: sha}, false)
+	return v.HasLayer, e
+}
+
+// PutLayer implements LayerHost by streaming length-prefixed zstd chunks over
+// the node's multiplexed connection.
+func (r *Remote) PutLayer(ctx context.Context, meta LayerArtifact, zstdStream io.Reader) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if r.ctx.Err() != nil {
+		return fmt.Errorf("node connection closed: %w", errors.Join(sandbox.ErrUnreachable, tunnel.ErrNotConnected))
+	}
+	stream, err := openWire(ctx, r.mux)
+	if err != nil {
+		return wireContextError(ctx, err)
+	}
+	defer stream.Close()
+	stop := context.AfterFunc(ctx, func() { _ = stream.Close() })
+	defer stop()
+	if err := writeWire(stream, wireRequest{Version: 1, Method: "put_layer", Layer: &meta}); err != nil {
+		return wireContextError(ctx, err)
+	}
+	if err := writeChunks(stream, zstdStream); err != nil {
+		return wireContextError(ctx, err)
+	}
+	var reply wireResponse
+	if err := readWire(stream, &reply); err != nil {
+		return wireContextError(ctx, err)
+	}
+	if reply.Error != "" {
+		return decodeWireError(reply)
+	}
+	return nil
+}
+
+// BuildLayer implements LayerHost, streaming build log lines and then the
+// compressed layer archive back from the edge node.
+func (r *Remote) BuildLayer(ctx context.Context, req LayerBuildRequest, onLog func(line string)) (LayerBuildResult, io.ReadCloser, error) {
+	if err := ctx.Err(); err != nil {
+		return LayerBuildResult{}, nil, err
+	}
+	if r.ctx.Err() != nil {
+		return LayerBuildResult{}, nil, fmt.Errorf("node connection closed: %w", errors.Join(sandbox.ErrUnreachable, tunnel.ErrNotConnected))
+	}
+	stream, err := openWire(ctx, r.mux)
+	if err != nil {
+		return LayerBuildResult{}, nil, wireContextError(ctx, err)
+	}
+	stop := context.AfterFunc(ctx, func() { _ = stream.Close() })
+	ok := false
+	defer func() {
+		if !ok {
+			stop()
+			_ = stream.Close()
+		}
+	}()
+	if err := writeWire(stream, wireRequest{Version: 1, Method: "build_layer", LayerBuild: &req}); err != nil {
+		return LayerBuildResult{}, nil, wireContextError(ctx, err)
+	}
+	for {
+		var ev buildEvent
+		if err := readWire(stream, &ev); err != nil {
+			return LayerBuildResult{}, nil, wireContextError(ctx, err)
+		}
+		switch ev.Type {
+		case "log":
+			if onLog != nil {
+				onLog(ev.Line)
+			}
+		case "error":
+			return LayerBuildResult{}, nil, decodeWireError(wireResponse{Error: ev.Error, Code: ev.Code})
+		case "result":
+			if ev.Result == nil {
+				return LayerBuildResult{}, nil, errors.New("node returned empty build result")
+			}
+			ok = true
+			return *ev.Result, &chunkStreamReader{rc: &cancelStream{ReadWriteCloser: stream, stop: stop}}, nil
+		default:
+			return LayerBuildResult{}, nil, fmt.Errorf("unexpected build event %q", ev.Type)
+		}
+	}
+}
+
+func servePutLayer(ctx context.Context, stream *yamux.Stream, backend Node, req wireRequest) {
+	lh, ok := backend.(LayerHost)
+	if !ok {
+		_ = writeWire(stream, encodeWireError(errors.New("node does not support custom image layers")))
+		return
+	}
+	if req.Layer == nil {
+		_ = writeWire(stream, encodeWireError(errors.New("missing layer metadata")))
+		return
+	}
+	cr := &chunkStreamReader{rc: nopCloser{stream}}
+	err := lh.PutLayer(ctx, *req.Layer, cr)
+	if err != nil {
+		_ = writeWire(stream, encodeWireError(err))
+		return
+	}
+	_ = writeWire(stream, wireResponse{})
+}
+
+func serveBuildLayer(ctx context.Context, stream *yamux.Stream, backend Node, req wireRequest) {
+	lh, ok := backend.(LayerHost)
+	if !ok {
+		_ = writeWire(stream, buildEvent{Type: "error", Error: "node does not support custom image builds"})
+		return
+	}
+	if req.LayerBuild == nil {
+		_ = writeWire(stream, buildEvent{Type: "error", Error: "missing layer build request"})
+		return
+	}
+	var mu sync.Mutex
+	onLog := func(line string) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = writeWire(stream, buildEvent{Type: "log", Line: line})
+	}
+	res, artifact, err := lh.BuildLayer(ctx, *req.LayerBuild, onLog)
+	if err != nil {
+		we := encodeWireError(err)
+		mu.Lock()
+		_ = writeWire(stream, buildEvent{Type: "error", Error: we.Error, Code: we.Code})
+		mu.Unlock()
+		return
+	}
+	defer artifact.Close()
+	mu.Lock()
+	err = writeWire(stream, buildEvent{Type: "result", Result: &res})
+	mu.Unlock()
+	if err != nil {
+		return
+	}
+	_ = writeChunks(stream, artifact)
+}
+
+const layerChunkSize = 256 << 10
+
+func writeChunks(w io.Writer, r io.Reader) error {
+	buf := make([]byte, layerChunkSize)
+	var hdr [4]byte
+	for {
+		n, rerr := r.Read(buf)
+		if n > 0 {
+			binary.BigEndian.PutUint32(hdr[:], uint32(n))
+			if _, err := w.Write(hdr[:]); err != nil {
+				return err
+			}
+			if _, err := w.Write(buf[:n]); err != nil {
+				return err
+			}
+		}
+		if errors.Is(rerr, io.EOF) {
+			binary.BigEndian.PutUint32(hdr[:], 0)
+			_, err := w.Write(hdr[:])
+			return err
+		}
+		if rerr != nil {
+			return rerr
+		}
+	}
+}
+
+type nopCloser struct{ io.Reader }
+
+func (nopCloser) Close() error { return nil }
+
+type chunkStreamReader struct {
+	rc  io.ReadCloser
+	rem uint32
+	eof bool
+}
+
+func (c *chunkStreamReader) Read(p []byte) (int, error) {
+	if c.eof {
+		return 0, io.EOF
+	}
+	for c.rem == 0 {
+		var hdr [4]byte
+		if _, err := io.ReadFull(c.rc, hdr[:]); err != nil {
+			return 0, err
+		}
+		n := binary.BigEndian.Uint32(hdr[:])
+		if n == 0 {
+			c.eof = true
+			return 0, io.EOF
+		}
+		if n > nodeWireLimit {
+			return 0, errors.New("layer chunk exceeds limit")
+		}
+		c.rem = n
+	}
+	if uint32(len(p)) > c.rem {
+		p = p[:c.rem]
+	}
+	n, err := c.rc.Read(p)
+	c.rem -= uint32(n)
+	return n, err
+}
+
+func (c *chunkStreamReader) Close() error { return c.rc.Close() }

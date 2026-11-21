@@ -6,9 +6,40 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/netip"
 
 	"github.com/gempir/agenthold/internal/sandbox"
+	"github.com/gempir/agenthold/internal/tunnel"
 )
+
+// BuildLayerOptions configures an ephemeral Firecracker microVM layer build.
+type BuildLayerOptions struct {
+	BuildID        string
+	BootFiles      map[string][]byte
+	Env            map[string]string
+	CPUs           float64
+	MemoryMB       int64
+	DiskGB         int64
+	TunnelPort     int
+	SetToken       func(ctx context.Context, agentID, hash string) error
+	WaitSession    func(ctx context.Context, agentID string) (*tunnel.Session, error)
+	RegisterEgress func(agentID string, subnet netip.Prefix)
+	RemoveEgress   func(agentID string)
+	OnLog          func(line string)
+}
+
+// BuildLayerOutput holds the sealed layer produced by Driver.BuildLayer.
+type BuildLayerOutput struct {
+	Arch       string
+	BaseKey    string
+	RawPath    string
+	RawSHA256  string
+	RawSize    int64
+	ZstdPath   string
+	ZstdSHA256 string
+	ZstdSize   int64
+	Cleanup    func()
+}
 
 // Driver is unavailable on non-Linux hosts. Fake sandboxes remain portable.
 type Driver struct{}
@@ -68,4 +99,9 @@ func TapName(id sandbox.ID) string {
 // Clone implements sandbox.Driver.
 func (*Driver) Clone(context.Context, sandbox.ID, sandbox.Spec) (sandbox.ID, error) {
 	return "", ErrUnsupported
+}
+
+// BuildLayer is only available on Linux hosts with KVM.
+func (*Driver) BuildLayer(context.Context, BuildLayerOptions) (BuildLayerOutput, error) {
+	return BuildLayerOutput{}, ErrUnsupported
 }

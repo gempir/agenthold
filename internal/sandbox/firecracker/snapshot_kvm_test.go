@@ -87,6 +87,7 @@ func (h wakeHandler) Handle(ctx context.Context, r slog.Record) error {
 func (h wakeHandler) WithAttrs(as []slog.Attr) slog.Handler {
 	return wakeHandler{h.Handler.WithAttrs(as), h.log}
 }
+
 func (h wakeHandler) WithGroup(name string) slog.Handler {
 	return wakeHandler{h.Handler.WithGroup(name), h.log}
 }

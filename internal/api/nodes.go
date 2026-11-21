@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"net/http"
+	"runtime"
 	"strings"
 	"time"
 
@@ -27,7 +28,7 @@ func (a *API) nodeInfos(ctx context.Context) ([]node.Info, error) {
 		return a.Nodes.Nodes(ctx)
 	}
 	// A bare in-process node (tests, development tools) is always connected.
-	return []node.Info{{ID: node.LocalID, Name: node.LocalID, Local: true, Connected: true, Version: version.Version}}, nil
+	return []node.Info{{ID: node.LocalID, Name: node.LocalID, Arch: runtime.GOARCH, Local: true, Connected: true, Version: version.Version}}, nil
 }
 
 // requireAdmin allows only users who manage the installation.
@@ -44,6 +45,10 @@ func (a *API) requireAdmin(ctx context.Context) error {
 
 func apiNode(info node.Info) gen.NodeInfo {
 	out := gen.NodeInfo{Id: info.ID, Name: info.Name, Online: info.Connected, Local: info.Local, Agents: info.Agents}
+	if info.Arch != "" {
+		arch := info.Arch
+		out.Arch = &arch
+	}
 	if !info.LastSeen.IsZero() {
 		seen := info.LastSeen
 		out.LastSeen = &seen

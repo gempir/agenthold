@@ -44,7 +44,7 @@ func (q *Queries) DeleteAgentSession(ctx context.Context, id string) error {
 }
 
 const getAgentSession = `-- name: GetAgentSession :one
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options FROM agent_sessions WHERE id = ?
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path FROM agent_sessions WHERE id = ?
 `
 
 func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession, error) {
@@ -63,6 +63,10 @@ func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession,
 		&i.OriginSessionID,
 		&i.Model,
 		&i.ModelOptions,
+		&i.Cwd,
+		&i.GitProject,
+		&i.GitBranch,
+		&i.GitRepoPath,
 	)
 	return i, err
 }
@@ -109,7 +113,7 @@ func (q *Queries) InsertSessionEvent(ctx context.Context, arg InsertSessionEvent
 }
 
 const linkedSessions = `-- name: LinkedSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options FROM agent_sessions WHERE agent_id = ? AND origin_agent_id = ? ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path FROM agent_sessions WHERE agent_id = ? AND origin_agent_id = ? ORDER BY updated_at DESC
 `
 
 type LinkedSessionsParams struct {
@@ -140,6 +144,10 @@ func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) 
 			&i.OriginSessionID,
 			&i.Model,
 			&i.ModelOptions,
+			&i.Cwd,
+			&i.GitProject,
+			&i.GitBranch,
+			&i.GitRepoPath,
 		); err != nil {
 			return nil, err
 		}
@@ -155,7 +163,7 @@ func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) 
 }
 
 const listAgentSessions = `-- name: ListAgentSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options FROM agent_sessions WHERE agent_id = ? ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path FROM agent_sessions WHERE agent_id = ? ORDER BY updated_at DESC
 `
 
 func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]AgentSession, error) {
@@ -180,6 +188,10 @@ func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]Agen
 			&i.OriginSessionID,
 			&i.Model,
 			&i.ModelOptions,
+			&i.Cwd,
+			&i.GitProject,
+			&i.GitBranch,
+			&i.GitRepoPath,
 		); err != nil {
 			return nil, err
 		}
@@ -393,6 +405,29 @@ func (q *Queries) SetSessionACPID(ctx context.Context, arg SetSessionACPIDParams
 	return err
 }
 
+const setSessionGit = `-- name: SetSessionGit :exec
+UPDATE agent_sessions SET cwd = ?, git_project = ?, git_branch = ?, git_repo_path = ? WHERE id = ?
+`
+
+type SetSessionGitParams struct {
+	Cwd         string
+	GitProject  string
+	GitBranch   string
+	GitRepoPath string
+	ID          string
+}
+
+func (q *Queries) SetSessionGit(ctx context.Context, arg SetSessionGitParams) error {
+	_, err := q.db.ExecContext(ctx, setSessionGit,
+		arg.Cwd,
+		arg.GitProject,
+		arg.GitBranch,
+		arg.GitRepoPath,
+		arg.ID,
+	)
+	return err
+}
+
 const setSessionModel = `-- name: SetSessionModel :exec
 UPDATE agent_sessions SET model = ?, model_options = ? WHERE id = ?
 `
@@ -435,6 +470,42 @@ type SetSessionStatusParams struct {
 
 func (q *Queries) SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error {
 	_, err := q.db.ExecContext(ctx, setSessionStatus, arg.Status, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const updateAgentRepoBranch = `-- name: UpdateAgentRepoBranch :exec
+UPDATE agent_sessions SET git_branch = ? WHERE agent_id = ? AND git_repo_path = ?
+`
+
+type UpdateAgentRepoBranchParams struct {
+	GitBranch   string
+	AgentID     string
+	GitRepoPath string
+}
+
+func (q *Queries) UpdateAgentRepoBranch(ctx context.Context, arg UpdateAgentRepoBranchParams) error {
+	_, err := q.db.ExecContext(ctx, updateAgentRepoBranch, arg.GitBranch, arg.AgentID, arg.GitRepoPath)
+	return err
+}
+
+const updateSessionGitStatus = `-- name: UpdateSessionGitStatus :exec
+UPDATE agent_sessions SET git_project = ?, git_branch = ?, git_repo_path = ? WHERE id = ?
+`
+
+type UpdateSessionGitStatusParams struct {
+	GitProject  string
+	GitBranch   string
+	GitRepoPath string
+	ID          string
+}
+
+func (q *Queries) UpdateSessionGitStatus(ctx context.Context, arg UpdateSessionGitStatusParams) error {
+	_, err := q.db.ExecContext(ctx, updateSessionGitStatus,
+		arg.GitProject,
+		arg.GitBranch,
+		arg.GitRepoPath,
+		arg.ID,
+	)
 	return err
 }
 

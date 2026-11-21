@@ -9,17 +9,23 @@ import (
 
 // Paths sandboxd uses as PID 1. Everything under InitRun is on a tmpfs.
 const (
-	InitRun  = "/run/agenthold"
-	initBase = InitRun + "/base" // bind of the read-only base (lower layer)
-	initRoot = InitRun + "/root" // the assembled root before pivot_root
+	InitRun    = "/run/agenthold"
+	initBase   = InitRun + "/base"   // bind of the read-only base (lowest layer)
+	initLayers = InitRun + "/layers" // mountpoints for extra read-only layers
+	initRoot   = InitRun + "/root"   // the assembled root before pivot_root
 	// InitDisk is where the overlay disk is mounted, before and after the
 	// switch to the new root. It holds upper/ and work/ of the root overlay
 	// and the directories bind-mounted for container runtimes.
 	InitDisk = InitRun + "/disk"
 	// InitBootFile is the boot file the daemon child reads (tmpfs, 0600).
 	InitBootFile = InitRun + "/boot.json"
-	// ImageEnvFile is the image's environment, see images/base/image.env.
+	// ImageEnvFile is the base image's environment, see images/base/image.env.
 	ImageEnvFile = "/etc/agenthold/image.env"
+	// ImageEnvDir holds optional drop-in *.env files from layered images,
+	// loaded in lexicographical order after ImageEnvFile.
+	ImageEnvDir = "/etc/agenthold/image.env.d"
+	// SkelDir is copied into /home/agent when formatting a fresh home disk.
+	SkelDir = "/etc/skel"
 	// AgentHome is where the home disk is mounted.
 	AgentHome = "/home/agent"
 )
@@ -92,9 +98,10 @@ func EarlyMounts() []Step {
 }
 
 // RootMounts assembles the new root under initRoot once both disks hold a
-// filesystem: overlay disk, base bind, the root overlay, home, the native
-// directories, a fresh /run, and finally moves the early mounts into it.
-func RootMounts(l Layout) []Step {
+// filesystem: overlay disk, base bind, optional read-only layer drives, the
+// root overlay, home, the native directories, a fresh /run, and finally moves
+// the early mounts into it. Layers are ordered highest precedence first.
+func RootMounts(l Layout, layers ...GuestLayer) []Step {
 	root := func(p string) string { return filepath.Join(initRoot, p) }
 	steps := []Step{
 		{Target: InitDisk},
@@ -104,14 +111,33 @@ func RootMounts(l Layout) []Step {
 		{Target: initBase},
 		{Source: "/", Target: initBase, Flags: FlagBind},
 		{Source: "/", Target: initBase, Flags: FlagBind | FlagRemount | FlagReadOnly},
-		{Target: initRoot},
-		{
-			Source: "overlay", Target: initRoot, FSType: "overlay",
-			Data: "lowerdir=" + initBase + ",upperdir=" + InitDisk + "/upper,workdir=" + InitDisk + "/work",
-		},
-		{Target: root(AgentHome)},
-		{Source: l.Home, Target: root(AgentHome), FSType: "ext4", Flags: FlagNoAtime},
 	}
+	lowerdirs := make([]string, 0, len(layers)+1)
+	if len(layers) > 0 {
+		steps = append(steps, Step{Target: initLayers})
+		for i, layer := range layers {
+			mp := fmt.Sprintf("%s/%d", initLayers, i)
+			steps = append(steps,
+				Step{Target: mp},
+				Step{Source: layer.Device, Target: mp, FSType: "ext4", Flags: FlagReadOnly | FlagNoAtime},
+			)
+			lower := mp
+			if layer.Subdir != "" {
+				lower = filepath.Join(mp, layer.Subdir)
+			}
+			lowerdirs = append(lowerdirs, lower)
+		}
+	}
+	lowerdirs = append(lowerdirs, initBase)
+	steps = append(steps,
+		Step{Target: initRoot},
+		Step{
+			Source: "overlay", Target: initRoot, FSType: "overlay",
+			Data: "lowerdir=" + strings.Join(lowerdirs, ":") + ",upperdir=" + InitDisk + "/upper,workdir=" + InitDisk + "/work",
+		},
+		Step{Target: root(AgentHome)},
+		Step{Source: l.Home, Target: root(AgentHome), FSType: "ext4", Flags: FlagNoAtime},
+	)
 	for _, d := range NativeDirs {
 		disk := InitDisk + "/native/" + strings.ReplaceAll(strings.TrimPrefix(d, "/"), "/", "-")
 		steps = append(steps,

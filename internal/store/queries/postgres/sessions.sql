@@ -71,3 +71,12 @@ SELECT * FROM agent_model_catalogs WHERE agent_id = $1;
 -- name: UpsertModelCatalog :exec
 INSERT INTO agent_model_catalogs (agent_id, harness, data, seen_at) VALUES ($1, $2, $3, $4)
 ON CONFLICT (agent_id) DO UPDATE SET harness = excluded.harness, data = excluded.data, seen_at = excluded.seen_at;
+
+-- name: SetSessionGit :exec
+UPDATE agent_sessions SET cwd = $1, git_project = $2, git_branch = $3, git_repo_path = $4 WHERE id = $5;
+
+-- name: UpdateSessionGitStatus :exec
+UPDATE agent_sessions SET git_project = $1, git_branch = $2, git_repo_path = $3 WHERE id = $4;
+
+-- name: UpdateAgentRepoBranch :exec
+UPDATE agent_sessions SET git_branch = $1 WHERE agent_id = $2 AND git_repo_path = $3;

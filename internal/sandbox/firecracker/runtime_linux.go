@@ -77,7 +77,24 @@ func bindFile(src, dst string, readOnly bool) error {
 }
 
 func (d *Driver) prepare(ctx context.Context, id sandbox.ID, m *manifest, boot sandbox.Boot) error {
-	data, err := sandboxd.EncodeGuestBoot(sandboxd.GuestBoot{AgentID: boot.AgentID, Token: boot.Token, TunnelPort: boot.TunnelPort, Env: m.Spec.Env, Files: boot.Files, ResetIdentity: m.Fresh})
+	layers := d.activeLayers(m)
+	if len(layers) > sandboxd.MaxGuestLayers {
+		return fmt.Errorf("too many layers (%d, max %d)", len(layers), sandboxd.MaxGuestLayers)
+	}
+	var guestLayers []sandboxd.GuestLayer
+	if len(layers) > 0 {
+		guestLayers = make([]sandboxd.GuestLayer, len(layers))
+		for i, l := range layers {
+			guestLayers[i] = sandboxd.GuestLayer{
+				Device: fmt.Sprintf("/dev/vd%c", 'e'+i),
+				Subdir: l.Subdir,
+			}
+		}
+	}
+	data, err := sandboxd.EncodeGuestBoot(sandboxd.GuestBoot{
+		AgentID: boot.AgentID, Token: boot.Token, TunnelPort: boot.TunnelPort,
+		Env: m.Spec.Env, Files: boot.Files, ResetIdentity: m.Fresh, Layers: guestLayers,
+	})
 	if err != nil {
 		return err
 	}
@@ -95,10 +112,22 @@ func (d *Driver) prepare(ctx context.Context, id sandbox.ID, m *manifest, boot s
 	if err = os.MkdirAll(root, 0o700); err != nil {
 		return err
 	}
-	for _, f := range []struct {
+	type bindEntry struct {
 		source, name string
 		ro           bool
-	}{{d.cfg.KernelPath, "kernel", true}, {d.initrd, "initrd", true}, {m.BaseImagePath, "base.ext4", true}, {filepath.Join(d.dir(id), "overlay.ext4"), "overlay.ext4", false}, {filepath.Join(d.dir(id), "home.ext4"), "home.ext4", false}, {config, "config.img", true}} {
+	}
+	binds := []bindEntry{
+		{d.cfg.KernelPath, "kernel", true},
+		{d.initrd, "initrd", true},
+		{m.BaseImagePath, "base.ext4", true},
+		{filepath.Join(d.dir(id), "overlay.ext4"), "overlay.ext4", false},
+		{filepath.Join(d.dir(id), "home.ext4"), "home.ext4", false},
+		{config, "config.img", true},
+	}
+	for i, l := range layers {
+		binds = append(binds, bindEntry{l.Path, fmt.Sprintf("layer_%d.ext4", i), true})
+	}
+	for _, f := range binds {
 		if err = ctx.Err(); err != nil {
 			return err
 		}
@@ -117,10 +146,11 @@ func (d *Driver) prepareResume(ctx context.Context, id sandbox.ID, m *manifest) 
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return err
 	}
-	for _, f := range []struct {
+	type bindEntry struct {
 		source, name string
 		ro           bool
-	}{
+	}
+	binds := []bindEntry{
 		{m.BaseImagePath, "base.ext4", true},
 		{filepath.Join(d.dir(id), "overlay.ext4"), "overlay.ext4", false},
 		{filepath.Join(d.dir(id), "home.ext4"), "home.ext4", false},
@@ -128,7 +158,11 @@ func (d *Driver) prepareResume(ctx context.Context, id sandbox.ID, m *manifest) 
 		{filepath.Join(d.snapDir(id), "config.img"), "config.img", true},
 		{filepath.Join(d.snapDir(id), "vmstate"), jailVMState, true},
 		{filepath.Join(d.snapDir(id), "memory"), jailMemory, true},
-	} {
+	}
+	for i, l := range d.activeLayers(m) {
+		binds = append(binds, bindEntry{l.Path, fmt.Sprintf("layer_%d.ext4", i), true})
+	}
+	for _, f := range binds {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -201,13 +235,20 @@ func (d *Driver) launch(ctx context.Context, id sandbox.ID, m *manifest) error {
 		return err
 	}
 	// Insertion order is part of sandboxd's ABI: vda base, vdb system,
-	// vdc home, vdd config. Do not iterate a map or sort drive IDs.
+	// vdc home, vdd config, then optional read-only layer drives (vde, vdf, ...).
+	// Do not iterate a map or sort drive IDs.
 	for i, name := range []string{"base", "overlay", "home", "config"} {
 		path := "/" + name + ".ext4"
 		if name == "config" {
 			path = "/config.img"
 		}
 		if err = a.put(bootCtx, "/drives/"+name, map[string]any{"drive_id": name, "path_on_host": path, "is_root_device": false, "is_read_only": i == 0 || i == 3}); err != nil {
+			return err
+		}
+	}
+	for i := range d.activeLayers(m) {
+		name := fmt.Sprintf("layer_%d", i)
+		if err = a.put(bootCtx, "/drives/"+name, map[string]any{"drive_id": name, "path_on_host": "/" + name + ".ext4", "is_root_device": false, "is_read_only": true}); err != nil {
 			return err
 		}
 	}
@@ -388,7 +429,12 @@ func (d *Driver) finish(ctx context.Context, id sandbox.ID, m *manifest) error {
 	errs = append(errs, d.deleteTap(id))
 	// Unmount before RemoveAll: removing through a live bind could delete data.
 	clean := true
-	for _, name := range []string{jailSnapDir, jailVMState, jailMemory, "config.img", "home.ext4", "overlay.ext4", "base.ext4", "initrd", "kernel"} {
+	unmounts := make([]string, 0, 9+sandboxd.MaxGuestLayers)
+	for i := sandboxd.MaxGuestLayers - 1; i >= 0; i-- {
+		unmounts = append(unmounts, fmt.Sprintf("layer_%d.ext4", i))
+	}
+	unmounts = append(unmounts, jailSnapDir, jailVMState, jailMemory, "config.img", "home.ext4", "overlay.ext4", "base.ext4", "initrd", "kernel")
+	for _, name := range unmounts {
 		// The jail is the VMM user's: never follow a symlink it put there.
 		err = unix.Unmount(filepath.Join(d.jailRoot(id), name), unix.UMOUNT_NOFOLLOW)
 		if err != nil && !errors.Is(err, unix.EINVAL) && !errors.Is(err, unix.ENOENT) {

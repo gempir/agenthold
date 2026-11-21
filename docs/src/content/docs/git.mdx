@@ -1,0 +1,72 @@
+---
+title: "Git"
+description: "Git in agents: the base image's defaults, author identity, HTTPS credentials injected by the proxy, repositories and worktrees, and project and branch tracking on chats."
+---
+
+Agents work in git repositories the way a developer does: they clone, switch branches, create worktrees and
+pull inside their home directory. The sandbox never holds a credential for a git host. Author identity and
+HTTPS tokens are set by the account and injected at the edge, so a repository can be pushed to without the
+agent ever seeing the token.
+
+## Git in the base image
+
+The base image ships `git`, `git-lfs` and `openssh-client`. Their system-level defaults live in `/etc/gitconfig`,
+set when the image is built:
+
+- `init.defaultBranch main`, `push.autoSetupRemote true`, `advice.detachedHead false`, `core.autocrlf input`
+  and `safe.directory '*'`, so repositories owned by another user in the sandbox still work.
+- `git lfs` is installed system-wide.
+- `include.path /etc/agenthold/gitconfig` and `/home/agent/.config/agenthold/gitconfig`, which hold the
+  author identity described below (delivered at boot and updated live on running agents). The image does not
+  ship those files.
+
+Because these are system defaults, a user's `~/.gitconfig` and a repository's `.git/config` still override
+them. `GIT_TERMINAL_PROMPT=0` is set in every sandbox: git fails instead of waiting for a username or password
+at a terminal prompt, so a missing credential shows up as an error, not a hang.
+
+## Author identity
+
+**Settings → Git** sets the name and email that commits in your agents carry (`GET` and `PUT /api/v1/me/git`).
+Empty values fall back to your agenthold profile name and email. The effective identity is delivered to
+`/etc/agenthold/gitconfig` in the sandbox.
+
+## Credentials for HTTPS hosts
+
+**Settings → Git** also stores HTTPS credentials per host (`POST /api/v1/me/git/credentials`): a token for
+GitHub, GitLab or a custom Git host, with an optional label and username. The token is encrypted at rest with the
+master key, like other [secrets](/egress/#secrets).
+
+The egress proxy injects the credential into the HTTPS requests git sends to that host (and `api.github.com`
+for `github.com`). Presets set the HTTP Basic username (`x-access-token` for GitHub, `oauth2` for GitLab,
+`git` otherwise), and you can override it. The token never enters the sandbox, and the proxy adds the
+`Authorization` header only for requests to the configured host.
+
+An explicit secret attached to the agent for the same host takes precedence over an account credential. Remove a
+credential with `DELETE /api/v1/me/git/credentials/{credentialId}`.
+
+## Repositories, branches and worktrees
+
+Open an agent and use the **Git** tab in the agent panel, or the Git section of agent settings. It shows what is
+in the agent's home directory:
+
+- **Discovery.** agenthold lists the git repositories and worktrees under `/home/agent`, with their branch, whether
+  they are detached, dirty, or ahead and behind their remote (`GET /api/v1/agents/{agentId}/git/repos`). The
+  list needs a running agent.
+- **Clone.** Clone a repository into the home directory by URL (`POST .../git/clone`).
+- **Branches.** Switch to an existing branch or create a new one (`POST .../git/checkout`). The status of a
+  directory lists its branches (`GET .../git/status`).
+- **Worktrees.** Create a git worktree on a branch of a repository in the agent (`POST .../git/worktrees`), so
+  several chats can work on different branches of one clone.
+- **Pull.** Fast-forward a repository from its remote (`POST .../git/pull`).
+
+## Projects and branches on chats
+
+A chat can start in a repository. When you create a chat (`POST /api/v1/agents/{agentId}/sessions`), set `cwd` to
+the repository, a `gitBranch` (with `createBranch` to create it if it does not exist) and `createWorktree` to give
+the chat its own worktree on that branch.
+
+agenthold detects the chat's project and branch from the running sandbox after each turn, so the branch shown
+follows what the agent actually checked out. `PATCH /api/v1/sessions/{sessionId}/git` changes the chat's working
+directory or re-detects the project and branch on demand.
+
+The sidebar shows each chat's project and branch, and you can search by either.

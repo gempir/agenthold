@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
-import { ModelPicker } from './ModelPicker';
+import { ModelPicker, type HarnessChoice } from './ModelPicker';
 import type { Choice, ModelCatalog } from '@/lib/models';
 
 const effort = (levels: string[]) => ({
@@ -303,4 +303,182 @@ it('offers no typed id to users who may not set custom models', async () => {
   await user.type(screen.getByRole('combobox'), 'acme/model-9');
   expect(screen.queryByRole('option', { name: /Use/ })).not.toBeInTheDocument();
   expect(screen.getByText('No model matches.')).toBeVisible();
+});
+
+const codexCatalog: ModelCatalog = {
+  harness: 'codex',
+  source: 'harness',
+  seenAt: new Date().toISOString(),
+  switchable: true,
+  customModels: false,
+  models: [
+    { id: 'gpt-5', name: 'GPT-5', group: 'OpenAI' },
+    { id: 'gpt-5-mini', name: 'GPT-5 Mini', group: 'OpenAI' },
+  ],
+};
+
+function SwitchHarness({
+  onSwitch = () => Promise.resolve(),
+  others,
+  busy,
+}: {
+  onSwitch?: (harness: string, model: string) => Promise<unknown>;
+  others?: HarnessChoice[];
+  busy?: boolean;
+}) {
+  const [v, setV] = useState<Choice>({ model: 'opus', options: {} });
+  return (
+    <ModelPicker
+      catalog={catalog}
+      value={v}
+      defaultLabel="Agent default"
+      onChange={setV}
+      harnessSwitch={{
+        agentName: 'demo2',
+        busy,
+        onSwitch,
+        loginLink: <a href="/settings/providers">Provider logins.</a>,
+        others: others ?? [
+          { id: 'codex', name: 'Codex', catalog: codexCatalog },
+          {
+            id: 'opencode',
+            name: 'OpenCode',
+            // Never ran on this agent: nothing known of its models.
+            catalog: undefined,
+          },
+        ],
+      }}
+    />
+  );
+}
+
+it('lists the other harnesses under the current one: a collapsible one with models, one row without', async () => {
+  render(<SwitchHarness />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: /Model:/ }));
+  const list = screen.getByRole('listbox', { name: 'Models' });
+  expect(within(list).getByText('Switch demo2 to')).toBeVisible();
+  // Codex has models: a heading that opens them; collapsed at first.
+  const codex = within(list).getByRole('option', { name: /Codex/ });
+  expect(codex).toHaveTextContent('2 models');
+  expect(within(list).queryByRole('option', { name: /GPT-5/ })).toBeNull();
+  // OpenCode is unknown: one row, naming the agent default.
+  const opencode = within(list).getByRole('option', { name: /OpenCode/ });
+  expect(opencode).toHaveTextContent('Agent default');
+  await user.click(codex);
+  expect(
+    within(list).getByRole('option', { name: 'GPT-5 Mini' }),
+  ).toBeVisible();
+  const group = within(list).getByRole('group', { name: 'Codex' });
+  expect(
+    within(group).getByRole('option', { name: 'Agent default' }),
+  ).toBeVisible();
+});
+
+it('asks before switching the agent, then switches and closes', async () => {
+  const onSwitch = vi.fn().mockResolvedValue(undefined);
+  render(<SwitchHarness onSwitch={onSwitch} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: /Model:/ }));
+  await user.click(screen.getByRole('option', { name: /Codex/ }));
+  await user.click(screen.getByRole('option', { name: 'GPT-5 Mini' }));
+  // Nothing happened yet: the confirm names the agent and says all chats.
+  expect(onSwitch).not.toHaveBeenCalled();
+  const confirm = screen.getByRole('group', { name: 'Switch to Codex' });
+  expect(confirm).toHaveTextContent('Switches demo2 to Codex (all chats)');
+  expect(confirm).toHaveTextContent('Model: GPT-5 Mini');
+  // The reasoning section made room for it.
+  expect(screen.queryByText('Reasoning')).toBeNull();
+  await user.click(
+    within(confirm).getByRole('button', { name: 'Switch to Codex' }),
+  );
+  expect(onSwitch).toHaveBeenCalledWith('codex', 'gpt-5-mini');
+  await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+});
+
+it('switches to a harness without known models on its default', async () => {
+  const onSwitch = vi.fn().mockResolvedValue(undefined);
+  render(<SwitchHarness onSwitch={onSwitch} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: /Model:/ }));
+  await user.click(screen.getByRole('option', { name: /OpenCode/ }));
+  const confirm = screen.getByRole('group', { name: 'Switch to OpenCode' });
+  expect(confirm).toHaveTextContent("OpenCode's default model");
+  await user.click(within(confirm).getByRole('button', { name: /Switch to/ }));
+  expect(onSwitch).toHaveBeenCalledWith('opencode', '');
+});
+
+it('keeps the picker open with the error when the switch fails, and Escape backs out of the question first', async () => {
+  const onSwitch = vi.fn().mockRejectedValue(new Error('no login'));
+  render(<SwitchHarness onSwitch={onSwitch} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: /Model:/ }));
+  await user.click(screen.getByRole('option', { name: /OpenCode/ }));
+  await user.click(screen.getByRole('button', { name: 'Switch to OpenCode' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('no login');
+  expect(screen.getByRole('dialog')).toBeVisible();
+  await user.keyboard('{Escape}');
+  expect(
+    screen.queryByRole('group', { name: 'Switch to OpenCode' }),
+  ).toBeNull();
+  expect(screen.getByRole('dialog')).toBeVisible();
+  expect(screen.getByText('Reasoning')).toBeVisible();
+  await user.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+it('warns when the new harness has no login and waits while a chat is running', async () => {
+  render(
+    <SwitchHarness
+      busy
+      others={[
+        {
+          id: 'codex',
+          name: 'Codex',
+          catalog: {
+            ...codexCatalog,
+            login: { source: 'account', connected: false, mine: true },
+          },
+        },
+      ]}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: /Model:/ }));
+  await user.click(screen.getByRole('option', { name: /Codex/ }));
+  await user.click(screen.getByRole('option', { name: 'GPT-5' }));
+  const confirm = screen.getByRole('group', { name: 'Switch to Codex' });
+  expect(confirm).toHaveTextContent('No Codex login: your account has none');
+  expect(
+    within(confirm).getByRole('link', { name: 'Provider logins.' }),
+  ).toBeVisible();
+  expect(within(confirm).getByRole('alert')).toHaveTextContent(
+    'A chat is still running',
+  );
+  expect(
+    within(confirm).getByRole('button', { name: 'Switch anyway' }),
+  ).toBeDisabled();
+});
+
+it('finds other harnesses by name or model when searching, and picks with the keyboard', async () => {
+  const onSwitch = vi.fn().mockResolvedValue(undefined);
+  render(<SwitchHarness onSwitch={onSwitch} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: /Model:/ }));
+  await user.type(screen.getByRole('combobox'), 'mini');
+  const list = screen.getByRole('listbox', { name: 'Models' });
+  // The search opens the harnesses with a match; headings no longer toggle.
+  expect(within(list).getAllByRole('option')).toHaveLength(1);
+  await user.keyboard('{Enter}');
+  expect(screen.getByRole('group', { name: 'Switch to Codex' })).toBeVisible();
+  await user.keyboard('{Escape}');
+  await user.clear(screen.getByRole('combobox'));
+  await user.type(screen.getByRole('combobox'), 'opencode');
+  expect(within(list).getAllByRole('option')).toHaveLength(1);
+});
+
+it('lists only the current harness without a switch', async () => {
+  render(<Harness initial={{ model: 'opus', options: {} }} />);
+  await userEvent.click(screen.getByRole('button', { name: /Model:/ }));
+  expect(screen.queryByText(/Switch .* to/)).toBeNull();
 });

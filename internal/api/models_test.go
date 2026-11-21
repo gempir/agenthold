@@ -262,3 +262,59 @@ func TestUltracodeIsNotAModelOption(t *testing.T) {
 	}
 	expect(t, "fast", alice.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "swift-1", Options: &map[string]string{"fast": "on"}}, nil), 200)
 }
+
+func TestModelCatalogOfAnotherHarness(t *testing.T) {
+	tm := newTeam(t)
+	tm.share("bob")
+	base := "/agents/" + tm.agent.Id + "/models"
+	// The owner sees the catalog the agent would have on another harness (the
+	// built-in list: nothing of it was reported) and the login it would use.
+	var cat gen.ModelCatalog
+	expect(t, "codex catalog", tm.alice.do("GET", base+"?harness=codex", nil, &cat), 200)
+	if cat.Harness != "codex" || cat.Source != gen.Fallback || cat.Login == nil || cat.Login.Source != "account" || cat.Login.Connected {
+		t.Fatalf("codex catalog %+v login %+v", cat, cat.Login)
+	}
+	expect(t, "connect", tm.alice.connect("codex", "api-key", "sk-proj-real-openai-key-wxyz"), 200)
+	expect(t, "codex catalog again", tm.alice.do("GET", base+"?harness=codex", nil, &cat), 200)
+	if !cat.Login.Connected {
+		t.Fatalf("login after connecting %+v", cat.Login)
+	}
+	// Its own harness asked for by name is the usual catalog.
+	expect(t, "own harness", tm.alice.do("GET", base+"?harness=fake", nil, &cat), 200)
+	if cat.Harness != "fake" || len(cat.Models) != 1 {
+		t.Fatalf("own catalog %+v", cat)
+	}
+	expect(t, "unknown harness", tm.alice.do("GET", base+"?harness=nope", nil, nil), 400)
+	// Switching is the owner's: others see only the agent's own harness.
+	expect(t, "shared user", tm.bob.do("GET", base+"?harness=codex", nil, nil), 403)
+	expect(t, "shared user, own harness", tm.bob.do("GET", base+"?harness=fake", nil, nil), 200)
+	expect(t, "outsider", tm.carol.do("GET", base+"?harness=codex", nil, nil), 404)
+}
+
+func TestSwitchingHarnessResetsConversationModels(t *testing.T) {
+	e := newEnv(t)
+	alice := e.login("alice", "Alice", "a@example.com")
+	ag := e.fakeAgent(alice, "")
+	var sess gen.Session
+	expect(t, "session", alice.do("POST", "/agents/"+ag.Id+"/sessions", map[string]string{}, &sess), 201)
+	e.turnText(alice, sess.Id, "model")
+	expect(t, "choose", alice.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "deep-1"}, nil), 200)
+
+	// A turn in progress keeps the harness: switching waits.
+	expect(t, "slow prompt", alice.do("POST", "/sessions/"+sess.Id+"/prompt", map[string]string{"text": "slow 50"}, nil), 202)
+	expect(t, "switch while busy", alice.do("PATCH", "/agents/"+ag.Id, gen.AgentPatch{Harness: ptr("codex")}, nil), 409)
+	expect(t, "cancel", alice.do("POST", "/sessions/"+sess.Id+"/cancel", nil, nil), 202)
+	st := e.stream(alice, sess.Id, 0)
+	st.until(isType("turn_end"))
+
+	var got gen.Agent
+	expect(t, "switch", alice.do("PATCH", "/agents/"+ag.Id, gen.AgentPatch{Harness: ptr("codex"), Model: ptr("gpt-5")}, &got), 200)
+	if got.Harness != "codex" || got.Model != "gpt-5" {
+		t.Fatalf("agent after the switch %+v", got)
+	}
+	var list []gen.Session
+	expect(t, "sessions", alice.do("GET", "/agents/"+ag.Id+"/sessions", nil, &list), 200)
+	if len(list) != 1 || (list[0].Model != nil && list[0].Model.Model != "") {
+		t.Fatalf("conversation model after the switch %+v", list)
+	}
+}

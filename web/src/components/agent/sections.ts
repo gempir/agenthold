@@ -111,8 +111,8 @@ export const AGENT_SECTIONS: {
   },
   {
     id: 'activity',
-    label: 'Activity',
-    hint: 'Audit log',
+    label: 'Audit log',
+    hint: 'Who changed what',
     icon: Activity,
     show: (a) => a.isOwner,
   },

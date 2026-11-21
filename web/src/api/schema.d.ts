@@ -764,6 +764,9 @@ export interface paths {
         /**
          * @description The models the agent's harness offers and their options (reasoning effort, fast mode), as the harness last
          *     reported them, or agenthold's small fallback list for the harness when it never did. Does not wake the agent.
+         *     With `harness`, the catalog the agent would have on that other harness (what is stored for it, else the
+         *     fallback list), together with the login it would use: what the model picker shows for switching harness.
+         *     Only for users who may configure the agent.
          */
         get: operations["listModels"];
         put?: never;
@@ -2107,6 +2110,8 @@ export interface components {
             /** @description The harness accepts model ids it does not list (OpenCode's provider/model). */
             customModels: boolean;
             models: components["schemas"]["CatalogModel"][];
+            /** @description Which login the agent has on this harness (its own, or the one asked for with `harness`). */
+            login?: components["schemas"]["AgentLogin"];
             /**
              * @description Effort levels the harness reported for other models, for the models whose options are still unknown
              *     (a harness describes only its current model; agenthold probes the others once the agent is idle).
@@ -4001,7 +4006,10 @@ export interface operations {
     };
     listModels: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Another harness id (see /harnesses). Default is the agent's own. */
+                harness?: string;
+            };
             header?: never;
             path: {
                 /** @description The machine id (an agent's or, for machine sub-resources, an app's). */

@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronRight, ScrollText } from 'lucide-react';
+import { ScrollText } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
 import type { components } from '@/api/schema';
 import { cn } from '@/lib/utils';
 
 export type ActivityEntry = components['schemas']['ActivityEntry'];
 
-/** Polls an agent's activity log; `live` keeps polling once a second. */
+/**
+ * Polls an agent's activity log; `live` keeps polling once a second (not
+ * while the page is hidden).
+ */
 export function useActivity(agentId: string, live: boolean) {
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
   const [error, setError] = useState<string>();
@@ -30,7 +33,11 @@ export function useActivity(agentId: string, live: boolean) {
       } catch (e) {
         if (!stopped) setError(e instanceof Error ? e.message : String(e));
       }
-      if (live && !stopped) timer = setTimeout(poll, 1000);
+      if (live && !stopped) timer = setTimeout(tick, 1000);
+    };
+    const tick = () => {
+      if (document.hidden) timer = setTimeout(tick, 1000);
+      else void poll();
     };
     void poll();
     return () => {
@@ -62,7 +69,16 @@ function clock(at: string) {
  * (wake, guest boot console, tunnel, harness start with timings, harness
  * stderr). Newest at the bottom, follows new lines while scrolled down.
  */
-export function LiveLog({ agentId, live }: { agentId: string; live: boolean }) {
+export function LiveLog({
+  agentId,
+  live,
+  fill,
+}: {
+  agentId: string;
+  live: boolean;
+  /** Take the height of the parent (a flex column) instead of a fixed one. */
+  fill?: boolean;
+}) {
   const { entries, error } = useActivity(agentId, live);
   const box = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -75,7 +91,12 @@ export function LiveLog({ agentId, live }: { agentId: string; live: boolean }) {
     ? entries
     : entries.filter((e) => e.level !== 'debug');
   return (
-    <div className="grid gap-1.5">
+    <div
+      className={cn(
+        'grid gap-1.5',
+        fill && 'min-h-0 flex-1 grid-rows-[auto_1fr]',
+      )}
+    >
       <div className="flex items-center gap-3 text-xs text-muted-foreground">
         <span>
           {live ? 'Live' : 'Recent'} activity · {entries.length} lines
@@ -96,7 +117,10 @@ export function LiveLog({ agentId, live }: { agentId: string; live: boolean }) {
           const el = e.currentTarget;
           stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
         }}
-        className="max-h-80 overflow-auto rounded-lg border bg-muted/40 p-2 font-mono text-[11px] leading-relaxed"
+        className={cn(
+          'overflow-auto rounded-lg border bg-muted/40 p-2 font-mono text-[11px] leading-relaxed',
+          fill ? 'min-h-0' : 'max-h-80',
+        )}
       >
         {error && <p className="text-destructive">{error}</p>}
         {shown.length === 0 && !error && (
@@ -119,40 +143,22 @@ export function LiveLog({ agentId, live }: { agentId: string; live: boolean }) {
   );
 }
 
-/** A quiet "what's happening" row that opens the live log. */
-export function ActivityDisclosure({
-  agentId,
-  live,
+/** A quiet row in the chat that opens the Activity tab of the agent panel. */
+export function ActivityLink({
   label,
+  onOpen,
 }: {
-  agentId: string;
-  live: boolean;
   label: string;
+  onOpen: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   return (
-    <div className="text-sm">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        className="group flex items-center gap-2 rounded-md py-1 text-left text-xs text-muted-foreground hover:text-foreground"
-      >
-        <ScrollText className="size-3.5" aria-hidden />
-        <span>{label}</span>
-        <ChevronRight
-          className={cn(
-            'size-3.5 opacity-60 transition-transform group-hover:opacity-100',
-            open && 'rotate-90',
-          )}
-          aria-hidden
-        />
-      </button>
-      {open && (
-        <div className="mt-1">
-          <LiveLog agentId={agentId} live={live} />
-        </div>
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex items-center gap-2 rounded-md py-1 text-left text-xs text-muted-foreground hover:text-foreground"
+    >
+      <ScrollText className="size-3.5" aria-hidden />
+      <span>{label}</span>
+    </button>
   );
 }

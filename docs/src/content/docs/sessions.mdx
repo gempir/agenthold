@@ -220,6 +220,20 @@ The default model also reaches the harness when it starts (`ANTHROPIC_MODEL` for
 OpenCode), so new conversations start on it. A model id from an old setting that the harness no longer lists stays
 and is shown as "custom" until it is changed.
 
+### Switching the harness from the picker
+
+The harness is the agent's: all its conversations use it. The owner finds the other harnesses under "Switch
+the agent to" in the same picker: a harness that reported models (or has a built-in list) opens to show them, one that
+never ran on this agent is a single row marked "Agent default". Picking one asks to confirm inline ("Switches demo2
+to Codex (all chats)"); confirming changes the agent's harness and default model (the picked one, or the new
+harness's own), resets the models chosen in its conversations, and restarts the harness with the next message.
+Conversations keep their history but start with a fresh context, since the old harness's sessions mean nothing to the
+new one. The switch waits while a conversation is running (the API answers 409), and the picker warns when the new
+harness has no login it could start with (an account login that is not connected: connect it under Provider logins or
+sign in inside the sandbox); the harness settings do the same switch with a form. Users the agent is shared with see
+only the current harness's models, and `GET /agents/{id}/models?harness=<id>` is for those who may configure the
+agent: it returns the stored catalog or the built-in list of that harness, with the login the agent would have there.
+
 ## Base image
 
 `images/base` (`make guest-base`) is Debian trixie with Node.js 24, the Claude Code and Codex ACP adapters, OpenCode, git, Python 3,

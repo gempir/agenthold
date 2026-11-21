@@ -114,14 +114,19 @@ export const sessionsQuery = (agentId: string) =>
     retry: false,
   });
 
-/** The models of the agent's harness (what it last reported, or a fallback). */
-export const modelsQuery = (agentId: string) =>
+/**
+ * The models of the agent's harness (what it last reported, or a fallback).
+ * With harness, those it would have on that other harness (owners only).
+ */
+export const modelsQuery = (agentId: string, harness?: string) =>
   queryOptions({
-    queryKey: ['agents', agentId, 'models'],
+    queryKey: harness
+      ? ['agents', agentId, 'models', harness]
+      : ['agents', agentId, 'models'],
     queryFn: () =>
       unwrap(
         api.GET('/agents/{agentId}/models', {
-          params: { path: { agentId } },
+          params: { path: { agentId }, query: harness ? { harness } : {} },
         }),
       ),
     retry: false,

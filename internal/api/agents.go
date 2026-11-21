@@ -306,6 +306,10 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 			return nil, err
 		}
 	}
+	if harnessChanged && a.Sessions.Busy(ag.ID) {
+		// Stopping the harness would end the turns in progress.
+		return nil, errStatus(http.StatusConflict, "a conversation of this agent is still running: let it finish or stop it before switching the harness")
+	}
 	// Everything is validated before anything changes: the template change
 	// has preconditions of its own, and stopping the machine is the only step
 	// with an effect outside the transaction below.
@@ -338,6 +342,9 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 		switch {
 		case harnessChanged:
 			if err := q.SetAgentHarness(ctx, db.SetAgentHarnessParams{Harness: s.harness, Model: s.model, ModelOptions: session.EncodeOptions(options), UpdatedAt: now, ID: ag.ID}); err != nil {
+				return err
+			}
+			if err := q.ResetSessionModels(ctx, ag.ID); err != nil {
 				return err
 			}
 		case modelChanged:

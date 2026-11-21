@@ -952,6 +952,10 @@ func (p postgresQueries) ResetRunningSessions(ctx context.Context) error {
 	return p.q.ResetRunningSessions(ctx)
 }
 
+func (p postgresQueries) ResetSessionModels(ctx context.Context, agentID string) error {
+	return p.q.ResetSessionModels(ctx, agentID)
+}
+
 func (p postgresQueries) SetAgentHarness(ctx context.Context, arg db.SetAgentHarnessParams) error {
 	return p.q.SetAgentHarness(ctx, postgres.SetAgentHarnessParams(arg))
 }

@@ -277,11 +277,16 @@ chmod 0755 "$rel/agenthold-linux-$ARCH"
 want_kernel="$(jq -er --arg v "$version" --arg arch "$ARCH" 'select(.format == 2 and .version == $v and .arch == $arch) | .kernel.key' "$rel/runtime-linux-$ARCH.manifest.json")" &&
 want_base="$(jq -er '.base.key' "$rel/runtime-linux-$ARCH.manifest.json")" ||
   { echo 'release runtime manifest does not describe this commit' >&2; exit 1; }
+want_harnesses="$(jq -r '.harnesses.key // empty' "$rel/runtime-linux-$ARCH.manifest.json")"
 kernel_key="$(cd "$wt" && bash scripts/guest/kernel-key.sh)"
 base_key="$(cd "$wt" && bash scripts/guest/base-key.sh)"
-[[ "$kernel_key" == "$want_kernel" && "$base_key" == "$want_base" ]] ||
-  { echo "release names kernel $want_kernel and base $want_base, the source $kernel_key and $base_key" >&2; exit 1; }
-echo "==> release $version: kernel $kernel_key, base $base_key"
+harnesses_key=""
+if [[ -n "$want_harnesses" ]]; then
+  harnesses_key="$(cd "$wt" && bash scripts/guest/harnesses-key.sh)"
+fi
+[[ "$kernel_key" == "$want_kernel" && "$base_key" == "$want_base" && "$harnesses_key" == "$want_harnesses" ]] ||
+  { echo "release names kernel $want_kernel, base $want_base, harnesses ${want_harnesses:-none}; source has $kernel_key, $base_key, ${harnesses_key:-none}" >&2; exit 1; }
+echo "==> release $version: kernel $kernel_key, base $base_key${harnesses_key:+, harnesses $harnesses_key}"
 }
 [[ "$RELEASES" == local ]] || check_release
 
@@ -325,6 +330,18 @@ if [[ -f "$base_cache/base-$ARCH.manifest.json" && -f "$base_cache/base-$ARCH.ex
   zstd -d -q -f --long=27 --sparse "$guest/base-$ARCH.ext4.zst" -o "$guest/base-$ARCH.ext4"
 fi
 
+harnesses_cache=""
+if [[ -n "$harnesses_key" ]]; then
+  harnesses_cache="$CACHE/root/harnesses/$harnesses_key"
+  if [[ -f "$harnesses_cache/harnesses-$ARCH.manifest.json" && -f "$harnesses_cache/harnesses-$ARCH.ext4.zst" ]]; then
+    echo "==> harnesses: cached ($harnesses_key)"
+    jq -e --arg key "$harnesses_key" '.inputs.harnessesKey == $key' "$harnesses_cache/harnesses-$ARCH.manifest.json" >/dev/null || { echo 'cached harnesses manifest has another key' >&2; exit 1; }
+    cp -- "$harnesses_cache/harnesses-$ARCH.manifest.json" "$guest/"
+    ln -f -- "$harnesses_cache/harnesses-$ARCH.ext4.zst" "$guest/harnesses-$ARCH.ext4.zst" 2>/dev/null || cp -- "$harnesses_cache/harnesses-$ARCH.ext4.zst" "$guest/"
+    zstd -d -q -f --long=27 --sparse "$guest/harnesses-$ARCH.ext4.zst" -o "$guest/harnesses-$ARCH.ext4"
+  fi
+fi
+
 phase assets root bash scripts/release/build-assets.sh
 
 if [[ ! -f "$base_cache/base-$ARCH.ext4.zst" ]]; then
@@ -338,14 +355,34 @@ if [[ ! -f "$base_cache/base-$ARCH.ext4.zst" ]]; then
   rm -rf -- "$base_cache"
   mv -T -- "$tmpb" "$base_cache"
 fi
+if [[ -n "$harnesses_key" && ! -f "$harnesses_cache/harnesses-$ARCH.ext4.zst" ]]; then
+  install -d -m 0700 "$CACHE/root/harnesses"
+  tmph="$(mktemp -d "$CACHE/root/harnesses/.tmp.XXXXXX")"
+  cp -- "$guest/harnesses-$ARCH.manifest.json" "$tmph/"
+  ln -f -- "$guest/harnesses-$ARCH.ext4.zst" "$tmph/harnesses-$ARCH.ext4.zst" 2>/dev/null || cp -- "$guest/harnesses-$ARCH.ext4.zst" "$tmph/"
+  chown -R root:root "$tmph"
+  chmod 0755 "$tmph"
+  chmod 0644 "$tmph"/*
+  rm -rf -- "$harnesses_cache"
+  mv -T -- "$tmph" "$harnesses_cache"
+fi
 # Under the lock every KVM experiment on this host takes, so they never run beside these tests.
 # The machines boot the release binary itself as their sandboxd.
 phase kvm root env AGENTHOLD_KVM_SANDBOXD="$rel/agenthold-linux-$ARCH" flock /tmp/agenthold-kvm.lock make test-kvm
 
 # --- publish ----------------------------------------------------------------------------------
 assets="$wt/build/assets/$ARCH"
-for kind in kernel base; do
-  key="$kernel_key"; [[ "$kind" == base ]] && key="$base_key"
+asset_kinds=(kernel base)
+[[ -z "$harnesses_key" ]] || asset_kinds+=(harnesses)
+key_for() {
+  case "$1" in
+    kernel) echo "$kernel_key" ;;
+    base) echo "$base_key" ;;
+    harnesses) echo "$harnesses_key" ;;
+  esac
+}
+for kind in "${asset_kinds[@]}"; do
+  key="$(key_for "$kind")"
   jq -e --arg kind "$kind" --arg arch "$ARCH" --arg key "$key" '.format == 1 and .kind == $kind and .arch == $arch and .key == $key' \
     "$assets/$kind-$key.json" >/dev/null || { echo "$kind asset manifest does not describe this build" >&2; exit 1; }
   echo "$(jq -er .compressed.sha256 "$assets/$kind-$key.json")  $assets/$kind-$key.zst" | sha256sum --check --status ||
@@ -355,8 +392,8 @@ done
 # rebuild of the same inputs must not change bytes that deployed nodes already verified).
 store_assets="$STORE/assets/$ARCH"
 install -d -m 0755 "$STORE/assets" "$store_assets"
-for kind in kernel base; do
-  key="$kernel_key"; [[ "$kind" == base ]] && key="$base_key"
+for kind in "${asset_kinds[@]}"; do
+  key="$(key_for "$kind")"
   [[ -f "$store_assets/$kind-$key.json" ]] && { echo "==> $kind $key: already in the store"; continue; }
   ln -f -- "$assets/$kind-$key.zst" "$store_assets/.$kind-$key.zst.tmp" 2>/dev/null || cp -- "$assets/$kind-$key.zst" "$store_assets/.$kind-$key.zst.tmp"
   cp -- "$assets/$kind-$key.json" "$store_assets/.$kind-$key.json.tmp"
@@ -379,26 +416,33 @@ mv -T -- "$stage" "$STORE/$version"
 stage=""
 sync -f "$STORE/$version/SHA256SUMS" 2>/dev/null || sync
 sha() { sha256sum "$1" | cut -d' ' -f1; }
+hsha=""
+[[ -z "$harnesses_key" ]] || hsha="$(sha "$store_assets/harnesses-$harnesses_key.json")"
 jq -n --arg commit "$commit" --arg version "$version" --arg built "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg arch "$ARCH" \
   --arg binary "$(sha "$STORE/$version/agenthold-linux-$ARCH")" --arg manifest "$(sha "$STORE/$version/runtime-linux-$ARCH.manifest.json")" \
   --arg sums "$(sha "$STORE/$version/SHA256SUMS")" \
   --arg kkey "$kernel_key" --arg ksha "$(sha "$store_assets/kernel-$kernel_key.json")" \
   --arg bkey "$base_key" --arg bsha "$(sha "$store_assets/base-$base_key.json")" \
+  --arg hkey "$harnesses_key" --arg hsha "$hsha" \
   '{format: 3, arch: $arch, commit: $commit, version: $version, built_at: $built,
     binary: {path: ($version + "/agenthold-linux-" + $arch), sha256: $binary},
     runtime_manifest: {path: ($version + "/runtime-linux-" + $arch + ".manifest.json"), sha256: $manifest},
     sums: {path: ($version + "/SHA256SUMS"), sha256: $sums},
     kernel: {key: $kkey, manifest: {path: ("assets/" + $arch + "/kernel-" + $kkey + ".json"), sha256: $ksha}},
-    base: {key: $bkey, manifest: {path: ("assets/" + $arch + "/base-" + $bkey + ".json"), sha256: $bsha}}}' > "$STORE/.channel.json.tmp"
+    base: {key: $bkey, manifest: {path: ("assets/" + $arch + "/base-" + $bkey + ".json"), sha256: $bsha}}}
+   + (if $hkey != "" then {harnesses: {key: $hkey, manifest: {path: ("assets/" + $arch + "/harnesses-" + $hkey + ".json"), sha256: $hsha}}} else {} end)' > "$STORE/.channel.json.tmp"
 chmod 0644 "$STORE/.channel.json.tmp"
 mv -f -- "$STORE/.channel.json.tmp" "$STORE/channel.json"
 # A commit that passed on a retry keeps its attempt logs (flaky tests show up there) until they age out.
 rm -f -- "$FAILED/$commit.log" "$FAILED/$commit.attempts"
 rm -rf -- "$rel"
 echo "==> published $version to $STORE"
-# One cached base, cleaned only after a successful publish: older keys stay reachable through the
-# store (hard links), which pull.sh prunes.
+# One cached base and harnesses layer, cleaned only after a successful publish: older keys stay
+# reachable through the store (hard links), which pull.sh prunes.
 find "$CACHE/root/base" -mindepth 1 -maxdepth 1 -type d ! -name "$base_key" -exec rm -rf -- {} +
+if [[ -n "$harnesses_key" && -d "$CACHE/root/harnesses" ]]; then
+  find "$CACHE/root/harnesses" -mindepth 1 -maxdepth 1 -type d ! -name "$harnesses_key" -exec rm -rf -- {} +
+fi
 cat "$phases"
 # Deploy right away instead of waiting for the next pull timer run.
 if systemctl is-enabled --quiet agenthold-pull.timer 2>/dev/null; then

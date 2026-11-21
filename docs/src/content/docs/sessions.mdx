@@ -106,13 +106,13 @@ until their owner chooses **Use my logins**.
 ## Harness adapters
 
 An adapter (`internal/harness/<name>`) is one `harness.Adapter` value: how to start the harness in ACP mode, the npm
-package of `images/base/package.json` that installs it, which environment it needs (never secret values), which
+package of `images/harnesses/package.json` that installs it, which environment it needs (never secret values), which
 secret presets fit it, where it keeps logins and skills, terminal commands for login methods the harness advertises
 without one, and login methods the server may call on its own when the harness asks for authentication (such as an
 API key provided as a secret). Harnesses whose login can live on the account set `Login`, an `AccountLoginer` (what
 can be connected, how it is validated, and how it reaches the harness as placeholders, files and proxy injections),
 which also implements `Refresher` for expiring logins. Nothing outside `internal/harness` knows about a particular
-harness. Versions are pinned in `images/base/package.json` only; a test checks it against the adapters.
+harness. Versions are pinned in `images/harnesses/package.json` only; a test checks it against the adapters.
 
 | Harness | ACP entry point | In the base image |
 | --- | --- | --- |

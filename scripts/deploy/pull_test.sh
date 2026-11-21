@@ -19,6 +19,7 @@ fail() { echo "FAIL: $*" >&2; [[ -f "$work/run.log" ]] && cat "$work/run.log" >&
 # --- fixture store: what build-local.sh publishes ---
 kkey=$(printf '%032d' 0 | tr 0 a)
 bkey=$(printf '%032d' 0 | tr 0 b)
+hkey=$(printf '%032d' 0 | tr 0 e)
 A="$work/fixture/assets/arm64"
 mkdir -p "$work/fixture/$v" "$work/opt/releases/$old" "$A"
 printf '#!/usr/bin/env bash\necho "agenthold old (old)"\n' > "$work/opt/releases/$old/agenthold"
@@ -26,11 +27,13 @@ chmod +x "$work/opt/releases/$old/agenthold"
 f="$work/fixture/$v"
 printf '#!/usr/bin/env bash\necho "agenthold sha-%s (deadbeef)"\n' "$new" > "$f/agenthold-linux-arm64"
 chmod +x "$f/agenthold-linux-arm64"
-jq -n --arg version "$v" --arg k "$kkey" --arg b "$bkey" '{format:2,arch:"arm64",version:$version,files:{},kernel:{key:$k},base:{key:$b}}' > "$f/runtime-linux-arm64.manifest.json"
+jq -n --arg version "$v" --arg k "$kkey" --arg b "$bkey" --arg h "$hkey" '{format:2,arch:"arm64",version:$version,files:{},kernel:{key:$k},base:{key:$b},harnesses:{key:$h}}' > "$f/runtime-linux-arm64.manifest.json"
 printf 'small test disk image\n' > "$work/fixture/base"
 printf 'small test kernel\n' > "$work/fixture/kernel"
+printf 'small test harnesses layer\n' > "$work/fixture/harnesses"
 base_sha=$(sha256sum "$work/fixture/base" | cut -d' ' -f1)
 kernel_sha=$(sha256sum "$work/fixture/kernel" | cut -d' ' -f1)
+harnesses_sha=$(sha256sum "$work/fixture/harnesses" | cut -d' ' -f1)
 asset() { # asset <store dir> <kind> <key> <raw file>: (re)write <kind>-<key>.json for the .zst there
   local a="$1/assets/arm64"
   jq -n --arg kind "$2" --arg key "$3" --arg sha "$(sha256sum "$4" | cut -d' ' -f1)" --argjson size "$(stat -c %s "$4")" \
@@ -39,19 +42,23 @@ asset() { # asset <store dir> <kind> <key> <raw file>: (re)write <kind>-<key>.js
 }
 zstd -q -f "$work/fixture/base" -o "$A/base-$bkey.zst"
 zstd -q -f "$work/fixture/kernel" -o "$A/kernel-$kkey.zst"
+zstd -q -f "$work/fixture/harnesses" -o "$A/harnesses-$hkey.zst"
 channel() { # channel <store dir>: (re)write asset manifests, SHA256SUMS and channel.json like build-local.sh
   local s="$1"
   asset "$s" base "$bkey" "$work/fixture/base"
   asset "$s" kernel "$kkey" "$work/fixture/kernel"
+  asset "$s" harnesses "$hkey" "$work/fixture/harnesses"
   (cd "$s/$v" && sha256sum agenthold-linux-arm64 runtime-linux-arm64.manifest.json > SHA256SUMS)
   jq -n --arg commit "$new" --arg v "$v" --arg b "$(sha256sum "$s/$v/agenthold-linux-arm64" | cut -d' ' -f1)" \
     --arg m "$(sha256sum "$s/$v/runtime-linux-arm64.manifest.json" | cut -d' ' -f1)" --arg s "$(sha256sum "$s/$v/SHA256SUMS" | cut -d' ' -f1)" \
     --arg kk "$kkey" --arg ks "$(sha256sum "$s/assets/arm64/kernel-$kkey.json" | cut -d' ' -f1)" \
     --arg bk "$bkey" --arg bs "$(sha256sum "$s/assets/arm64/base-$bkey.json" | cut -d' ' -f1)" \
+    --arg hk "$hkey" --arg hs "$(sha256sum "$s/assets/arm64/harnesses-$hkey.json" | cut -d' ' -f1)" \
     '{format:3,arch:"arm64",commit:$commit,version:$v,binary:{path:($v+"/agenthold-linux-arm64"),sha256:$b},
       runtime_manifest:{path:($v+"/runtime-linux-arm64.manifest.json"),sha256:$m},sums:{path:($v+"/SHA256SUMS"),sha256:$s},
       kernel:{key:$kk,manifest:{path:("assets/arm64/kernel-"+$kk+".json"),sha256:$ks}},
-      base:{key:$bk,manifest:{path:("assets/arm64/base-"+$bk+".json"),sha256:$bs}}}' > "$s/channel.json"
+      base:{key:$bk,manifest:{path:("assets/arm64/base-"+$bk+".json"),sha256:$bs}},
+      harnesses:{key:$hk,manifest:{path:("assets/arm64/harnesses-"+$hk+".json"),sha256:$hs}}}' > "$s/channel.json"
 }
 channel "$work/fixture"
 
@@ -107,7 +114,7 @@ MOCK
 chmod +x "$work/bin/uname" "$work/bin/systemctl" "$work/bin/curl" "$work/bin/df" "$work/bin/journalctl"
 
 reset() {
-  rm -rf "$work/opt/releases/$new" "$work/data/base" "$work/data/kernel" "$work/data/assets" "$work/data/dl" "$work/restarts" "$work/restart-started" "$work/src" "$work/fetched"
+  rm -rf "$work/opt/releases/$new" "$work/data/base" "$work/data/harnesses" "$work/data/kernel" "$work/data/assets" "$work/data/dl" "$work/restarts" "$work/restart-started" "$work/src" "$work/fetched"
   cp -a "$work/fixture" "$work/src"
   ln -sfn "$work/opt/releases/$old" "$work/opt/current"
 }
@@ -116,11 +123,14 @@ deployed() {
   [[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/$new" ]] || fail 'not switched'
   [[ "$(sha256sum "$work/data/base/$base_sha.ext4" | cut -d' ' -f1)" == "$base_sha" ]] || fail 'base not unpacked'
   cmp -s "$work/data/base/$base_sha.ext4.zst" "$A/base-$bkey.zst" || fail 'compressed base not kept for /dl/'
+  [[ "$(sha256sum "$work/data/harnesses/$harnesses_sha.ext4" | cut -d' ' -f1)" == "$harnesses_sha" ]] || fail 'harnesses not unpacked'
+  cmp -s "$work/data/harnesses/$harnesses_sha.ext4.zst" "$A/harnesses-$hkey.zst" || fail 'compressed harnesses not kept for /dl/'
   cmp -s "$work/data/kernel/$kernel_sha" "$work/fixture/kernel" || fail 'kernel not unpacked'
   cmp -s "$work/data/kernel/$kernel_sha.zst" "$A/kernel-$kkey.zst" || fail 'compressed kernel not kept for /dl/'
   cmp -s "$work/data/assets/arm64/base-$bkey.json" "$A/base-$bkey.json" || fail 'base asset manifest not placed'
+  cmp -s "$work/data/assets/arm64/harnesses-$hkey.json" "$A/harnesses-$hkey.json" || fail 'harnesses asset manifest not placed'
   cmp -s "$work/data/assets/arm64/kernel-$kkey.json" "$A/kernel-$kkey.json" || fail 'kernel asset manifest not placed'
-  [[ -f "$work/opt/releases/$new/kernel.json" && -f "$work/opt/releases/$new/base.json" ]] || fail 'release does not record its assets'
+  [[ -f "$work/opt/releases/$new/kernel.json" && -f "$work/opt/releases/$new/base.json" && -f "$work/opt/releases/$new/harnesses.json" ]] || fail 'release does not record its assets'
   cmp -s "$work/data/dl/channel.json" "$work/fixture/channel.json" || fail 'channel not published under /dl/'
   cmp -s "$work/data/dl/$v/SHA256SUMS" "$work/fixture/$v/SHA256SUMS" || fail 'SHA256SUMS not published under /dl/'
   [[ "$(stat -c %a "$work/data/base/$base_sha.ext4.zst")" == 644 ]] || fail 'compressed base mode'
@@ -168,6 +178,7 @@ mutate() { # mutate <mode>: break the store copy in one way
   case "$1" in
     corruptbinary) echo corrupt >> "$s/$v/agenthold-linux-arm64";;
     corruptbase) echo corrupt >> "$s/assets/arm64/base-$bkey.zst";;
+    corruptharnesses) echo corrupt >> "$s/assets/arm64/harnesses-$hkey.zst";;
     corruptkernel) echo corrupt >> "$s/assets/arm64/kernel-$kkey.zst";;
     resignedbase) zstd -q -f "$work/fixture/kernel" -o "$s/assets/arm64/base-$bkey.zst"; channel "$s"
       # The manifest still names the base's uncompressed sha256: the re-signed file unpacks to other bytes.
@@ -187,7 +198,7 @@ mutate() { # mutate <mode>: break the store copy in one way
     nospace) ;;
   esac
 }
-for mode in corruptbinary corruptbase corruptkernel resignedbase badasset otherkey wrongversion badsums oldformat wrongpath assetpath traversal symlink nochannel nospace; do
+for mode in corruptbinary corruptbase corruptharnesses corruptkernel resignedbase badasset otherkey wrongversion badsums oldformat wrongpath assetpath traversal symlink nochannel nospace; do
   reset
   mutate "$mode"
   if run "$mode"; then fail "$mode unexpectedly succeeded"; fi

@@ -33,7 +33,7 @@ type Adapter struct {
 	ID string
 	// Name is shown in the UI.
 	Name string
-	// Package is the npm package of images/base/package.json that installs
+	// Package is the npm package of images/harnesses/package.json that installs
 	// Command[0] into the base image. Empty for harnesses not in the image
 	// (the test fake).
 	Package string

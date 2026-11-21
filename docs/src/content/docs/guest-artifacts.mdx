@@ -17,6 +17,7 @@ On macOS, [start the Lima dev VM](/development), then run these commands from th
 ```sh
 scripts/guest/build-kernel.sh
 scripts/guest/build-rootfs.sh
+scripts/guest/build-harnesses.sh
 scripts/guest/boot-test.sh --docker        # --docker-only skips the four main boots
 ```
 
@@ -43,16 +44,19 @@ The scripts cache verified downloads and the provisioned rootfs tree in
 | Debian | `trixie`, snapshot `20261110T000000Z`, including updates and security |
 | Debian archive keyring | `2025.1`, downloaded package checked by sha256 |
 | Node.js | `24.22.3`, official architecture-specific tarballs checked by sha256 |
-| Harnesses | `@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp` and `opencode-ai`, versions in `images/base/package.json` |
+| Harnesses | `@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp` and `opencode-ai`, versions in `images/harnesses/package.json` (built as their own read-only ext4 layer) |
 | Linux | `6.1.188`, upstream tarball checked by sha256 |
 | Kernel configuration | Firecracker `v1.18.0` microVM + CI configs, checked by sha256, plus committed agenthold fragments |
 | Test VMM | Firecracker `v1.18.0`, architecture-specific release archive checked by sha256 |
 
-`images/base/versions.env`, `packages.txt`, `package.json` and `package-lock.json` are the source of
-truth. Debian packages resolve against the dated snapshot; `npm ci` installs the locked dependency
+`images/base/versions.env` and `images/base/packages.txt` define the Debian base image; `images/harnesses/package.json`
+and `images/harnesses/package-lock.json` define the separate read-only harnesses layer mounted over it in overlayfs.
+Debian packages resolve against the dated snapshot; `npm ci` installs the locked dependency
 graph and verifies registry integrity hashes, including the optional native packages for each
-architecture. The runtime apt sources use the live Debian archive so the agent can install updates.
-The image includes Chromium, Python, a compiler toolchain, Git and the three harness adapters.
+architecture. Because the harnesses sit in their own layer (`scripts/guest/harnesses-key.sh`), bumping Claude Code,
+Codex, or OpenCode rebuilds only the small harnesses ext4 in seconds without rebuilding the Debian base image.
+The runtime apt sources use the live Debian archive so the agent can install updates.
+The base image includes Chromium, Python, Node.js, a compiler toolchain, and Git;
 Docker is installed only by the optional boot test, rather than in the base.
 
 The builds fix filesystem UUID/hash seed, kernel build metadata and Go paths, and pin every

@@ -152,6 +152,18 @@ database migrations, so migrations are append-only. Rolling back past G1 (host-d
 machines created or reset since then unbootable until you roll forward again: their base has no sandboxd of its
 own. Their disks are not touched.
 
+## Host kernel and huge pages
+
+The demo VM's kernel is **not held back**: it runs untrusted guests, so KVM and kernel security fixes matter more
+than snapshot reuse. unattended-upgrades installs new kernels but does not reboot (`Automatic-Reboot` is off); a new
+kernel runs after the next manual reboot. A memory snapshot only resumes on the host kernel it was taken on, so after
+such a reboot every machine's next wake is a cold boot. That is the tested fallback, and on the demo snapshots are off
+anyway (it is a nested host, see [memory snapshots](/sandboxes/#memory-snapshots)). The node sets transparent huge
+pages to `always` at every start, so a reboot does not bring back 4 KiB guest memory.
+
+KVM experiments on the box take `flock /tmp/agenthold-kvm.lock`, the lock the builder's KVM phase takes, and use
+their own address pool, so they never run beside the builder's tests.
+
 ## Disk usage
 
 The shared base and the per-agent disks can consume substantial host storage. A sparse Lima disk reports its

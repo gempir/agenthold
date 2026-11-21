@@ -59,6 +59,9 @@ type Options struct {
 	ConnectTimeout time.Duration
 	// BootFiles returns extra files written into the sandbox before each start.
 	BootFiles func(ctx context.Context, agentID string) (map[string][]byte, error)
+	// PrepareLayers ensures any custom image layers required by agent are
+	// present on nodeID before Create or Rebuild runs.
+	PrepareLayers func(ctx context.Context, nodeID string, agent db.Agent) error
 	// LastActivity, if set, describes what last happened for an agent since
 	// a time (its activity log): a start that times out says why.
 	LastActivity func(agentID string, since time.Time) string
@@ -400,7 +403,7 @@ func (m *Manager) Provision(ctx context.Context, q *db.Queries, agentID string) 
 // It queries the store, so call it before the transaction that ProvisionAt
 // runs in.
 func (m *Manager) PlaceNew(ctx context.Context, req PlaceRequest) (place Placement, err error) {
-	if req.NodeID == "" {
+	if req.NodeID == "" && len(req.AllowedArches) == 0 {
 		if p, ok := m.driver.(Placer); ok {
 			return p.Place(ctx)
 		}
@@ -411,7 +414,7 @@ func (m *Manager) PlaceNew(ctx context.Context, req PlaceRequest) (place Placeme
 		return p.PlaceOn(ctx, req)
 	}
 	// A single in-process node is the built-in node and nothing else.
-	if req.NodeID != LocalNodeID {
+	if req.NodeID != "" && req.NodeID != LocalNodeID {
 		return Placement{}, fmt.Errorf("%w %q", ErrUnknownNode, req.NodeID)
 	}
 	place.Driver, err = m.driver.Name(ctx)
@@ -444,6 +447,11 @@ func (m *Manager) create(agentID string) func(ctx context.Context) error {
 		a, err := m.store.GetAgent(ctx, agentID)
 		if err != nil {
 			return err
+		}
+		if m.opts.PrepareLayers != nil {
+			if err := m.opts.PrepareLayers(ctx, sb.NodeID, a); err != nil {
+				return err
+			}
 		}
 		spec := m.spec(a)
 		id, err := m.driver.Create(ctx, spec)
@@ -792,6 +800,11 @@ func (m *Manager) Rebuild(ctx context.Context, agentID string) error {
 		sb, err := m.store.GetSandbox(ctx, agentID)
 		if err != nil {
 			return err
+		}
+		if m.opts.PrepareLayers != nil {
+			if err := m.opts.PrepareLayers(ctx, sb.NodeID, a); err != nil {
+				return err
+			}
 		}
 		id := ID(sb.DriverID)
 		if id == "" {

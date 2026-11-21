@@ -18,6 +18,7 @@ import (
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/id"
 	"github.com/gempir/agenthold/internal/preview"
+	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandboxd"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
@@ -44,7 +45,10 @@ type CreateParams struct {
 	CPUs             float64
 	MemoryMB         int64
 	// IdleMinutes 0 means the app never sleeps.
-	IdleMinutes int64
+	IdleMinutes   int64
+	ImageID       string
+	ImageRevision int64
+	AllowedArches []string
 }
 
 // Limit errors (an API 409).
@@ -83,6 +87,14 @@ func (m *Manager) Create(ctx context.Context, p CreateParams) (db.Agent, error) 
 	if p.CreatedByAgentID != "" && *m.Limits.MaxPerAgent == 0 {
 		return db.Agent{}, ErrNoAgentApps
 	}
+	var place *sandbox.Placement
+	if len(p.AllowedArches) > 0 {
+		pl, err := m.Sandboxes.PlaceNew(ctx, sandbox.PlaceRequest{AllowedArches: p.AllowedArches})
+		if err != nil {
+			return db.Agent{}, err
+		}
+		place = &pl
+	}
 	defer m.ownerLock(p.OwnerID)()
 	now := m.now().Unix()
 	appID := id.New("ap")
@@ -109,8 +121,17 @@ func (m *Manager) Create(ctx context.Context, p CreateParams) (db.Agent, error) 
 			}
 			return err
 		}
+		if p.ImageID != "" {
+			if err := q.SetAgentImage(ctx, db.SetAgentImageParams{ImageID: p.ImageID, ImageRevision: p.ImageRevision, UpdatedAt: now, ID: appID}); err != nil {
+				return err
+			}
+		}
 		var err error
-		provision, err = m.Sandboxes.Provision(ctx, q, appID)
+		if place != nil {
+			provision, err = m.Sandboxes.ProvisionAt(ctx, q, appID, *place)
+		} else {
+			provision, err = m.Sandboxes.Provision(ctx, q, appID)
+		}
 		return err
 	})
 	if err != nil {

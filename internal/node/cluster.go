@@ -10,7 +10,9 @@ import (
 	"log/slog"
 	"math"
 	"net"
+	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,6 +44,8 @@ type Info struct {
 	// Version is the agenthold release the node announced when it last
 	// connected, empty when unknown (nodes of earlier releases do not say).
 	Version string
+	// Arch is the node's CPU architecture ("arm64", "amd64"), empty until reported.
+	Arch string
 }
 
 // JoinToken is a newly created join token. Token is shown once.
@@ -299,6 +303,9 @@ func (c *Cluster) refresh(ctx context.Context, nodeID string, n Node) {
 		MemoryTotalBytes: clampInt64(capacity.MemoryTotalBytes), DiskAllocatedBytes: clampInt64(capacity.DiskAllocatedBytes),
 		LastSeenAt: c.now().Unix(), ID: nodeID,
 	})
+	if capacity.Arch != "" {
+		_ = c.cfg.Store.SetNodeArch(ctx, db.SetNodeArchParams{Arch: capacity.Arch, ID: nodeID})
+	}
 }
 
 func clampInt64(v uint64) int64 {
@@ -394,9 +401,55 @@ func (c *Cluster) Place(ctx context.Context) (sandbox.Placement, error) {
 	return sandbox.Placement{NodeID: best.id, Driver: name}, nil
 }
 
-// PlaceOn implements sandbox.NodePlacer: the agent goes to the node req names,
-// or the request fails with a reason a user can act on.
+// PlaceOn implements sandbox.NodePlacer: the agent goes to the node req names
+// (or the best node matching req.AllowedArches when NodeID is empty), or the
+// request fails with a reason a user can act on.
 func (c *Cluster) PlaceOn(ctx context.Context, req sandbox.PlaceRequest) (sandbox.Placement, error) {
+	if req.NodeID == "" {
+		type candidate struct {
+			id  string
+			n   Node
+			cap Capacity
+		}
+		nodes := c.connected()
+		results := make(chan *candidate, len(nodes))
+		for id, n := range nodes {
+			go func() {
+				cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				defer cancel()
+				capacity, err := n.Capacity(cctx)
+				if err != nil {
+					c.log.Warn("placement: node capacity", "node", id, "err", err)
+					results <- nil
+					return
+				}
+				results <- &candidate{id, n, capacity}
+			}()
+		}
+		var all []candidate
+		for range nodes {
+			if r := <-results; r != nil {
+				if len(req.AllowedArches) > 0 && !slices.Contains(req.AllowedArches, r.cap.Arch) {
+					continue
+				}
+				all = append(all, *r)
+			}
+		}
+		if len(all) == 0 {
+			if len(req.AllowedArches) > 0 {
+				return sandbox.Placement{}, &sandbox.NodeUnavailableError{Msg: fmt.Sprintf("no connected node matches the image's built architectures (%s)", strings.Join(req.AllowedArches, ", "))}
+			}
+			return sandbox.Placement{}, fmt.Errorf("%w: connect an edge node or run the controller on a host with /dev/kvm", sandbox.ErrNoCapacity)
+		}
+		best := slices.MaxFunc(all, func(a, b candidate) int {
+			return cmp.Or(cmp.Compare(a.cap.MemoryBytes, b.cap.MemoryBytes), cmp.Compare(a.cap.DiskBytes, b.cap.DiskBytes), cmp.Compare(b.id, a.id))
+		})
+		name, err := best.n.Name(ctx)
+		if err != nil {
+			return sandbox.Placement{}, err
+		}
+		return sandbox.Placement{NodeID: best.id, Driver: name}, nil
+	}
 	row, err := c.cfg.Store.GetNode(ctx, req.NodeID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sandbox.Placement{}, fmt.Errorf("%w %q", sandbox.ErrUnknownNode, req.NodeID)
@@ -413,6 +466,11 @@ func (c *Cluster) PlaceOn(ctx context.Context, req sandbox.PlaceRequest) (sandbo
 	if err != nil {
 		return sandbox.Placement{}, &sandbox.NodeUnavailableError{Msg: fmt.Sprintf("node %s could not report its capacity: %v", row.Name, err)}
 	}
+	if len(req.AllowedArches) > 0 && !slices.Contains(req.AllowedArches, capacity.Arch) {
+		return sandbox.Placement{}, &sandbox.NodeUnavailableError{Msg: fmt.Sprintf(
+			"node %s (%s) has no ready build for this image (available: %s)",
+			row.Name, capacity.Arch, strings.Join(req.AllowedArches, ", "))}
+	}
 	if need := uint64(max(req.MemoryMB, 0)) << 20; capacity.MemoryBytes < need {
 		return sandbox.Placement{}, &sandbox.NodeUnavailableError{Msg: fmt.Sprintf(
 			"node %s has %d MB of memory available, the agent needs %d MB; choose another node or a smaller agent",
@@ -423,6 +481,71 @@ func (c *Cluster) PlaceOn(ctx context.Context, req sandbox.PlaceRequest) (sandbo
 		return sandbox.Placement{}, err
 	}
 	return sandbox.Placement{NodeID: req.NodeID, Driver: name}, nil
+}
+
+// ConnectedNode describes a live node available for image builds or layer sync.
+type ConnectedNode struct {
+	ID          string
+	Arch        string
+	MemoryBytes uint64
+	Host        LayerHost
+}
+
+// LayerHost returns the LayerHost for nodeID (empty or "local" selects the
+// built-in node).
+func (c *Cluster) LayerHost(ctx context.Context, nodeID string) (LayerHost, string, error) {
+	n, err := c.byNode(ctx, nodeID)
+	if err != nil {
+		return nil, "", err
+	}
+	lh, ok := n.(LayerHost)
+	if !ok {
+		return nil, "", errors.New("node does not support custom image layers")
+	}
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cap, err := n.Capacity(cctx)
+	arch := cap.Arch
+	if err != nil || arch == "" {
+		if nodeID == "" || nodeID == LocalID {
+			arch = runtime.GOARCH
+		} else if row, rerr := c.cfg.Store.GetNode(ctx, nodeID); rerr == nil {
+			arch = row.Arch
+		}
+	}
+	return lh, arch, nil
+}
+
+// ConnectedLayerHosts returns all currently connected nodes that support
+// building/hosting custom layers, with their live architecture and memory.
+func (c *Cluster) ConnectedLayerHosts(ctx context.Context) []ConnectedNode {
+	nodes := c.connected()
+	out := make([]ConnectedNode, 0, len(nodes))
+	for id, n := range nodes {
+		lh, ok := n.(LayerHost)
+		if !ok {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		cap, err := n.Capacity(cctx)
+		cancel()
+		arch := cap.Arch
+		if err != nil || arch == "" {
+			if id == LocalID {
+				arch = runtime.GOARCH
+			} else if row, rerr := c.cfg.Store.GetNode(ctx, id); rerr == nil {
+				arch = row.Arch
+			}
+		}
+		if arch == "" {
+			continue
+		}
+		out = append(out, ConnectedNode{ID: id, Arch: arch, MemoryBytes: cap.MemoryBytes, Host: lh})
+	}
+	slices.SortFunc(out, func(a, b ConnectedNode) int {
+		return cmp.Or(cmp.Compare(b.MemoryBytes, a.MemoryBytes), cmp.Compare(a.ID, b.ID))
+	})
+	return out
 }
 
 // Nodes lists every registered node with its live connection state.
@@ -454,12 +577,16 @@ func (c *Cluster) Nodes(ctx context.Context) ([]Info, error) {
 				MemoryTotalBytes: uint64(max(r.MemoryTotalBytes, 0)), DiskAllocatedBytes: uint64(max(r.DiskAllocatedBytes, 0)),
 			},
 			Version: r.Version,
+			Arch:    r.Arch,
 		}
 		if r.LastSeenAt > 0 {
 			info.LastSeen = time.Unix(r.LastSeenAt, 0).UTC()
 		}
 		if info.Local {
 			info.Version = version.Version
+			if info.Arch == "" {
+				info.Arch = runtime.GOARCH
+			}
 		}
 		out = append(out, info)
 	}

@@ -98,5 +98,5 @@ func hostCapacity(ctx context.Context, dir string) (Capacity, error) {
 		return Capacity{}, err
 	}
 	total, _ := unix.SysctlUint64("hw.memsize")
-	return Capacity{CPUs: runtime.NumCPU(), MemoryBytes: memory, DiskBytes: fs.Bavail * uint64(fs.Bsize), MemoryTotalBytes: total}, nil
+	return Capacity{Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), MemoryBytes: memory, DiskBytes: fs.Bavail * uint64(fs.Bsize), MemoryTotalBytes: total}, nil
 }

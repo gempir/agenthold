@@ -174,6 +174,9 @@ type PlaceRequest struct {
 	// MemoryMB is the memory the agent is configured with. A requested node
 	// must have at least this much available.
 	MemoryMB int64
+	// AllowedArches restricts placement to nodes whose CPU architecture
+	// matches one of the listed values (empty allows any architecture).
+	AllowedArches []string
 }
 
 // NodePlacer is implemented by backends that can place an agent on a node

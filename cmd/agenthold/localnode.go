@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/egress"
 	fakeharness "github.com/gempir/agenthold/internal/harness/fake"
+	"github.com/gempir/agenthold/internal/images"
 	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/runtimeassets"
 	"github.com/gempir/agenthold/internal/sandbox"
@@ -97,6 +100,14 @@ func startLocalHost(ctx context.Context, cfg *config.Config, driverName string, 
 	h.node = node.NewLocal(driver, hub)
 	h.node.SetDataDir(cfg.DataDir)
 	h.node.SetTunnelPort(tunnelPort)
+	switch d := driver.(type) {
+	case *firecracker.Driver:
+		h.node.SetLayerBuilder(h.firecrackerLayerBuilder(d, hub, tunnelPort))
+	default:
+		if driverName == "fake" {
+			h.node.SetLayerBuilder(images.FakeLayerBuilder(cfg.DataDir))
+		}
+	}
 	if driverName == "firecracker" {
 		if err := fw.Install(); err != nil {
 			return nil, fmt.Errorf("guest firewall: %w", err)
@@ -176,9 +187,17 @@ func newDriver(ctx context.Context, cfg *config.Config, name string, fw *egress.
 		if nested != "" && fc.Snapshots == nil {
 			logger.Info("memory snapshots are off: this host is a virtual machine, where resumed guests run far slower than cold-booted ones; set sandbox.firecracker.snapshots to override", "hypervisor", nested)
 		}
+		layers := node.NewLayerStore(dataDir)
 		return firecracker.New(ctx, firecracker.Config{
 			DataDir: dataDir, BaseImagePath: fc.BaseImage, KernelPath: fc.Kernel,
 			FirecrackerPath: fc.Binary, JailerPath: fc.Jailer, SandboxdPath: cfg.Sandbox.SandboxdPath,
+			ResolveLayer: func(_ context.Context, ref string) (firecracker.LayerFile, error) {
+				p, sub, err := layers.ResolveRef(ref)
+				if err != nil {
+					return firecracker.LayerFile{}, err
+				}
+				return firecracker.LayerFile{Path: p, Subdir: sub}, nil
+			},
 			NetworkPool:      netip.MustParsePrefix(cfg.Sandbox.NetworkPool),
 			OverlaySizeBytes: fc.OverlayGB << 30, HomeSizeBytes: fc.HomeGB << 30,
 			Shutdown: cb.shutdown, RegisterNetwork: fw.Register, UnregisterNetwork: fw.Unregister,
@@ -188,5 +207,104 @@ func newDriver(ctx context.Context, cfg *config.Config, name string, fw *egress.
 		})
 	default:
 		return nil, fmt.Errorf("unknown sandbox driver %q", name)
+	}
+}
+
+type cleanupReadCloser struct {
+	io.ReadCloser
+	cleanup func()
+	once    sync.Once
+}
+
+func (c *cleanupReadCloser) Close() error {
+	err := c.ReadCloser.Close()
+	c.once.Do(c.cleanup)
+	return err
+}
+
+func (h *localHost) firecrackerLayerBuilder(d *firecracker.Driver, hub *tunnel.Hub, tunnelPort int) node.LayerBuilder {
+	return func(ctx context.Context, req node.LayerBuildRequest, onLog func(line string)) (node.LayerBuildResult, io.ReadCloser, error) {
+		runSh, setupSh, envDropIn := node.BuildScripts(req.AptPackages, req.SetupScript, req.Env)
+		bootFiles := map[string][]byte{
+			"/etc/agenthold/build-run.sh": []byte(runSh),
+		}
+		if setupSh != "" {
+			bootFiles["/etc/agenthold/build-setup.sh"] = []byte(setupSh)
+		}
+		if envDropIn != "" {
+			bootFiles["/etc/agenthold/image.env.d/10-custom.env"] = []byte(envDropIn)
+		}
+		h.mu.Lock()
+		ca := h.ca
+		h.mu.Unlock()
+		if ca != nil {
+			for p, data := range ca.BootFiles() {
+				bootFiles[p] = append([]byte(nil), data...)
+			}
+		}
+
+		opts := firecracker.BuildLayerOptions{
+			BuildID:    req.BuildID,
+			BootFiles:  bootFiles,
+			Env:        req.BuildEnv,
+			CPUs:       req.CPUs,
+			MemoryMB:   req.MemoryMB,
+			DiskGB:     req.DiskGB,
+			TunnelPort: tunnelPort,
+			SetToken:   h.node.SetTunnelToken,
+			WaitSession: func(ctx context.Context, agentID string) (*tunnel.Session, error) {
+				if err := hub.WaitConnected(ctx, agentID); err != nil {
+					return nil, err
+				}
+				sess, ok := hub.Session(agentID)
+				if !ok {
+					return nil, tunnel.ErrNotConnected
+				}
+				return sess, nil
+			},
+			OnLog: onLog,
+		}
+		if req.EgressConfig != nil && len(req.EgressConfig.Injections) > 0 {
+			injections := req.EgressConfig.Injections
+			opts.RegisterEgress = func(agentID string, subnet netip.Prefix) {
+				h.node.SetEphemeralAgent(agentID, subnet, injections)
+			}
+			opts.RemoveEgress = h.node.RemoveEphemeralAgent
+		}
+
+		out, err := d.BuildLayer(ctx, opts)
+		if err != nil {
+			return node.LayerBuildResult{}, nil, err
+		}
+
+		// Cache the sealed raw ext4 on this node immediately so local agents
+		// don't have to download it back from the controller.
+		ref := images.LayerRef(req.ImageID, req.Revision)
+		ls := node.NewLayerStore(h.cfg.DataDir)
+		if err := os.MkdirAll(ls.Dir, 0o755); err == nil {
+			if _, statErr := os.Stat(ls.RawPath(out.RawSHA256)); errors.Is(statErr, os.ErrNotExist) {
+				_ = os.Chmod(out.RawPath, 0o644)
+				_ = os.Rename(out.RawPath, ls.RawPath(out.RawSHA256))
+			}
+			_ = ls.WriteRef(ref, out.RawSHA256, "upper")
+		}
+
+		f, err := os.Open(out.ZstdPath)
+		if err != nil {
+			out.Cleanup()
+			return node.LayerBuildResult{}, nil, err
+		}
+		return node.LayerBuildResult{
+			Arch:    out.Arch,
+			BaseKey: out.BaseKey,
+			Artifact: node.LayerArtifact{
+				Ref:        ref,
+				SHA256:     out.RawSHA256,
+				Size:       out.RawSize,
+				ZstdSHA256: out.ZstdSHA256,
+				ZstdSize:   out.ZstdSize,
+				Subdir:     "upper",
+			},
+		}, &cleanupReadCloser{ReadCloser: f, cleanup: out.Cleanup}, nil
 	}
 }

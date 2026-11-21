@@ -50,3 +50,35 @@ func TestTapName(t *testing.T) {
 		t.Fatalf("invalid tap names %q %q", a, b)
 	}
 }
+
+func TestLayerValidation(t *testing.T) {
+	cfg := testConfig("/tmp/agenthold")
+	cfg.DefaultLayers = []LayerFile{{Path: "/harnesses.ext4"}, {Path: "/custom.ext4", Subdir: "upper"}}
+	if _, err := cfg.normalized(); err != nil {
+		t.Fatalf("valid default layers rejected: %v", err)
+	}
+	for name, bad := range map[string][]LayerFile{
+		"relative": {{Path: "rel.ext4"}},
+		"badsub":   {{Path: "/a.ext4", Subdir: "../etc"}},
+		"colon":    {{Path: "/a.ext4", Subdir: "a:b"}},
+		"too many": make([]LayerFile, 9),
+	} {
+		c := testConfig("/tmp/agenthold")
+		c.DefaultLayers = bad
+		if _, err := c.normalized(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if err := validateSpec(sandbox.Spec{AgentID: "ag_1", Layers: []string{"img_1:v1"}}); err != nil {
+		t.Fatalf("valid spec layers rejected: %v", err)
+	}
+	for name, bad := range map[string][]string{
+		"empty ref":  {""},
+		"whitespace": {"a b"},
+		"too many":   {"1", "2", "3", "4", "5", "6", "7", "8", "9"},
+	} {
+		if err := validateSpec(sandbox.Spec{AgentID: "ag_1", Layers: bad}); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

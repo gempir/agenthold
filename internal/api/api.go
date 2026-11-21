@@ -20,6 +20,7 @@ import (
 	"github.com/gempir/agenthold/internal/egress"
 	"github.com/gempir/agenthold/internal/git"
 	"github.com/gempir/agenthold/internal/idle"
+	"github.com/gempir/agenthold/internal/images"
 	"github.com/gempir/agenthold/internal/logins"
 	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/preview"
@@ -51,6 +52,8 @@ type Deps struct {
 	Git *git.Service
 	// Apps manages services and apps.
 	Apps *apps.Manager
+	// Images manages custom enterprise VM images and builds.
+	Images *images.Manager
 	// Preview serves exposures; it is never nil (disabled without a host suffix).
 	Preview *preview.Service
 	// Identity signs X-Agenthold-Identity tokens; nil when previews are off.

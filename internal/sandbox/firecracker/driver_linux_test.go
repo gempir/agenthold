@@ -239,3 +239,58 @@ func TestFailedCreateRollsBackOnlyFreshDisks(t *testing.T) {
 		t.Fatalf("kept home modified: %q %v", data, err)
 	}
 }
+
+func TestLayersCreateRebuildAndActiveOrder(t *testing.T) {
+	d := unitDriver(t)
+	tmp := t.TempDir()
+	mkFile := func(name string) string {
+		p := filepath.Join(tmp, name)
+		if err := os.WriteFile(p, []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	defLayer := LayerFile{Path: mkFile("harnesses.ext4")}
+	v1Layer := LayerFile{Path: mkFile("corp-v1.ext4"), Subdir: "upper"}
+	v2Layer := LayerFile{Path: mkFile("corp-v2.ext4"), Subdir: "upper"}
+
+	d.cfg.DefaultLayers = []LayerFile{defLayer}
+	// Missing ResolveLayer fails cleanly.
+	if _, err := d.Create(context.Background(), sandbox.Spec{AgentID: "ag_nores", Layers: []string{"corp:v1"}}); err == nil {
+		t.Fatal("accepted custom layer without ResolveLayer")
+	}
+
+	resolved := map[string]LayerFile{"corp:v1": v1Layer, "corp:v2": v2Layer}
+	d.cfg.ResolveLayer = func(_ context.Context, ref string) (LayerFile, error) {
+		l, ok := resolved[ref]
+		if !ok {
+			return LayerFile{}, errors.New("unknown layer")
+		}
+		return l, nil
+	}
+	id, err := d.Create(context.Background(), sandbox.Spec{AgentID: "ag_lay", Layers: []string{"corp:v1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := d.load(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Layers) != 1 || m.Layers[0] != v1Layer {
+		t.Fatalf("manifest layers = %+v", m.Layers)
+	}
+	active := d.activeLayers(m)
+	if len(active) != 2 || active[0] != v1Layer || active[1] != defLayer {
+		t.Fatalf("active layers = %+v", active)
+	}
+	if err := d.Rebuild(context.Background(), id, sandbox.Spec{AgentID: "ag_lay", Layers: []string{"corp:v2"}}); err != nil {
+		t.Fatal(err)
+	}
+	m, err = d.load(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Layers) != 1 || m.Layers[0] != v2Layer {
+		t.Fatalf("rebuilt layers = %+v", m.Layers)
+	}
+}

@@ -302,11 +302,19 @@ func TestSwitchingHarnessResetsConversationModels(t *testing.T) {
 	expect(t, "choose", alice.do("PUT", "/sessions/"+sess.Id+"/model", gen.ModelChoice{Model: "deep-1"}, nil), 200)
 
 	// A turn in progress keeps the harness: switching waits.
-	expect(t, "slow prompt", alice.do("POST", "/sessions/"+sess.Id+"/prompt", map[string]string{"text": "slow 50"}, nil), 202)
-	expect(t, "switch while busy", alice.do("PATCH", "/agents/"+ag.Id, gen.AgentPatch{Harness: ptr("codex")}, nil), 409)
-	expect(t, "cancel", alice.do("POST", "/sessions/"+sess.Id+"/cancel", nil, nil), 202)
+	// Read the log up to the first turn's end, so the turn_end awaited below
+	// is the cancelled one.
 	st := e.stream(alice, sess.Id, 0)
 	st.until(isType("turn_end"))
+	expect(t, "slow prompt", alice.do("POST", "/sessions/"+sess.Id+"/prompt", map[string]string{"text": "slow 50"}, nil), 202)
+	expect(t, "switch while busy", alice.do("PATCH", "/agents/"+ag.Id, gen.AgentPatch{Harness: ptr("codex")}, nil), 409)
+	// Cancel once the harness answers (as the cancel test in sessions_test
+	// does): the turn then ends promptly as cancelled.
+	st.until(func(ev gen.SessionEvent) bool { return strings.Contains(text([]gen.SessionEvent{ev}), "chunk 1") })
+	expect(t, "cancel", alice.do("POST", "/sessions/"+sess.Id+"/cancel", nil, nil), 202)
+	if end := st.until(isType("turn_end")); end[len(end)-1].Data["stopReason"] != "cancelled" {
+		t.Fatalf("after cancel: %v", end[len(end)-1].Data)
+	}
 	// turn_end is streamed just before the session manager lets go of the
 	// agent; switching waits for that (a slow database widens the gap).
 	waitUntil(t, "agent idle", 5*time.Second, func() bool { return !e.sessions.AgentBusy(ag.Id) })

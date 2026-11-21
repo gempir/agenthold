@@ -4,8 +4,8 @@ Source of truth for what we are building and in which order. Written for coding 
 one milestone at a time. The v1 plan (Docker, compose, SQLite only) is in git history; v1 is fully
 built and is the starting point of this rework.
 
-- Go module `github.com/gempir/agenthold`. Binaries: `agenthold` (server, also node) and `sandboxd`
-  (in-guest daemon, embedded in `agenthold`).
+- Go module `github.com/gempir/agenthold`. One binary, `agenthold`: server, edge node and the in-guest
+  daemon `sandboxd` (G2: the role is decided at startup).
 - License: MIT.
 
 ## 1. What we are building
@@ -40,7 +40,7 @@ out unworkable, stop and report.
 | Isolation | Firecracker microVMs only. Docker driver, Sysbox/gVisor options and docs are deleted. The `fake` driver stays for tests and UI work. |
 | Why | No Docker dependency, real isolation, a full machine per agent (own kernel, Docker-in-agent, enforced disk size), and later true suspend/resume. |
 | Host requirement | Linux with `/dev/kvm`, x86_64 or aarch64, running as root (tap devices, nftables, jailer). |
-| Binary | `agenthold` embeds `firecracker`, `jailer`, the guest kernel and `sandboxd` for its architecture and extracts them to `<data_dir>/runtime/<version>/` on start. The node delivers its `sandboxd` to every guest at boot as an initramfs (G1), so a machine always runs the booting release's daemon. |
+| Binary | `agenthold` embeds `firecracker`, `jailer` and the guest kernel for its architecture and extracts them to `<data_dir>/runtime/<version>/` on start. It is also `sandboxd` (G2). The node delivers its `sandboxd` to every guest at boot as an initramfs (G1), so a machine always runs the booting release's daemon. |
 | Base rootfs | One blessed base disk image, built from `images/base`, OS only (no sandboxd): it changes only with its own inputs, so consecutive releases share it. Too large to embed (several GB): fetched on first start from a pinned URL and verified by sha256, or pre-placed in `data_dir` for offline installs. |
 | Agent disks | Shared read-only base + per-agent writable overlay disk (system changes survive sleep) + per-agent persistent `/home/agent` disk. Upgrading the base swaps it and resets the overlay; home always survives. No per-agent image; "Rebuild" becomes "Reset system". |
 | Sleep | Cold shutdown and boot (same semantics as before: disk and conversation survive, processes do not). Memory snapshots are a later milestone. |
@@ -365,6 +365,14 @@ Milestones (migration numbers are reserved so parallel work does not collide):
   boot without a reset. `Status.BaseStale` and the clone refusal for machines on an older base are gone:
   a clone stays on its source's base, which pruning keeps while any machine names it. Release store
   retention is two versions. No migration.
+
+- **G2. One binary** (done). `cmd/sandboxd` is gone: `agenthold` is also the in-guest daemon. The role is
+  decided once at startup from PID and argv[0] (`cmd/agenthold/sandboxd.go`): PID 1 as `/init` or `sandboxd`
+  is guest init, argv[0] `sandboxd` (the stable in-guest path `/opt/agenthold/sandboxd`) the daemon,
+  `agenthold sandboxd` the daemon explicitly; everything else, PID 1 of a container included, is the server.
+  The node delivers its own executable as the initramfs. Releases ship one file per architecture; the
+  runtime manifest lists `firecracker`, `jailer` and `kernel` only. The initramfs grows from the 7 MB sandboxd
+  to the whole binary (see guest-artifacts for the measurement). No migration.
 
 ### Later
 

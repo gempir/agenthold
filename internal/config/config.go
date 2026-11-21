@@ -234,8 +234,10 @@ type Sandbox struct {
 	TunnelListen string `yaml:"tunnel_listen"`
 	// IdleCheckInterval is how often idle agents are looked for. Default 30s.
 	IdleCheckInterval time.Duration `yaml:"idle_check_interval"`
-	// SandboxdPath is the Linux sandboxd binary handed to sandboxes. Default:
-	// "sandboxd" next to the server binary, else /usr/local/lib/agenthold/sandboxd.
+	// SandboxdPath is the binary every machine boots as its sandboxd (its initramfs /init). It is
+	// the agenthold binary itself, which is also sandboxd; release builds always use their own
+	// executable. Default: the running executable. Development only: another static Linux
+	// agenthold build, for example a cross-compiled one.
 	SandboxdPath string `yaml:"sandboxd_path"`
 }
 
@@ -505,11 +507,11 @@ func ApplyDefaults(cfg *Config) {
 		sb.TunnelListen = ":8090"
 	}
 	if sb.SandboxdPath == "" {
-		sb.SandboxdPath = "/usr/local/lib/agenthold/sandboxd"
 		if exe, err := os.Executable(); err == nil {
-			if p := filepath.Join(filepath.Dir(exe), "sandboxd"); fileExists(p) {
-				sb.SandboxdPath = p
+			if real, err := filepath.EvalSymlinks(exe); err == nil {
+				exe = real
 			}
+			sb.SandboxdPath = exe
 		}
 	}
 	eg := &cfg.Egress
@@ -683,11 +685,6 @@ func (c *Config) Validate() error {
 		}
 	}
 	return errors.Join(errs...)
-}
-
-func fileExists(p string) bool {
-	fi, err := os.Stat(p)
-	return err == nil && !fi.IsDir()
 }
 
 // IsAdminEmail reports whether a verified e-mail address is in auth.admins.

@@ -57,6 +57,7 @@ func startLocalHost(ctx context.Context, cfg *config.Config, driverName string, 
 			cfg.Sandbox.Firecracker.Kernel = paths.Kernel
 			cfg.Sandbox.Firecracker.BaseImage = paths.BaseImage
 			cfg.Sandbox.SandboxdPath = paths.Sandboxd
+			logger.Info("machines boot this binary as their sandboxd", "path", paths.Sandboxd)
 			logger.Info("release runtime ready", "version", paths.Version, "base", paths.BaseImage)
 		} else {
 			base, err := runtimeassets.PinBase(ctx, cfg.DataDir, cfg.Sandbox.Firecracker.BaseImage)

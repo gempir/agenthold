@@ -60,11 +60,11 @@ if [[ $EUID -ne 0 ]]; then
     log "Building the guest kernel"
     bash "$SCRIPTS/build-kernel.sh"
   fi
-  log "Building sandboxd and testhost"
+  log "Building agenthold (the guest's sandboxd) and testhost"
   mkdir -p "$ART/bin"
   version="$(git -C "$REPO_ROOT" describe --tags --always --dirty 2>/dev/null || echo dev)"
   (cd "$REPO_ROOT" && CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -trimpath \
-    -ldflags "-s -w -X github.com/gempir/agenthold/internal/version.Version=$version" -o "$ART/bin/sandboxd" ./cmd/sandboxd &&
+    -ldflags "-s -w -X github.com/gempir/agenthold/internal/version.Version=$version" -o "$ART/bin/sandboxd" ./cmd/agenthold &&
     CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o "$ART/bin/testhost" ./scripts/guest/testhost)
   "$ART/bin/testhost" -write-initrd "$ART/bin/initrd.cpio" -sandboxd "$ART/bin/sandboxd"
   want="$(bash "$SCRIPTS/base-key.sh")"

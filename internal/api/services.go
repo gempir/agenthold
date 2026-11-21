@@ -252,6 +252,7 @@ func (a *API) streamServiceLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = ws.CloseNow() }()
 	ctx := ws.CloseRead(r.Context())
+	defer a.guardSocket(ctx, u.ID, ws)()
 	err = a.Apps.Logs(ctx, agentID, name, lines, true, wsText{ctx: ctx, ws: ws})
 	if err != nil && ctx.Err() == nil {
 		_, msg := toHTTP(err)

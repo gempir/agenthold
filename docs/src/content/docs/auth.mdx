@@ -73,25 +73,31 @@ The rules, in order; the first that applies decides:
 
 1. The **local admin** (`auth.local`) is always Admin. No override applies to it.
 2. An admin's **override** for the user (Overview, *Users*), if one is set.
-3. A verified e-mail address listed in **`auth.admins`**: Admin.
-4. The **provider's mapping**:
+3. The **provider's gate**: a strict provider refuses a user its mapping gives no role, and no user is created.
+   Strict means an OIDC provider with `role_attribute_strict: true`, or a GitHub provider with a non-empty
+   `github_allowed_ids` (as before roles existed). Nothing below opens the gate, `auth.admins` included.
+4. A verified e-mail address listed in **`auth.admins`**: Admin, for a user who passed the gate and whom the
+   mapping did not explicitly make Disabled.
+5. The **provider's mapping**:
    - GitHub: `github_roles` by numeric user id, else an id in `github_allowed_ids` gets User
      ([GitHub sign-in](/auth-github/)).
    - OIDC: `role_attribute_path`, a JMESPath expression over the ID token and userinfo claims, like Grafana's
      ([Keycloak and OIDC](/auth-keycloak/)).
-5. **Nothing matched**: a strict provider refuses the sign-in (no user is created): an OIDC provider with
-   `role_attribute_strict: true`, or a GitHub provider with a non-empty `github_allowed_ids` (as before roles
-   existed). Otherwise the user gets the provider's `default_role`, else `auth.default_role` (default `disabled`).
+6. **Nothing matched**: the provider's `default_role`, else `auth.default_role` (default `disabled`).
 
 The role is evaluated at **every sign-in** and stored with the user. It is also re-evaluated for every user when
 the server **starts**, so removing someone from `auth.admins` or `github_roles` takes effect with the restart that
 loads the new config, not at their next sign-in. OIDC claims are not stored: at a start the result of the user's
-last `role_attribute_path` evaluation is reused, and a role removed in the identity provider applies at the
-user's next sign-in. agenthold keeps its own session and does not refresh provider tokens, so to cut somebody off
-at once, set an override to **Disabled** in the Overview.
+last `role_attribute_path` evaluation is reused, as long as the expression is unchanged. If `role_attribute_path`
+changed, the old result is discarded and the provider's users are signed out, so their next sign-in evaluates
+the new expression. A role removed in the identity provider applies at the user's next sign-in. agenthold keeps
+its own session and does not refresh provider tokens, but no session lasts longer than `session_max_age`
+(default 7 days) however much it is used, so everybody signs in, and is re-evaluated, at least that often. To cut
+somebody off at once, set an override to **Disabled** in the Overview.
 
 The role is read from the database on every request: a change (sign-in, restart or override) applies to the
-user's existing sessions and API tokens immediately.
+user's existing sessions and API tokens immediately. Open connections (terminal, chat and log streams, WebSockets
+to previews) re-check it every 2 seconds and are closed when the user is Disabled.
 
 ### Overrides
 
@@ -112,7 +118,9 @@ auth:
 
 ## Sessions
 
-Sessions are cookie based and expire after `session_ttl` without use (default `720h`, 30 days). With an https
+Sessions are cookie based and expire after `session_ttl` without use (default `720h`, 30 days), and at the latest
+`session_max_age` after sign-in (default `168h`, 7 days), even while in use. This applies to every browser
+session, the local admin's included. API tokens are not sessions and keep their own expiry. With an https
 `public_url` the cookie is `__Host-agenthold_session` (host-only, Secure, Path=/), which no other host can set or
 shadow; over http (development) it is `agenthold_session`. A request with two session cookies is refused.
 
@@ -124,6 +132,7 @@ public_url: https://agenthold.example.com   # default http://localhost:8080; use
 data_dir: /data                    # default ./data
 auth:
   session_ttl: 720h                # Go duration, default 30 days
+  session_max_age: 168h            # absolute session lifetime, default 7 days
   default_role: disabled           # role when no rule matches: admin | user | disabled
   user_max_agents: 2               # agents a User may own (Admins: no limit)
   admins: []                       # verified e-mails that get the Admin role

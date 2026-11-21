@@ -32,6 +32,10 @@ func (a *API) checkAgentQuota(ctx context.Context, q *db.Queries, u db.User) err
 	if limit == nil {
 		return nil
 	}
+	// Other API processes (PostgreSQL) wait here until this transaction ends.
+	if err := q.LockUser(ctx, u.ID); err != nil {
+		return err
+	}
 	n, err := q.CountOwnedAgents(ctx, u.ID)
 	if err != nil {
 		return err

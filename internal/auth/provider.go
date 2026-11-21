@@ -20,6 +20,8 @@ type Claims struct {
 	// ProviderRole is what the provider's role mapping (github_roles,
 	// github_allowed_ids, role_attribute_path) says; "" when nothing matched.
 	ProviderRole config.Role
+	// RoleConfig identifies the mapping ProviderRole came from (roleConfigHash).
+	RoleConfig string
 }
 
 // Provider is one configured identity provider.

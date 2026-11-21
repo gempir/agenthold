@@ -67,6 +67,7 @@ type Querier interface {
 	DeleteSlackUser(ctx context.Context, arg DeleteSlackUserParams) (int64, error)
 	DeleteStaleNodeJoinTokens(ctx context.Context, before int64) error
 	DeleteUserPreviewSessions(ctx context.Context, userID string) error
+	DeleteUserSessions(ctx context.Context, userID string) error
 	DeleteWebhook(ctx context.Context, id string) error
 	DetachMCPServer(ctx context.Context, arg DetachMCPServerParams) (int64, error)
 	DetachSecret(ctx context.Context, arg DetachSecretParams) (int64, error)
@@ -148,6 +149,7 @@ type Querier interface {
 	ListUserSlackUsers(ctx context.Context, userID string) ([]SlackUser, error)
 	ListUsersByVerifiedEmail(ctx context.Context, lower string) ([]User, error)
 	ListUsersWithIdentity(ctx context.Context) ([]ListUsersWithIdentityRow, error)
+	LockUser(ctx context.Context, id string) error
 	MakeAppClone(ctx context.Context, id string) error
 	MarkCredentialsInSandbox(ctx context.Context, id string) error
 	MaxSessionSeq(ctx context.Context, sessionID string) (int64, error)

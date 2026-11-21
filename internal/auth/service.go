@@ -49,6 +49,7 @@ type Service struct {
 	providers  map[string]Provider
 	order      []string
 	sessionTTL time.Duration
+	sessionMax time.Duration // absolute lifetime: sessions do not slide past it
 	secure     bool
 	host       string // the main host, for clearing planted cookies
 	now        func() time.Time
@@ -62,6 +63,7 @@ func NewService(st *store.Store, cfg *config.Config) (*Service, error) {
 		store:      st,
 		providers:  map[string]Provider{},
 		sessionTTL: cfg.Auth.SessionTTL,
+		sessionMax: cfg.Auth.SessionMaxAge,
 		admins:     cfg.Auth,
 		secure:     strings.HasPrefix(cfg.PublicURL, "https://"),
 		host:       hostOf(cfg.PublicURL),
@@ -159,6 +161,7 @@ func (s *Service) FinishLogin(ctx context.Context, providerID, code, state, user
 	if claims.Subject == "" {
 		return "", "", errors.New("provider returned no subject")
 	}
+	claims.RoleConfig = roleConfigHash(p.Info())
 	role, allowed := s.configRole(p.Info(), claims.ProviderRole, claims.Email, claims.EmailVerified)
 	userID, err := s.upsertUser(ctx, providerID, claims, role, allowed)
 	if err != nil {
@@ -205,7 +208,7 @@ func (s *Service) upsertUser(ctx context.Context, providerID string, c *Claims, 
 					return q.SetUserRole(ctx, db.SetUserRoleParams{Role: string(config.RoleDisabled), ID: userID})
 				}
 			}
-			if err := q.SetIdentityProviderRole(ctx, db.SetIdentityProviderRoleParams{ProviderRole: string(c.ProviderRole), Provider: providerID, Subject: c.Subject}); err != nil {
+			if err := q.SetIdentityProviderRole(ctx, db.SetIdentityProviderRoleParams{ProviderRole: string(c.ProviderRole), RoleConfig: c.RoleConfig, Provider: providerID, Subject: c.Subject}); err != nil {
 				return err
 			}
 			if err := q.SetUserRole(ctx, db.SetUserRoleParams{Role: string(role), ID: userID}); err != nil {
@@ -238,7 +241,7 @@ func (s *Service) upsertUser(ctx context.Context, providerID string, c *Claims, 
 			}); err != nil {
 				return err
 			}
-			return q.SetIdentityProviderRole(ctx, db.SetIdentityProviderRoleParams{ProviderRole: string(c.ProviderRole), Provider: providerID, Subject: c.Subject})
+			return q.SetIdentityProviderRole(ctx, db.SetIdentityProviderRoleParams{ProviderRole: string(c.ProviderRole), RoleConfig: c.RoleConfig, Provider: providerID, Subject: c.Subject})
 		default:
 			return err
 		}
@@ -267,12 +270,24 @@ func (s *Service) CreateSession(ctx context.Context, userID, userAgent string) (
 	}
 	err := s.store.CreateSession(ctx, db.CreateSessionParams{
 		TokenHash: HashToken(token), UserID: userID, CreatedAt: now.Unix(),
-		ExpiresAt: now.Add(s.sessionTTL).Unix(), UserAgent: userAgent,
+		ExpiresAt: s.sessionExpiry(now.Unix(), now), UserAgent: userAgent,
 	})
 	if err != nil {
 		return "", fmt.Errorf("create session: %w", err)
 	}
 	return token, nil
+}
+
+// sessionExpiry is when a session created at createdAt (unix) ends if used
+// at now: session_ttl after now, but never past session_max_age after it
+// was created. The cap makes everybody sign in again now and then, which
+// re-evaluates their role with the identity provider.
+func (s *Service) sessionExpiry(createdAt int64, now time.Time) int64 {
+	exp := now.Add(s.sessionTTL).Unix()
+	if s.sessionMax > 0 {
+		exp = min(exp, time.Unix(createdAt, 0).Add(s.sessionMax).Unix())
+	}
+	return exp
 }
 
 // SessionUser returns the user for a session token. Sessions slide: they are
@@ -290,8 +305,15 @@ func (s *Service) SessionUser(ctx context.Context, token string) (*db.User, erro
 	if err != nil {
 		return nil, err
 	}
+	if s.sessionMax > 0 && now.Unix() >= time.Unix(row.CreatedAt, 0).Add(s.sessionMax).Unix() {
+		// Past session_max_age (sessions from before the cap kept their expiry).
+		_ = s.store.DeleteSession(ctx, h)
+		return nil, ErrUnauthenticated
+	}
 	if time.Unix(row.ExpiresAt, 0).Sub(now) < s.sessionTTL/2 {
-		_ = s.store.ExtendSession(ctx, db.ExtendSessionParams{ExpiresAt: now.Add(s.sessionTTL).Unix(), TokenHash: h})
+		if exp := s.sessionExpiry(row.CreatedAt, now); exp > row.ExpiresAt {
+			_ = s.store.ExtendSession(ctx, db.ExtendSessionParams{ExpiresAt: exp, TokenHash: h})
+		}
 	}
 	return &row.User, nil
 }

@@ -274,6 +274,10 @@ func (p postgresQueries) DeleteUserPreviewSessions(ctx context.Context, userID s
 	return p.q.DeleteUserPreviewSessions(ctx, userID)
 }
 
+func (p postgresQueries) DeleteUserSessions(ctx context.Context, userID string) error {
+	return p.q.DeleteUserSessions(ctx, userID)
+}
+
 func (p postgresQueries) DeleteWebhook(ctx context.Context, id string) error {
 	return p.q.DeleteWebhook(ctx, id)
 }
@@ -424,7 +428,7 @@ func (p postgresQueries) GetService(ctx context.Context, arg db.GetServiceParams
 
 func (p postgresQueries) GetSessionUser(ctx context.Context, arg db.GetSessionUserParams) (db.GetSessionUserRow, error) {
 	value, err := p.q.GetSessionUser(ctx, postgres.GetSessionUserParams(arg))
-	return db.GetSessionUserRow{User: db.User(value.User), ExpiresAt: value.ExpiresAt}, err
+	return db.GetSessionUserRow{User: db.User(value.User), ExpiresAt: value.ExpiresAt, CreatedAt: value.CreatedAt}, err
 }
 
 func (p postgresQueries) GetShare(ctx context.Context, arg db.GetShareParams) (db.AgentShare, error) {
@@ -930,6 +934,10 @@ func (p postgresQueries) ListUsersWithIdentity(ctx context.Context) ([]db.ListUs
 		result = append(result, db.ListUsersWithIdentityRow(row))
 	}
 	return result, nil
+}
+
+func (p postgresQueries) LockUser(ctx context.Context, id string) error {
+	return p.q.LockUser(ctx, id)
 }
 
 func (p postgresQueries) MakeAppClone(ctx context.Context, id string) error {

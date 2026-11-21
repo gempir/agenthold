@@ -301,6 +301,10 @@ type Auth struct {
 	Local *Local `yaml:"local"`
 	// SessionTTL is how long a browser session lasts without use. Default 30 days.
 	SessionTTL time.Duration `yaml:"session_ttl"`
+	// SessionMaxAge is the longest a browser session lasts however much it
+	// is used; then the user signs in again, which re-evaluates their role.
+	// Default 7 days.
+	SessionMaxAge time.Duration `yaml:"session_max_age"`
 	// Admins are the verified e-mail addresses of users who get the Admin
 	// role. The local admin (auth.local) always is one.
 	Admins []string `yaml:"admins"`
@@ -630,6 +634,9 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.Auth.SessionTTL == 0 {
 		cfg.Auth.SessionTTL = 30 * 24 * time.Hour
 	}
+	if cfg.Auth.SessionMaxAge == 0 {
+		cfg.Auth.SessionMaxAge = 7 * 24 * time.Hour
+	}
 	if cfg.Auth.DefaultRole == "" {
 		cfg.Auth.DefaultRole = RoleDisabled
 	}
@@ -718,6 +725,9 @@ func (c *Config) Validate() error {
 	}
 	if _, ok := ParseRole(string(c.Auth.DefaultRole)); !ok {
 		errs = append(errs, fmt.Errorf("auth.default_role: unknown role %q (want admin, user or disabled)", c.Auth.DefaultRole))
+	}
+	if c.Auth.SessionMaxAge < time.Minute {
+		errs = append(errs, errors.New("auth.session_max_age: must be at least 1m"))
 	}
 	if c.Auth.UserMaxAgents == nil || *c.Auth.UserMaxAgents < 0 {
 		errs = append(errs, errors.New("auth.user_max_agents: must not be negative"))

@@ -34,9 +34,11 @@ auth:
 ## Roles
 
 `role_attribute_path` maps the token's claims to a role, with the same JMESPath syntax as Grafana's
-`role_attribute_path`. It is evaluated over the ID token's claims and, if that yields nothing, over the userinfo
-response. The result must be `Admin`, `User` or `Disabled` (any case); anything else counts as no match. An
-invalid expression stops the server at startup.
+`role_attribute_path`. Like Grafana, it is evaluated once over the ID token's claims merged with the userinfo
+response (the ID token wins where both have a claim). The result must be `Admin`, `User` or `Disabled` (any case);
+anything else counts as no match. An invalid expression stops the server at startup. When the userinfo request
+fails or the expression cannot be evaluated (for example a function given the wrong type), the sign-in is
+refused rather than falling back to a default role, so a deny-list expression cannot fail open.
 
 ```yaml
 auth:
@@ -71,11 +73,12 @@ userinfo**) for the *client roles* and *realm roles* mappers, or add a mapper of
 client's dedicated scope. Check the claims with Keycloak's *Client scopes, Evaluate, Generated ID token*.
 
 `contains()` answers false for a missing claim instead of failing, so a chain such as "realm role, else
-group" reaches its later branches for users without the first claim; otherwise expressions behave as in
-JMESPath (and Grafana). Without a match the user gets the provider's `default_role`, else `auth.default_role`
-(default **Disabled**); with `role_attribute_strict: true` the sign-in is refused and no user is created. The
-role is re-evaluated at every sign-in; see [Roles](/auth/#roles) for the precedence with `auth.admins` and
-overrides.
+group" reaches its later branches for users without the first claim, and it compares objects and arrays by value.
+Otherwise expressions behave as in JMESPath (and Grafana). Without a match the user gets the provider's
+`default_role`, else `auth.default_role` (default **Disabled**); with `role_attribute_strict: true` the sign-in
+is refused and no user is created, even for an address in `auth.admins`. The role is re-evaluated at every
+sign-in, sessions end after `session_max_age` (7 days), and changing `role_attribute_path` signs the provider's
+users out at the next start; see [Roles](/auth/#roles) for the precedence with `auth.admins` and overrides.
 
 `issuer` is the realm URL (`https://<host>/realms/<realm>`; older Keycloak versions with a legacy path
 use `/auth/realms/<realm>`). Check it against `<issuer>/.well-known/openid-configuration`. Add `discovery_url`

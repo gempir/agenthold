@@ -60,7 +60,8 @@ auth:
 
 An id in `github_roles` may sign in even when `github_allowed_ids` does not list it; ids only in
 `github_allowed_ids` get User. With `github_allowed_ids` set, everybody else is refused at sign-in (no user is
-created); without it they sign in with the provider's `default_role` or `auth.default_role`. Ids are validated at
+created), even an account whose verified e-mail is in `auth.admins`: list admins' ids too. Without it they sign
+in with the provider's `default_role` or `auth.default_role`. Ids are validated at
 startup, and one id may be in only one role. The precedence with `auth.admins`, overrides and the local admin is on
 the [Roles](/auth/#roles) page; roles are re-evaluated at every sign-in and server start.
 

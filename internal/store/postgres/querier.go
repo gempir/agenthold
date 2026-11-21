@@ -75,6 +75,7 @@ type Querier interface {
 	DeleteSlackUser(ctx context.Context, arg DeleteSlackUserParams) (int64, error)
 	DeleteStaleNodeJoinTokens(ctx context.Context, before int64) error
 	DeleteUserPreviewSessions(ctx context.Context, userID string) error
+	DeleteUserSessions(ctx context.Context, userID string) error
 	DeleteWebhook(ctx context.Context, id string) error
 	DetachMCPServer(ctx context.Context, arg DetachMCPServerParams) (int64, error)
 	DetachSecret(ctx context.Context, arg DetachSecretParams) (int64, error)
@@ -167,6 +168,10 @@ type Querier interface {
 	// The admin users list: every user, the provider and username they signed
 	// in with (the oldest identity) and how many agents they own.
 	ListUsersWithIdentity(ctx context.Context) ([]ListUsersWithIdentityRow, error)
+	// Serializes quota checks of one owner across API processes (PostgreSQL
+	// row lock until the transaction ends; SQLite transactions are already
+	// serialized).
+	LockUser(ctx context.Context, id string) error
 	// A clone of an app is an app of its cloner, managed by no agent.
 	MakeAppClone(ctx context.Context, id string) error
 	MarkCredentialsInSandbox(ctx context.Context, id string) error

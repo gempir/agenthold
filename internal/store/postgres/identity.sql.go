@@ -154,6 +154,15 @@ func (q *Queries) DeleteSession(ctx context.Context, tokenHash string) error {
 	return err
 }
 
+const deleteUserSessions = `-- name: DeleteUserSessions :exec
+DELETE FROM sessions WHERE user_id = $1
+`
+
+func (q *Queries) DeleteUserSessions(ctx context.Context, userID string) error {
+	_, err := q.db.ExecContext(ctx, deleteUserSessions, userID)
+	return err
+}
+
 const extendSession = `-- name: ExtendSession :exec
 UPDATE sessions SET expires_at = $1 WHERE token_hash = $2
 `
@@ -169,7 +178,7 @@ func (q *Queries) ExtendSession(ctx context.Context, arg ExtendSessionParams) er
 }
 
 const getIdentity = `-- name: GetIdentity :one
-SELECT provider, subject, user_id, email, username, created_at, last_login_at, provider_role FROM identities WHERE provider = $1 AND subject = $2
+SELECT provider, subject, user_id, email, username, created_at, last_login_at, provider_role, role_config FROM identities WHERE provider = $1 AND subject = $2
 `
 
 type GetIdentityParams struct {
@@ -189,12 +198,13 @@ func (q *Queries) GetIdentity(ctx context.Context, arg GetIdentityParams) (Ident
 		&i.CreatedAt,
 		&i.LastLoginAt,
 		&i.ProviderRole,
+		&i.RoleConfig,
 	)
 	return i, err
 }
 
 const getSessionUser = `-- name: GetSessionUser :one
-SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, users.role, users.role_override, sessions.expires_at
+SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, users.role, users.role_override, sessions.expires_at, sessions.created_at
 FROM sessions JOIN users ON users.id = sessions.user_id
 WHERE sessions.token_hash = $1 AND sessions.expires_at > $2
 `
@@ -207,6 +217,7 @@ type GetSessionUserParams struct {
 type GetSessionUserRow struct {
 	User      User
 	ExpiresAt int64
+	CreatedAt int64
 }
 
 func (q *Queries) GetSessionUser(ctx context.Context, arg GetSessionUserParams) (GetSessionUserRow, error) {
@@ -223,6 +234,7 @@ func (q *Queries) GetSessionUser(ctx context.Context, arg GetSessionUserParams) 
 		&i.User.Role,
 		&i.User.RoleOverride,
 		&i.ExpiresAt,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -249,7 +261,7 @@ func (q *Queries) GetUser(ctx context.Context, id string) (User, error) {
 }
 
 const listIdentities = `-- name: ListIdentities :many
-SELECT identities.provider, identities.subject, identities.user_id, identities.email, identities.username, identities.created_at, identities.last_login_at, identities.provider_role, users.email AS user_email, users.email_verified AS user_email_verified, users.role AS user_role
+SELECT identities.provider, identities.subject, identities.user_id, identities.email, identities.username, identities.created_at, identities.last_login_at, identities.provider_role, identities.role_config, users.email AS user_email, users.email_verified AS user_email_verified, users.role AS user_role
 FROM identities JOIN users ON users.id = identities.user_id ORDER BY identities.user_id
 `
 
@@ -262,6 +274,7 @@ type ListIdentitiesRow struct {
 	CreatedAt         int64
 	LastLoginAt       int64
 	ProviderRole      string
+	RoleConfig        string
 	UserEmail         string
 	UserEmailVerified int64
 	UserRole          string
@@ -286,6 +299,7 @@ func (q *Queries) ListIdentities(ctx context.Context) ([]ListIdentitiesRow, erro
 			&i.CreatedAt,
 			&i.LastLoginAt,
 			&i.ProviderRole,
+			&i.RoleConfig,
 			&i.UserEmail,
 			&i.UserEmailVerified,
 			&i.UserRole,
@@ -405,18 +419,36 @@ func (q *Queries) ListUsersWithIdentity(ctx context.Context) ([]ListUsersWithIde
 	return items, nil
 }
 
+const lockUser = `-- name: LockUser :exec
+SELECT id FROM users WHERE id = $1 FOR UPDATE
+`
+
+// Serializes quota checks of one owner across API processes (PostgreSQL
+// row lock until the transaction ends; SQLite transactions are already
+// serialized).
+func (q *Queries) LockUser(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, lockUser, id)
+	return err
+}
+
 const setIdentityProviderRole = `-- name: SetIdentityProviderRole :exec
-UPDATE identities SET provider_role = $1 WHERE provider = $2 AND subject = $3
+UPDATE identities SET provider_role = $1, role_config = $2 WHERE provider = $3 AND subject = $4
 `
 
 type SetIdentityProviderRoleParams struct {
 	ProviderRole string
+	RoleConfig   string
 	Provider     string
 	Subject      string
 }
 
 func (q *Queries) SetIdentityProviderRole(ctx context.Context, arg SetIdentityProviderRoleParams) error {
-	_, err := q.db.ExecContext(ctx, setIdentityProviderRole, arg.ProviderRole, arg.Provider, arg.Subject)
+	_, err := q.db.ExecContext(ctx, setIdentityProviderRole,
+		arg.ProviderRole,
+		arg.RoleConfig,
+		arg.Provider,
+		arg.Subject,
+	)
 	return err
 }
 

@@ -210,7 +210,7 @@ func TestRoleColumnsContract(t *testing.T) {
 	if err := s.CreateIdentity(ctx, db.CreateIdentityParams{Provider: "gh", Subject: "42", UserID: "u1", Username: "octo", CreatedAt: 1, LastLoginAt: 5}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetIdentityProviderRole(ctx, db.SetIdentityProviderRoleParams{ProviderRole: "admin", Provider: "gh", Subject: "42"}); err != nil {
+	if err := s.SetIdentityProviderRole(ctx, db.SetIdentityProviderRoleParams{ProviderRole: "admin", RoleConfig: "abc", Provider: "gh", Subject: "42"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetUserRole(ctx, db.SetUserRoleParams{Role: "user", ID: "u1"}); err != nil {
@@ -224,11 +224,14 @@ func TestRoleColumnsContract(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := s.Tx(ctx, func(q *db.Queries) error { return q.LockUser(ctx, "u1") }); err != nil {
+		t.Fatalf("LockUser: %v", err)
+	}
 	if n, err := s.CountOwnedAgents(ctx, "u1"); err != nil || n != 2 {
 		t.Fatalf("CountOwnedAgents = %d, %v", n, err)
 	}
 	ids, err := s.ListIdentities(ctx)
-	if err != nil || len(ids) != 1 || ids[0].ProviderRole != "admin" || ids[0].UserRole != "user" || ids[0].UserEmail != "u1@example.com" {
+	if err != nil || len(ids) != 1 || ids[0].ProviderRole != "admin" || ids[0].RoleConfig != "abc" || ids[0].UserRole != "user" || ids[0].UserEmail != "u1@example.com" {
 		t.Fatalf("ListIdentities = %+v %v", ids, err)
 	}
 	users, err := s.ListUsersWithIdentity(ctx)

@@ -58,6 +58,8 @@ type harnessConn struct {
 	probeSessions map[string]bool
 
 	mu       sync.Mutex
+	lastUsed map[string]time.Time       // ACP session id -> when a turn last started or ended in it
+	closing  map[string]chan struct{}   // ACP sessions being closed (idle); closed when done
 	sessions map[string]string          // ACP session id -> our session id
 	active   map[string]bool            // ACP sessions known to this process
 	config   map[string][]ConfigOption  // ACP session id -> its current config options
@@ -319,6 +321,79 @@ func (c *harnessConn) markActive(acpID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.active[acpID] = true
+	c.usedLocked(acpID)
+}
+
+// used records that a turn ended in the session (it is not idle).
+func (c *harnessConn) used(acpID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.usedLocked(acpID)
+}
+
+func (c *harnessConn) usedLocked(acpID string) {
+	if c.lastUsed == nil {
+		c.lastUsed = map[string]time.Time{}
+	}
+	c.lastUsed[acpID] = time.Now()
+}
+
+type idleSession struct{ acpID, sessionID string }
+
+// idleSessions are the active, bound sessions (no probes) whose last turn
+// ended before since.
+func (c *harnessConn) idleSessions(since time.Time) []idleSession {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []idleSession
+	for acpID := range c.active {
+		sessionID, bound := c.sessions[acpID]
+		if !bound || c.probeSessions[acpID] || c.closing[acpID] != nil || !c.lastUsed[acpID].Before(since) {
+			continue
+		}
+		out = append(out, idleSession{acpID, sessionID})
+	}
+	return out
+}
+
+// beginClose marks the session as being closed and forgets it: the next
+// turn restores it, after waitClosed.
+func (c *harnessConn) beginClose(acpID string) chan struct{} {
+	ch := make(chan struct{})
+	c.mu.Lock()
+	if c.closing == nil {
+		c.closing = map[string]chan struct{}{}
+	}
+	c.closing[acpID] = ch
+	delete(c.lastUsed, acpID)
+	c.mu.Unlock()
+	c.forget(acpID)
+	return ch
+}
+
+func (c *harnessConn) endClose(acpID string, ch chan struct{}) {
+	c.mu.Lock()
+	if c.closing[acpID] == ch {
+		delete(c.closing, acpID)
+	}
+	c.mu.Unlock()
+	close(ch)
+}
+
+// waitClosed waits until a close of the session in flight is answered.
+func (c *harnessConn) waitClosed(ctx context.Context, acpID string) error {
+	c.mu.Lock()
+	ch := c.closing[acpID]
+	c.mu.Unlock()
+	if ch == nil {
+		return nil
+	}
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (c *harnessConn) isActive(acpID string) bool {

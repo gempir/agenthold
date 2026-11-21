@@ -324,7 +324,9 @@ paths:
     post:
       operationId: createAgent
       tags: [agents]
-      description: Create an agent. You become its owner.
+      description: >-
+        Create an agent. You become its owner. It is placed on the connected node with the most available
+        memory unless an admin names a node in `nodeId`.
       requestBody:
         required: true
         content:
@@ -337,6 +339,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Agent" }
         "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
 
   /agents/{agentId}:
     parameters:
@@ -2378,6 +2383,13 @@ components:
         harness: { type: string, description: Harness id (see /harnesses). Default claude-code. }
         model: { type: string }
         permissionPolicy: { type: string, enum: [auto-approve, ask] }
+        nodeId:
+          type: string
+          description: >-
+            Place the agent on this node (an `id` from `GET /nodes`). Omit it for automatic placement.
+            Admins only (403 otherwise). 400 if the node does not exist; 409 if it is offline, cannot
+            report its capacity or has less available memory than `memoryMb`. The agent stays on the
+            node for its whole life.
 
     CloneInput:
       type: object

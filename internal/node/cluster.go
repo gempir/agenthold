@@ -25,7 +25,7 @@ import (
 )
 
 // LocalID is the node id of the controller's built-in node.
-const LocalID = "local"
+const LocalID = sandbox.LocalNodeID
 
 // ErrNodeInUse is returned when removing a node that still hosts agents.
 var ErrNodeInUse = errors.New("the node still hosts agents")
@@ -102,6 +102,7 @@ type interceptItem struct {
 var (
 	_ Node                 = (*Cluster)(nil)
 	_ sandbox.Placer       = (*Cluster)(nil)
+	_ sandbox.NodePlacer   = (*Cluster)(nil)
 	_ sandbox.Reachability = (*Cluster)(nil)
 	_ enrollment.Registry  = (*Cluster)(nil)
 )
@@ -391,6 +392,37 @@ func (c *Cluster) Place(ctx context.Context) (sandbox.Placement, error) {
 		return sandbox.Placement{}, err
 	}
 	return sandbox.Placement{NodeID: best.id, Driver: name}, nil
+}
+
+// PlaceOn implements sandbox.NodePlacer: the agent goes to the node req names,
+// or the request fails with a reason a user can act on.
+func (c *Cluster) PlaceOn(ctx context.Context, req sandbox.PlaceRequest) (sandbox.Placement, error) {
+	row, err := c.cfg.Store.GetNode(ctx, req.NodeID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return sandbox.Placement{}, fmt.Errorf("%w %q", sandbox.ErrUnknownNode, req.NodeID)
+	} else if err != nil {
+		return sandbox.Placement{}, err
+	}
+	n, ok := c.connected()[req.NodeID]
+	if !ok {
+		return sandbox.Placement{}, &sandbox.NodeUnavailableError{Msg: fmt.Sprintf("node %s is offline; choose another node or wait until it reconnects", row.Name)}
+	}
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	capacity, err := n.Capacity(cctx)
+	if err != nil {
+		return sandbox.Placement{}, &sandbox.NodeUnavailableError{Msg: fmt.Sprintf("node %s could not report its capacity: %v", row.Name, err)}
+	}
+	if need := uint64(max(req.MemoryMB, 0)) << 20; capacity.MemoryBytes < need {
+		return sandbox.Placement{}, &sandbox.NodeUnavailableError{Msg: fmt.Sprintf(
+			"node %s has %d MB of memory available, the agent needs %d MB; choose another node or a smaller agent",
+			row.Name, capacity.MemoryBytes>>20, req.MemoryMB)}
+	}
+	name, err := n.Name(ctx)
+	if err != nil {
+		return sandbox.Placement{}, err
+	}
+	return sandbox.Placement{NodeID: req.NodeID, Driver: name}, nil
 }
 
 // Nodes lists every registered node with its live connection state.

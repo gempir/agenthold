@@ -252,7 +252,7 @@ export interface paths {
         /** @description Agents you own and agents shared with you. Templates are left out unless asked for. */
         get: operations["listAgents"];
         put?: never;
-        /** @description Create an agent. You become its owner. */
+        /** @description Create an agent. You become its owner. It is placed on the connected node with the most available memory unless an admin names a node in `nodeId`. */
         post: operations["createAgent"];
         delete?: never;
         options?: never;
@@ -2047,6 +2047,8 @@ export interface components {
             model?: string;
             /** @enum {string} */
             permissionPolicy?: "auto-approve" | "ask";
+            /** @description Place the agent on this node (an `id` from `GET /nodes`). Omit it for automatic placement. Admins only (403 otherwise). 400 if the node does not exist; 409 if it is offline, cannot report its capacity or has less available memory than `memoryMb`. The agent stays on the node for its whole life. */
+            nodeId?: string;
         };
         CloneInput: {
             name: string;
@@ -3114,6 +3116,9 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     getAgent: {

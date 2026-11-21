@@ -387,14 +387,38 @@ func (m *Manager) NeedsRebuild(a db.Agent, sb db.Sandbox) bool {
 // transaction q) and returns a function that starts provisioning; call it
 // after the transaction commits.
 func (m *Manager) Provision(ctx context.Context, q *db.Queries, agentID string) (start func(), err error) {
-	var place Placement
-	if p, ok := m.driver.(Placer); ok {
-		if place, err = p.Place(ctx); err != nil {
-			return nil, err
-		}
-	} else if place.Driver, err = m.driver.Name(ctx); err != nil {
+	place, err := m.PlaceNew(ctx, PlaceRequest{})
+	if err != nil {
 		return nil, err
 	}
+	return m.ProvisionAt(ctx, q, agentID, place)
+}
+
+// PlaceNew decides where a new agent goes: the node req names (it has to exist,
+// be connected and have the memory), or the best node when req names none.
+// It queries the store, so call it before the transaction that ProvisionAt
+// runs in.
+func (m *Manager) PlaceNew(ctx context.Context, req PlaceRequest) (place Placement, err error) {
+	if req.NodeID == "" {
+		if p, ok := m.driver.(Placer); ok {
+			return p.Place(ctx)
+		}
+		place.Driver, err = m.driver.Name(ctx)
+		return place, err
+	}
+	if p, ok := m.driver.(NodePlacer); ok {
+		return p.PlaceOn(ctx, req)
+	}
+	// A single in-process node is the built-in node and nothing else.
+	if req.NodeID != LocalNodeID {
+		return Placement{}, fmt.Errorf("%w %q", ErrUnknownNode, req.NodeID)
+	}
+	place.Driver, err = m.driver.Name(ctx)
+	return place, err
+}
+
+// ProvisionAt is Provision for a placement PlaceNew decided.
+func (m *Manager) ProvisionAt(ctx context.Context, q *db.Queries, agentID string, place Placement) (start func(), err error) {
 	if err := q.CreateSandbox(ctx, db.CreateSandboxParams{
 		AgentID: agentID, NodeID: place.NodeID, Driver: place.Driver, State: string(PhaseCreating), StateChangedAt: m.now().Unix(),
 	}); err != nil {

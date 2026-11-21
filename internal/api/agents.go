@@ -182,10 +182,23 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 	if err := a.validateSettings(&s); err != nil {
 		return nil, err
 	}
+	// Choosing the node is for admins, like seeing nodes at all.
+	var placeReq sandbox.PlaceRequest
+	if b.NodeId != nil && strings.TrimSpace(*b.NodeId) != "" {
+		if err := a.requireAdmin(ctx); err != nil {
+			return nil, err
+		}
+		placeReq = sandbox.PlaceRequest{NodeID: strings.TrimSpace(*b.NodeId), MemoryMB: s.memoryMB}
+	}
+	// Placement queries the store and the nodes, so it happens before the transaction.
+	place, err := a.Sandboxes.PlaceNew(ctx, placeReq)
+	if err != nil {
+		return nil, err
+	}
 	now := a.Now().Unix()
 	agentID := id.New("ag")
 	var provision func()
-	err := a.Store.Tx(ctx, func(q *db.Queries) error {
+	err = a.Store.Tx(ctx, func(q *db.Queries) error {
 		// New agents use their owner's account logins (shown on the agent).
 		if err := q.CreateAgent(ctx, db.CreateAgentParams{
 			ID: agentID, OwnerID: u.ID, Name: s.name, Image: "base",
@@ -195,7 +208,7 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 			return err
 		}
 		var err error
-		provision, err = a.Sandboxes.Provision(ctx, q, agentID)
+		provision, err = a.Sandboxes.ProvisionAt(ctx, q, agentID, place)
 		return err
 	})
 	if err != nil {

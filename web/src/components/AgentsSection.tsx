@@ -7,6 +7,8 @@ import {
   agentsQuery,
   harnessesQuery,
   isOwner,
+  meQuery,
+  nodesQuery,
   templatesQuery,
   sandboxLimitsQuery,
   type Agent,
@@ -24,6 +26,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { nodeChoice, nodeLabel } from '@/lib/nodes';
 
 export function AgentList({ agents }: { agents: Agent[] }) {
   if (agents.length === 0)
@@ -150,6 +153,14 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
   const templates = (useQuery(templatesQuery).data ?? []).filter(isOwner);
   const [templateId, setTemplateId] = useState('');
   const template = templates.find((t) => t.id === templateId);
+  // Admins may pick the node. '' is automatic placement.
+  const admin = !!useQuery(meQuery).data?.admin;
+  const nodes = useQuery({ ...nodesQuery, enabled: admin }).data ?? [];
+  const [nodePick, setNodePick] = useState('');
+  const chosen = nodes.find((n) => n.id === nodePick);
+  const nodeProblem = chosen ? nodeChoice(chosen, memN) : undefined;
+  // With one node there is nothing to choose.
+  const pickNode = !template && nodes.length > 1;
 
   const create = useMutation({
     mutationFn: () =>
@@ -169,6 +180,7 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
                 idleMinutes: Number(idle),
                 ...(harness && { harness }),
                 ...(model.trim() && { model: model.trim() }),
+                ...(pickNode && chosen && { nodeId: chosen.id }),
               },
             }),
           ),
@@ -224,7 +236,9 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
           {template ? (
             <p className="text-sm text-muted-foreground">
               A copy of {template.name}: its files, {template.cpus} CPUs,{' '}
-              {template.memoryMb} MB of memory and its harness settings.
+              {template.memoryMb} MB of memory and its harness settings. It runs
+              on the same node
+              {template.nodeName ? ` (${template.nodeName})` : ''}.
             </p>
           ) : (
             <>
@@ -284,6 +298,33 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
                   />
                 </label>
               </div>
+              {pickNode && (
+                <label className="grid gap-1 text-sm">
+                  Node
+                  <Select
+                    value={nodePick}
+                    onChange={(e) => setNodePick(e.target.value)}
+                  >
+                    <option value="">
+                      Automatic (the node with the most free memory)
+                    </option>
+                    {nodes.map((n) => (
+                      <option
+                        key={n.id}
+                        value={n.id}
+                        disabled={nodeChoice(n, memN).disabled}
+                      >
+                        {nodeLabel(n, memN)}
+                      </option>
+                    ))}
+                  </Select>
+                  {nodeProblem?.disabled && (
+                    <span role="alert" className="text-destructive">
+                      {nodeProblem.reason}
+                    </span>
+                  )}
+                </label>
+              )}
             </>
           )}
           <ErrorText error={create.error} />
@@ -296,6 +337,7 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
               disabled={
                 !name.trim() ||
                 (!template && !resourcesValid) ||
+                (pickNode && !!nodeProblem?.disabled) ||
                 create.isPending
               }
             >

@@ -46,7 +46,7 @@ out unworkable, stop and report.
 | Sleep | Cold shutdown and boot (same semantics as before: disk and conversation survive, processes do not). Memory snapshots are a later milestone. |
 | Secrets | Unchanged: never enter the VM. A host-side transparent TLS-intercepting proxy injects them. Account-level harness logins stay. |
 | Network | Every agent has open internet through the proxy. Network policy (allowlists) and the per-agent request log are removed. |
-| Topology | One binary, two roles. `agenthold` alone is controller + node. Later `agenthold node --join <token>` adds a remote node that dials the controller. New agents are placed on the node with most free capacity and stay there. Node down = its agents offline. |
+| Topology | One binary, two roles. `agenthold` alone is controller + node. Later `agenthold node --join <token>` adds a remote node that dials the controller. New agents are placed on the node with most free capacity (or the node an admin picks) and stay there. Node down = its agents offline. |
 | Edge trust | Nodes are trusted infrastructure. The proxy runs on the node; the controller pushes the decrypted secrets of that node's agents over the node connection, held in memory only. |
 | Database | SQLite (default, zero setup) or Postgres. sqlc stays, with one query set per engine. No MySQL. |
 | Auth | OIDC and GitHub OAuth as before, plus `auth.local` = exactly one admin (username + password hash) in the YAML. No provider and no `auth.local` means nobody can log in; the server says so at startup. No generated credentials, no signup. |

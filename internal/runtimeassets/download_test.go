@@ -3,6 +3,7 @@ package runtimeassets
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,7 +13,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -33,7 +33,7 @@ func fastDownloads(t *testing.T) {
 
 // bigFixture is fixture with an incompressible base, so a compressed file big enough to be cut
 // in the middle exists.
-func bigFixture(t *testing.T) (manifest, fstest.MapFS, []byte, []byte) {
+func bigFixture(t *testing.T) (fixtureManifest, fstest.MapFS, []byte, []byte) {
 	t.Helper()
 	m, files, _, _ := fixture(t)
 	raw := make([]byte, 1<<20)
@@ -99,11 +99,11 @@ func dropRange(w http.ResponseWriter, r *http.Request, data []byte, etag string,
 	panic(http.ErrAbortHandler)
 }
 
-func prepareFrom(t *testing.T, srv *httptest.Server, m manifest, files fstest.MapFS, dir string) error {
+func prepareFrom(t *testing.T, srv *httptest.Server, m fixtureManifest, files fstest.MapFS, dir string) error {
 	t.Helper()
 	m.Base.URL = srv.URL + "/base.zst"
 	setManifest(t, files, m)
-	_, err := prepare(t.Context(), dir, files, srv.Client(), Options{Log: slog.New(slog.DiscardHandler)})
+	_, err := prepareT(t.Context(), dir, files, srv.Client(), Options{Log: slog.New(slog.DiscardHandler)})
 	return err
 }
 
@@ -116,7 +116,7 @@ func baseDirOf(t *testing.T, dir string) string {
 	return filepath.Join(canonical, "base")
 }
 
-func assertBase(t *testing.T, dir string, m manifest, raw, compressed []byte) {
+func assertBase(t *testing.T, dir string, m fixtureManifest, raw, compressed []byte) {
 	t.Helper()
 	base := baseDirOf(t, dir)
 	if got, err := os.ReadFile(filepath.Join(base, m.Base.SHA256+".ext4")); err != nil || !bytes.Equal(got, raw) {
@@ -340,7 +340,7 @@ func TestDownloadRetriesServerErrorsAndStopsOnNotFound(t *testing.T) {
 	setManifest(t, files, m)
 	before := len(rec.get())
 	err := func() error {
-		_, err := prepare(t.Context(), privateDir(t), files, srv.Client(), Options{Log: slog.New(slog.DiscardHandler)})
+		_, err := prepareT(t.Context(), privateDir(t), files, srv.Client(), Options{Log: slog.New(slog.DiscardHandler)})
 		return err
 	}()
 	if err == nil || !strings.Contains(err.Error(), "404") || len(rec.get())-before != 1 {
@@ -399,7 +399,7 @@ func TestPrepareUsesPlacedCompressedImage(t *testing.T) {
 	}
 	m.Base.URL = ""
 	setManifest(t, files, m)
-	paths, err := prepare(t.Context(), dir, files, &http.Client{Timeout: time.Millisecond}, Options{})
+	paths, err := prepareT(t.Context(), dir, files, &http.Client{Timeout: time.Millisecond}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +425,7 @@ func TestConcurrentPreparesDownloadOnce(t *testing.T) {
 	errs := make(chan error, 3)
 	for range 3 {
 		wg.Go(func() {
-			_, err := prepare(t.Context(), dir, files, srv.Client(), Options{Log: slog.New(slog.DiscardHandler)})
+			_, err := prepareT(t.Context(), dir, files, srv.Client(), Options{Log: slog.New(slog.DiscardHandler)})
 			errs <- err
 		})
 	}
@@ -450,7 +450,7 @@ func TestDownloadLogsProgress(t *testing.T) {
 	var out bytes.Buffer
 	m.Base.URL = srv.URL
 	setManifest(t, files, m)
-	if _, err := prepare(t.Context(), privateDir(t), files, srv.Client(), Options{Log: slog.New(slog.NewTextHandler(&out, nil))}); err != nil {
+	if _, err := prepareT(t.Context(), privateDir(t), files, srv.Client(), Options{Log: slog.New(slog.NewTextHandler(&out, nil))}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "percent=") || !strings.Contains(out.String(), "of=") {
@@ -473,150 +473,13 @@ func TestCancelledDownloadKeepsPartForResume(t *testing.T) {
 	m.Base.URL = srv.URL
 	setManifest(t, files, m)
 	dir := privateDir(t)
-	_, err := prepare(ctx, dir, files, srv.Client(), Options{Log: slog.New(slog.DiscardHandler)})
+	_, err := prepareT(ctx, dir, files, srv.Client(), Options{Log: slog.New(slog.DiscardHandler)})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
 	fi, err := os.Stat(partPath(baseDirOf(t, dir), m.Base.SHA256))
 	if err != nil || fi.Size() == 0 {
 		t.Fatalf("part file: %v", err)
-	}
-}
-
-func TestBaseSourceResolution(t *testing.T) {
-	m := manifest{Version: "v1.2.3", Arch: runtime.GOARCH}
-	file := "v1.2.3/base-" + runtime.GOARCH + ".ext4.zst"
-	tests := []struct {
-		name    string
-		embed   string
-		opts    Options
-		want    []string
-		wantErr string
-	}{
-		{name: "embedded only", embed: "https://github.example/base.zst", want: []string{"https://github.example/base.zst"}},
-		{
-			name: "config wins over controller and embedded", embed: "https://github.example/base.zst",
-			opts: Options{BaseURL: "https://demo.example/dl/", Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v1.2.3"}},
-			want: []string{"https://demo.example/dl/" + file},
-		},
-		{name: "config direct file url", opts: Options{BaseURL: "https://mirror.example/x/base.zst"}, want: []string{"https://mirror.example/x/base.zst"}},
-		{
-			name: "controller wins over embedded", embed: "https://github.example/base.zst",
-			opts: Options{Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v1.2.3"}},
-			want: []string{"https://ctl.example/dl/" + file, "https://github.example/base.zst"},
-		},
-		{
-			name: "controller only", opts: Options{Controller: Controller{DownloadURL: "https://ctl.example/prefix/dl/", Version: "v1.2.3"}},
-			want: []string{"https://ctl.example/prefix/dl/" + file},
-		},
-		{
-			name: "relative embedded url joins the root", embed: "v1.2.3/custom.zst",
-			opts: Options{BaseURL: "https://demo.example/dl/"}, want: []string{"https://demo.example/dl/v1.2.3/custom.zst"},
-		},
-		{
-			name: "version skew without fallback", opts: Options{Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v2.0.0", Live: true}},
-			wantErr: "runs agenthold v1.2.3 but its controller runs v2.0.0",
-		},
-		{
-			name: "persisted version is only last seen", opts: Options{Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v2.0.0"}},
-			wantErr: "its controller was last seen running v2.0.0",
-		},
-		{
-			name: "unusable controller url falls through to embedded", embed: "https://github.example/base.zst",
-			opts: Options{Controller: Controller{DownloadURL: "ftp://ctl.example/dl/", Version: "v1.2.3"}, Log: slog.New(slog.DiscardHandler)},
-			want: []string{"https://github.example/base.zst"},
-		},
-		{
-			name: "unusable controller url without fallback", opts: Options{Controller: Controller{DownloadURL: "ctl.example/dl/", Version: "v1.2.3"}},
-			wantErr: "download URL is unusable",
-		},
-		{
-			name: "refreshed controller replaces the persisted one", embed: "https://github.example/base.zst",
-			opts: Options{Controller: Controller{
-				DownloadURL: "https://old.example/dl/", Version: "v1.0.0",
-				Refresh: func(context.Context) (Controller, error) {
-					return Controller{DownloadURL: "https://new.example/dl/", Version: "v1.2.3"}, nil
-				},
-			}, Log: slog.New(slog.DiscardHandler)},
-			want: []string{"https://new.example/dl/" + file, "https://github.example/base.zst"},
-		},
-		{
-			name: "failed refresh keeps what was learned", opts: Options{Controller: Controller{
-				DownloadURL: "https://old.example/dl/", Version: "v1.2.3",
-				Refresh: func(context.Context) (Controller, error) { return Controller{}, errors.New("down") },
-			}, Log: slog.New(slog.DiscardHandler)},
-			want: []string{"https://old.example/dl/" + file},
-		},
-		{
-			name: "version skew falls back to embedded", embed: "https://github.example/base.zst",
-			opts: Options{Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v2.0.0"}, Log: slog.New(slog.DiscardHandler)},
-			want: []string{"https://github.example/base.zst"},
-		},
-		{
-			name: "config ignores skew", opts: Options{BaseURL: "https://demo.example/dl/", Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v2"}},
-			want: []string{"https://demo.example/dl/" + file},
-		},
-		{name: "nothing", wantErr: "base_url"},
-		{name: "relative embedded without root", embed: "v1.2.3/custom.zst", wantErr: "base_url"},
-		{name: "bad config", opts: Options{BaseURL: "ftp://x/"}, wantErr: "sandbox.firecracker.base_url"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := m
-			m.Base.URL = tt.embed
-			got, err := tt.opts.candidates(t.Context(), m)
-			if tt.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("err = %v, want %q", err, tt.wantErr)
-				}
-				return
-			}
-			if err != nil || strings.Join(got, "\n") != strings.Join(tt.want, "\n") {
-				t.Fatalf("got %v, %v; want %v", got, err, tt.want)
-			}
-		})
-	}
-}
-
-func TestPrepareTriesNextSourceWhenControllerCannotServe(t *testing.T) {
-	fastDownloads(t)
-	m, files, raw, compressed := bigFixture(t)
-	var controller, github atomic.Int32
-	ctl := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		controller.Add(1)
-		http.NotFound(w, r)
-	}))
-	defer ctl.Close()
-	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		github.Add(1)
-		serveBytes(w, r, compressed, `"v1"`)
-	}))
-	defer gh.Close()
-	m.Base.URL = gh.URL + "/base.zst"
-	setManifest(t, files, m)
-	dir := privateDir(t)
-	opts := Options{Controller: Controller{DownloadURL: ctl.URL + "/dl/", Version: m.Version}, Log: slog.New(slog.DiscardHandler)}
-	if _, err := prepare(t.Context(), dir, files, http.DefaultClient, opts); err != nil {
-		t.Fatal(err)
-	}
-	assertBase(t, dir, m, raw, compressed)
-	if controller.Load() != 1 || github.Load() != 1 {
-		t.Fatalf("controller=%d github=%d", controller.Load(), github.Load())
-	}
-}
-
-func TestManifestBaseURLForms(t *testing.T) {
-	for url, ok := range map[string]bool{
-		"": true, "https://x.example/b.zst": true, "http://x.example/b.zst": true, "v1/base.zst": true,
-		"/abs/path": false, "../x": false, "ftp://x.example/b": false, "https://u:p@x.example/b": false,
-	} {
-		m, files, _, _ := fixture(t)
-		m.Base.URL = url
-		setManifest(t, files, m)
-		_, err := readManifest(files)
-		if (err == nil) != ok {
-			t.Errorf("base url %q: err=%v, want ok=%v", url, err, ok)
-		}
 	}
 }
 
@@ -636,7 +499,7 @@ func TestControllerIsOnlyAskedWhenADownloadIsNeeded(t *testing.T) {
 		DownloadURL: "https://c.example/dl/", Version: m.Version,
 		Refresh: func(context.Context) (Controller, error) { asked = true; return Controller{}, errors.New("down") },
 	}}
-	if _, err := prepare(t.Context(), dir, files, &http.Client{Timeout: time.Millisecond}, opts); err != nil || asked {
+	if _, err := prepareT(t.Context(), dir, files, &http.Client{Timeout: time.Millisecond}, opts); err != nil || asked {
 		t.Fatalf("err=%v asked=%v: a node with its base must start without the controller", err, asked)
 	}
 }
@@ -694,43 +557,6 @@ func TestDownloadGrowthBeyondTheHighWaterMarkIsProgress(t *testing.T) {
 	assertBase(t, dir, m, raw, compressed)
 }
 
-func TestUnreachableSourceDoesNotBlockTheNextOne(t *testing.T) {
-	fastDownloads(t)
-	tune0 := tune
-	tune = func(d *downloader) {
-		tune0(d)
-		d.unreachable, d.unreachableOnly = 150*time.Millisecond, 400*time.Millisecond
-		d.giveUp = time.Minute
-	}
-	m, files, raw, compressed := bigFixture(t)
-	dead := httptest.NewServer(http.NotFoundHandler())
-	deadURL := dead.URL
-	dead.Close() // connection refused from now on
-	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serveBytes(w, r, compressed, `"v1"`) }))
-	defer good.Close()
-	m.Base.URL = good.URL + "/base.zst"
-	setManifest(t, files, m)
-	dir := privateDir(t)
-	start := time.Now()
-	opts := Options{Controller: Controller{DownloadURL: deadURL + "/dl/", Version: m.Version}, Log: slog.New(slog.DiscardHandler)}
-	if _, err := prepare(t.Context(), dir, files, good.Client(), opts); err != nil {
-		t.Fatal(err)
-	}
-	if took := time.Since(start); took > 5*time.Second {
-		t.Fatalf("took %s", took)
-	}
-	assertBase(t, dir, m, raw, compressed)
-
-	// The only source gets the longer allowance, then the error says so.
-	m.Base.URL = ""
-	setManifest(t, files, m)
-	start = time.Now()
-	_, err := prepare(t.Context(), privateDir(t), files, good.Client(), Options{BaseURL: deadURL + "/x.zst", Log: slog.New(slog.DiscardHandler)})
-	if err == nil || !strings.Contains(err.Error(), "delivered no data") || time.Since(start) < 400*time.Millisecond {
-		t.Fatalf("err=%v after %s", err, time.Since(start))
-	}
-}
-
 func TestSweepRemovesOnlyOldIdleLeftovers(t *testing.T) {
 	m, files, _, _ := fixture(t)
 	dir := privateDir(t)
@@ -769,19 +595,195 @@ func TestSweepRemovesOnlyOldIdleLeftovers(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatal(err)
 	}
-	if _, err := prepare(t.Context(), dir, files, http.DefaultClient, Options{}); err != nil {
+	if _, err := prepareT(t.Context(), dir, files, http.DefaultClient, Options{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(oldTemp); err != nil {
 		t.Fatal("temp file removed while another process holds a lock")
 	}
 	unlock()
-	if _, err := prepare(t.Context(), dir, files, http.DefaultClient, Options{}); err != nil {
+	if _, err := prepareT(t.Context(), dir, files, http.DefaultClient, Options{}); err != nil {
 		t.Fatal(err)
 	}
 	for p, want := range map[string]bool{oldTemp: false, newTemp: true, oldLock: false, ownLock: true, part: true, busy: false} {
 		if _, err := os.Stat(p); (err == nil) != want {
 			t.Errorf("%s exists=%v, want %v", filepath.Base(p), err == nil, want)
 		}
+	}
+}
+
+func TestAssetRoots(t *testing.T) {
+	discard := slog.New(slog.DiscardHandler)
+	tests := []struct {
+		name    string
+		opts    Options
+		want    []string
+		wantErr string
+	}{
+		{name: "config", opts: Options{AssetsURL: "https://assets.example/dl/"}, want: []string{"https://assets.example/dl/"}},
+		{name: "controller", opts: Options{Controller: Controller{DownloadURL: "https://ctl.example/prefix/dl/"}}, want: []string{"https://ctl.example/prefix/dl/"}},
+		{
+			name: "config first, then the controller", opts: Options{AssetsURL: "https://assets.example/dl/", Controller: Controller{DownloadURL: "https://ctl.example/dl/", Version: "v9"}},
+			want: []string{"https://assets.example/dl/", "https://ctl.example/dl/"},
+		},
+		{name: "same root once", opts: Options{AssetsURL: "https://ctl.example/dl/", Controller: Controller{DownloadURL: "https://ctl.example/dl/"}}, want: []string{"https://ctl.example/dl/"}},
+		{
+			name: "refreshed controller replaces the persisted one", opts: Options{Controller: Controller{
+				DownloadURL: "https://old.example/dl/",
+				Refresh: func(context.Context) (Controller, error) {
+					return Controller{DownloadURL: "https://new.example/dl/"}, nil
+				},
+			}, Log: discard},
+			want: []string{"https://new.example/dl/"},
+		},
+		{
+			name: "failed refresh keeps what was learned", opts: Options{Controller: Controller{
+				DownloadURL: "https://old.example/dl/",
+				Refresh:     func(context.Context) (Controller, error) { return Controller{}, errors.New("down") },
+			}, Log: discard},
+			want: []string{"https://old.example/dl/"},
+		},
+		{name: "unusable controller next to config", opts: Options{AssetsURL: "https://a.example/dl/", Controller: Controller{DownloadURL: "ftp://x/"}, Log: discard}, want: []string{"https://a.example/dl/"}},
+		{name: "unusable controller alone", opts: Options{Controller: Controller{DownloadURL: "ctl.example/dl/"}}, wantErr: "download URL is unusable"},
+		{name: "nothing", wantErr: "assets_url"},
+		{name: "file url", opts: Options{AssetsURL: "https://mirror.example/base.zst"}, wantErr: "ending in"},
+		{name: "bad config", opts: Options{AssetsURL: "ftp://x/"}, wantErr: "sandbox.firecracker.assets_url"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.opts.roots(t.Context())
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil || strings.Join(got, "\n") != strings.Join(tt.want, "\n") {
+				t.Fatalf("got %v, %v; want %v", got, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseAsset(t *testing.T) {
+	good := Asset{Format: 1, Kind: KindBase, Arch: "arm64", Key: testBaseKey, SHA256: strings.Repeat("1", 64), Size: 10, Compressed: artifact{SHA256: strings.Repeat("2", 64), Size: 5}}
+	for name, mutate := range map[string]func(*Asset){
+		"ok": func(*Asset) {}, "format": func(a *Asset) { a.Format = 2 }, "kind": func(a *Asset) { a.Kind = "initrd" },
+		"arch": func(a *Asset) { a.Arch = "riscv64" }, "key": func(a *Asset) { a.Key = "ABC" }, "sha": func(a *Asset) { a.SHA256 = "x" },
+		"size": func(a *Asset) { a.Compressed.Size = 2_000_000_001 }, "other key": func(a *Asset) { a.Key = testKernelKey },
+	} {
+		a := good
+		mutate(&a)
+		data, _ := json.Marshal(a)
+		_, err := ParseAsset(data, KindBase, "arm64", testBaseKey)
+		if (err == nil) != (name == "ok") {
+			t.Errorf("%s: err=%v", name, err)
+		}
+	}
+	if _, err := ParseAsset([]byte(`{"format":1,"extra":true}`), "", "", ""); err == nil {
+		t.Error("unknown fields accepted")
+	}
+}
+
+// A missing asset manifest is fetched from the first source that has it and kept; the file follows.
+func TestPrepareFetchesAssetManifests(t *testing.T) {
+	m, files, raw, compressed := fixture(t)
+	var seen []string
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.URL.Path)
+		mu.Unlock()
+		switch r.URL.Path {
+		case "/dl/assets/" + m.Arch + "/base-" + testBaseKey + ".json":
+			_, _ = w.Write(files["test/base.json"].Data)
+		case "/dl/assets/" + m.Arch + "/base-" + testBaseKey + ".zst":
+			_, _ = w.Write(compressed)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	dead := httptest.NewServer(http.NotFoundHandler())
+	defer dead.Close()
+	dir := privateDir(t)
+	seedAssets(dir, files)
+	if err := os.Remove(ManifestPath(dir, m.Arch, KindBase, testBaseKey)); err != nil {
+		t.Fatal(err)
+	}
+	opts := Options{AssetsURL: dead.URL + "/dl/", Controller: Controller{DownloadURL: srv.URL + "/dl/"}, Log: slog.New(slog.DiscardHandler)}
+	if _, err := prepare(t.Context(), dir, files, srv.Client(), opts); err != nil {
+		t.Fatal(err)
+	}
+	assertBase(t, dir, m, raw, compressed)
+	if _, _, err := ReadAsset(dir, m.Arch, KindBase, testBaseKey); err != nil {
+		t.Fatalf("manifest not kept: %v", err)
+	}
+	// A source that serves a manifest for another key is refused.
+	dir = privateDir(t)
+	seedAssets(dir, files)
+	_ = os.Remove(ManifestPath(dir, m.Arch, KindBase, testBaseKey))
+	wrong := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Replace(string(files["test/base.json"].Data), testBaseKey, testKernelKey, 1)))
+	}))
+	defer wrong.Close()
+	if _, err := prepare(t.Context(), dir, files, wrong.Client(), Options{AssetsURL: wrong.URL + "/"}); err == nil || !strings.Contains(err.Error(), "key") {
+		t.Fatalf("manifest of another key accepted: %v", err)
+	}
+}
+
+func TestPrepareTriesNextSourceWhenTheFirstCannotServe(t *testing.T) {
+	fastDownloads(t)
+	m, files, raw, compressed := bigFixture(t)
+	var first, second atomic.Int32
+	one := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { first.Add(1); http.NotFound(w, r) }))
+	defer one.Close()
+	two := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { second.Add(1); serveBytes(w, r, compressed, `"v1"`) }))
+	defer two.Close()
+	m.Base.URL = ""
+	setManifest(t, files, m)
+	dir := privateDir(t)
+	opts := Options{AssetsURL: one.URL + "/dl/", Controller: Controller{DownloadURL: two.URL + "/dl/"}, Log: slog.New(slog.DiscardHandler)}
+	if _, err := prepareT(t.Context(), dir, files, http.DefaultClient, opts); err != nil {
+		t.Fatal(err)
+	}
+	assertBase(t, dir, m, raw, compressed)
+	if first.Load() != 1 || second.Load() != 1 {
+		t.Fatalf("first=%d second=%d", first.Load(), second.Load())
+	}
+}
+
+func TestUnreachableSourceDoesNotBlockTheNextOne(t *testing.T) {
+	fastDownloads(t)
+	tune0 := tune
+	tune = func(d *downloader) {
+		tune0(d)
+		d.unreachable, d.unreachableOnly = 150*time.Millisecond, 400*time.Millisecond
+		d.giveUp = time.Minute
+	}
+	m, files, raw, compressed := bigFixture(t)
+	dead := httptest.NewServer(http.NotFoundHandler())
+	deadURL := dead.URL
+	dead.Close() // connection refused from now on
+	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serveBytes(w, r, compressed, `"v1"`) }))
+	defer good.Close()
+	m.Base.URL = ""
+	setManifest(t, files, m)
+	dir := privateDir(t)
+	start := time.Now()
+	opts := Options{AssetsURL: deadURL + "/dl/", Controller: Controller{DownloadURL: good.URL + "/dl/"}, Log: slog.New(slog.DiscardHandler)}
+	if _, err := prepareT(t.Context(), dir, files, good.Client(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Fatalf("took %s", took)
+	}
+	assertBase(t, dir, m, raw, compressed)
+
+	// The only source gets the longer allowance, then the error says so.
+	start = time.Now()
+	_, err := prepareT(t.Context(), privateDir(t), files, good.Client(), Options{AssetsURL: deadURL + "/dl/", Log: slog.New(slog.DiscardHandler)})
+	if err == nil || !strings.Contains(err.Error(), "delivered no data") || time.Since(start) < 400*time.Millisecond {
+		t.Fatalf("err=%v after %s", err, time.Since(start))
 	}
 }

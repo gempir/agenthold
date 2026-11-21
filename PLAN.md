@@ -62,8 +62,8 @@ Known consequences, accepted:
 
 - Most cheap cloud VPSes have no KVM and cannot host agents.
 - The dev and demo setups run Firecracker under nested virtualization (slower than bare metal).
-- Only arm64 is built and KVM-tested (on the demo host, which has KVM on arm64). x86_64 is supported from
-  source (`scripts/release/build.sh` on an x86_64 KVM host) but not built or tested by the project.
+- Release binaries are built for amd64 and arm64 by GitHub Actions; guest kernels and base images are built
+  and KVM-tested natively per architecture: arm64 on the demo VM, amd64 on korriban (G3).
 
 ## 3. Architecture
 
@@ -374,6 +374,17 @@ Milestones (migration numbers are reserved so parallel work does not collide):
   The node delivers its own executable as the initramfs. Releases ship one file per architecture; the
   runtime manifest lists `firecracker`, `jailer` and `kernel` only. The initramfs grows from the 7 MB sandboxd
   to the whole binary (see guest-artifacts for the measurement). No migration.
+
+- **G3. Binaries from GitHub, assets per architecture** (done). Release binaries (`release.yml`: pre-release
+  `sha-<commit>` for every green main commit, `v*` tags as releases) embed Firecracker and the jailer only; the
+  guest kernel and the base image are assets named by their input keys (`kernel-key.sh`, `base-key.sh`), built
+  natively per architecture by `scripts/release/build-assets.sh`, described by asset manifests and served under
+  `/dl/assets/<arch>/`. The runtime manifest is format 2 (keys instead of sums), the store channel format 3.
+  Nodes fetch missing assets from `sandbox.firecracker.assets_url`, then their controller; assets are matched
+  by key, so node and controller versions no longer have to match for them. Trust change: the asset manifest
+  comes from the source, so sources must be trusted (they are the operator's own hosts). korriban (amd64)
+  builds its own assets in a build container and follows the demo's version. No migration; pull.sh places
+  the assets before the first switch.
 
 ### Later
 

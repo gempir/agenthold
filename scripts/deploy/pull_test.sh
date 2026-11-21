@@ -17,26 +17,41 @@ v="sha-$new"
 fail() { echo "FAIL: $*" >&2; [[ -f "$work/run.log" ]] && cat "$work/run.log" >&2; exit 1; }
 
 # --- fixture store: what build-local.sh publishes ---
-mkdir -p "$work/fixture/$v" "$work/opt/releases/$old"
+kkey=$(printf '%032d' 0 | tr 0 a)
+bkey=$(printf '%032d' 0 | tr 0 b)
+A="$work/fixture/assets/arm64"
+mkdir -p "$work/fixture/$v" "$work/opt/releases/$old" "$A"
 printf '#!/usr/bin/env bash\necho "agenthold old (old)"\n' > "$work/opt/releases/$old/agenthold"
 chmod +x "$work/opt/releases/$old/agenthold"
 f="$work/fixture/$v"
 printf '#!/usr/bin/env bash\necho "agenthold sha-%s (deadbeef)"\n' "$new" > "$f/agenthold-linux-arm64"
 chmod +x "$f/agenthold-linux-arm64"
+jq -n --arg version "$v" --arg k "$kkey" --arg b "$bkey" '{format:2,arch:"arm64",version:$version,files:{},kernel:{key:$k},base:{key:$b}}' > "$f/runtime-linux-arm64.manifest.json"
 printf 'small test disk image\n' > "$work/fixture/base"
-zstd -q -f "$work/fixture/base" -o "$f/base-arm64.ext4.zst"
+printf 'small test kernel\n' > "$work/fixture/kernel"
 base_sha=$(sha256sum "$work/fixture/base" | cut -d' ' -f1)
-jq -n '{file:"base-arm64.ext4"}' > "$f/base-arm64.manifest.json"
-jq -n --arg version "$v" --arg raw "$base_sha" --arg compressed "$(sha256sum "$f/base-arm64.ext4.zst" | cut -d' ' -f1)" \
-  --argjson rawsize "$(stat -c %s "$work/fixture/base")" --argjson compressedsize "$(stat -c %s "$f/base-arm64.ext4.zst")" \
-  '{format:1,arch:"arm64",version:$version,base:{url:"",sha256:$raw,size:$rawsize,compressed:{sha256:$compressed,size:$compressedsize}}}' > "$f/runtime-linux-arm64.manifest.json"
-channel() { # channel <store dir>: (re)write SHA256SUMS and channel.json like build-local.sh
+kernel_sha=$(sha256sum "$work/fixture/kernel" | cut -d' ' -f1)
+asset() { # asset <store dir> <kind> <key> <raw file>: (re)write <kind>-<key>.json for the .zst there
+  local a="$1/assets/arm64"
+  jq -n --arg kind "$2" --arg key "$3" --arg sha "$(sha256sum "$4" | cut -d' ' -f1)" --argjson size "$(stat -c %s "$4")" \
+    --arg csha "$(sha256sum "$a/$2-$3.zst" | cut -d' ' -f1)" --argjson csize "$(stat -c %s "$a/$2-$3.zst")" \
+    '{format:1,kind:$kind,arch:"arm64",key:$key,sha256:$sha,size:$size,compressed:{sha256:$csha,size:$csize}}' > "$a/$2-$3.json"
+}
+zstd -q -f "$work/fixture/base" -o "$A/base-$bkey.zst"
+zstd -q -f "$work/fixture/kernel" -o "$A/kernel-$kkey.zst"
+channel() { # channel <store dir>: (re)write asset manifests, SHA256SUMS and channel.json like build-local.sh
   local s="$1"
-  (cd "$s/$v" && sha256sum agenthold-linux-arm64 base-arm64.ext4.zst base-arm64.manifest.json runtime-linux-arm64.manifest.json > SHA256SUMS)
+  asset "$s" base "$bkey" "$work/fixture/base"
+  asset "$s" kernel "$kkey" "$work/fixture/kernel"
+  (cd "$s/$v" && sha256sum agenthold-linux-arm64 runtime-linux-arm64.manifest.json > SHA256SUMS)
   jq -n --arg commit "$new" --arg v "$v" --arg b "$(sha256sum "$s/$v/agenthold-linux-arm64" | cut -d' ' -f1)" \
     --arg m "$(sha256sum "$s/$v/runtime-linux-arm64.manifest.json" | cut -d' ' -f1)" --arg s "$(sha256sum "$s/$v/SHA256SUMS" | cut -d' ' -f1)" \
-    '{format:2,arch:"arm64",commit:$commit,version:$v,binary:{path:($v+"/agenthold-linux-arm64"),sha256:$b},
-      runtime_manifest:{path:($v+"/runtime-linux-arm64.manifest.json"),sha256:$m},sums:{path:($v+"/SHA256SUMS"),sha256:$s}}' > "$s/channel.json"
+    --arg kk "$kkey" --arg ks "$(sha256sum "$s/assets/arm64/kernel-$kkey.json" | cut -d' ' -f1)" \
+    --arg bk "$bkey" --arg bs "$(sha256sum "$s/assets/arm64/base-$bkey.json" | cut -d' ' -f1)" \
+    '{format:3,arch:"arm64",commit:$commit,version:$v,binary:{path:($v+"/agenthold-linux-arm64"),sha256:$b},
+      runtime_manifest:{path:($v+"/runtime-linux-arm64.manifest.json"),sha256:$m},sums:{path:($v+"/SHA256SUMS"),sha256:$s},
+      kernel:{key:$kk,manifest:{path:("assets/arm64/kernel-"+$kk+".json"),sha256:$ks}},
+      base:{key:$bk,manifest:{path:("assets/arm64/base-"+$bk+".json"),sha256:$bs}}}' > "$s/channel.json"
 }
 channel "$work/fixture"
 
@@ -47,6 +62,7 @@ MOCK
 cat > "$work/bin/systemctl" <<'MOCK'
 #!/usr/bin/env bash
 if [[ "$1" == is-active ]]; then exit 0; fi
+if [[ "$1" == show ]]; then echo "invocation-$(basename "$(readlink -f "$AGENTHOLD_DEPLOY_ROOT/current")")"; exit 0; fi
 if [[ "$1" == restart ]]; then
  echo "$(basename "$(readlink -f "$AGENTHOLD_DEPLOY_ROOT/current")")" >> "$MOCK_DIR/restarts"
  if [[ "${MOCK_MODE:-}" == signal && "$(basename "$(readlink -f "$AGENTHOLD_DEPLOY_ROOT/current")")" == "$MOCK_NEW" ]]; then touch "$MOCK_DIR/restart-started"; sleep 2; fi
@@ -77,10 +93,21 @@ cat > "$work/bin/df" <<'MOCK'
 #!/usr/bin/env bash
 if [[ "${MOCK_MODE:-}" == nospace ]]; then printf 'Filesystem 1B-blocks Used Available Use%% Mounted on\nmock 1 1 0 100%% /\n'; else exec /usr/bin/df "$@"; fi
 MOCK
-chmod +x "$work/bin/uname" "$work/bin/systemctl" "$work/bin/curl" "$work/bin/df"
+# The node service's journal (node mode): the start line names the running binary's version.
+cat > "$work/bin/journalctl" <<'MOCK'
+#!/usr/bin/env bash
+active="$(basename "$(readlink -f "$AGENTHOLD_DEPLOY_ROOT/current")")"
+[[ " $* " == *" _SYSTEMD_INVOCATION_ID=invocation-$active "* ]] || exit 1
+ver=old
+[[ "$active" == "$MOCK_NEW" ]] && ver="sha-$MOCK_NEW"
+[[ "$active" == "$MOCK_NEW" && "${MOCK_MODE:-}" == healthfail ]] && ver=wrong
+printf '{"level":"INFO","msg":"edge node starting","version":"%s","driver":"firecracker"}\n' "$ver"
+[[ "${MOCK_MODE:-}" == unreachable && "$active" == "$MOCK_NEW" ]] || printf '{"level":"INFO","msg":"connected to controller"}\n'
+MOCK
+chmod +x "$work/bin/uname" "$work/bin/systemctl" "$work/bin/curl" "$work/bin/df" "$work/bin/journalctl"
 
 reset() {
-  rm -rf "$work/opt/releases/$new" "$work/data/base" "$work/data/dl" "$work/restarts" "$work/restart-started" "$work/src" "$work/fetched"
+  rm -rf "$work/opt/releases/$new" "$work/data/base" "$work/data/kernel" "$work/data/assets" "$work/data/dl" "$work/restarts" "$work/restart-started" "$work/src" "$work/fetched"
   cp -a "$work/fixture" "$work/src"
   ln -sfn "$work/opt/releases/$old" "$work/opt/current"
 }
@@ -88,10 +115,14 @@ run() { env MOCK_MODE="$1" bash "$script" "${@:2}" >"$work/run.log" 2>&1; }
 deployed() {
   [[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/$new" ]] || fail 'not switched'
   [[ "$(sha256sum "$work/data/base/$base_sha.ext4" | cut -d' ' -f1)" == "$base_sha" ]] || fail 'base not unpacked'
-  cmp -s "$work/data/base/$base_sha.ext4.zst" "$work/fixture/$v/base-arm64.ext4.zst" || fail 'compressed base not kept for /dl/'
+  cmp -s "$work/data/base/$base_sha.ext4.zst" "$A/base-$bkey.zst" || fail 'compressed base not kept for /dl/'
+  cmp -s "$work/data/kernel/$kernel_sha" "$work/fixture/kernel" || fail 'kernel not unpacked'
+  cmp -s "$work/data/kernel/$kernel_sha.zst" "$A/kernel-$kkey.zst" || fail 'compressed kernel not kept for /dl/'
+  cmp -s "$work/data/assets/arm64/base-$bkey.json" "$A/base-$bkey.json" || fail 'base asset manifest not placed'
+  cmp -s "$work/data/assets/arm64/kernel-$kkey.json" "$A/kernel-$kkey.json" || fail 'kernel asset manifest not placed'
+  [[ -f "$work/opt/releases/$new/kernel.json" && -f "$work/opt/releases/$new/base.json" ]] || fail 'release does not record its assets'
   cmp -s "$work/data/dl/channel.json" "$work/fixture/channel.json" || fail 'channel not published under /dl/'
   cmp -s "$work/data/dl/$v/SHA256SUMS" "$work/fixture/$v/SHA256SUMS" || fail 'SHA256SUMS not published under /dl/'
-  cmp -s "$work/data/dl/$v/base-arm64.manifest.json" "$work/fixture/$v/base-arm64.manifest.json" || fail 'base manifest not published'
   [[ "$(stat -c %a "$work/data/base/$base_sha.ext4.zst")" == 644 ]] || fail 'compressed base mode'
 }
 unchanged() {
@@ -104,7 +135,7 @@ reset
 run success || fail 'local deploy'
 deployed
 [[ "$(wc -l < "$work/restarts")" == 1 ]] || fail 'restart count'
-[[ "$(stat -c %i "$work/data/base/$base_sha.ext4.zst")" == "$(stat -c %i "$work/src/$v/base-arm64.ext4.zst")" ]] || fail 'local base not hard-linked'
+[[ "$(stat -c %i "$work/data/base/$base_sha.ext4.zst")" == "$(stat -c %i "$work/src/assets/arm64/base-$bkey.zst")" ]] || fail 'local base not hard-linked'
 run success || fail 'second run'
 grep -q "already running $new" "$work/run.log" || fail 'already running'
 [[ "$(wc -l < "$work/restarts")" == 1 ]] || fail 'second run restarted'
@@ -124,7 +155,7 @@ deployed
 reset
 AGENTHOLD_DEPLOY_SOURCE=https://dl.example/dl/ run success || fail 'https deploy'
 deployed
-grep -qx "$v/base-arm64.ext4.zst" "$work/fetched" || fail 'https base not fetched'
+grep -qx "assets/arm64/base-$bkey.zst" "$work/fetched" || fail 'https base not fetched'
 for bad in http://dl.example/dl/ https://dl.example/dl relative/path; do
   reset
   if AGENTHOLD_DEPLOY_SOURCE="$bad" run success; then fail "source $bad accepted"; fi
@@ -136,11 +167,19 @@ mutate() { # mutate <mode>: break the store copy in one way
   local s="$work/src"
   case "$1" in
     corruptbinary) echo corrupt >> "$s/$v/agenthold-linux-arm64";;
-    corruptbase) echo corrupt >> "$s/$v/base-arm64.ext4.zst";;
-    resignedbase) echo corrupt >> "$s/$v/base-arm64.ext4.zst"; channel "$s";;
+    corruptbase) echo corrupt >> "$s/assets/arm64/base-$bkey.zst";;
+    corruptkernel) echo corrupt >> "$s/assets/arm64/kernel-$kkey.zst";;
+    resignedbase) zstd -q -f "$work/fixture/kernel" -o "$s/assets/arm64/base-$bkey.zst"; channel "$s"
+      # The manifest still names the base's uncompressed sha256: the re-signed file unpacks to other bytes.
+      jq --arg sha "$base_sha" --argjson size "$(stat -c %s "$work/fixture/base")" '.sha256 = $sha | .size = $size' "$s/assets/arm64/base-$bkey.json" > "$s/m" &&
+        mv "$s/m" "$s/assets/arm64/base-$bkey.json"
+      jq --arg s "$(sha256sum "$s/assets/arm64/base-$bkey.json" | cut -d' ' -f1)" '.base.manifest.sha256 = $s' "$s/channel.json" > "$s/c" && mv "$s/c" "$s/channel.json";;
+    badasset) echo ' ' >> "$s/assets/arm64/base-$bkey.json";;
+    otherkey) jq --arg k "$(printf '%032d' 0 | tr 0 c)" '.base.key = $k' "$s/$v/runtime-linux-arm64.manifest.json" > "$s/m" && mv "$s/m" "$s/$v/runtime-linux-arm64.manifest.json"; channel "$s";;
     wrongversion) printf '#!/usr/bin/env bash\necho "agenthold sha-%s (x)"\n' "$old" > "$s/$v/agenthold-linux-arm64"; channel "$s";;
     badsums) echo "$(printf '%064d' 0)  extra" >> "$s/$v/SHA256SUMS";;
-    oldformat) jq '.format = 1' "$s/channel.json" > "$s/c" && mv "$s/c" "$s/channel.json";;
+    oldformat) jq '.format = 2' "$s/channel.json" > "$s/c" && mv "$s/c" "$s/channel.json";;
+    assetpath) jq '.base.manifest.path = "assets/arm64/../../../etc/x.json"' "$s/channel.json" > "$s/c" && mv "$s/c" "$s/channel.json";;
     wrongpath) jq --arg p "sha-$old/agenthold-linux-arm64" '.binary.path = $p' "$s/channel.json" > "$s/c" && mv "$s/c" "$s/channel.json";;
     traversal) jq '.version = "../../etc"' "$s/channel.json" > "$s/c" && mv "$s/c" "$s/channel.json";;
     symlink) mv "$s/$v/agenthold-linux-arm64" "$work/elsewhere"; ln -s "$work/elsewhere" "$s/$v/agenthold-linux-arm64";;
@@ -148,7 +187,7 @@ mutate() { # mutate <mode>: break the store copy in one way
     nospace) ;;
   esac
 }
-for mode in corruptbinary corruptbase resignedbase wrongversion badsums oldformat wrongpath traversal symlink nochannel nospace; do
+for mode in corruptbinary corruptbase corruptkernel resignedbase badasset otherkey wrongversion badsums oldformat wrongpath assetpath traversal symlink nochannel nospace; do
   reset
   mutate "$mode"
   if run "$mode"; then fail "$mode unexpectedly succeeded"; fi
@@ -164,6 +203,21 @@ for mode in restartfail healthfail; do
   [[ "$(wc -l < "$work/restarts")" == 2 ]] || fail "$mode: restart count"
   [[ ! -e "$work/data/dl/channel.json" ]] || fail "$mode published"
 done
+
+# Node mode: no HTTP; health is the node service's journal (its version, then a controller connection).
+reset
+AGENTHOLD_DEPLOY_MODE=node AGENTHOLD_DEPLOY_HEALTH=http://127.0.0.1:1 run success || fail 'node deploy'
+deployed
+[[ "$(wc -l < "$work/restarts")" == 1 ]] || fail 'node restart count'
+for mode in healthfail unreachable; do
+  reset
+  if AGENTHOLD_DEPLOY_MODE=node run "$mode"; then fail "node $mode unexpectedly succeeded"; fi
+  [[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/$old" ]] || fail "node $mode: no rollback"
+  [[ "$(wc -l < "$work/restarts")" == 2 ]] || fail "node $mode: restart count"
+done
+reset
+if AGENTHOLD_DEPLOY_MODE=bogus run success; then fail 'unknown mode accepted'; fi
+unchanged 'unknown mode'
 
 # --check verifies everything (including unpacking the base) and touches nothing.
 reset
@@ -192,10 +246,15 @@ seed_prune() {
   for i in 3 4 5 6; do d="$work/src/sha-$(rel "$i")"; mkdir "$d"; touch -d "2020-01-0$i" "$d"; done
   mkdir "$work/src/sha-$old"; touch -d '2019-01-01' "$work/src/sha-$old"
   mkdir "$work/data/dl/sha-$(rel 5)" "$work/data/dl/operator-notes"
+  mkdir -p "$work/data/kernel" && printf 'old kernel' > "$work/data/kernel/$(hex 1 e)" && printf 'z' > "$work/data/kernel/$(hex 1 e).zst"
+  printf 'x' > "$work/src/assets/arm64/base-$(printf '%032d' 0 | tr 0 f).zst"
 }
 seed_prune
 run success || fail 'prune deploy'
 grep -q 'prune: freed' "$work/run.log" || fail 'prune summary'
+# Kernels of no kept release and store assets no kept version names go; the current ones stay.
+[[ ! -e "$work/data/kernel/$(hex 1 e)" && ! -e "$work/data/kernel/$(hex 1 e).zst" && -f "$work/data/kernel/$kernel_sha" ]] || fail 'kernel prune'
+[[ ! -e "$work/src/assets/arm64/base-$(printf '%032d' 0 | tr 0 f).zst" && -f "$work/src/assets/arm64/base-$bkey.zst" && -f "$work/src/assets/arm64/kernel-$kkey.json" ]] || fail 'store asset prune'
 # current + previous bases and the agent-pinned base stay (with their compressed files); others go.
 for b in "$base_sha" "$oldbase" "$pinned"; do [[ -f "$work/data/base/$b.ext4" ]] || fail "base $b pruned"; done
 for b in "$oldbase" "$pinned"; do [[ -f "$work/data/base/$b.ext4.zst" ]] || fail "compressed base $b pruned"; done
@@ -214,13 +273,12 @@ grep -q "prune: removed $work/data/base/$anc1.ext4.zst" "$work/run.log" || fail 
 # its compressed file stay, shared with the store by hard link; a base nothing names any more goes.
 seed_prune
 jq -n --arg b "$base_sha" '{base:{sha256:$b}}' > "$work/opt/releases/$old/runtime.manifest.json"
-ln -f "$work/src/$v/base-arm64.ext4.zst" "$work/src/sha-$old/base-arm64.ext4.zst"
 run success || fail 'shared base deploy'
 [[ -f "$work/data/base/$base_sha.ext4" && -f "$work/data/base/$base_sha.ext4.zst" ]] || fail 'shared base pruned'
 ! grep -q "prune: removed $work/data/base/$base_sha" "$work/run.log" || fail 'shared base removal logged'
-[[ "$(stat -c %i "$work/data/base/$base_sha.ext4.zst")" == "$(stat -c %i "$work/src/$v/base-arm64.ext4.zst")" ]] || fail 'compressed base not shared with the store'
+[[ "$(stat -c %i "$work/data/base/$base_sha.ext4.zst")" == "$(stat -c %i "$work/src/assets/arm64/base-$bkey.zst")" ]] || fail 'compressed base not shared with the store'
 [[ ! -e "$work/data/base/$oldbase.ext4" && ! -e "$work/data/base/$oldbase.ext4.zst" && -f "$work/data/base/$pinned.ext4" ]] || fail 'unnamed base kept or pinned base pruned'
-[[ -f "$work/src/sha-$old/base-arm64.ext4.zst" ]] || fail 'previous store version pruned'
+[[ -d "$work/src/sha-$old" && -f "$work/src/assets/arm64/base-$bkey.zst" ]] || fail 'previous store version or the current assets pruned'
 # An https source is never pruned.
 seed_prune
 AGENTHOLD_DEPLOY_SOURCE=https://dl.example/dl/ run success || fail 'https prune deploy'

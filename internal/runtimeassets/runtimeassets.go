@@ -1,4 +1,8 @@
-// Package runtimeassets prepares the verified runtime and base image embedded by release builds.
+// Package runtimeassets prepares what a release binary needs to run machines: the Firecracker and
+// jailer it embeds, and the guest kernel and base image, which are not embedded. Those two are
+// built natively on a host of each architecture and published by an operator-run asset source
+// (a controller's /dl/assets/); the binary names them by the hash of their build inputs (their
+// key) and finds them in its data directory or fetches them (see asset.go).
 package runtimeassets
 
 import (
@@ -12,12 +16,9 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 )
 
@@ -39,25 +40,32 @@ type artifact struct {
 	Size   int64  `json:"size"`
 }
 
+// baseArtifact is a file kept compressed next to its uncompressed working copy.
 type baseArtifact struct {
 	artifact
-	URL        string   `json:"url"`
 	Compressed artifact `json:"compressed"`
 }
 
+// manifest is the runtime manifest a release binary embeds (format 2): the files it carries and
+// the keys of the kernel and base image it runs with.
 type manifest struct {
 	Format  int                 `json:"format"`
 	Version string              `json:"version"`
 	Arch    string              `json:"arch"`
 	Files   map[string]artifact `json:"files"`
-	Base    baseArtifact        `json:"base"`
+	Kernel  assetRef            `json:"kernel"`
+	Base    assetRef            `json:"base"`
+}
+
+type assetRef struct {
+	Key string `json:"key"`
 }
 
 var prepareGate = make(chan struct{}, 1)
 
 // bundledNames are the files a release binary embeds besides itself. There is no separate
 // sandboxd: the binary is its own (see cmd/agenthold/sandboxd.go).
-var bundledNames = []string{"firecracker", "jailer", "kernel"}
+var bundledNames = []string{"firecracker", "jailer"}
 
 // executable is the running binary, symlinks resolved (a test may replace it).
 var executable = func() (string, error) {
@@ -68,16 +76,14 @@ var executable = func() (string, error) {
 	return filepath.EvalSymlinks(exe)
 }
 
-// Options say where a missing base image may be fetched from. The source is never trusted: the
-// sha256 of the compressed and of the uncompressed image come from the manifest embedded in the
-// binary, whatever URL the bytes arrive from.
+// Options say where a missing kernel or base image may be fetched from. Both are verified against
+// the asset manifest the same source publishes, so the source must be one the operator trusts (a
+// controller, or a host of their own).
 type Options struct {
-	// BaseURL is sandbox.firecracker.base_url. A URL ending in "/" is the /dl/ root of a
-	// controller (the file is <root><version>/base-<arch>.ext4.zst); any other URL names the
-	// compressed image itself. It wins over everything else.
-	BaseURL string
-	// Controller is the controller an edge node joined. It is used when BaseURL is empty and
-	// the node runs the controller's version.
+	// AssetsURL is sandbox.firecracker.assets_url: the /dl/ root of an asset source, ending in
+	// "/" (https://agents.example.com/dl/). It wins over the controller.
+	AssetsURL string
+	// Controller is the controller an edge node joined. Its /dl/ is used when AssetsURL is empty.
 	Controller Controller
 	// Log reports download progress. Default slog.Default().
 	Log *slog.Logger
@@ -87,22 +93,24 @@ type Options struct {
 type Controller struct {
 	// DownloadURL is the controller's /dl/ root, for example https://agents.example.com/dl/.
 	DownloadURL string
-	// Version is the agenthold version the controller runs.
+	// Version is the agenthold version the controller runs (for messages only: assets are named
+	// by key, so a node and its controller need not run the same release to share them).
 	Version string
 	// Live says both values were just reported by the controller; otherwise they were read from
 	// the node's state file and may be stale.
 	Live bool
 	// Refresh, if set, asks the controller again. It is called only when a download is needed, so
-	// a node that already has its base never needs the controller at start.
+	// a node that already has its assets never needs the controller at start.
 	Refresh func(context.Context) (Controller, error)
 }
 
-// Prepare extracts the bundled runtime into dataDir/runtime/<release>/ and verifies the base at
-// dataDir/base/<sha256>.ext4. A missing base is fetched (see Options and download.go), checked as
-// compressed bytes, kept as dataDir/base/<sha256>.ext4.zst so this installation can serve it to
-// others, decompressed, and checked again before an atomic rename. A verified pre-placed base
-// needs no network access. The data directories must be owned by the current user (root in
-// production), with no group/other write permission. Existing corrupt bases are refused.
+// Prepare extracts the bundled runtime into dataDir/runtime/<release>/ and makes sure the release's
+// kernel (dataDir/kernel/<sha256>) and base image (dataDir/base/<sha256>.ext4) are there and verified
+// against their asset manifests (dataDir/assets/<arch>/<kind>-<key>.json). Missing ones are fetched
+// (see Options and asset.go), kept compressed next to the working copy so this installation can serve
+// them to others, decompressed and checked again before an atomic rename. Verified assets in place
+// need no network access. The data directories must be owned by the current user (root in
+// production), with no group/other write permission. Existing corrupt files are refused.
 func Prepare(ctx context.Context, dataDir string, opts Options) (Paths, error) {
 	assets := bundledFiles()
 	if assets == nil {
@@ -144,8 +152,7 @@ func prepare(ctx context.Context, dataDir string, assets fs.FS, client *http.Cli
 	}
 	runtimeDir := filepath.Join(abs, "runtime")
 	versionDir := filepath.Join(runtimeDir, m.Version)
-	baseDir := filepath.Join(abs, "base")
-	for _, dir := range []string{runtimeDir, versionDir, baseDir} {
+	for _, dir := range []string{runtimeDir, versionDir} {
 		if err := secureDir(dir); err != nil {
 			return paths, err
 		}
@@ -157,37 +164,29 @@ func prepare(ctx context.Context, dataDir string, assets fs.FS, client *http.Cli
 		if err != nil && !errors.Is(err, errChecksum) {
 			return paths, err
 		}
-		mode := os.FileMode(0o755)
-		if name == "kernel" {
-			mode = 0o644
-		}
 		if !ok {
 			f, err := assets.Open(name)
 			if err != nil {
 				return paths, fmt.Errorf("embedded %s: %w", name, err)
 			}
-			err = atomicWrite(ctx, path, f, want, mode)
+			err = atomicWrite(ctx, path, f, want, 0o755)
 			_ = f.Close()
 			if err != nil {
 				return paths, fmt.Errorf("extract %s: %w", name, err)
 			}
-		} else if err := os.Chmod(path, mode); err != nil {
+		} else if err := os.Chmod(path, 0o755); err != nil {
 			return paths, err
 		}
 	}
-	sweepBase(baseDir, m.Base.SHA256)
-	base := filepath.Join(baseDir, m.Base.SHA256+".ext4")
-	ok, err := verifyFile(ctx, base, m.Base.artifact)
+	src := &sources{opts: opts, client: client}
+	d := newDownloader(client, opts.Log)
+	kernel, err := ensureAsset(ctx, abs, m.Arch, KindKernel, m.Kernel.Key, src, d)
 	if err != nil {
-		return paths, fmt.Errorf("base image %s: %w (remove the corrupt file or pre-place the verified release image)", base, err)
+		return paths, fmt.Errorf("guest kernel: %w", err)
 	}
-	if !ok {
-		d := newDownloader(client, opts.Log)
-		if err := d.fetchBase(ctx, base, func() ([]string, error) { return opts.candidates(ctx, m) }, m.Base); err != nil {
-			return paths, fmt.Errorf("prepare base image: %w", err)
-		}
-	} else if err := os.Chmod(base, 0o644); err != nil {
-		return paths, err
+	base, err := ensureAsset(ctx, abs, m.Arch, KindBase, m.Base.Key, src, d)
+	if err != nil {
+		return paths, fmt.Errorf("base image: %w", err)
 	}
 	self, err := executable()
 	if err != nil {
@@ -196,7 +195,7 @@ func prepare(ctx context.Context, dataDir string, assets fs.FS, client *http.Cli
 	return Paths{
 		Bundled: true, Version: m.Version,
 		Firecracker: filepath.Join(versionDir, "firecracker"), Jailer: filepath.Join(versionDir, "jailer"),
-		Kernel: filepath.Join(versionDir, "kernel"), Sandboxd: self, BaseImage: base,
+		Kernel: kernel, Sandboxd: self, BaseImage: base,
 	}, nil
 }
 
@@ -215,7 +214,7 @@ func readManifest(assets fs.FS) (manifest, error) {
 	if err := d.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return m, errors.New("runtime manifest has trailing data")
 	}
-	if m.Format != 1 || m.Arch != runtime.GOARCH || !safeVersion(m.Version) || len(m.Files) != len(bundledNames) {
+	if m.Format != 2 || m.Arch != runtime.GOARCH || !safeVersion(m.Version) || len(m.Files) != len(bundledNames) {
 		return m, errors.New("runtime manifest has invalid format, architecture, release or file list")
 	}
 	for _, name := range bundledNames {
@@ -223,27 +222,20 @@ func readManifest(assets fs.FS) (manifest, error) {
 			return m, fmt.Errorf("runtime manifest %s: %w", name, err)
 		}
 	}
-	if err := validateArtifact(m.Base.artifact, 32<<30); err != nil {
-		return m, fmt.Errorf("runtime manifest base: %w", err)
-	}
-	if err := validateArtifact(m.Base.Compressed, 2_000_000_000); err != nil {
-		return m, fmt.Errorf("runtime manifest compressed base: %w", err)
-	}
-	if m.Base.URL != "" {
-		u, err := url.Parse(m.Base.URL)
-		switch {
-		case err != nil || u.User != nil || u.RawQuery != "" && u.Host == "" || u.Fragment != "":
-			return m, errors.New("runtime manifest base URL is invalid")
-		case u.Scheme == "" && u.Host == "":
-			// Relative to the /dl/ root of the source this installation fetches from.
-			if path.IsAbs(u.Path) || slices.Contains(strings.Split(u.Path, "/"), "..") {
-				return m, errors.New("runtime manifest base URL must be absolute or a plain relative path")
-			}
-		case u.Host == "" || (u.Scheme != "https" && u.Scheme != "http"):
-			return m, errors.New("runtime manifest base URL must be empty, relative, or an absolute HTTP(S) URL without credentials")
-		}
+	if !validKey(m.Kernel.Key) || !validKey(m.Base.Key) {
+		return m, errors.New("runtime manifest: kernel and base keys must be 32 lowercase hex digits")
 	}
 	return m, nil
+}
+
+// validKey accepts an asset key: the first 32 hex digits of the sha256 of the asset's build inputs
+// (scripts/guest/kernel-key.sh, scripts/guest/base-key.sh).
+func validKey(k string) bool {
+	if len(k) != 32 || strings.ToLower(k) != k {
+		return false
+	}
+	_, err := hex.DecodeString(k)
+	return err == nil
 }
 
 func validateArtifact(a artifact, maxSize int64) error {

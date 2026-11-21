@@ -85,32 +85,28 @@ node:
 The node only ever dials the controller (and the internet on behalf of its agents). The controller never
 connects to a node, so nodes can sit behind NAT.
 
-## Base image and version
+## Kernel, base image and version
 
-A node needs the base disk of its own release. The base holds no sandboxd (each node delivers its own at boot),
-so consecutive releases usually share one base and an upgraded node downloads nothing. It fetches it **from the controller it joined**, over HTTP(S)
-from the controller's [`/dl/`](/install/#serving-the-release-to-others) (`<public_url>/dl/<version>/base-<arch>.ext4.zst`),
-not from a third-party host. The controller tells the node that address, together with its own version, every
-time the node joins or connects, and the node keeps it in its state file (a node that restarts with its base
-image already in place does not contact the controller for this; one that has to download asks again first); so `public_url` must be reachable
-from the node, and the controller must have the compressed image (it keeps it after downloading, or you place
-it). The node verifies the image against the sums embedded in its binary: neither the controller nor the
-network has to be trusted for that. The transfer resumes after interruptions and is logged.
+A node needs the guest kernel and base image that its release names (by key, see
+[runtime artifacts](/install/#runtime-artifacts)), **for its own architecture**. Keys depend only on the
+assets' build inputs, so consecutive releases usually name the same ones and an upgraded node downloads
+nothing. A node that lacks one fetches it from `sandbox.firecracker.assets_url` if set, then from the
+controller it joined, at `<public_url>/dl/assets/<arch>/<kind>-<key>.{json,zst}`. The controller tells the
+node its `/dl/` address every time the node joins or connects, and the node keeps it in its state file (a
+node whose assets are in place does not contact the controller for this; one that has to download asks again
+first). So `public_url` must be reachable from the node, and the controller must have the node's assets.
 
-If the controller's address is unusable (no `public_url`, or one that points at loopback: the controller then
-does not advertise it and logs a warning) or its copy cannot be fetched, the node tries the URL embedded in
-its release next, if there is one; a source that never delivers a byte is given up after about 90 seconds
-when another is left (5 minutes if it is the last), one that delivered data keeps being retried for 30
-minutes.
+A controller serves the assets in its own data directory: those of its own architecture, which it uses
+itself, and any others placed there. An edge node of **another architecture** than its controller (an amd64
+node of an arm64 controller) therefore either gets them from `assets_url` (a host that builds that
+architecture) or builds and places them itself: the demo's amd64 node korriban builds its own with
+`build-local.sh` and `pull.sh` (see [deployment](/deploy/#edge-node-of-another-architecture)). The node checks
+every file against the asset manifest it fetched, which comes from the same source: use sources you trust.
 
-The node can only use the controller's copy when both run **the same version**; otherwise it logs an error
-naming both versions (the controller's version is the one it last reported) and falls back to the URL embedded
-in its release, if that has one. Upgrade the controller first, then its nodes. A node newer than its controller
-still connects (it retries its handshake the way an older node would, and logs that the controller is older),
-but then cannot learn where the controller serves downloads from. Set
-`sandbox.firecracker.base_url` in the node's YAML to fetch from somewhere else, for example another
-controller's `https://demo.agenthold.dev/dl/`, or place the file as described under
-[runtime artifacts](/install/#runtime-artifacts) to stay offline.
+Since assets are named by key, a node and its controller need not run the same release to share them. Edge
+nodes and the controller should still run the same release; upgrade the controller first, then its nodes. A
+node newer than its controller still connects (it retries its handshake the way an older node would, and logs
+that the controller is older), but then cannot learn where the controller serves downloads from.
 
 ## Trust model
 

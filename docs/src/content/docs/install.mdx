@@ -8,44 +8,43 @@ needs root for the Firecracker jailer, tap devices and nftables. It serves plain
 or a tunnel that provides HTTPS in front of it. A host without KVM cannot run agents itself, but it can be
 the controller for [edge nodes](/edge-nodes/) that do.
 
-A release consists of `agenthold-linux-<arch>`, `base-<arch>.ext4.zst`, `runtime-linux-<arch>.manifest.json`
-and a checksum file. `scripts/release/build.sh` produces them for the host architecture (see the
-[development guide](/development/) and [guest artifacts](/guest-artifacts/)). There is no migration from the
-former container-based installation.
+A release is one static binary per architecture, `agenthold-linux-amd64` and `agenthold-linux-arm64`. It
+is the server, the [edge node](/edge-nodes/) and the daemon inside every machine, and it embeds Firecracker
+and the jailer. It does **not** contain the guest kernel or the base disk image: those are large,
+architecture-specific **assets**, built natively on a host of each architecture and served by an operator's
+host under `/dl/assets/` (see [runtime artifacts](#runtime-artifacts)). The binary names the two assets it
+runs with by key, a hash of their build inputs. There is no migration from the former container-based
+installation.
 
 ## Download
 
-The project's releases are built and KVM-tested on the demo host and downloaded from it; there are no
-GitHub release assets. The demo serves the arm64 release it runs, with every file of it checksummed. Read
-the manifest first, then fetch the files it names and verify them:
+Binaries are published as GitHub releases: every `main` commit whose CI passed becomes a pre-release
+`sha-<commit>` with both binaries, their runtime manifests and `SHA256SUMS`; a `v*` tag becomes a release
+the same way. Only the newest 30 commit pre-releases are kept.
 
 ```sh
-root=https://demo.agenthold.dev/dl/
-curl -fsS "${root}manifest.json"   # {"format":1,"version":"sha-<commit>","arch":{"arm64":{...}}}
-v=$(curl -fsS "${root}manifest.json" | jq -er .version)
+v=sha-<commit>   # or a v* tag
+base=https://github.com/gempir/agenthold/releases/download/$v
 mkdir "$v" && cd "$v"
-curl -fsSO "${root}$v/SHA256SUMS"
-for f in agenthold-linux-arm64 runtime-linux-arm64.manifest.json base-arm64.manifest.json base-arm64.ext4.zst; do
-  curl -fSL -C - -o "$f" "${root}$v/$f"   # the base is about 800 MiB; -C - resumes
-done
-sha256sum --check SHA256SUMS
-chmod +x agenthold-linux-arm64 && ./agenthold-linux-arm64 --version   # agenthold sha-<commit> (...)
+curl -fsSLO "$base/SHA256SUMS"
+for f in agenthold-linux-amd64 runtime-linux-amd64.manifest.json; do curl -fsSLO "$base/$f"; done
+sha256sum --check --ignore-missing SHA256SUMS
+chmod +x agenthold-linux-amd64 && ./agenthold-linux-amd64 --version   # agenthold sha-<commit> (...)
+jq '{kernel, base}' runtime-linux-amd64.manifest.json                 # the asset keys it needs
 ```
 
-`SHA256SUMS` is only as trustworthy as the HTTPS connection it came over. Its own hash is in
-`${root}channel.json` (`.sums.sha256`); compare it with a copy obtained another way if that matters to you.
-The base image is optional: with `sandbox.firecracker.base_url: https://demo.agenthold.dev/dl/` the server
-fetches it on first start and verifies it against checksums embedded in the binary (see below).
-
-**amd64: build from source.** The demo is an arm64 host and ships arm64 only. An amd64 bundled binary embeds
-an amd64 kernel and is paired with an amd64 base image, which it cannot build natively nor KVM-test, so it
-does not publish one. On an x86_64 Linux host with `/dev/kvm`, build the release there:
+The kernel and base image are not on GitHub. A server fetches them on first start from an asset source
+(see below): set `sandbox.firecracker.assets_url` to the `/dl/` root of a host that builds or serves your
+architecture's assets. The demo, `https://demo.agenthold.dev/dl/`, serves arm64 assets. For amd64 (or to be
+independent of anybody else's host) build them yourself on an x86_64 or arm64 Linux host:
 
 ```sh
-make web
-VERSION=sha-$(git rev-parse HEAD) BASE_URL= scripts/release/build.sh   # build/release/amd64/
-make test-kvm                                                          # optional, needs root
+sudo scripts/release/build-assets.sh   # build/assets/<arch>/{kernel,base}-<key>.{json,zst}
 ```
+
+and place them as described under [runtime artifacts](#runtime-artifacts), or serve that directory as
+`<root>/assets/<arch>/` from any web server you trust. To build a binary from source instead:
+`make web && VERSION=sha-$(git rev-parse HEAD) scripts/release/build.sh` (`build/release/<arch>/`).
 
 ## Configure
 
@@ -86,55 +85,71 @@ startup. See [database configuration and backups](/database/) for PostgreSQL set
 
 ## Runtime artifacts
 
-A release binary contains the architecture-matched Firecracker runtime, kernel and guest daemon. The shared
-base disk is separate (about 780 MiB compressed, 2.4 GiB on disk). On first start the server fetches it and
-verifies it against the SHA-256 sums embedded in the binary, so **the source of the bytes needs no trust**.
-The verified, uncompressed base lives at `<data_dir>/base/<sha256>.ext4` (the SHA-256 of the *uncompressed*
-image, `base.sha256` in the manifest), mode `0644`, in a `0700` directory owned by root. The server uses a
-file that is already there without network access.
+A release binary extracts its Firecracker and jailer to `<data_dir>/runtime/<version>/`. The guest kernel
+(about 40 MiB on amd64, 19 MiB on arm64) and the shared base disk (about 800 MiB compressed, 2.4 GiB on
+disk) are assets named by the keys in the embedded runtime manifest. Each has an **asset manifest**:
 
-Where a missing base comes from, first match wins:
+```json
+{"format":1,"kind":"base","arch":"arm64","key":"<32 hex>",
+ "sha256":"<uncompressed>","size":2584207360,"compressed":{"sha256":"<.zst>","size":815744837}}
+```
 
-1. `sandbox.firecracker.base_url` (`AGENTHOLD_FIRECRACKER_BASE_URL`). A URL ending in `/` is the `/dl/` root
-   of another agenthold, for example `https://demo.agenthold.dev/dl/`: the server then fetches
-   `<root><version>/base-<arch>.ext4.zst`. Any other URL names the compressed image itself.
-2. For an [edge node](/edge-nodes/): the controller it joined.
-3. The URL embedded in the release, if the release has one.
+An installation keeps them in its data directory:
+
+| Path | Content |
+| --- | --- |
+| `<data_dir>/assets/<arch>/<kind>-<key>.json` | the asset manifest |
+| `<data_dir>/kernel/<sha256>` and `.zst` | the verified kernel and its compressed file |
+| `<data_dir>/base/<sha256>.ext4` and `.zst` | the verified base image and its compressed file |
+
+On start the server reads each manifest and checks the uncompressed file against it; a verified file needs no
+network access, a mismatching one stops the server instead of being replaced. When something is missing it
+is fetched from an asset source, first match wins:
+
+1. `sandbox.firecracker.assets_url` (`AGENTHOLD_FIRECRACKER_ASSETS_URL`), the `/dl/` root of an asset
+   source, ending in `/` (the former `base_url` is read as the same setting);
+2. for an [edge node](/edge-nodes/): the controller it joined.
+
+The server fetches `<root>assets/<arch>/<kind>-<key>.json` and then `<kind>-<key>.zst`, checks the
+compressed file and, after decompressing, the uncompressed file against that manifest. Because the manifest
+comes from the source, **the source must be one you trust** (your controller or your own host); the
+checksums protect against damaged transfers, not against a malicious source.
 
 ```yaml
 sandbox:
   firecracker:
-    base_url: https://demo.agenthold.dev/dl/
+    assets_url: https://agents.example.com/dl/
 ```
 
-The download resumes where it stopped: bytes accumulate in `<data_dir>/base/.<sha256>.ext4.zst.part`
+The download resumes where it stopped: bytes accumulate in `.<sha256>.ext4.zst.part` next to the file
 (requested with `Range`/`If-Range`), transient errors are retried with backoff, and it only gives up after 30
-minutes without a single new byte, so a slow uplink does not fail a healthy transfer. Progress is logged every
-few seconds. Two processes sharing a data directory take turns (a lock file). After the checksum of the
-compressed file is verified it is **kept** as `<data_dir>/base/<sha256>.ext4.zst`, next to the decompressed
-image (another 780 MiB), so this installation can pass it on, see below.
+minutes without a single new byte. A source that never delivers a byte is given up after about 90 seconds when
+another is left (5 minutes if it is the last). Progress is logged every few seconds. Two processes sharing a
+data directory take turns (a lock file). The compressed file is **kept** next to the uncompressed one, so this
+installation can pass the asset on (see below).
 
-An offline installation places the image before the first start. Either the decompressed one:
+An offline installation places the assets before the first start, for example from
+`scripts/release/build-assets.sh` output:
 
 ```sh
-sha=$(jq -er .base.sha256 runtime-linux-arm64.manifest.json)
-sudo install -d -m 0700 /var/lib/agenthold /var/lib/agenthold/base
-sudo zstd -d --long=27 --sparse base-arm64.ext4.zst -o "/var/lib/agenthold/base/$sha.ext4"
-echo "$sha  /var/lib/agenthold/base/$sha.ext4" | sudo sha256sum --check
-sudo chown root:root "/var/lib/agenthold/base/$sha.ext4" && sudo chmod 0644 "/var/lib/agenthold/base/$sha.ext4"
+arch=amd64; d=/var/lib/agenthold
+sudo install -d -m 0700 "$d" "$d/kernel" "$d/base" && sudo install -d -m 0755 "$d/assets" "$d/assets/$arch"
+for kind in kernel base; do
+  key=$(jq -er ".$kind.key" runtime-linux-$arch.manifest.json)
+  m=build/assets/$arch/$kind-$key.json; sha=$(jq -er .sha256 "$m")
+  dest="$d/$kind/$sha"; [[ $kind == base ]] && dest="$dest.ext4"
+  sudo install -m 0644 "$m" "$d/assets/$arch/"
+  sudo install -m 0644 "build/assets/$arch/$kind-$key.zst" "$dest.zst"   # decompressed on first start
+done
 ```
 
-or just the compressed file as `<data_dir>/base/<sha256>.ext4.zst` (verified against `base.compressed.sha256`
-and decompressed on start; without it the server cannot hand the image to others).
-
-The `chown` matters: `zstd` copies the owner of the compressed file onto its output. The base needs about
-2.5 GiB (arm64) of free space plus the kept compressed file; every release carries its own base. A
-mismatching or corrupt decompressed file stops the server at startup instead of being replaced.
+Placing only the manifest and the `.zst` is enough: the server verifies and decompresses it on start. Files
+must be owned by root and not writable by group or others.
 
 ### Serving the release to others
 
 A server running a release binary serves what it runs, without authentication and read-only, under
-`<public_url>/dl/`. Edge nodes use it for their base image, and another installation can point `base_url` at
+`<public_url>/dl/`. Edge nodes fetch their assets from it, and another installation can point `assets_url` at
 it:
 
 | Path | Content |
@@ -142,32 +157,30 @@ it:
 | `/dl/manifest.json` | index: version and, per architecture, the files below (`Cache-Control: no-cache`) |
 | `/dl/<version>/agenthold-linux-<arch>` | the running binary |
 | `/dl/<version>/runtime-linux-<arch>.manifest.json` | the embedded runtime manifest |
-| `/dl/<version>/base-<arch>.ext4.zst` | the compressed base image |
+| `/dl/assets/<arch>/<kind>-<key>.json` | an asset manifest the data directory holds (any architecture) |
+| `/dl/assets/<arch>/<kind>-<key>.zst` | its compressed file, once it matches the manifest |
 
-Files are immutable per version, carry their SHA-256 as `ETag` and support `Range`, `If-Range` and `HEAD`. The
-base image is only offered when `<data_dir>/base/<sha256>.ext4.zst` exists and matches the checksum in the
-manifest (the startup log says whether it does, and `/dl/manifest.json` then leaves `base` out). A server that
-never downloaded the image itself, for example a controller with `sandbox.driver: none`, needs that file
-copied there. A client address can run two large downloads at a time; more get `429`. Behind a reverse proxy
-the address comes from `X-Forwarded-For`: the proxy must **append** the real client address to that header
-(the right-most public entry is used), otherwise every client shares one limit. Responses name no paths or
-system errors; the reason a file is not served (for example a base image that is missing or does not match)
-is in the server log.
+Binaries and asset files carry their SHA-256 as `ETag` and support `Range`, `If-Range` and `HEAD`. An asset
+is offered only while its manifest is in `<data_dir>/assets/` and its compressed file matches it (the
+startup log says whether this release's kernel and base are served, and `/dl/manifest.json` leaves out what
+is not). A controller with `sandbox.driver: none` never fetched assets itself and needs them placed (see
+above). A client address can run two large downloads at a time; more get `429`. Behind a reverse proxy the
+address comes from `X-Forwarded-For`: the proxy must **append** the real client address to that header (the
+right-most public entry is used), otherwise every client shares one limit. Responses name no paths or system
+errors; the reason a file is not served is in the server log.
 
 Edge nodes are told to download from `<public_url>/dl/`. With `public_url` unset (it defaults to
 `http://localhost:8080`) or pointing at loopback, no node could reach that, so the server does not
 advertise it and logs a warning at startup; set `public_url` to an address the nodes can open.
 
-To publish other versions or architectures (a build host serving its releases), put files into
-`<data_dir>/dl/`, with the same layout. They are served under `/dl/` and win over the generated files of the
-same name, including a `manifest.json` of your own. Files in a version directory
-(`<version>/...`, for example `v0.4.0/` or `sha-<commit>/`) are served with immutable caching headers, so treat a
-published version directory as immutable and publish changes under a new version; everything else
-(including your `manifest.json`) is revalidated by clients on every use. A file in that directory that
-cannot be opened (permissions, too many open files) is an error (`500`, logged), never replaced by the
-generated file of the same name. Hidden files, directories and anything that leaves
-that directory (including through symlinks) are never served. A development build (without the release
-bundle) serves nothing of its own.
+To publish more (other versions, a build host's files), put files into `<data_dir>/dl/` with the same
+layout. They are served under `/dl/` and win over the generated files of the same name, including a
+`manifest.json` of your own. Files in a version directory (`<version>/...`, for example `v0.4.0/` or
+`sha-<commit>/`) are served with immutable caching headers, so treat a published version directory as
+immutable; everything else is revalidated by clients on every use. A file in that directory that cannot be
+opened is an error (`500`, logged), never replaced by the generated file of the same name. Hidden files,
+directories and anything that leaves that directory (including through symlinks) are never served. A
+development build (without the release bundle) serves operator files and the assets its data directory holds.
 
 Point `AGENTHOLD_CONFIG` at the YAML file and run `agenthold` as root in the foreground. To install a
 systemd service instead, use:

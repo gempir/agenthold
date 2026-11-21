@@ -45,8 +45,12 @@ func startLocalHost(ctx context.Context, cfg *config.Config, driverName string, 
 		if err := firecracker.CheckHost(ctx); err != nil {
 			return nil, err
 		}
+		assetsURL := cfg.Sandbox.Firecracker.AssetsURL
+		if assetsURL == "" {
+			assetsURL = cfg.Sandbox.Firecracker.BaseURL
+		}
 		paths, err := runtimeassets.Prepare(ctx, cfg.DataDir, runtimeassets.Options{
-			BaseURL: cfg.Sandbox.Firecracker.BaseURL, Controller: controller, Log: logger,
+			AssetsURL: assetsURL, Controller: controller, Log: logger,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("runtime artifacts: %w", err)
@@ -58,7 +62,7 @@ func startLocalHost(ctx context.Context, cfg *config.Config, driverName string, 
 			cfg.Sandbox.Firecracker.BaseImage = paths.BaseImage
 			cfg.Sandbox.SandboxdPath = paths.Sandboxd
 			logger.Info("machines boot this binary as their sandboxd", "path", paths.Sandboxd)
-			logger.Info("release runtime ready", "version", paths.Version, "base", paths.BaseImage)
+			logger.Info("release runtime ready", "version", paths.Version, "kernel", paths.Kernel, "base", paths.BaseImage)
 		} else {
 			base, err := runtimeassets.PinBase(ctx, cfg.DataDir, cfg.Sandbox.Firecracker.BaseImage)
 			if err != nil {

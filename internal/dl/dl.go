@@ -1,14 +1,15 @@
 // Package dl serves the release a controller runs under /dl/, so edge nodes and other installs
 // download it from the controller instead of from a third-party host: the binary itself, the
-// embedded runtime manifest and the compressed base image. It is public and read-only; every
-// consumer checks the bytes against checksums it already trusts.
+// embedded runtime manifest, and the guest kernel and base image assets it keeps. It is public and
+// read-only.
 //
 // Layout:
 //
-//	/dl/manifest.json                        index of what this controller serves
-//	/dl/<version>/agenthold-linux-<arch>      the running binary
+//	/dl/manifest.json                             index of what this controller serves
+//	/dl/<version>/agenthold-linux-<arch>           the running binary
 //	/dl/<version>/runtime-linux-<arch>.manifest.json
-//	/dl/<version>/base-<arch>.ext4.zst        the compressed base, if this controller has it
+//	/dl/assets/<arch>/<kind>-<key>.json            an asset manifest kept in <data_dir>/assets/
+//	/dl/assets/<arch>/<kind>-<key>.zst             its compressed file, when it is there and verified
 //
 // Files an operator puts into <data_dir>/dl/ are served under the same paths and win over the
 // generated ones, which is how a build host publishes other versions and architectures.
@@ -50,7 +51,7 @@ const (
 
 // Config configures a Handler.
 type Config struct {
-	// DataDir holds base/<sha>.ext4.zst and the operator directory dl/.
+	// DataDir holds the assets (assets/, kernel/, base/) and the operator directory dl/.
 	DataDir string
 	// Release is the embedded release, nil for development builds (nothing generated is served).
 	Release *runtimeassets.Release
@@ -70,7 +71,7 @@ type Handler struct {
 	limit  limiter
 
 	mu    sync.Mutex
-	noted string // last reason the base was reported unavailable
+	noted map[string]string // last reason an asset was reported unavailable, by asset
 }
 
 // New returns a handler for requests under /dl/.
@@ -87,10 +88,10 @@ func New(cfg Config) *Handler {
 	if cfg.Exe == nil {
 		cfg.Exe = openSelf
 	}
-	return &Handler{cfg: cfg, log: cfg.Log.With("component", "dl"), hashes: hashCache{m: map[string]*hashEntry{}}, limit: limiter{n: map[string]int{}}}
+	return &Handler{cfg: cfg, log: cfg.Log.With("component", "dl"), hashes: hashCache{m: map[string]*hashEntry{}}, limit: limiter{n: map[string]int{}}, noted: map[string]string{}}
 }
 
-// Start verifies the base image in the background and logs once what this controller can serve.
+// Start verifies this release's assets in the background and logs once what this controller can serve.
 func (h *Handler) Start(ctx context.Context) {
 	rel := h.cfg.Release
 	if rel == nil {
@@ -105,15 +106,10 @@ func (h *Handler) Start(ctx context.Context) {
 		return
 	}
 	go func() {
-		if reason := h.baseUnavailable(ctx); reason != "" {
-			h.log.Warn("downloads: this controller cannot serve the base image (edge nodes will need base_url or a copy)",
-				"version", rel.Version, "reason", reason)
-			return
-		}
-		h.mu.Lock()
-		h.noted = ""
-		h.mu.Unlock()
-		h.log.Info("downloads: serving the release to nodes and other installs", "version", rel.Version, "arch", rel.Arch, "base", true)
+		kernel := h.assetUnavailable(ctx, rel.Arch, runtimeassets.KindKernel, rel.KernelKey) == ""
+		base := h.assetUnavailable(ctx, rel.Arch, runtimeassets.KindBase, rel.BaseKey) == ""
+		h.log.Info("downloads: serving the release to nodes and other installs", "version", rel.Version, "arch", rel.Arch,
+			"kernel", kernel, "base", base)
 	}()
 }
 
@@ -151,6 +147,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveIndex(w, r)
 		return
 	}
+	if rest, ok := strings.CutPrefix(name, "assets/"); ok {
+		h.serveAsset(w, r, rest)
+		return
+	}
 	h.serveGenerated(w, r, name)
 }
 
@@ -164,8 +164,11 @@ func (h *Handler) serveIndex(w http.ResponseWriter, r *http.Request) {
 		Binary:          rel.Version + "/" + binaryName(rel),
 		RuntimeManifest: rel.Version + "/" + manifestName(rel),
 	}
-	if h.baseUnavailable(r.Context()) == "" {
-		entry.Base = rel.Version + "/" + runtimeassets.BaseFileName(rel.Arch)
+	if h.assetUnavailable(r.Context(), rel.Arch, runtimeassets.KindKernel, rel.KernelKey) == "" {
+		entry.Kernel = assetPath(rel.Arch, runtimeassets.KindKernel, rel.KernelKey)
+	}
+	if h.assetUnavailable(r.Context(), rel.Arch, runtimeassets.KindBase, rel.BaseKey) == "" {
+		entry.Base = assetPath(rel.Arch, runtimeassets.KindBase, rel.BaseKey)
 	}
 	data, _ := json.Marshal(index{Format: 1, Version: rel.Version, Arch: map[string]indexArch{rel.Arch: entry}})
 	w.Header().Set("Content-Type", "application/json")
@@ -183,7 +186,14 @@ type index struct {
 type indexArch struct {
 	Binary          string `json:"binary"`
 	RuntimeManifest string `json:"runtime_manifest"`
-	Base            string `json:"base,omitempty"`
+	// Kernel and Base are the asset paths without extension: <path>.json is the manifest and
+	// <path>.zst the file. They are left out when this controller cannot serve the asset.
+	Kernel string `json:"kernel,omitempty"`
+	Base   string `json:"base,omitempty"`
+}
+
+func assetPath(arch, kind, key string) string {
+	return "assets/" + arch + "/" + runtimeassets.AssetName(kind, key)
 }
 
 func binaryName(rel *runtimeassets.Release) string { return "agenthold-linux-" + rel.Arch }
@@ -222,16 +232,6 @@ func (h *Handler) serveGenerated(w http.ResponseWriter, r *http.Request, name st
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("ETag", `"`+sum(rel.Manifest)+`"`)
 		http.ServeContent(w, r, "", time.Time{}, strings.NewReader(string(rel.Manifest)))
-	case runtimeassets.BaseFileName(rel.Arch):
-		f, fi, reason := h.baseFile(r.Context())
-		if reason != "" {
-			// The reason names paths and system errors: it goes to the log, not to the client.
-			h.noteBase(reason)
-			writeError(w, http.StatusNotFound, "this controller has no base image of release "+rel.Version+" to serve")
-			return
-		}
-		defer f.Close()
-		h.serve(w, r, name, f, fi, rel.CompressedSHA256, true)
 	default:
 		writeError(w, http.StatusNotFound, "not found")
 	}
@@ -282,58 +282,98 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, name string, f *
 	http.ServeContent(w, r, "", time.Time{}, f)
 }
 
-// baseFile opens the compressed base if it is there and is exactly the file the release pins.
-// reason says why not; the checksum is computed once per (size, mtime).
-func (h *Handler) baseFile(ctx context.Context) (*os.File, fs.FileInfo, string) {
-	rel := h.cfg.Release
-	p := rel.CompressedBasePath(h.cfg.DataDir)
+// assetName matches <arch>/<kind>-<key>.<json|zst> below /dl/assets/.
+var assetName = regexp.MustCompile(`^(amd64|arm64)/(kernel|base)-([0-9a-f]{32})\.(json|zst)$`)
+
+// serveAsset serves an asset kept in the data directory: its manifest, or its compressed file once
+// that is exactly the file the manifest pins. Any architecture the data directory holds is served.
+func (h *Handler) serveAsset(w http.ResponseWriter, r *http.Request, name string) {
+	m := assetName.FindStringSubmatch(name)
+	if m == nil || h.cfg.DataDir == "" {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	arch, kind, key, ext := m[1], m[2], m[3], m[4]
+	if ext == "json" {
+		_, data, err := runtimeassets.ReadAsset(h.cfg.DataDir, arch, kind, key)
+		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				h.note(arch+"/"+kind+"-"+key, err.Error())
+			}
+			writeError(w, http.StatusNotFound, "this controller has no "+kind+" "+key+" for "+arch)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("ETag", `"`+sum(data)+`"`)
+		http.ServeContent(w, r, "", time.Time{}, strings.NewReader(string(data)))
+		return
+	}
+	f, fi, a, reason := h.assetFile(r.Context(), arch, kind, key)
+	if reason != "" {
+		// The reason names paths and system errors: it goes to the log, not to the client.
+		h.note(arch+"/"+kind+"-"+key, reason)
+		writeError(w, http.StatusNotFound, "this controller has no "+kind+" "+key+" for "+arch+" to serve")
+		return
+	}
+	defer f.Close()
+	h.serve(w, r, "assets/"+name, f, fi, a.CompressedSHA256(), true)
+}
+
+// assetFile opens an asset's compressed file if its manifest is there and the file is exactly the
+// one it pins. reason says why not; the checksum is computed once per (size, mtime).
+func (h *Handler) assetFile(ctx context.Context, arch, kind, key string) (*os.File, fs.FileInfo, runtimeassets.Asset, string) {
+	a, _, err := runtimeassets.ReadAsset(h.cfg.DataDir, arch, kind, key)
+	if err != nil {
+		return nil, nil, a, err.Error()
+	}
+	p := a.CompressedPath(h.cfg.DataDir)
 	f, err := os.Open(p)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil, fmt.Sprintf("%s does not exist (a node or install that downloaded the image keeps it there; "+
-				"an operator can place base-%s.ext4.zst of this release at that path)", p, rel.Arch)
-		}
-		return nil, nil, err.Error()
+		return nil, nil, a, err.Error()
 	}
 	fi, err := f.Stat()
-	if err == nil && (!fi.Mode().IsRegular() || fi.Size() != rel.CompressedSize) {
-		err = fmt.Errorf("%s is not the %d byte file release %s pins", p, rel.CompressedSize, rel.Version)
+	if err == nil && (!fi.Mode().IsRegular() || fi.Size() != a.CompressedSize()) {
+		err = fmt.Errorf("%s is not the %d byte file its manifest pins", p, a.CompressedSize())
 	}
 	if err != nil {
 		_ = f.Close()
-		return nil, nil, err.Error()
+		return nil, nil, a, err.Error()
 	}
-	got, err := h.hashes.sum(ctx, "base:"+p, f, fi)
+	got, err := h.hashes.sum(ctx, "asset:"+p, f, fi)
 	if err != nil {
 		_ = f.Close()
-		return nil, nil, err.Error()
+		return nil, nil, a, err.Error()
 	}
-	if got != rel.CompressedSHA256 {
+	if got != a.CompressedSHA256() {
 		_ = f.Close()
-		return nil, nil, fmt.Sprintf("%s does not match the sha256 release %s pins", p, rel.Version)
+		return nil, nil, a, fmt.Sprintf("%s does not match the sha256 its manifest pins", p)
 	}
-	return f, fi, ""
+	return f, fi, a, ""
 }
 
-// noteBase logs why the base cannot be served, when that changes (not on every request).
-func (h *Handler) noteBase(reason string) {
+// note logs why an asset cannot be served, when that changes (not on every request).
+func (h *Handler) note(asset, reason string) {
 	h.mu.Lock()
-	changed := h.noted != reason
-	h.noted = reason
+	changed := h.noted[asset] != reason
+	h.noted[asset] = reason
 	h.mu.Unlock()
 	if changed {
-		h.log.Warn("downloads: the base image is not served", "reason", reason)
+		h.log.Warn("downloads: an asset is not served", "asset", asset, "reason", reason)
 	}
 }
 
-// baseUnavailable is "" when the compressed base can be served, else the reason it cannot.
-func (h *Handler) baseUnavailable(ctx context.Context) string {
-	f, _, reason := h.baseFile(ctx)
+// assetUnavailable is "" when an asset's compressed file can be served, else the reason it cannot.
+func (h *Handler) assetUnavailable(ctx context.Context, arch, kind, key string) string {
+	if h.cfg.DataDir == "" {
+		return "no data directory"
+	}
+	f, _, _, reason := h.assetFile(ctx, arch, kind, key)
 	if f != nil {
 		_ = f.Close()
 	}
 	if reason != "" {
-		h.noteBase(reason)
+		h.note(arch+"/"+kind+"-"+key, reason)
 	}
 	return reason
 }

@@ -47,9 +47,11 @@ type Asset struct {
 	Compressed artifact `json:"compressed"`
 }
 
-// CompressedSHA256 and CompressedSize pin the compressed file.
+// CompressedSHA256 pins the compressed file.
 func (a Asset) CompressedSHA256() string { return a.Compressed.SHA256 }
-func (a Asset) CompressedSize() int64    { return a.Compressed.Size }
+
+// CompressedSize is the size of the compressed file.
+func (a Asset) CompressedSize() int64 { return a.Compressed.Size }
 
 func (a Asset) file() baseArtifact {
 	return baseArtifact{artifact: artifact{SHA256: a.SHA256, Size: a.Size}, Compressed: a.Compressed}

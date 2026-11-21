@@ -60,3 +60,18 @@ func TestNestedVirtualization(t *testing.T) {
 		})
 	}
 }
+
+func TestVMMLine(t *testing.T) {
+	for line, want := range map[string]bool{
+		`2026-11-21T11:21:05.773632641 [ah17dfe79d968eb8ecb4533f7d:main] Running Firecracker v1.18.0`:                     true,
+		`2026-11-21T11:21:05.792373373 [ah17dfe79d968eb8ecb4533f7d:fc_vcpu 0] Received a VcpuEvent::Resume message`:       true,
+		`2026-11-21T10:09:58.398876519 [ah17dfe79d968eb8ecb4533f7d:fc_api] The API server received a Get request on "/".`: true,
+		`[    0.000000] PCI: Unknown option ` + "`off'":                                                                   false,
+		`time=2026-11-21T11:21:05.570Z level=INFO msg="init started" component=sandboxd-init uptime=0.12s`:                false,
+		`{"time":"2026-11-21T11:21:05.833385666Z","level":"INFO","msg":"tunnel connected"}`:                               false,
+	} {
+		if got := vmmLine(line); got != want {
+			t.Errorf("vmmLine(%q) = %v, want %v", line, got, want)
+		}
+	}
+}

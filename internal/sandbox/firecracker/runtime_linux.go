@@ -534,9 +534,16 @@ func (d *Driver) watchConsole(id sandbox.ID, p process) {
 	}
 }
 
-// vmmLine reports whether a console line is Firecracker's own log (its API
-// requests and device notifications), not the guest's.
+// vmmLine reports whether a console line is Firecracker's own log
+// ("2026-11-21T11:21:05.77Z [<jail id>:<thread>] ..."), not the guest's.
 func vmmLine(line string) bool {
-	return len(line) > 20 && line[4] == '-' && line[10] == 'T' && strings.Contains(line, " [") &&
-		(strings.Contains(line, ":fc_api]") || strings.Contains(line, "notifying queues"))
+	if len(line) < 20 || line[4] != '-' || line[10] != 'T' {
+		return false
+	}
+	_, rest, ok := strings.Cut(line, " [")
+	if !ok {
+		return false
+	}
+	tag, _, ok := strings.Cut(rest, "]")
+	return ok && strings.Contains(tag, ":")
 }

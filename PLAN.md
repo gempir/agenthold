@@ -336,7 +336,13 @@ Milestones (migration numbers are reserved so parallel work does not collide):
   `snapshot_max_gb` (0 = no cap), `snapshot_reserve_gb` (2). Measured on the demo box (1 GiB guest, nested):
   sleep 1.0-1.5 s (up to 3.8 s with 400 MiB of freed dirty memory to balloon), wake to tunnel 0.4-0.5 s
   (cold boot 2.3-2.7 s), memory file 88-110 MiB allocated with the balloon, 491 MiB without after freeing
-  400 MiB. Capacity reporting is unchanged: snapshots are on the data filesystem, whose free space is reported.
+  400 MiB. *Revised 2026-11-21:* on a nested host (the demo, Lima) a resumed guest's memory is
+  the snapshot file's private mapping, which gets no huge pages: every touched page is a 4 KiB nested fault
+  (1 GiB allocation 17-150 s after a resume, 0.4 s after a cold boot; a resumed Claude Code took 111 s to start).
+  Snapshots therefore default to off when the host is itself a VM; cold boot there is 0.3-0.5 s to the tunnel
+  because the node sets transparent huge pages to `always` (Firecracker does not madvise guest memory; with
+  `madvise` a 4 GiB guest needed 25 s to reach init). A start of a running but unconnected VM hands it the new
+  tunnel token over vsock (a slow boot that outlived the controller's wait was refused forever before). Capacity reporting is unchanged: snapshots are on the data filesystem, whose free space is reported.
 - **D1. Self-hosted artifacts.** No GitHub release assets. A controller serves the base image and
   release bundle it runs to its edge nodes and to other installs
   (`/dl/...`, checksummed, zstd, range requests); the demo box builds and tests releases itself

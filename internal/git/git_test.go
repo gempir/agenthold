@@ -110,7 +110,7 @@ func TestConfig(t *testing.T) {
 		}
 	}
 	var n int
-	if err := f.st.DB.QueryRowContext(ctx, "SELECT count(*) FROM audit_log WHERE action = ? AND user_id = 'usr_1'", audit.GitConfigUpdate).Scan(&n); err != nil || n != 1 {
+	if err := f.st.DB.QueryRowContext(ctx, "SELECT count(*) FROM audit_log WHERE action = 'git.config.update' AND user_id = 'usr_1'").Scan(&n); err != nil || n != 1 {
 		t.Fatalf("audit entries = %d, %v", n, err)
 	}
 }
@@ -329,7 +329,13 @@ func TestEgress(t *testing.T) {
 	}
 
 	// A credential that cannot be opened is left out and reported.
-	if _, err := f.st.DB.ExecContext(ctx, "UPDATE git_credentials SET ciphertext = ? WHERE host = 'gitlab.com'", []byte("garbage-garbage-garbage-garbage")); err != nil {
+	glRow, err := f.st.GetGitCredentialByHost(ctx, db.GetGitCredentialByHostParams{UserID: "usr_1", Host: "gitlab.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.UpdateGitCredential(ctx, db.UpdateGitCredentialParams{
+		Username: glRow.Username, Ciphertext: []byte("garbage-garbage-garbage-garbage"), Label: glRow.Label, UpdatedAt: glRow.UpdatedAt, ID: glRow.ID,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	injs, err = f.svc.Egress(ctx, f.agent)

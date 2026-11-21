@@ -170,9 +170,14 @@ func TestOIDCRoleAttributeStrict(t *testing.T) {
 	if !ok || ok1.meFull().Role != gen.RoleUser {
 		t.Fatal("strict refused a user with a role")
 	}
-	ops, ok := e.oidcLogin(authtest.User{Subject: "ops", Name: "Ops", Email: "ops@example.com", EmailVerified: true})
+	// auth.admins does not open the provider's gate ...
+	if _, ok := e.oidcLogin(authtest.User{Subject: "ops", Name: "Ops", Email: "ops@example.com", EmailVerified: true}); ok {
+		t.Fatal("an auth.admins e-mail got past role_attribute_strict")
+	}
+	// ... it upgrades a user who passed it.
+	ops, ok := e.oidcLogin(authtest.User{Subject: "ops", Name: "Ops", Email: "ops@example.com", EmailVerified: true, Claims: map[string]any{"roles": []string{"agenthold"}}})
 	if !ok || ops.meFull().Role != gen.RoleAdmin {
-		t.Fatal("auth.admins did not pass strict")
+		t.Fatal("auth.admins did not upgrade a user strict let in")
 	}
 	// An admin's override lets the user in although configuration would refuse.
 	y := ok1.meFull().User.Id

@@ -346,7 +346,7 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	tick := time.NewTicker(2 * time.Second)
+	tick := time.NewTicker(roleRecheck)
 	defer tick.Stop()
 	for {
 		select {
@@ -359,7 +359,11 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 				_ = wsjson.Write(ctx, ws, map[string]any{"type": "status", "running": running})
 			}
 		case <-tick.C:
-			// Access can be withdrawn (unshared) while watching.
+			// Access can be withdrawn (unshared, or the account disabled) while watching.
+			if !a.stillAllowed(ctx, u.ID) {
+				_ = ws.Close(websocket.StatusPolicyViolation, accessEnded)
+				return
+			}
 			if role, err := a.authz.RoleOf(ctx, u.ID, agent); err == nil && !authz.Can(role, authz.AgentRead) {
 				_ = ws.Close(websocket.StatusPolicyViolation, "access removed")
 				return

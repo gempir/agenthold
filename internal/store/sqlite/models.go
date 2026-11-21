@@ -131,6 +131,7 @@ type Identity struct {
 	CreatedAt    int64
 	LastLoginAt  int64
 	ProviderRole string
+	RoleConfig   string
 }
 
 type LoginState struct {

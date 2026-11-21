@@ -119,6 +119,7 @@ func (a *API) terminal(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = ws.CloseNow() }()
 	ctx := r.Context()
+	defer a.guardSocket(ctx, u.ID, ws)()
 
 	status := func(m string) { _ = wsjson.Write(ctx, ws, termMsg{Type: "status", Message: m}) }
 	fail := func(err error) {

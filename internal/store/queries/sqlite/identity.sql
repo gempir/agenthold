@@ -27,7 +27,7 @@ INSERT INTO sessions (token_hash, user_id, created_at, expires_at, user_agent)
 VALUES (?, ?, ?, ?, ?);
 
 -- name: GetSessionUser :one
-SELECT sqlc.embed(users), sessions.expires_at
+SELECT sqlc.embed(users), sessions.expires_at, sessions.created_at
 FROM sessions JOIN users ON users.id = sessions.user_id
 WHERE sessions.token_hash = ? AND sessions.expires_at > ?;
 
@@ -51,7 +51,7 @@ DELETE FROM login_states WHERE state = ? AND expires_at > ? RETURNING *;
 DELETE FROM login_states WHERE expires_at <= ?;
 
 -- name: SetIdentityProviderRole :exec
-UPDATE identities SET provider_role = ? WHERE provider = ? AND subject = ?;
+UPDATE identities SET provider_role = ?, role_config = ? WHERE provider = ? AND subject = ?;
 
 -- name: SetUserRole :exec
 UPDATE users SET role = ? WHERE id = ?;
@@ -77,3 +77,12 @@ FROM users ORDER BY users.created_at;
 -- name: CountOwnedAgents :one
 -- Machines of kind agent (templates and clones included) a user owns, for auth.user_max_agents.
 SELECT COUNT(*) FROM agents WHERE owner_id = ? AND kind = 'agent';
+
+-- name: DeleteUserSessions :exec
+DELETE FROM sessions WHERE user_id = ?;
+
+-- name: LockUser :exec
+-- Serializes quota checks of one owner across API processes (PostgreSQL
+-- row lock until the transaction ends; SQLite transactions are already
+-- serialized).
+SELECT id FROM users WHERE id = ? ;

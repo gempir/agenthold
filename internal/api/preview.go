@@ -166,6 +166,14 @@ func (a *API) servePreview(w http.ResponseWriter, r *http.Request, name string, 
 		return
 	}
 	defer release()
+	if t.user != nil && isUpgrade(r) {
+		// A proxied WebSocket lives on: end it when the visitor loses access
+		// (the proxy closes both sides when the request context ends).
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		defer a.guardUser(ctx, t.user.ID, cancel)()
+	}
 	proxy.ServeHTTP(w, r.WithContext(context.WithValue(ctx, previewKey{}, t)))
 }
 

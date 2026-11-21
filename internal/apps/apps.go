@@ -123,6 +123,10 @@ func (m *Manager) Create(ctx context.Context, p CreateParams) (db.Agent, error) 
 // CheckOwnerLimit refuses another app for ownerID past apps.max_per_owner.
 // Call it in the transaction that inserts the app, holding OwnerLock.
 func (m *Manager) CheckOwnerLimit(ctx context.Context, q *db.Queries, ownerID string) error {
+	// OwnerLock covers this process; the row lock other API processes (PostgreSQL).
+	if err := q.LockUser(ctx, ownerID); err != nil {
+		return err
+	}
 	n, err := q.CountOwnerApps(ctx, ownerID)
 	if err != nil {
 		return err

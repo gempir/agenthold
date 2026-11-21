@@ -112,35 +112,41 @@ func (p *oidcProvider) Exchange(ctx context.Context, code, verifier, nonce strin
 		AvatarURL:     c.Picture,
 	}
 	if p.role != nil {
-		out.ProviderRole = p.evalRole(ctx, provider, conf, tok, idToken)
+		role, err := p.evalRole(ctx, provider, conf, tok, idToken)
+		if err != nil {
+			return nil, err
+		}
+		out.ProviderRole = role
 	}
 	return out, nil
 }
 
-// evalRole runs role_attribute_path over the ID token's claims and, when that
-// yields nothing, over the userinfo response (Keycloak puts client roles in
-// one or the other, depending on its mappers), like Grafana.
-func (p *oidcProvider) evalRole(ctx context.Context, provider *oidc.Provider, conf *oauth2.Config, tok *oauth2.Token, idToken *oidc.IDToken) config.Role {
+// evalRole runs role_attribute_path over the ID token's claims merged with
+// the userinfo response's (the ID token wins a conflict), like Grafana:
+// Keycloak puts client roles in one or the other, depending on its mappers.
+// Any failure refuses the sign-in rather than falling back to a default.
+func (p *oidcProvider) evalRole(ctx context.Context, provider *oidc.Provider, conf *oauth2.Config, tok *oauth2.Token, idToken *oidc.IDToken) (config.Role, error) {
 	var raw json.RawMessage
-	if err := idToken.Claims(&raw); err == nil {
-		if r := p.role.eval(claimsMap(raw)); r != "" {
-			return r
+	if err := idToken.Claims(&raw); err != nil {
+		return "", fmt.Errorf("decode claims: %w", err)
+	}
+	claims := claimsMap(raw)
+	var userinfo map[string]any
+	if provider.UserInfoEndpoint() != "" {
+		info, err := provider.UserInfo(ctx, conf.TokenSource(ctx, tok))
+		if err != nil {
+			return "", fmt.Errorf("userinfo for role_attribute_path: %w", err)
+		}
+		if info.Subject != idToken.Subject {
+			return "", errors.New("userinfo subject does not match the id_token")
+		}
+		if err := info.Claims(&userinfo); err != nil {
+			return "", fmt.Errorf("decode userinfo: %w", err)
 		}
 	}
-	if provider.UserInfoEndpoint() == "" {
-		return ""
-	}
-	info, err := provider.UserInfo(ctx, conf.TokenSource(ctx, tok))
+	role, err := p.role.eval(mergeClaims(claims, userinfo))
 	if err != nil {
-		slog.WarnContext(ctx, "oidc userinfo for role_attribute_path", "provider", p.cfg.ID, "err", err)
-		return ""
+		slog.WarnContext(ctx, "role_attribute_path", "provider", p.cfg.ID, "err", err)
 	}
-	if info.Subject != idToken.Subject {
-		return ""
-	}
-	var m map[string]any
-	if err := info.Claims(&m); err != nil {
-		return ""
-	}
-	return p.role.eval(m)
+	return role, err
 }

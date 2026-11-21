@@ -30,6 +30,7 @@ import (
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/dl"
 	"github.com/gempir/agenthold/internal/egress"
+	"github.com/gempir/agenthold/internal/git"
 	_ "github.com/gempir/agenthold/internal/harness/claude"
 	_ "github.com/gempir/agenthold/internal/harness/codex"
 	_ "github.com/gempir/agenthold/internal/harness/opencode"
@@ -174,6 +175,8 @@ func run() error {
 	// Account logins: delivered to harnesses, injected by the proxy, refreshed here.
 	loginSvc := &logins.Service{Store: st, Box: box, Audit: auditLog, Log: logger, Invalidate: directory.Invalidate}
 	directory.Logins = loginSvc
+	gitSvc := &git.Service{Store: st, Box: box, Audit: auditLog, Invalidate: directory.Invalidate}
+	directory.Git = gitSvc
 
 	// The built-in node exists only when this host runs VMs (or uses the fake driver).
 	clusterCfg := node.ClusterConfig{Store: st, CA: ca, Log: logger}
@@ -229,7 +232,7 @@ func run() error {
 			return s
 		}
 	}
-	// Services reach every machine in its boot files.
+	// Services and the commit identity reach every machine in its boot files.
 	imageMgr := images.NewManager(images.Config{
 		Store:             st,
 		DataDir:           cfg.DataDir,
@@ -246,7 +249,7 @@ func run() error {
 	sandboxes := sandbox.NewManagerWithNode(st, cluster, specForAgent, sandbox.Options{
 		LastActivity:  activityLog.Last,
 		TunnelPort:    tunnelPort,
-		BootFiles:     appsMgr.BootFiles,
+		BootFiles:     sandbox.MergeBootFiles(appsMgr.BootFiles, gitSvc.BootFiles),
 		PrepareLayers: imageMgr.PrepareLayers,
 	}, logger)
 	appsMgr.Sandboxes = sandboxes
@@ -349,7 +352,7 @@ func run() error {
 
 	apiSrv := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Node: cluster, Nodes: cluster, Limits: cfg.Sandbox,
-		Box: box, Egress: directory, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc,
+		Box: box, Egress: directory, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc, Git: gitSvc,
 		Preview: previewSvc, Identity: identity, Apps: appsMgr, Images: imageMgr, Activity: activityLog,
 		ShowTestHarness: cfg.TestHarness || driverName == "fake", UserMaxAgents: cfg.Auth.UserMaxAgents,
 	})

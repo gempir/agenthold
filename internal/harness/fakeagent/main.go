@@ -88,6 +88,7 @@ type agent struct {
 	mcp     map[string][]string // session -> MCP servers it was given
 	servers map[string][]acp.McpServer
 	configs map[string]sessionConfig // session -> model choice
+	cwds    map[string]string        // session -> working directory
 }
 
 func (a *agent) platformServer(sid acp.SessionId) *acp.McpServerStdio {
@@ -140,7 +141,7 @@ func main() {
 		fmt.Fprintln(f, os.Getpid())
 		_ = f.Close()
 	}
-	a := &agent{dir: dir, out: &lockedWriter{w: os.Stdout}, cancels: map[string]context.CancelFunc{}, mcp: map[string][]string{}, servers: map[string][]acp.McpServer{}, configs: map[string]sessionConfig{}}
+	a := &agent{dir: dir, out: &lockedWriter{w: os.Stdout}, cancels: map[string]context.CancelFunc{}, mcp: map[string][]string{}, servers: map[string][]acp.McpServer{}, configs: map[string]sessionConfig{}, cwds: map[string]string{}}
 	if action, arg, ok := a.scripted("start"); ok {
 		_ = a.fail("start", action, arg)
 	}
@@ -348,6 +349,7 @@ func (a *agent) NewSession(_ context.Context, p acp.NewSessionRequest) (acp.NewS
 	a.mu.Lock()
 	a.mcp[id] = mcpNames(p.McpServers)
 	a.servers[id] = p.McpServers
+	a.cwds[id] = p.Cwd
 	a.mu.Unlock()
 	return acp.NewSessionResponse{SessionId: acp.SessionId(id), ConfigOptions: a.configOptions(id)}, nil
 }
@@ -363,6 +365,7 @@ func (a *agent) LoadSession(ctx context.Context, p acp.LoadSessionRequest) (acp.
 	a.mu.Lock()
 	a.mcp[string(p.SessionId)] = mcpNames(p.McpServers)
 	a.servers[string(p.SessionId)] = p.McpServers
+	a.cwds[string(p.SessionId)] = p.Cwd
 	a.mu.Unlock()
 	for _, t := range a.history(string(p.SessionId)) {
 		u := acp.UpdateAgentMessageText(t.Text)
@@ -506,6 +509,10 @@ func (a *agent) Prompt(_ context.Context, p acp.PromptRequest) (acp.PromptRespon
 		answer = a.describeUltracode(string(sid))
 	case len(fields) == 1 && fields[0] == "mode":
 		answer = "mode=" + a.config(string(sid)).mode
+	case len(fields) == 1 && fields[0] == "cwd":
+		a.mu.Lock()
+		answer = "cwd=" + a.cwds[string(sid)]
+		a.mu.Unlock()
 	case len(fields) == 1 && fields[0] == "whoami":
 		account, _ := os.ReadFile(filepath.Join(a.dir, "account.json"))
 		answer = "token=" + os.Getenv("FAKEAGENT_TOKEN") + " account=" + strings.TrimSpace(string(account))
@@ -543,6 +550,7 @@ func (a *agent) ResumeSession(_ context.Context, p acp.ResumeSessionRequest) (ac
 	a.mu.Lock()
 	a.mcp[string(p.SessionId)] = mcpNames(p.McpServers)
 	a.servers[string(p.SessionId)] = p.McpServers
+	a.cwds[string(p.SessionId)] = p.Cwd
 	a.mu.Unlock()
 	return acp.ResumeSessionResponse{ConfigOptions: a.configOptions(string(p.SessionId))}, nil
 }

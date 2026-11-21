@@ -35,6 +35,7 @@ type Querier interface {
 	// A clone keeps the settings of its source, including whether its disks hold harness credentials.
 	CreateClonedAgent(ctx context.Context, arg CreateClonedAgentParams) error
 	CreateExposure(ctx context.Context, arg CreateExposureParams) error
+	CreateGitCredential(ctx context.Context, arg CreateGitCredentialParams) error
 	CreateIdentity(ctx context.Context, arg CreateIdentityParams) error
 	CreateImage(ctx context.Context, arg CreateImageParams) error
 	CreateImageBuild(ctx context.Context, arg CreateImageBuildParams) error
@@ -64,6 +65,7 @@ type Querier interface {
 	DeleteExpiredSessions(ctx context.Context, expiresAt int64) error
 	DeleteExpiredSlackLinkCodes(ctx context.Context, expiresAt int64) error
 	DeleteExposure(ctx context.Context, id string) (int64, error)
+	DeleteGitCredential(ctx context.Context, arg DeleteGitCredentialParams) (int64, error)
 	DeleteImage(ctx context.Context, id string) error
 	DeleteMCPServer(ctx context.Context, id string) error
 	DeleteNode(ctx context.Context, id string) error
@@ -99,6 +101,8 @@ type Querier interface {
 	GetExposure(ctx context.Context, arg GetExposureParams) (Exposure, error)
 	GetExposureByName(ctx context.Context, name string) (Exposure, error)
 	GetExposureByPort(ctx context.Context, arg GetExposureByPortParams) (Exposure, error)
+	GetGitCredential(ctx context.Context, id string) (GitCredential, error)
+	GetGitCredentialByHost(ctx context.Context, arg GetGitCredentialByHostParams) (GitCredential, error)
 	GetIdentity(ctx context.Context, arg GetIdentityParams) (Identity, error)
 	GetImage(ctx context.Context, id string) (Image, error)
 	GetImageBuild(ctx context.Context, id string) (ImageBuild, error)
@@ -128,6 +132,7 @@ type Querier interface {
 	GetSlackUser(ctx context.Context, arg GetSlackUserParams) (SlackUser, error)
 	GetTokenUser(ctx context.Context, arg GetTokenUserParams) (GetTokenUserRow, error)
 	GetUser(ctx context.Context, id string) (User, error)
+	GetUserGitConfig(ctx context.Context, userID string) (UserGitConfig, error)
 	GetWebhook(ctx context.Context, id string) (Webhook, error)
 	GetWebhookByToken(ctx context.Context, tokenHash string) (Webhook, error)
 	HasPreviewConsent(ctx context.Context, arg HasPreviewConsentParams) (int64, error)
@@ -154,6 +159,7 @@ type Querier interface {
 	// Every machine with its sandbox and owner (the admin overview).
 	ListAllMachines(ctx context.Context) ([]ListAllMachinesRow, error)
 	ListExposures(ctx context.Context, agentID string) ([]Exposure, error)
+	ListGitCredentials(ctx context.Context, userID string) ([]GitCredential, error)
 	// Every identity with its user, for re-evaluating roles at start.
 	ListIdentities(ctx context.Context) ([]ListIdentitiesRow, error)
 	ListImageBuilds(ctx context.Context, imageID string) ([]ImageBuild, error)
@@ -232,6 +238,7 @@ type Querier interface {
 	SetSandboxSubnet(ctx context.Context, arg SetSandboxSubnetParams) error
 	SetServiceEnabled(ctx context.Context, arg SetServiceEnabledParams) (int64, error)
 	SetSessionACPID(ctx context.Context, arg SetSessionACPIDParams) error
+	SetSessionGit(ctx context.Context, arg SetSessionGitParams) error
 	SetSessionModel(ctx context.Context, arg SetSessionModelParams) error
 	SetSessionOrigin(ctx context.Context, arg SetSessionOriginParams) error
 	SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error
@@ -255,17 +262,21 @@ type Querier interface {
 	TrimPreviewSessions(ctx context.Context, arg TrimPreviewSessionsParams) error
 	UnshareAgent(ctx context.Context, arg UnshareAgentParams) (int64, error)
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
+	UpdateAgentRepoBranch(ctx context.Context, arg UpdateAgentRepoBranchParams) error
 	UpdateExposure(ctx context.Context, arg UpdateExposureParams) error
+	UpdateGitCredential(ctx context.Context, arg UpdateGitCredentialParams) error
 	UpdateImage(ctx context.Context, arg UpdateImageParams) error
 	UpdateMCPServer(ctx context.Context, arg UpdateMCPServerParams) error
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) error
 	UpdateSecret(ctx context.Context, arg UpdateSecretParams) error
+	UpdateSessionGitStatus(ctx context.Context, arg UpdateSessionGitStatusParams) error
 	UpdateSkill(ctx context.Context, arg UpdateSkillParams) error
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
 	UpdateWebhook(ctx context.Context, arg UpdateWebhookParams) error
 	UpsertLocalNode(ctx context.Context, arg UpsertLocalNodeParams) error
 	UpsertModelCatalog(ctx context.Context, arg UpsertModelCatalogParams) error
 	UpsertService(ctx context.Context, arg UpsertServiceParams) error
+	UpsertUserGitConfig(ctx context.Context, arg UpsertUserGitConfigParams) error
 }
 
 var _ Querier = (*Queries)(nil)

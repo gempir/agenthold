@@ -10,6 +10,8 @@ import {
   AppWindow,
   Bot,
   ChevronRight,
+  FolderGit2,
+  GitBranch,
   Layers,
   LayoutDashboard,
   Loader2,
@@ -25,7 +27,7 @@ import {
   X,
 } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
-import { appsQuery, meQuery } from '@/api/queries';
+import { appsQuery, meQuery, type SessionGit } from '@/api/queries';
 import { ROLE_LABEL } from '@/lib/roles';
 import { AgentStateDot } from '@/components/AgentStateBadge';
 import { Avatar } from '@/components/Avatar';
@@ -62,7 +64,12 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     matches(agent.name, agent.owner.name),
   );
   const chats = index.chats.filter(({ session, agent }) =>
-    matches(session.title, agent.name),
+    matches(
+      session.title,
+      agent.name,
+      session.git?.project ?? '',
+      session.git?.branch ?? '',
+    ),
   );
   const working = chats.filter((c) => c.session.running);
   const shownAgents = allAgents || q ? agents : agents.slice(0, AGENTS_PREVIEW);
@@ -298,8 +305,11 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                       className="size-3.5 shrink-0 animate-spin text-sky-400"
                       aria-hidden
                     />
-                    <span className="min-w-0 flex-1 truncate">
-                      {c.session.title}
+                    <span className="grid min-w-0 flex-1">
+                      <span className="truncate">{c.session.title}</span>
+                      {hasGit(c.session.git) && (
+                        <GitLine git={c.session.git} compact />
+                      )}
                     </span>
                     <span className="max-w-[40%] truncate text-xs text-muted-foreground">
                       {c.agent.name}
@@ -403,6 +413,7 @@ function ChatRow({
             />
           )}
         </span>
+        {hasGit(session.git) && <GitLine git={session.git} />}
         {by && (
           <span className="flex items-center gap-1 truncate text-xs text-muted-foreground">
             {session.origin && <Bot className="size-3" aria-hidden />}
@@ -411,6 +422,36 @@ function ChatRow({
         )}
       </Link>
     </li>
+  );
+}
+
+const hasGit = (g?: SessionGit): g is SessionGit =>
+  !!g && !!(g.project || g.branch);
+
+/** The project and branch a chat is on, one compact truncating line. */
+function GitLine({ git, compact }: { git: SessionGit; compact?: boolean }) {
+  return (
+    <span
+      data-testid="chat-git"
+      title={[git.project, git.branch].filter(Boolean).join(' · ')}
+      className={cn(
+        'flex min-w-0 items-center gap-2 truncate text-muted-foreground',
+        compact ? 'text-[11px]' : 'text-xs',
+      )}
+    >
+      {git.project && (
+        <span className="flex min-w-0 items-center gap-1">
+          <FolderGit2 className="size-3 shrink-0" aria-hidden />
+          <span className="truncate">{git.project}</span>
+        </span>
+      )}
+      {git.branch && (
+        <span className="flex min-w-0 items-center gap-1 font-mono text-[11px]">
+          <GitBranch className="size-3 shrink-0" aria-hidden />
+          <span className="truncate">{git.branch}</span>
+        </span>
+      )}
+    </span>
   );
 }
 

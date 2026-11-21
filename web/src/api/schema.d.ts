@@ -1838,6 +1838,201 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/git": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Your git author identity and connected HTTPS credentials. */
+        get: operations["getGitSettings"];
+        /** @description Update your git author name and email (empty values fall back to your account profile). */
+        put: operations["updateGitSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/git/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Store or replace an HTTPS git credential for a host. Tokens are encrypted at rest and injected by the egress proxy. */
+        post: operations["upsertGitCredential"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/git/credentials/{credentialId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credentialId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteGitCredential"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/repos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description Discover git repositories and worktrees inside a running agent's home directory. */
+        get: operations["listAgentGitRepos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/status": {
+        parameters: {
+            query?: {
+                /** @description Relative path inside the agent's home directory (empty for home). */
+                path?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description Inspect git repository status and branches for a directory in a running agent. */
+        get: operations["getAgentGitStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Clone a git repository into a running agent's home directory. */
+        post: operations["cloneAgentGitRepo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/checkout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Switch to or create a branch in a repository inside a running agent. */
+        post: operations["checkoutAgentGitBranch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/worktrees": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Create a new git worktree for a repository inside a running agent. */
+        post: operations["createAgentGitWorktree"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/pull": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Fetch or pull updates in a repository inside a running agent. */
+        post: operations["pullAgentGitRepo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/git": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Update a session's working directory or refresh its detected git project and branch. */
+        patch: operations["updateSessionGit"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2479,6 +2674,10 @@ export interface components {
             };
             title: string;
             running: boolean;
+            /** @description Working directory relative to the agent's home directory. */
+            cwd?: string;
+            /** @description The git project and branch this session is on; absent when not in a git repository. */
+            git?: components["schemas"]["SessionGit"];
             /** @description The session's own model choice; absent when it uses the agent's default. */
             model?: components["schemas"]["ModelChoice"];
             createdBy: components["schemas"]["User"];
@@ -2942,6 +3141,56 @@ export interface components {
         CreatedWebhook: components["schemas"]["Webhook"] & {
             /** @description The secret delivery URL. Shown once. */
             url: string;
+        };
+        SessionGit: {
+            project: string;
+            branch: string;
+            repoPath?: string;
+        };
+        GitCredentialInput: {
+            /** @description Hostname, e.g. github.com or gitlab.com. */
+            host: string;
+            /** @description Optional HTTP Basic username (defaults to x-access-token for github.com, oauth2 for gitlab.com, git otherwise). */
+            username?: string;
+            token: string;
+            label?: string;
+        };
+        GitCredential: {
+            id: string;
+            host: string;
+            username: string;
+            label: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        GitSettings: {
+            authorName: string;
+            authorEmail: string;
+            defaultAuthorName: string;
+            defaultAuthorEmail: string;
+            credentials: components["schemas"]["GitCredential"][];
+        };
+        GitRepo: {
+            path: string;
+            project: string;
+            remoteUrl?: string;
+            branch: string;
+            detached: boolean;
+            dirty: boolean;
+            ahead: number;
+            behind: number;
+            isWorktree: boolean;
+            mainPath?: string;
+        };
+        GitRepoList: {
+            connected: boolean;
+            repos: components["schemas"]["GitRepo"][];
+        };
+        GitRepoStatus: {
+            repo?: components["schemas"]["GitRepo"];
+            branches: string[];
         };
     };
     responses: {
@@ -4588,6 +4837,14 @@ export interface operations {
             content: {
                 "application/json": {
                     title?: string;
+                    /** @description Optional working directory relative to the agent's home directory. */
+                    cwd?: string;
+                    /** @description Optional branch to check out or create when starting in a git repository. */
+                    gitBranch?: string;
+                    /** @description Create gitBranch if it does not exist. */
+                    createBranch?: boolean;
+                    /** @description Create a new git worktree on gitBranch for this session. */
+                    createWorktree?: boolean;
                 };
             };
         };
@@ -4601,8 +4858,10 @@ export interface operations {
                     "application/json": components["schemas"]["Session"];
                 };
             };
+            400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
         };
     };
     getSession: {
@@ -6319,6 +6578,335 @@ export interface operations {
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             413: components["responses"]["Error"];
+        };
+    };
+    getGitSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current git settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitSettings"];
+                };
+            };
+        };
+    };
+    updateGitSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    authorName: string;
+                    authorEmail: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated git settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitSettings"];
+                };
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    upsertGitCredential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GitCredentialInput"];
+            };
+        };
+        responses: {
+            /** @description Stored credential metadata. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitCredential"];
+                };
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    deleteGitCredential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credentialId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    listAgentGitRepos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Discovered repositories. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepoList"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    getAgentGitStatus: {
+        parameters: {
+            query?: {
+                /** @description Relative path inside the agent's home directory (empty for home). */
+                path?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Repository status and branch list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepoStatus"];
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    cloneAgentGitRepo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    url: string;
+                    /** @description Optional target directory relative to home. */
+                    path?: string;
+                    /** @description Optional branch to check out. */
+                    branch?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Cloned repository. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    checkoutAgentGitBranch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    path: string;
+                    branch: string;
+                    create?: boolean;
+                    fromRef?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated repository state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    createAgentGitWorktree: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Repository path relative to home. */
+                    path: string;
+                    branch: string;
+                    /** @description Create a new branch for the worktree. */
+                    create?: boolean;
+                    /** @description Optional base ref when creating a new branch. */
+                    fromRef?: string;
+                    /** @description Optional worktree path relative to home. */
+                    worktreePath?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created worktree. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    pullAgentGitRepo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    path: string;
+                    fetchOnly?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated repository state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateSessionGit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Working directory relative to home (empty clears). */
+                    cwd?: string;
+                    /** @description Re-detect git project and branch from the running sandbox. */
+                    refresh?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated session. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
         };
     };
 }

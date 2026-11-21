@@ -18,6 +18,7 @@ import (
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/egress"
+	"github.com/gempir/agenthold/internal/git"
 	"github.com/gempir/agenthold/internal/idle"
 	"github.com/gempir/agenthold/internal/images"
 	"github.com/gempir/agenthold/internal/logins"
@@ -47,6 +48,8 @@ type Deps struct {
 	Audit    *audit.Log
 	Triggers *trigger.Runner
 	Logins   *logins.Service
+	// Git keeps users' git settings; nil disables the account endpoints.
+	Git *git.Service
 	// Apps manages services and apps.
 	Apps *apps.Manager
 	// Images manages custom enterprise VM images and builds.

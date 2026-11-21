@@ -5,6 +5,7 @@ import {
   agentPollInterval,
   agentsPollInterval,
   type Agent,
+  type GitRepo,
   type Session,
 } from '@/api/queries';
 import { AgentStateBadge } from '@/components/AgentStateBadge';
@@ -495,12 +496,12 @@ it('streams the activity log in its own panel tab', async () => {
     'waiting for sandboxd',
   );
   expect(calls.some((c) => c.key === 'GET /agents/a1/activity')).toBe(true);
-  // The tabs: Overview, Files, Terminal, Activity.
+  // The tabs: Overview, Git, Files, Terminal, Activity.
   expect(
     within(panel)
       .getAllByRole('tab')
       .map((t) => t.textContent),
-  ).toEqual(['Overview', 'Files', 'Terminal', 'Activity']);
+  ).toEqual(['Overview', 'Git', 'Files', 'Terminal', 'Activity']);
   await userEvent.click(within(panel).getByRole('tab', { name: 'Overview' }));
   expect(router.state.location.search).toEqual({ s: 's1', panel: 'overview' });
   expect(screen.queryByTestId('live-log')).toBeNull();
@@ -710,4 +711,182 @@ it('shared users see only the current harness in the model picker', async () => 
   expect(screen.queryByRole('link', { name: 'Harness settings' })).toBeNull();
   // Not even asked: other harnesses are the owner's to see.
   expect(calls.some((c) => c.key.includes('models?harness'))).toBe(false);
+});
+
+const repo = (over: Partial<GitRepo> = {}): GitRepo => ({
+  path: 'projects/web',
+  project: 'web',
+  branch: 'main',
+  detached: false,
+  dirty: false,
+  ahead: 0,
+  behind: 0,
+  isWorktree: false,
+  ...over,
+});
+
+it('the sidebar shows project and branch of a chat, and nothing for one without', async () => {
+  vi.stubGlobal('WebSocket', FakeSocket);
+  mockApi({
+    'GET /me': me,
+    'GET /harnesses': [],
+    'GET /apps': [],
+    'GET /agents': [agent({ id: 'a1', state: 'running' })],
+    'GET /agents/a1': agent({ id: 'a1', state: 'running' }),
+    'GET /agents/a1/sessions': [
+      session({
+        id: 's1',
+        title: 'On a branch',
+        updatedAt: '2030-01-02T00:00:00Z',
+        git: { project: 'web', branch: 'feat/login' },
+      }),
+      session({ id: 's2', title: 'Plain', updatedAt: '2030-01-01T00:00:00Z' }),
+    ],
+  });
+  renderApp('/a/a1?s=s2');
+  const chats = await screen.findByRole('list', { name: 'Chats' });
+  const [withGit, plain] = await vi.waitFor(() => {
+    const rows = within(chats).getAllByRole('link');
+    expect(rows).toHaveLength(2);
+    return rows;
+  });
+  const line = within(withGit).getByTestId('chat-git');
+  expect(line).toHaveTextContent('web');
+  expect(line).toHaveTextContent('feat/login');
+  expect(line).toHaveAttribute('title', 'web · feat/login');
+  expect(within(plain).queryByTestId('chat-git')).toBeNull();
+});
+
+it('the sidebar search matches chats by project and branch', async () => {
+  vi.stubGlobal('WebSocket', FakeSocket);
+  mockApi({
+    'GET /me': me,
+    'GET /harnesses': [],
+    'GET /apps': [],
+    'GET /agents': [agent({ id: 'a1', state: 'running' })],
+    'GET /agents/a1': agent({ id: 'a1', state: 'running' }),
+    'GET /agents/a1/sessions': [
+      session({
+        id: 's1',
+        title: 'First',
+        updatedAt: '2030-01-02T00:00:00Z',
+        git: { project: 'storefront', branch: 'feat/login' },
+      }),
+      session({
+        id: 's2',
+        title: 'Second',
+        updatedAt: '2030-01-01T00:00:00Z',
+        git: { project: 'backend', branch: 'main' },
+      }),
+    ],
+  });
+  renderApp('/a/a1?s=s1');
+  const chats = await screen.findByRole('list', { name: 'Chats' });
+  await vi.waitFor(() =>
+    expect(within(chats).getAllByRole('link')).toHaveLength(2),
+  );
+  const search = screen.getByRole('searchbox', {
+    name: 'Search chats and agents',
+  });
+  await userEvent.type(search, 'storefr');
+  expect(within(chats).getAllByRole('link')).toHaveLength(1);
+  expect(within(chats).getByText('First')).toBeVisible();
+  await userEvent.clear(search);
+  await userEvent.type(search, 'feat/log');
+  expect(within(chats).getAllByRole('link')).toHaveLength(1);
+  expect(within(chats).getByText('First')).toBeVisible();
+  await userEvent.clear(search);
+  await userEvent.type(search, 'backend');
+  expect(within(chats).getAllByRole('link')).toHaveLength(1);
+  expect(within(chats).getByText('Second')).toBeVisible();
+});
+
+it('starting a chat with a selected repository passes its cwd', async () => {
+  vi.stubGlobal('WebSocket', FakeSocket);
+  const { calls } = mockApi({
+    'GET /me': me,
+    'GET /harnesses': [
+      { id: 'claude-code', name: 'Claude Code', default: true },
+    ],
+    'GET /agents/a1': agent({ state: 'running' }),
+    'GET /agents/a1/sessions': [],
+    'GET /agents/a1/git/repos': {
+      connected: true,
+      repos: [repo(), repo({ path: 'projects/api', project: 'api' })],
+    },
+    'POST /agents/a1/sessions': () => ({
+      status: 201,
+      body: session({ id: 's9' }),
+    }),
+    'POST /sessions/s9/prompt': { status: 202 },
+  });
+  const { router } = renderApp('/a/a1');
+  await userEvent.click(await screen.findByRole('button', { name: 'Project' }));
+  await userEvent.click(await screen.findByRole('menuitem', { name: /api/ }));
+  await userEvent.type(
+    screen.getByRole('textbox', { name: 'Message' }),
+    'go{Enter}',
+  );
+  await vi.waitFor(() => expect(router.state.location.href).toBe('/a/a1?s=s9'));
+  expect(calls.find((c) => c.key === 'POST /agents/a1/sessions')?.body).toEqual(
+    { cwd: 'projects/api' },
+  );
+});
+
+it('a ?cwd= preselects the repository of the draft', async () => {
+  vi.stubGlobal('WebSocket', FakeSocket);
+  const { calls } = mockApi({
+    'GET /me': me,
+    'GET /harnesses': [],
+    'GET /agents/a1': agent({ state: 'running' }),
+    'GET /agents/a1/sessions': [],
+    'GET /agents/a1/git/repos': { connected: true, repos: [repo()] },
+    'POST /agents/a1/sessions': () => ({
+      status: 201,
+      body: session({ id: 's9' }),
+    }),
+    'POST /sessions/s9/prompt': { status: 202 },
+  });
+  renderApp('/a/a1?cwd=projects/web');
+  const trigger = await screen.findByRole('button', { name: 'Project' });
+  await vi.waitFor(() => expect(trigger).toHaveTextContent('web'));
+  await userEvent.type(
+    screen.getByRole('textbox', { name: 'Message' }),
+    'hi{Enter}',
+  );
+  await vi.waitFor(() =>
+    expect(calls.some((c) => c.key === 'POST /agents/a1/sessions')).toBe(true),
+  );
+  expect(calls.find((c) => c.key === 'POST /agents/a1/sessions')?.body).toEqual(
+    { cwd: 'projects/web' },
+  );
+});
+
+it('a session on a branch shows it in the composer and refreshes it', async () => {
+  vi.stubGlobal('WebSocket', FakeSocket);
+  const { calls } = mockApi({
+    'GET /me': me,
+    'GET /harnesses': [],
+    'GET /agents/a1': agent({ role: 'owner', state: 'running' }),
+    'GET /agents/a1/sessions': [
+      session({ git: { project: 'web', branch: 'feat/login' } }),
+    ],
+    'PATCH /sessions/s1/git': session({
+      git: { project: 'web', branch: 'feat/login' },
+    }),
+  });
+  renderApp('/a/a1?s=s1');
+  const badge = await screen.findByTestId('session-git');
+  expect(badge).toHaveTextContent('web');
+  expect(badge).toHaveTextContent('feat/login');
+  await userEvent.click(
+    within(badge).getByRole('button', { name: 'Refresh git branch' }),
+  );
+  await vi.waitFor(() =>
+    expect(calls.find((c) => c.key === 'PATCH /sessions/s1/git')?.body).toEqual(
+      {
+        refresh: true,
+      },
+    ),
+  );
 });

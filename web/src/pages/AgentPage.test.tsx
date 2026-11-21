@@ -346,8 +346,13 @@ it('starts a chat from the draft composer', async () => {
   expect(
     await screen.findByRole('heading', { name: /Start a chat with builder/ }),
   ).toBeVisible();
-  // The composer names the harness and model.
-  expect(await screen.findByText(/Claude Code/)).toBeVisible();
+  // The composer shows the harness (its logo, named in the title) and model.
+  const picker = await screen.findByRole('button', {
+    name: /Model for this conversation/,
+  });
+  await vi.waitFor(() =>
+    expect(picker).toHaveAttribute('title', 'Claude Code'),
+  );
   await userEvent.type(
     screen.getByRole('textbox', { name: 'Message' }),
     'build it{Enter}',
@@ -440,7 +445,7 @@ it('a new chat starts with the model picked in the composer', async () => {
   await user.click(await screen.findByRole('option', { name: /Opus 5.5/ }));
   // The picker stays open: reasoning is set right after the model.
   await user.click(screen.getByRole('radio', { name: 'High' }));
-  expect(trigger).toHaveTextContent('Opus 5.5 · High');
+  expect(trigger).toHaveTextContent('Opus 5.5 High');
   await user.type(
     screen.getByRole('textbox', { name: 'Message' }),
     'hi{Enter}',
@@ -590,11 +595,14 @@ it('the owner switches the agent to another harness from the model picker', asyn
   const trigger = await screen.findByRole('button', {
     name: /Model for this conversation: Agent default/,
   });
-  expect(trigger).toHaveTextContent('Claude Code');
+  expect(trigger).toHaveAttribute('title', 'Claude Code');
   await user.click(trigger);
   const list = await screen.findByRole('listbox', { name: 'Models' });
-  // Codex never reported: one row, "Agent default".
-  await user.click(await within(list).findByRole('option', { name: /Codex/ }));
+  // Codex never reported: its default alone.
+  await user.click(await screen.findByRole('tab', { name: 'Codex' }));
+  await user.click(
+    await within(list).findByRole('option', { name: 'Default model' }),
+  );
   const confirm = screen.getByRole('group', { name: 'Switch to Codex' });
   expect(confirm).toHaveTextContent('Switches demo2 to Codex (all chats)');
   await user.click(
@@ -610,7 +618,7 @@ it('the owner switches the agent to another harness from the model picker', asyn
   await vi.waitFor(() =>
     expect(
       screen.getByRole('button', { name: /Model for this conversation/ }),
-    ).toHaveTextContent('Codex'),
+    ).toHaveAttribute('title', 'Codex'),
   );
 });
 
@@ -636,9 +644,7 @@ it('switching to a model of another harness sends it along', async () => {
     await screen.findByRole('button', { name: /Model for this conversation/ }),
   );
   const list = await screen.findByRole('listbox', { name: 'Models' });
-  await user.click(
-    await within(list).findByRole('option', { name: /OpenCode/ }),
-  );
+  await user.click(await screen.findByRole('tab', { name: 'OpenCode' }));
   await user.click(within(list).getByRole('option', { name: 'GPT-5' }));
   const confirm = screen.getByRole('group', { name: 'Switch to OpenCode' });
   // It has no account login: signing in inside the sandbox is the way.
@@ -675,7 +681,8 @@ it('says when the new harness has no login and shows the server error of a refus
   await user.click(
     await screen.findByRole('button', { name: /Model for this conversation/ }),
   );
-  await user.click(await screen.findByRole('option', { name: /Codex/ }));
+  await user.click(await screen.findByRole('tab', { name: 'Codex' }));
+  await user.click(screen.getByRole('option', { name: 'Default model' }));
   const confirm = screen.getByRole('group', { name: 'Switch to Codex' });
   expect(confirm).toHaveTextContent('No Codex login');
   expect(
@@ -706,7 +713,8 @@ it('shared users see only the current harness in the model picker', async () => 
   const list = await screen.findByRole('listbox', { name: 'Models' });
   expect(within(list).getByRole('option', { name: /Opus/ })).toBeVisible();
   expect(within(list).queryByRole('option', { name: /Codex/ })).toBeNull();
-  expect(screen.queryByText(/Switch .* to/)).toBeNull();
+  expect(screen.queryByRole('tab', { name: 'Codex' })).toBeNull();
+  expect(screen.queryByText(/switches/)).toBeNull();
   expect(screen.queryByRole('link', { name: 'Harness settings' })).toBeNull();
   // Not even asked: other harnesses are the owner's to see.
   expect(calls.some((c) => c.key.includes('models?harness'))).toBe(false);

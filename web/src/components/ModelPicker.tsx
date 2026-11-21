@@ -2,23 +2,37 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
+  type CSSProperties,
+  type KeyboardEvent,
   type ReactNode,
 } from 'react';
 import {
   Check,
   ChevronDown,
-  ChevronRight,
   Info,
   Loader2,
   Search,
+  Star,
   TriangleAlert,
 } from 'lucide-react';
+import { BrandIcon, HarnessIcon } from '@/components/HarnessIcon';
 import { Button } from '@/components/ui/button';
 import {
+  isFavorite,
+  useFavoriteModels,
+  type FavoriteModel,
+} from '@/lib/favorites';
+import {
+  harnessBrand,
+  harnessLabel,
+  providerBrand,
+  type Brand,
+} from '@/lib/harnesses';
+import {
   choiceLabel,
+  choiceParts,
   groupModels,
   isCustom,
   keepOptions,
@@ -27,9 +41,9 @@ import {
   onValue,
   toggleLabels,
   valueLabel,
+  type CatalogModel,
   type Choice,
   type ModelCatalog,
-  type ModelGroup,
   type ModelOption,
 } from '@/lib/models';
 import { relTime, useNow } from '@/lib/time';
@@ -44,8 +58,8 @@ export interface HarnessChoice {
 }
 
 /**
- * Lets the picker switch the agent's harness: the other harnesses are listed
- * under the current one, and picking one of their models asks to confirm.
+ * Lets the picker switch the agent's harness: the other harnesses get their
+ * own place in the rail, and picking one of their models asks to confirm.
  * The harness belongs to the agent, so the switch applies to all its chats.
  */
 export interface HarnessSwitch {
@@ -61,10 +75,9 @@ export interface HarnessSwitch {
 
 type Entry =
   | { kind: 'default' }
-  | { kind: 'model'; id: string; name: string }
+  | { kind: 'model'; id: string }
+  /** A typed model id (harnesses that take any). */
   | { kind: 'custom'; id: string }
-  /** The heading row of another harness; opens and closes its models. */
-  | { kind: 'harness'; harness: string }
   /** A model of another harness ('' for its default). */
   | { kind: 'other'; harness: string; id: string };
 
@@ -72,8 +85,6 @@ const entryKey = (e: Entry) => {
   switch (e.kind) {
     case 'default':
       return 'default';
-    case 'harness':
-      return `h:${e.harness}`;
     case 'other':
       return `o:${e.harness}:${e.id}`;
     default:
@@ -88,37 +99,34 @@ const entryModel = (e: Entry) =>
 const isCurrentEntry = (e: Entry) =>
   e.kind === 'default' || e.kind === 'model' || e.kind === 'custom';
 
-/** What the picker lists of another harness for the query. */
-interface OtherView {
-  h: HarnessChoice;
-  /** No models known: one row stands for the whole harness. */
-  single: boolean;
-  /** The heading toggles (no search going on, models known). */
-  toggles: boolean;
-  open: boolean;
-  defaultRow: boolean;
-  groups: ModelGroup[];
+/** One line of the list. */
+interface Row {
+  entry: Entry;
+  title: string;
+  description?: string;
+  tag?: string;
+  detail?: string;
+  icon: Brand;
+  /** What starring the row keeps (models only). */
+  star?: FavoriteModel;
 }
+
+/** Rows under one heading: a provider group, or a harness while searching. */
+interface Section {
+  key: string;
+  label?: string;
+  /** The heading's icon. */
+  harness?: string;
+  rows: Row[];
+}
+
+/** What the rail shows: the starred models or one harness's. */
+type View = { kind: 'favorites' } | { kind: 'harness'; id: string };
 
 const words = (q: string) => q.toLowerCase().split(/\s+/).filter(Boolean);
 
-function otherView(h: HarnessChoice, query: string, open: boolean): OtherView {
-  const w = words(query);
-  const hay = `${h.name} agent default`.toLowerCase();
-  const nameMatch = w.every((x) => h.name.toLowerCase().includes(x));
-  const groups = groupModels(h.catalog, nameMatch ? '' : query, '');
-  const count = h.catalog?.models.length ?? 0;
-  const single = count === 0;
-  const defaultRow = w.every((x) => hay.includes(x));
-  return {
-    h,
-    single,
-    toggles: !single && w.length === 0,
-    open: w.length > 0 || open,
-    defaultRow,
-    groups,
-  };
-}
+const modelIcon = (harness: string, m: { id: string; group?: string }) =>
+  providerBrand(m.group, m.id) ?? harnessBrand(harness);
 
 /**
  * What switching to a harness would find missing: no login the harness could
@@ -140,16 +148,18 @@ function loginProblem(h: HarnessChoice): string | undefined {
 }
 
 /**
- * The model picker: a compact trigger ("Opus 5.5 · Medium") that opens a
- * popover with a search box, the harness's models grouped by provider (one
- * line each, the description behind an info icon) and a Reasoning section
- * for the chosen model: effort levels and fast mode. Choices apply at once
- * and the popover stays open, so a model and its reasoning are set in one go.
- * Arrows move, Enter picks, Escape closes, Alt+1…9 picks the n-th model,
- * ←/→ change the effort while the search box is empty.
+ * The model picker: a compact trigger (the harness's logo, "Opus 5.5 Medium")
+ * that opens a popover in three columns. A rail on the left holds the starred
+ * models and one entry per harness; the middle lists the models of the one
+ * chosen there, under a search box that searches every harness; the right
+ * column sets the reasoning effort of the current model. Toggles such as
+ * fast mode sit in the footer. Choices apply at once and the popover stays
+ * open, so a model and its reasoning are set in one go. In the list, arrows
+ * move, Enter picks and Escape closes; the star of a row keeps it in
+ * Favorites (in this browser).
  *
- * With harnessSwitch the other harnesses follow the current one; picking one
- * of their models asks to switch the agent (all its chats) to that harness.
+ * With harnessSwitch the other harnesses join the rail; picking one of their
+ * models asks to switch the agent (all its chats) to that harness.
  */
 export function ModelPicker({
   catalog,
@@ -162,7 +172,7 @@ export function ModelPicker({
   side = 'top',
   label = 'Model',
   note,
-  leading,
+  harness,
   harnessSwitch,
   footer,
   className,
@@ -181,8 +191,8 @@ export function ModelPicker({
   label?: string;
   /** A line under the list (when a change takes effect). */
   note?: string;
-  /** Shown in the trigger before the choice (the harness). */
-  leading?: ReactNode;
+  /** The harness the catalog is of (its id is also in the catalog). */
+  harness?: { id: string; name: string };
   harnessSwitch?: HarnessSwitch;
   /** Under the note (a link to the settings). */
   footer?: ReactNode;
@@ -206,6 +216,11 @@ export function ModelPicker({
     trigger.current?.focus();
   };
 
+  const current = {
+    id: harness?.id ?? catalog?.harness ?? '',
+    name: harness?.name ?? harnessLabel(harness?.id ?? catalog?.harness ?? ''),
+  };
+  const [name, ...rest] = choiceParts(catalog, value, defaultLabel);
   return (
     <div ref={root} className={cn('relative min-w-0', className)}>
       <button
@@ -215,12 +230,19 @@ export function ModelPicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         disabled={disabled}
+        title={current.name || undefined}
         onClick={() => setOpen((o) => !o)}
-        className="flex max-w-full min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-left hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
+        className="flex max-w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-left hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
       >
-        {leading}
+        <HarnessIcon harness={current.id} className="size-3.5" />
         <span className="truncate">
-          {choiceLabel(catalog, value, defaultLabel)}
+          {name}
+          {rest.length > 0 && (
+            <>
+              {' '}
+              <span className="text-muted-foreground">{rest.join(' · ')}</span>
+            </>
+          )}
         </span>
         <ChevronDown className="size-3 shrink-0 opacity-70" aria-hidden />
       </button>
@@ -236,6 +258,7 @@ export function ModelPicker({
           side={side}
           label={label}
           note={note}
+          current={current}
           harnessSwitch={harnessSwitch}
           footer={footer}
         />
@@ -255,6 +278,7 @@ function PickerPanel({
   side,
   label,
   note,
+  current,
   harnessSwitch,
   footer,
 }: {
@@ -268,103 +292,211 @@ function PickerPanel({
   side: 'top' | 'bottom';
   label: string;
   note?: string;
+  current: { id: string; name: string };
   harnessSwitch?: HarnessSwitch;
   footer?: ReactNode;
 }) {
   const id = useId();
+  const listId = `${id}-list`;
   const now = useNow(60_000);
+  const { favorites, toggle: toggleFavorite } = useFavoriteModels();
   const [query, setQuery] = useState('');
-  const [expanded, setExpanded] = useState<string[]>([]);
   const [pending, setPending] = useState<{ harness: string; model: string }>();
+  const [activeKey, setActiveKey] = useState<string>();
   const input = useRef<HTMLInputElement>(null);
   const panel = useRef<HTMLDivElement>(null);
-  const listEl = useRef<HTMLUListElement>(null);
-  // The list gives way when the popover would reach past the top of the page
-  // (a draft composer sits mid-page; the switch question adds height).
-  const [listMax, setListMax] = useState<number>();
+  const body = useRef<HTMLDivElement>(null);
+
+  // The current harness first, then those the agent can switch to.
+  const rail: HarnessChoice[] = [
+    { id: current.id, name: current.name, catalog },
+    ...(harnessSwitch?.others ?? []),
+  ];
+  const harnessOf = (h: string) => rail.find((x) => x.id === h);
+  const starred = favorites.filter((f) => harnessOf(f.harness));
+  // Favorites first when there are any to pick from.
+  const [view, setView] = useState<View>(() =>
+    starred.length > 0
+      ? { kind: 'favorites' }
+      : { kind: 'harness', id: current.id },
+  );
+  const viewed =
+    view.kind === 'harness' ? (harnessOf(view.id) ?? rail[0]) : undefined;
+
+  const q = query.trim();
+  const w = words(q);
+  const matches = (s: string) => w.every((x) => s.toLowerCase().includes(x));
+
   // Back to the list, with the search box focused again for the keyboard.
   const cancelPending = () => {
     setPending(undefined);
     input.current?.focus();
   };
-  const groups = useMemo(
-    () => groupModels(catalog, query, value.model),
-    [catalog, query, value.model],
-  );
-  const others = harnessSwitch?.others;
-  const otherViews = useMemo(
-    () =>
-      (others ?? []).map((h) => otherView(h, query, expanded.includes(h.id))),
-    [others, query, expanded],
-  );
 
-  // The flat list the keyboard moves through.
-  const entries: Entry[] = [];
-  const q = query.trim();
-  if (!q || defaultLabel.toLowerCase().includes(q.toLowerCase())) {
-    entries.push({ kind: 'default' });
-  }
-  for (const g of groups) {
-    for (const m of g.models) {
-      entries.push({ kind: 'model', id: m.id, name: m.name });
+  const starOf = (h: string, m: CatalogModel): FavoriteModel => ({
+    harness: h,
+    model: m.id,
+    name: m.name,
+  });
+
+  /** The rows of the current harness: all of them, or those matching. */
+  const currentRows = (): Row[] => {
+    const nameMatch = !!q && matches(current.name);
+    const groups = groupModels(catalog, nameMatch ? '' : query, value.model);
+    const rows: Row[] = [];
+    if (!q || nameMatch || matches(defaultLabel)) {
+      rows.push({
+        entry: { kind: 'default' },
+        title: defaultLabel,
+        description: defaultDescription,
+        icon: harnessBrand(current.id),
+      });
     }
-  }
-  const custom =
-    allowCustom &&
-    !!catalog?.customModels &&
-    !!q &&
-    !/\s/.test(q) &&
-    !entries.some((e) => e.kind === 'model' && e.id === q);
-  if (custom) entries.push({ kind: 'custom', id: q });
-  for (const v of otherViews) {
-    const hasRows = v.defaultRow || v.groups.length > 0;
-    if (!hasRows) continue;
-    if (v.single) {
-      entries.push({ kind: 'other', harness: v.h.id, id: '' });
-      continue;
-    }
-    if (v.toggles) entries.push({ kind: 'harness', harness: v.h.id });
-    if (!v.open) continue;
-    if (v.defaultRow) entries.push({ kind: 'other', harness: v.h.id, id: '' });
-    for (const g of v.groups) {
+    for (const g of groups) {
       for (const m of g.models) {
-        entries.push({ kind: 'other', harness: v.h.id, id: m.id });
+        rows.push({
+          entry: { kind: 'model', id: m.id },
+          title: m.name,
+          description: m.description,
+          tag: isCustom(catalog, m.id) ? 'custom' : undefined,
+          icon: modelIcon(current.id, m),
+          star: starOf(current.id, m),
+        });
       }
     }
-  }
+    const custom =
+      allowCustom &&
+      !!catalog?.customModels &&
+      !!q &&
+      !/\s/.test(q) &&
+      !rows.some((r) => r.entry.kind === 'model' && r.entry.id === q);
+    if (custom) {
+      rows.push({
+        entry: { kind: 'custom', id: q },
+        title: `Use “${q}”`,
+        description: 'A model id the harness does not list',
+        icon: harnessBrand(current.id),
+      });
+    }
+    return rows;
+  };
 
-  const currentIndex = Math.max(
-    0,
-    entries.findIndex(
-      (e) => isCurrentEntry(e) && entryModel(e) === value.model,
-    ),
+  /** The rows of another harness: its default, then its models. */
+  const otherRows = (h: HarnessChoice): Row[] => {
+    const nameMatch = !!q && matches(h.name);
+    const rows: Row[] = [];
+    if (!q || matches(`${h.name} agent default model`)) {
+      rows.push({
+        entry: { kind: 'other', harness: h.id, id: '' },
+        title: 'Default model',
+        description: `Switches the agent to ${h.name} on its own default model`,
+        icon: harnessBrand(h.id),
+      });
+    }
+    for (const g of groupModels(h.catalog, nameMatch ? '' : query, '')) {
+      for (const m of g.models) {
+        rows.push({
+          entry: { kind: 'other', harness: h.id, id: m.id },
+          title: m.name,
+          description: m.description,
+          icon: modelIcon(h.id, m),
+          star: starOf(h.id, m),
+        });
+      }
+    }
+    return rows;
+  };
+
+  const favoriteRows = (): Row[] =>
+    starred.map((f) => {
+      const h = harnessOf(f.harness)!;
+      const m: CatalogModel = h.catalog?.models.find(
+        (x) => x.id === f.model,
+      ) ?? { id: f.model, name: f.name };
+      return {
+        entry:
+          h.id === current.id
+            ? { kind: 'model', id: f.model }
+            : { kind: 'other', harness: h.id, id: f.model },
+        title: m.name,
+        description: m.description,
+        detail: h.name,
+        icon: modelIcon(h.id, m),
+        star: starOf(h.id, m),
+      };
+    });
+
+  /** A harness's models under their provider headings (when there are several). */
+  const groupedSections = (h: HarnessChoice): Section[] => {
+    const isCurrent = h.id === current.id;
+    const rows = isCurrent ? currentRows() : otherRows(h);
+    const groups = groupModels(h.catalog, '', isCurrent ? value.model : '');
+    const named = groups.filter((g) => g.name);
+    if (named.length < 2) return [{ key: `h:${h.id}`, rows }];
+    const groupOf = (r: Row) => {
+      const model = r.entry.kind === 'default' ? '' : r.entry.id;
+      return groups.find((g) => g.models.some((m) => m.id === model))?.name;
+    };
+    const sections: Section[] = [];
+    for (const r of rows) {
+      const g = groupOf(r);
+      const last = sections[sections.length - 1];
+      if (last && last.label === g) last.rows.push(r);
+      else sections.push({ key: `g:${h.id}:${g ?? ''}`, label: g, rows: [r] });
+    }
+    return sections;
+  };
+
+  let sections: Section[];
+  if (q) {
+    // A search goes through every harness, each under its own heading.
+    sections = rail
+      .map((h) => ({
+        key: `h:${h.id}`,
+        label: rail.length > 1 ? h.name : undefined,
+        harness: h.id,
+        rows: h.id === current.id ? currentRows() : otherRows(h),
+      }))
+      .filter((s) => s.rows.length > 0);
+  } else if (view.kind === 'favorites') {
+    sections = [{ key: 'favorites', rows: favoriteRows() }];
+  } else {
+    sections = groupedSections(viewed!);
+  }
+  const rows = sections.flatMap((s) => s.rows);
+
+  const currentIndex = rows.findIndex(
+    (r) => isCurrentEntry(r.entry) && entryModel(r.entry) === value.model,
   );
-  const [active, setActive] = useState(currentIndex);
-  const index = Math.min(active, entries.length - 1);
-  const activeEntry = index >= 0 ? entries[index] : undefined;
+  const found = activeKey
+    ? rows.findIndex((r) => entryKey(r.entry) === activeKey)
+    : -1;
+  const index =
+    rows.length === 0
+      ? -1
+      : found >= 0
+        ? found
+        : q
+          ? 0
+          : Math.max(0, currentIndex);
+  const activeRow = index >= 0 ? rows[index] : undefined;
+  const moveTo = (i: number) => setActiveKey(entryKey(rows[i].entry));
 
   const pick = (model: string) => {
     setPending(undefined);
     onChange({ model, options: keepOptions(catalog, model, value.options) });
   };
-  const toggle = (harness: string) =>
-    setExpanded((x) =>
-      x.includes(harness) ? x.filter((y) => y !== harness) : [...x, harness],
-    );
   const activate = (e: Entry) => {
-    switch (e.kind) {
-      case 'harness':
-        toggle(e.harness);
-        break;
-      case 'other':
-        setPending({ harness: e.harness, model: e.id });
-        break;
-      default:
-        pick(entryModel(e));
-    }
+    if (e.kind === 'other') setPending({ harness: e.harness, model: e.id });
+    else pick(entryModel(e));
   };
   const setOption = (o: ModelOption, v: string) =>
     onChange({ model: value.model, options: { ...value.options, [o.id]: v } });
+  const chooseView = (v: View) => {
+    setView(v);
+    setQuery('');
+    setActiveKey(undefined);
+  };
 
   const optionId = (i: number) => `${id}-opt-${i}`;
   useEffect(() => {
@@ -372,246 +504,197 @@ function PickerPanel({
       .getElementById(optionId(index))
       ?.scrollIntoView?.({ block: 'nearest' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index]);
+  }, [index, view]);
 
-  const shown = modelOptionsFor(catalog, value.model);
-  const effort = shown?.options.find((o) => o.kind === 'effort');
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    const digit = /^Digit([1-9])$/.exec(e.code);
-    if (e.altKey && digit) {
-      const n = Number(digit[1]) - 1;
-      const models = entries.filter((x) => x.kind === 'model');
-      if (models[n]) {
-        e.preventDefault();
-        pick(entryModel(models[n]));
-      }
-      return;
-    }
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    const n = rows.length;
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setActive((index + 1) % Math.max(entries.length, 1));
+        if (n) moveTo((index + 1) % n);
         break;
       case 'ArrowUp':
         e.preventDefault();
-        setActive((index - 1 + entries.length) % Math.max(entries.length, 1));
+        if (n) moveTo((index - 1 + n) % n);
         break;
       case 'Home':
-        if (!q) {
+        if (!q && n) {
           e.preventDefault();
-          setActive(0);
+          moveTo(0);
         }
         break;
       case 'End':
-        if (!q) {
+        if (!q && n) {
           e.preventDefault();
-          setActive(entries.length - 1);
+          moveTo(n - 1);
         }
         break;
       case 'Enter':
         e.preventDefault();
-        if (activeEntry) activate(activeEntry);
+        if (activeRow) activate(activeRow.entry);
         break;
-      case 'ArrowLeft':
-      case 'ArrowRight': {
-        if (q || !effort || effort.values.length === 0) break;
-        e.preventDefault();
-        const cur = value.options[effort.id] ?? '';
-        let i = effort.values.findIndex((x) => x.value === cur);
-        if (i < 0) i = e.key === 'ArrowRight' ? -1 : effort.values.length;
-        i += e.key === 'ArrowRight' ? 1 : -1;
-        i = Math.min(Math.max(i, 0), effort.values.length - 1);
-        setOption(effort, effort.values[i].value);
-        break;
-      }
     }
   };
 
-  const modelEntries = entries.filter((x) => x.kind === 'model');
-  const renderEntry = (
-    e: Entry,
-    title: string,
-    description?: string,
-    tag?: string,
-    detail?: string,
-  ) => {
-    const key = entryKey(e);
-    const i = entries.findIndex((x) => entryKey(x) === key);
-    const model = isCurrentEntry(e) ? entryModel(e) : undefined;
-    const pos = modelEntries.findIndex((x) => entryKey(x) === key);
-    const n = e.kind === 'model' && pos >= 0 && pos < 9 ? pos + 1 : undefined;
-    const current = model !== undefined && model === value.model;
+  const renderRow = (r: Row) => {
+    const key = entryKey(r.entry);
+    const i = rows.indexOf(r);
+    const model = isCurrentEntry(r.entry) ? entryModel(r.entry) : undefined;
+    const isCurrent = model !== undefined && model === value.model;
     const chosenForSwitch =
-      e.kind === 'other' &&
-      pending?.harness === e.harness &&
-      pending.model === e.id;
+      r.entry.kind === 'other' &&
+      pending?.harness === r.entry.harness &&
+      pending.model === r.entry.id;
+    const starredRow =
+      !!r.star && isFavorite(favorites, r.star.harness, r.star.model);
     return (
       <li
         key={key}
         id={optionId(i)}
         role="option"
         aria-selected={i === index}
-        aria-description={description}
-        data-current={current || undefined}
+        aria-label={r.title}
+        aria-description={r.description}
+        data-current={isCurrent || undefined}
         data-pending={chosenForSwitch || undefined}
-        title={e.kind === 'other' ? e.id || undefined : model || undefined}
-        onMouseMove={() => i !== index && setActive(i)}
+        title={r.entry.kind === 'default' ? undefined : r.entry.id || undefined}
+        onMouseMove={() => i !== index && setActiveKey(key)}
         onMouseDown={(ev) => ev.preventDefault()}
-        onClick={() => activate(e)}
+        onClick={() => activate(r.entry)}
         className={cn(
-          'flex h-8 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm',
+          'group flex h-10 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-sm',
           i === index && 'bg-accent',
         )}
       >
-        <Check
-          className={cn(
-            'size-3.5 shrink-0',
-            !current && !chosenForSwitch && 'invisible',
-            chosenForSwitch && 'text-sky-500',
-          )}
-          aria-hidden
-        />
-        <span className="min-w-0 flex-1 truncate">{title}</span>
-        {detail && (
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {detail}
+        <BrandIcon brand={r.icon} />
+        <span className="min-w-0 truncate">{r.title}</span>
+        {(isCurrent || chosenForSwitch) && (
+          <Check
+            className={cn('size-4 shrink-0', chosenForSwitch && 'text-sky-500')}
+            aria-hidden
+          />
+        )}
+        <span className="flex-1" />
+        {r.detail && (
+          <span className="shrink-0 truncate text-xs text-muted-foreground">
+            {r.detail}
           </span>
         )}
-        {tag && (
+        {r.tag && (
           <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground uppercase">
-            {tag}
+            {r.tag}
           </span>
         )}
-        {description && <InfoTip text={description} label={title} />}
-        {n !== undefined && (
-          <kbd
-            className="shrink-0 font-sans text-[10px] text-muted-foreground"
-            title={`Alt+${n}`}
+        {r.description && <InfoTip text={r.description} label={r.title} />}
+        {r.star && (
+          <button
+            type="button"
+            // The active row's star is the one Tab reaches from the search.
+            tabIndex={i === index ? 0 : -1}
+            aria-label={
+              starredRow
+                ? `Remove ${r.title} from favorites`
+                : `Add ${r.title} to favorites`
+            }
+            aria-pressed={starredRow}
+            onMouseDown={(ev) => ev.preventDefault()}
+            onClick={(ev) => {
+              ev.stopPropagation();
+              toggleFavorite(r.star!);
+              // The row leaves the favorites: keep the keyboard in the picker.
+              if (starredRow && view.kind === 'favorites' && !q) {
+                input.current?.focus();
+              }
+            }}
+            className={cn(
+              '-mr-1 shrink-0 rounded-md p-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none pointer-coarse:opacity-100',
+              i === index && 'opacity-100',
+              starredRow && 'text-amber-500 opacity-100 hover:text-amber-500',
+            )}
           >
-            ⌥{n}
-          </kbd>
+            <Star
+              className={cn('size-4', starredRow && 'fill-current')}
+              aria-hidden
+            />
+          </button>
         )}
       </li>
     );
   };
 
-  const renderGroups = (list: ModelGroup[], harness?: HarnessChoice) =>
-    list.map((g) => (
-      <li key={`g-${harness?.id ?? ''}-${g.name}`} role="presentation">
-        <ul role="group" aria-label={g.name || 'Models'}>
-          {g.name && (
-            <li
-              role="presentation"
-              className="px-2 pt-2 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
-            >
-              {g.name}
-            </li>
-          )}
-          {g.models.map((m) =>
-            harness
-              ? renderEntry(
-                  { kind: 'other', harness: harness.id, id: m.id },
-                  m.name,
-                  m.description,
-                )
-              : renderEntry(
-                  { kind: 'model', id: m.id, name: m.name },
-                  m.name,
-                  m.description,
-                  isCustom(catalog, m.id) ? 'custom' : undefined,
-                ),
-          )}
-        </ul>
-      </li>
-    ));
+  // What the list says before the rows of another harness.
+  const intro = !q && viewed && viewed.id !== current.id && harnessSwitch && (
+    <li
+      role="presentation"
+      className="grid gap-1 px-2.5 pt-1.5 pb-2 text-xs text-muted-foreground"
+    >
+      <span>
+        A model here switches {harnessSwitch.agentName} to {viewed.name} (all
+        chats).
+        {!viewed.catalog?.models.length &&
+          ` Its models show once ${harnessSwitch.agentName} has run on ${viewed.name}.`}
+      </span>
+      {loginProblem(viewed) && (
+        <span className="flex items-start gap-1.5 text-amber-600 dark:text-amber-400">
+          <TriangleAlert className="mt-0.5 size-3 shrink-0" aria-hidden />
+          {loginProblem(viewed)}
+        </span>
+      )}
+    </li>
+  );
 
-  const renderOther = (v: OtherView) => {
-    if (!v.defaultRow && v.groups.length === 0) return null;
-    if (v.single) {
-      return (
-        <li key={`oh-${v.h.id}`} role="presentation">
-          <ul role="group" aria-label={v.h.name}>
-            {renderEntry(
-              { kind: 'other', harness: v.h.id, id: '' },
-              v.h.name,
-              `Switches the agent to ${v.h.name} on its own default model`,
-              undefined,
-              'Agent default',
-            )}
-          </ul>
-        </li>
-      );
-    }
-    const headingKey = entryKey({ kind: 'harness', harness: v.h.id });
-    const hi = entries.findIndex((x) => entryKey(x) === headingKey);
-    return (
-      <li key={`oh-${v.h.id}`} role="presentation">
-        <ul role="group" aria-label={v.h.name}>
-          {v.toggles ? (
-            <li
-              id={optionId(hi)}
-              role="option"
-              aria-selected={hi === index}
-              aria-label={`${v.h.name}, ${v.open ? 'hide' : 'show'} models`}
-              data-expanded={v.open}
-              onMouseMove={() => hi !== index && setActive(hi)}
-              onMouseDown={(ev) => ev.preventDefault()}
-              onClick={() => toggle(v.h.id)}
-              className={cn(
-                'flex h-8 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm',
-                hi === index && 'bg-accent',
-              )}
-            >
-              <ChevronRight
-                className={cn(
-                  'size-3.5 shrink-0 text-muted-foreground transition-transform',
-                  v.open && 'rotate-90',
-                )}
-                aria-hidden
-              />
-              <span className="min-w-0 flex-1 truncate">{v.h.name}</span>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {v.h.catalog?.models.length} models
-              </span>
-            </li>
-          ) : (
-            <li
-              role="presentation"
-              className="px-2 pt-2 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
-            >
-              {v.h.name}
-            </li>
-          )}
-          {v.open && (
-            <>
-              {v.defaultRow &&
-                renderEntry(
-                  { kind: 'other', harness: v.h.id, id: '' },
-                  'Agent default',
-                  `Switches the agent to ${v.h.name} on its own default model`,
-                )}
-              {renderGroups(v.groups, v.h)}
-            </>
-          )}
-        </ul>
-      </li>
-    );
-  };
-
+  // The list takes the room the page has above (or below) the trigger, and
+  // the popover moves left when it would reach past the right edge.
+  const [box, setBox] = useState({ height: 320, shift: 0 });
   useLayoutEffect(() => {
     const p = panel.current;
-    const l = listEl.current;
+    const b = body.current;
     const host = p?.parentElement;
-    if (!p || !l || !host) return;
+    if (!p || !b || !host) return;
     const r = host.getBoundingClientRect();
     const room =
       side === 'top' ? r.top - 64 : window.innerHeight - r.bottom - 16;
-    const chrome = p.offsetHeight - l.offsetHeight;
-    setListMax(Math.min(256, Math.max(96, room - chrome - 8)));
-  }, [side, pending]);
+    const chrome = p.offsetHeight - b.offsetHeight;
+    const height = Math.min(320, Math.max(160, room - chrome - 8));
+    const vw = document.documentElement.clientWidth || window.innerWidth;
+    const shift = Math.max(
+      Math.min(0, vw - 16 - (r.left + p.offsetWidth)),
+      16 - r.left,
+    );
+    setBox((x) =>
+      x.height === height && x.shift === shift ? x : { height, shift },
+    );
+  }, [side, pending, value.model]);
 
-  const currentHarness = catalog?.harness;
+  const shown = modelOptionsFor(catalog, value.model);
+  const toggles = shown?.options.filter((o) => o.kind === 'toggle') ?? [];
+  const pendingTarget = pending && harnessOf(pending.harness);
+  const listed = viewed && viewed.id !== current.id ? viewed : rail[0];
+  const source = listed.catalog;
+  const tabs: { view: View; key: string }[] = [
+    { view: { kind: 'favorites' }, key: 'favorites' },
+    ...rail.map((h) => ({
+      view: { kind: 'harness', id: h.id } as View,
+      key: `h:${h.id}`,
+    })),
+  ];
+  const viewKey =
+    view.kind === 'favorites' ? 'favorites' : `h:${viewed?.id ?? ''}`;
+  const onRailKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const i = tabs.findIndex((t) => t.key === viewKey);
+    let next: number;
+    if (e.key === 'ArrowDown') next = (i + 1) % tabs.length;
+    else if (e.key === 'ArrowUp') next = (i - 1 + tabs.length) % tabs.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = tabs.length - 1;
+    else return;
+    e.preventDefault();
+    chooseView(tabs[next].view);
+    e.currentTarget
+      .querySelector<HTMLButtonElement>(`[data-tab="${tabs[next].key}"]`)
+      ?.focus();
+  };
+
   return (
     <div
       ref={panel}
@@ -625,102 +708,250 @@ function PickerPanel({
         if (pending) cancelPending();
         else onClose();
       }}
+      style={
+        {
+          left: box.shift,
+          '--picker-body': `${box.height}px`,
+        } as CSSProperties
+      }
       className={cn(
-        'absolute left-0 z-40 flex w-[min(22rem,calc(100vw-2rem))] flex-col rounded-xl border bg-card text-sm text-foreground shadow-xl shadow-black/30',
+        'absolute z-40 flex w-[min(42rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border bg-card text-sm text-foreground shadow-xl shadow-black/30',
         side === 'top' ? 'bottom-full mb-2' : 'top-full mt-1',
       )}
     >
-      <div className="flex items-center gap-2 border-b px-3">
-        <Search
-          className="size-3.5 shrink-0 text-muted-foreground"
-          aria-hidden
-        />
-        <input
-          ref={input}
-          autoFocus
-          role="combobox"
-          aria-label="Search models"
-          aria-expanded="true"
-          aria-controls={`${id}-list`}
-          aria-activedescendant={index >= 0 ? optionId(index) : undefined}
-          aria-autocomplete="list"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setActive(0);
-          }}
-          onKeyDown={onKeyDown}
-          placeholder={
-            allowCustom && catalog?.customModels
-              ? 'Search or type provider/model'
-              : 'Search models'
-          }
-          className="h-10 w-full bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
-        />
-      </div>
-      <ul
-        ref={listEl}
-        style={{ maxHeight: listMax }}
-        id={`${id}-list`}
-        role="listbox"
-        aria-label="Models"
-        className="max-h-64 overflow-y-auto p-1"
-      >
-        {entries[0]?.kind === 'default' &&
-          renderEntry(entries[0], defaultLabel, defaultDescription)}
-        {renderGroups(groups)}
-        {custom &&
-          renderEntry(
-            { kind: 'custom', id: q },
-            `Use “${q}”`,
-            'A model id the harness does not list',
-          )}
-        {otherViews.length > 0 && (
-          <li
-            role="presentation"
-            className="px-2 pt-3 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
+      <div className="flex min-h-0 flex-col sm:flex-row">
+        <div
+          ref={body}
+          className="flex min-w-0 flex-1"
+          style={{ height: box.height }}
+        >
+          <div
+            role="tablist"
+            aria-label="Model lists"
+            aria-orientation="vertical"
+            onKeyDown={onRailKey}
+            className="flex w-12 shrink-0 flex-col overflow-y-auto border-r py-1"
           >
-            Switch {harnessSwitch?.agentName} to
-          </li>
+            <RailTab
+              tabKey="favorites"
+              label="Favorites"
+              selected={viewKey === 'favorites'}
+              controls={listId}
+              onSelect={() => chooseView({ kind: 'favorites' })}
+            >
+              <Star
+                className={cn(
+                  'size-4',
+                  starred.length > 0 && 'fill-current text-amber-500',
+                )}
+                aria-hidden
+              />
+            </RailTab>
+            <div aria-hidden className="mx-auto my-1 h-px w-6 bg-border" />
+            {rail.map((h) => (
+              <RailTab
+                key={h.id}
+                tabKey={`h:${h.id}`}
+                label={h.name || 'Models'}
+                warning={h.id === current.id ? undefined : loginProblem(h)}
+                selected={viewKey === `h:${h.id}`}
+                controls={listId}
+                onSelect={() => chooseView({ kind: 'harness', id: h.id })}
+              >
+                <HarnessIcon harness={h.id} />
+              </RailTab>
+            ))}
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="relative flex shrink-0 items-center gap-2 border-b px-3 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:origin-left after:scale-x-0 after:bg-primary after:transition-transform focus-within:after:scale-x-100 motion-reduce:after:transition-none">
+              <Search
+                className="size-4 shrink-0 text-muted-foreground"
+                aria-hidden
+              />
+              <input
+                ref={input}
+                autoFocus
+                role="combobox"
+                aria-label="Search models"
+                aria-expanded="true"
+                aria-controls={listId}
+                aria-activedescendant={index >= 0 ? optionId(index) : undefined}
+                aria-autocomplete="list"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setActiveKey(undefined);
+                }}
+                onKeyDown={onKeyDown}
+                placeholder={
+                  allowCustom && catalog?.customModels
+                    ? 'Search or type provider/model…'
+                    : 'Search models…'
+                }
+                className="h-11 w-full bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
+              />
+            </div>
+            <ul
+              id={listId}
+              role="listbox"
+              aria-label="Models"
+              className="min-h-0 flex-1 overflow-y-auto p-1.5"
+            >
+              {intro}
+              {sections.map((s) => (
+                <li key={s.key} role="presentation">
+                  <ul role="group" aria-label={s.label ?? 'Models'}>
+                    {s.label && (
+                      <li
+                        role="presentation"
+                        className="flex items-center gap-1.5 px-2.5 pt-2.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
+                      >
+                        {s.harness && (
+                          <HarnessIcon harness={s.harness} className="size-3" />
+                        )}
+                        {s.label}
+                        {q && s.harness !== current.id && harnessSwitch && (
+                          <span className="tracking-normal normal-case">
+                            · switches {harnessSwitch.agentName}
+                          </span>
+                        )}
+                      </li>
+                    )}
+                    {s.rows.map(renderRow)}
+                  </ul>
+                </li>
+              ))}
+              {rows.length === 0 && (
+                <li
+                  role="presentation"
+                  className="px-2.5 py-3 text-muted-foreground"
+                >
+                  {q
+                    ? 'No model matches.'
+                    : view.kind === 'favorites'
+                      ? 'No favorites yet: star a model to keep it here.'
+                      : 'No models.'}
+                </li>
+              )}
+            </ul>
+          </div>
+        </div>
+        <aside className="border-t sm:max-h-[var(--picker-body)] sm:w-52 sm:shrink-0 sm:overflow-y-auto sm:border-t-0 sm:border-l">
+          {pending && harnessSwitch ? (
+            <SwitchConfirm
+              key={`${pending.harness}:${pending.model}`}
+              sw={harnessSwitch}
+              target={pendingTarget}
+              model={pending.model}
+              onCancel={cancelPending}
+              onDone={onClose}
+            />
+          ) : (
+            <Reasoning
+              model={value.model}
+              modelLabel={
+                value.model ? modelName(catalog, value.model) : 'Default'
+              }
+              shown={shown}
+              value={value}
+              onSet={setOption}
+            />
+          )}
+        </aside>
+      </div>
+      <div className="grid gap-2 border-t px-3 py-2">
+        {toggles.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {toggles.map((o) => {
+              const [off, on] = toggleLabels(o);
+              return (
+                <Segmented
+                  key={o.id}
+                  label={off === 'Standard' ? 'Speed' : o.name}
+                  ariaLabel={o.name}
+                  hint={o.description}
+                  values={[
+                    { value: o.values[0].value, name: off },
+                    { value: onValue(o), name: on },
+                  ]}
+                  // Nothing chosen is the harness's default: off.
+                  selected={value.options[o.id] ?? o.values[0].value}
+                  onSelect={(v) => setOption(o, v)}
+                />
+              );
+            })}
+          </div>
         )}
-        {otherViews.map(renderOther)}
-        {entries.length === 0 && (
-          <li role="presentation" className="px-2 py-3 text-muted-foreground">
-            No model matches.
-          </li>
-        )}
-      </ul>
-      {pending && harnessSwitch ? (
-        <SwitchConfirm
-          key={`${pending.harness}:${pending.model}`}
-          sw={harnessSwitch}
-          target={otherViews.find((v) => v.h.id === pending.harness)?.h}
-          model={pending.model}
-          onCancel={cancelPending}
-          onDone={onClose}
-        />
-      ) : (
-        <Reasoning
-          model={value.model}
-          shown={shown}
-          value={value}
-          onSet={setOption}
-        />
-      )}
-      <p className="border-t px-3 py-2 text-xs text-muted-foreground">
-        {catalog?.source === 'harness' && catalog.seenAt
-          ? `As ${currentHarness} reported them ${relTime(catalog.seenAt, now) === 'now' ? 'just now' : `${relTime(catalog.seenAt, now)} ago`}.`
-          : 'Built-in list: the harness reports its own models once the agent has run.'}
-        {note && <> {note}</>}
-        {footer && <span className="mt-1 block">{footer}</span>}
-      </p>
+        <p className="text-xs text-muted-foreground">
+          {source?.source === 'harness' && source.seenAt
+            ? `As ${listed.name || 'the harness'} reported them ${relTime(source.seenAt, now) === 'now' ? 'just now' : `${relTime(source.seenAt, now)} ago`}.`
+            : 'Built-in list: the harness reports its own models once the agent has run.'}
+          {note && <> {note}</>}
+          {footer && <span className="mt-1 block">{footer}</span>}
+        </p>
+      </div>
     </div>
   );
 }
 
+function RailTab({
+  tabKey,
+  label,
+  warning,
+  selected,
+  controls,
+  onSelect,
+  children,
+}: {
+  tabKey: string;
+  label: string;
+  warning?: string;
+  selected: boolean;
+  controls: string;
+  onSelect: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      data-tab={tabKey}
+      aria-label={label}
+      aria-description={warning}
+      aria-selected={selected}
+      aria-controls={controls}
+      tabIndex={selected ? 0 : -1}
+      title={warning ? `${label}: ${warning}` : label}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onSelect}
+      className={cn(
+        'group relative flex h-11 w-full shrink-0 items-center justify-center text-muted-foreground hover:text-foreground focus-visible:outline-none',
+        selected &&
+          'text-foreground after:absolute after:inset-y-2 after:right-0 after:w-0.5 after:rounded-l-full after:bg-primary',
+      )}
+    >
+      <span
+        className={cn(
+          'relative flex size-9 items-center justify-center rounded-lg group-hover:bg-accent group-focus-visible:ring-1 group-focus-visible:ring-ring',
+          selected && 'bg-accent',
+        )}
+      >
+        {children}
+        {warning && (
+          <span
+            aria-hidden
+            className="absolute top-1 right-1 size-1.5 rounded-full bg-amber-500"
+          />
+        )}
+      </span>
+    </button>
+  );
+}
+
 /**
- * The question before a harness switch, inline under the list: the harness is
- * the agent's, so it applies to all its chats, and the model starts over.
+ * The question before a harness switch, in place of the reasoning column:
+ * the harness is the agent's, so it applies to all its chats, and the model
+ * starts over.
  */
 function SwitchConfirm({
   sw,
@@ -757,10 +988,13 @@ function SwitchConfirm({
     <div
       role="group"
       aria-label={`Switch to ${target.name}`}
-      className="grid gap-2 border-t p-3"
+      className="grid gap-2 p-3"
     >
-      <p className="font-medium">
-        Switches {sw.agentName} to {target.name} (all chats)
+      <p className="flex items-center gap-2 font-medium">
+        <HarnessIcon harness={target.id} />
+        <span>
+          Switches {sw.agentName} to {target.name} (all chats)
+        </span>
       </p>
       <p className="text-xs text-muted-foreground">
         Model: {modelLabel}. {target.name} starts with the next message. The
@@ -786,7 +1020,7 @@ function SwitchConfirm({
           {error}
         </p>
       )}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button size="sm" disabled={busy || sw.busy} onClick={go}>
           {busy && <Loader2 className="animate-spin" aria-hidden />}
           {problem ? 'Switch anyway' : `Switch to ${target.name}`}
@@ -799,85 +1033,166 @@ function SwitchConfirm({
   );
 }
 
-/** Reasoning effort and fast mode of the chosen model. */
+/** The reasoning effort levels of the current model. */
 function Reasoning({
   model,
+  modelLabel,
   shown,
   value,
   onSet,
 }: {
   model: string;
+  modelLabel: string;
   shown: ReturnType<typeof modelOptionsFor>;
   value: Choice;
   onSet: (o: ModelOption, v: string) => void;
 }) {
   const efforts = shown?.options.filter((o) => o.kind === 'effort') ?? [];
   const toggles = shown?.options.filter((o) => o.kind === 'toggle') ?? [];
-  const selected = (o: ModelOption) => value.options[o.id];
+  const hint = (text: string) => (
+    <p className="text-xs text-muted-foreground">{text}</p>
+  );
   return (
-    <div className="grid gap-2.5 border-t p-3">
-      <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-        Reasoning
-      </p>
-      {!model ? (
-        <p className="text-xs text-muted-foreground">
-          Uses the default model and its settings. Pick a model to set its
-          reasoning.
+    <div className="grid gap-2 p-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+          Reasoning
         </p>
-      ) : !shown ? (
-        <p className="text-xs text-muted-foreground">
-          The reasoning options of this model show here once the agent has run.
-        </p>
-      ) : efforts.length + toggles.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          This model has no reasoning options.
-        </p>
-      ) : (
-        <>
-          {efforts.map((o) => (
-            <Segmented
-              key={o.id}
-              label={efforts.length > 1 ? o.name : 'Effort'}
-              hint={o.description}
-              values={o.values.map((v) => ({
-                value: v.value,
-                name: valueLabel(o, v),
-                description: v.description,
-              }))}
-              selected={selected(o)}
-              onSelect={(v) => onSet(o, v)}
-            />
-          ))}
-          {toggles.map((o) => {
-            const [off, on] = toggleLabels(o);
-            return (
-              <Segmented
-                key={o.id}
-                label={off === 'Standard' ? 'Speed' : o.name}
-                ariaLabel={o.name}
-                hint={o.description}
-                values={[
-                  { value: o.values[0].value, name: off },
-                  { value: onValue(o), name: on },
-                ]}
-                // Nothing chosen is the harness's default: off.
-                selected={selected(o) ?? o.values[0].value}
-                onSelect={(v) => onSet(o, v)}
-              />
-            );
-          })}
-          {shown.provisional && (
-            <p className="text-xs text-muted-foreground">
-              Levels as the harness reports them for its other models; it
-              confirms them once the agent has used this model.
-            </p>
-          )}
-        </>
-      )}
+        <span className="min-w-0 truncate text-xs text-muted-foreground">
+          {modelLabel}
+        </span>
+      </div>
+      {!model
+        ? hint(
+            'Uses the default model and its settings. Pick a model to set its reasoning.',
+          )
+        : !shown
+          ? hint(
+              'The reasoning options of this model show here once the agent has run.',
+            )
+          : efforts.length === 0
+            ? hint(
+                toggles.length > 0
+                  ? 'This model has no effort levels.'
+                  : 'This model has no reasoning options.',
+              )
+            : efforts.map((o) => (
+                <Levels
+                  key={o.id}
+                  label={efforts.length > 1 ? o.name : undefined}
+                  ariaLabel={efforts.length > 1 ? o.name : 'Effort'}
+                  hint={o.description}
+                  values={o.values.map((v) => ({
+                    value: v.value,
+                    name: valueLabel(o, v),
+                    description: v.description,
+                  }))}
+                  selected={value.options[o.id]}
+                  onSelect={(v) => onSet(o, v)}
+                />
+              ))}
+      {shown?.provisional &&
+        efforts.length > 0 &&
+        hint(
+          'Levels as the harness reports them for its other models; it confirms them once the agent has used this model.',
+        )}
     </div>
   );
 }
 
+interface Value {
+  value: string;
+  name: string;
+  description?: string;
+}
+
+/**
+ * Arrow keys for a radio group: move to the next or previous choice and
+ * choose it, as native radios do.
+ */
+function radioKeys(values: Value[], onSelect: (v: string) => void) {
+  return (e: KeyboardEvent<HTMLDivElement>) => {
+    const radios = [
+      ...e.currentTarget.querySelectorAll<HTMLButtonElement>('[role=radio]'),
+    ];
+    const i = radios.indexOf(e.target as HTMLButtonElement);
+    if (i < 0) return;
+    let next: number;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight')
+      next = (i + 1) % radios.length;
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft')
+      next = (i - 1 + radios.length) % radios.length;
+    else return;
+    e.preventDefault();
+    radios[next].focus();
+    onSelect(values[next].value);
+  };
+}
+
+/** Effort levels: a column of rows (a row of chips on a phone). */
+function Levels({
+  label,
+  ariaLabel,
+  hint,
+  values,
+  selected,
+  onSelect,
+}: {
+  label?: string;
+  ariaLabel: string;
+  hint?: string;
+  values: Value[];
+  selected: string | undefined;
+  onSelect: (v: string) => void;
+}) {
+  const cur = values.findIndex((v) => v.value === selected);
+  return (
+    <div className="grid gap-1">
+      {label && (
+        <span className="text-xs text-muted-foreground" title={hint}>
+          {label}
+        </span>
+      )}
+      <div
+        role="radiogroup"
+        aria-label={ariaLabel}
+        title={label ? undefined : hint}
+        onKeyDown={radioKeys(values, onSelect)}
+        className="flex flex-wrap gap-1 sm:flex-col sm:gap-0.5"
+      >
+        {values.map((v, i) => {
+          const on = i === cur;
+          return (
+            <button
+              key={v.value}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              tabIndex={(cur < 0 ? i === 0 : on) ? 0 : -1}
+              title={v.description}
+              onClick={() => onSelect(v.value)}
+              className={cn(
+                'flex h-9 items-center gap-2 rounded-lg border px-2.5 text-sm hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none sm:w-full sm:justify-between sm:border-transparent',
+                on && 'border-foreground/30 bg-accent font-medium',
+              )}
+            >
+              <span className="truncate">{v.name}</span>
+              <Check
+                className={cn(
+                  'size-4 shrink-0',
+                  !on && 'hidden sm:invisible sm:block',
+                )}
+                aria-hidden
+              />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** A two-way switch in the footer (fast mode: Standard or Fast). */
 function Segmented({
   label,
   ariaLabel,
@@ -889,31 +1204,34 @@ function Segmented({
   label: string;
   ariaLabel?: string;
   hint?: string;
-  values: { value: string; name: string; description?: string }[];
+  values: Value[];
   selected: string | undefined;
   onSelect: (v: string) => void;
 }) {
+  const cur = values.findIndex((v) => v.value === selected);
   return (
-    <div className="grid gap-1">
+    <div className="flex items-center gap-2">
       <span className="text-xs text-muted-foreground" title={hint}>
         {label}
       </span>
       <div
         role="radiogroup"
         aria-label={ariaLabel ?? label}
-        className="flex flex-wrap gap-1"
+        onKeyDown={radioKeys(values, onSelect)}
+        className="flex rounded-lg border p-0.5"
       >
-        {values.map((v) => (
+        {values.map((v, i) => (
           <button
             key={v.value}
             type="button"
             role="radio"
-            aria-checked={selected === v.value}
+            aria-checked={i === cur}
+            tabIndex={(cur < 0 ? i === 0 : i === cur) ? 0 : -1}
             title={v.description}
             onClick={() => onSelect(v.value)}
             className={cn(
-              'rounded-md border px-2 py-0.5 text-xs hover:bg-accent',
-              selected === v.value && 'border-foreground bg-accent',
+              'h-7 rounded-md px-2.5 text-xs text-muted-foreground hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none',
+              i === cur && 'bg-accent font-medium text-foreground',
             )}
           >
             {v.name}

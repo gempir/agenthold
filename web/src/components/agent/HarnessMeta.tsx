@@ -5,7 +5,6 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Sparkles } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
 import {
   agentQuery,
@@ -53,9 +52,9 @@ export function useSwitchHarness(agent: Agent) {
 
 /**
  * The harness and the conversation's model inside the composer: one picker
- * opens on the model, the harness name in front of it. The owner finds the
- * other harnesses with their models in the same list and can move the agent
- * there; others pick among the models the harness reported. Without a
+ * opens on the model, the harness's logo in front of it. The owner finds the
+ * other harnesses with their models in the picker's rail and can move the
+ * agent there; others pick among the models the harness reported. Without a
  * session (a draft) the choice is held by the caller and applied when the
  * session is created.
  */
@@ -128,15 +127,7 @@ export function HarnessMeta({
         }
         allowCustom={isOwner}
         label="Model for this conversation"
-        leading={
-          <>
-            <Sparkles className="size-3.5 shrink-0" aria-hidden />
-            <span className="hidden sm:inline">{name}</span>
-            <span aria-hidden className="text-muted-foreground/50">
-              ·
-            </span>
-          </>
-        }
+        harness={{ id: agent.harness, name }}
         note={
           switchable
             ? 'A change applies from the next message.'

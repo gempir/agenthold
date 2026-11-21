@@ -178,12 +178,20 @@ Signing in:
 
 ## Choosing models
 
-The model button in the composer ("Opus 5.5 · Medium") picks the model of one conversation; the agent's
-settings (Harness → Default model) pick the default for every conversation without its own choice. The picker lists
-the models the harness offers, grouped by provider, one line each (the description is behind the info icon), with a
-Reasoning section for the chosen model: effort levels and, where the model has it, fast mode (Standard/Fast). A choice
-applies at once and the picker stays open, so a model and its reasoning are set in one go. Keys: arrows to move, Enter
-to pick, Escape to close, Alt+1…9 for the n-th model, ←/→ to change the effort.
+The model button in the composer (the harness's logo, then "Opus 5.5 Medium") picks the model of one conversation;
+the agent's settings (Harness → Default model) pick the default for every conversation without its own choice. The
+picker has three columns. A rail on the left holds **Favorites** (a star) and one entry per harness, each with its
+logo; the middle lists the models of the entry chosen there, one line each with the provider's logo (the description
+is behind the info icon) and a check after the current one; the right column, **Reasoning**, lists the effort levels
+of the current model with a check on the chosen one. On/off options such as fast mode (Standard/Fast) sit in the
+footer. A choice applies at once and the picker stays open, so a model and its reasoning are set in one go. Typing in
+the search box searches every harness at once, grouped by harness. On a phone the reasoning levels move under the
+list. Keys: arrows to move through the list (and through the rail or the levels when they have the focus), Enter to
+pick, Escape to close; there are no shortcuts.
+
+The star on a row (shown on hover, always on starred models) keeps the model in Favorites, which lists the starred
+models of every harness the picker offers, each with its harness. The picker opens on Favorites when there are any,
+otherwise on the current harness. Favorites are kept in the browser, not on the server.
 
 The list comes from the harness itself: its ACP session config options (a `model` option, a `thought_level` option
 for effort, a fast mode toggle) reported with every `session/new`, `session/resume` and `session/load`. agenthold stores the last report
@@ -222,10 +230,10 @@ and is shown as "custom" until it is changed.
 
 ### Switching the harness from the picker
 
-The harness is the agent's: all its conversations use it. The owner finds the other harnesses under "Switch
-the agent to" in the same picker: a harness that reported models (or has a built-in list) opens to show them, one that
-never ran on this agent is a single row marked "Agent default". Picking one asks to confirm inline ("Switches demo2
-to Codex (all chats)"); confirming changes the agent's harness and default model (the picked one, or the new
+The harness is the agent's: all its conversations use it. The owner finds the other harnesses in the picker's
+rail: a harness that reported models (or has a built-in list) lists its default and its models, one that never ran on
+this agent only its default model. A dot on a harness's logo marks a missing login. Picking one asks to confirm in the
+reasoning column ("Switches demo2 to Codex (all chats)"); confirming changes the agent's harness and default model (the picked one, or the new
 harness's own), resets the models chosen in its conversations, and restarts the harness with the next message.
 Conversations keep their history but start with a fresh context, since the old harness's sessions mean nothing to the
 new one. The switch waits while a conversation is running (the API answers 409), and the picker warns when the new

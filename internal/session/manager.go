@@ -489,6 +489,8 @@ func (m *Manager) run(t *turn, sess db.AgentSession, text string, status func(st
 	}
 	t.acpID, t.prompting = acpID, true
 	m.mu.Unlock()
+	m.lg.Info("harness: prompt sent", "agent", sess.AgentID, "session", sess.ID)
+	conn.promptAt.Store(time.Now().UnixNano())
 
 	// Not the setup context: a cancel is session/cancel, answered by the
 	// harness with stopReason "cancelled".
@@ -544,6 +546,11 @@ func (m *Manager) step(ctx context.Context, conn *harnessConn, method string, fn
 			if err != nil && conn.ended() {
 				return conn.failure()
 			}
+			if err != nil {
+				m.lg.Info("harness: "+method+" failed", "agent", conn.agentID, "took", time.Since(start), "err", err)
+			} else {
+				m.lg.Info("harness: "+method+" answered", "agent", conn.agentID, "took", time.Since(start))
+			}
 			return err
 		case <-timer.C:
 			idle, total := conn.idleSince(start), time.Since(start)
@@ -553,6 +560,7 @@ func (m *Manager) step(ctx context.Context, conn *harnessConn, method string, fn
 			}
 			cancel()
 			<-done
+			m.lg.Warn("harness: "+method+" timed out", "agent", conn.agentID, "took", total, "idle", idle)
 			if conn.ended() {
 				return conn.failure()
 			}
@@ -971,10 +979,13 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 			notice(msg)
 		}
 	}
+	began := time.Now()
+	m.lg.Info("harness: starting "+ad.Name+"; waiting for the machine", "agent", agentID)
 	wctx, wcancel := context.WithTimeout(ctx, wakeTimeout)
 	ts, err := m.wake(wctx, agentID, status)
 	wcancel()
 	if err != nil {
+		m.lg.Warn("harness: the machine is not reachable", "agent", agentID, "took", time.Since(began), "err", err)
 		if ctx.Err() == nil && errors.Is(wctx.Err(), context.DeadlineExceeded) {
 			return nil, fmt.Errorf("the agent's sandbox did not start within %s: %w", wakeTimeout, err)
 		}
@@ -990,7 +1001,9 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 		}
 	}
 	env := ad.Environment(cfg)
+	m.lg.Info("harness: machine reachable", "agent", agentID, "took", time.Since(began))
 	if m.logins != nil {
+		lbegan := time.Now()
 		lctx, lcancel := context.WithTimeout(ctx, loginsTimeout)
 		extra, err := m.logins.Prepare(lctx, agent, ts)
 		lcancel()
@@ -1004,14 +1017,18 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 		for k, v := range extra {
 			env[k] = v
 		}
+		m.lg.Info("harness: account login prepared", "agent", agentID, "took", time.Since(lbegan))
 	}
 
 	hc := newHarnessConn(m, agentID, ad, ts)
 	hc.startModel = cfg.Model
+	spawned := time.Now()
 	proc, err := m.open(ctx, hc, ts, ad.Command, env)
 	if err != nil {
+		m.lg.Warn("harness: could not start the process", "agent", agentID, "took", time.Since(spawned), "err", err)
 		return nil, err
 	}
+	m.lg.Info("harness: process started", "agent", agentID, "command", strings.Join(ad.Command, " "), "took", time.Since(spawned))
 	hc.start(proc)
 	var init acp.InitializeResponse
 	err = m.step(ctx, hc, "initialize", func(ctx context.Context) error {
@@ -1051,7 +1068,7 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 	}
 	m.conns[agentID] = hc
 	m.mu.Unlock()
-	m.lg.Info("harness connected", "agent", agentID, "harness", ad.ID)
+	m.lg.Info("harness connected", "agent", agentID, "harness", ad.ID, "took", time.Since(began))
 	return hc, nil
 }
 

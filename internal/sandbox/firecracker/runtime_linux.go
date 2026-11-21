@@ -3,6 +3,7 @@
 package firecracker
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -235,6 +236,7 @@ func (d *Driver) launch(ctx context.Context, id sandbox.ID, m *manifest) error {
 	if err = a.action(bootCtx, "InstanceStart"); err != nil {
 		return err
 	}
+	go d.watchConsole(id, m.Process)
 	m.State = sandbox.StateRunning
 	m.Fresh = false // the guest has the instruction; it resets and stamps itself
 	return d.save(id, m)
@@ -488,4 +490,53 @@ func (d *Driver) recoverProcess(id sandbox.ID, m *manifest) error {
 	}
 	m.Process = process{PID: pid, StartTime: start}
 	return d.save(id, m)
+}
+
+// consoleWatch bounds how long a boot's console is copied into the log.
+const consoleWatch = 2 * time.Minute
+
+// watchConsole copies a booting guest's console (kernel messages, sandboxd's
+// init phases, its tunnel attempts) into the log at debug level, as "guest
+// console" records of the machine: the activity view shows them while a wake
+// is slow. It stops when sandboxd reports its tunnel, the VMM is replaced or
+// consoleWatch has passed. Firecracker's own API lines are left out.
+func (d *Driver) watchConsole(id sandbox.ID, p process) {
+	f, err := os.Open(filepath.Join(d.dir(id), "serial.log"))
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	r := bufio.NewReaderSize(f, 64<<10)
+	deadline := time.Now().Add(consoleWatch)
+	var partial strings.Builder
+	for time.Now().Before(deadline) {
+		chunk, err := r.ReadString('\n')
+		partial.WriteString(chunk)
+		if err != nil {
+			if m, lerr := d.load(id); lerr != nil || m.Process != p {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		line := strings.TrimSpace(partial.String())
+		partial.Reset()
+		if line == "" || vmmLine(line) {
+			continue
+		}
+		if len(line) > 400 {
+			line = line[:400] + "…"
+		}
+		d.cfg.Log.Debug("guest console", "sandbox", id, "line", line)
+		if strings.Contains(line, "tunnel connected") {
+			return
+		}
+	}
+}
+
+// vmmLine reports whether a console line is Firecracker's own log (its API
+// requests and device notifications), not the guest's.
+func vmmLine(line string) bool {
+	return len(line) > 20 && line[4] == '-' && line[10] == 'T' && strings.Contains(line, " [") &&
+		(strings.Contains(line, ":fc_api]") || strings.Contains(line, "notifying queues"))
 }

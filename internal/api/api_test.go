@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -18,6 +19,8 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/gempir/agenthold/internal/activity"
 
 	"github.com/gempir/agenthold/internal/api"
 	"github.com/gempir/agenthold/internal/api/gen"
@@ -50,6 +53,7 @@ import (
 )
 
 type env struct {
+	activity  *activity.Log
 	t         *testing.T
 	srv       *httptest.Server
 	idp       *authtest.IdP
@@ -189,7 +193,9 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		localNode.SetCA(ca)
 	}
 	e.apps = &apps.Manager{Store: st, Node: n, Audit: &audit.Log{Store: st}, Limits: cfg.Apps}
-	e.sandboxes = sandbox.NewManagerWithNode(st, n, egress.SpecFunc(st, 15002), sandbox.Options{TunnelPort: port, ConnectTimeout: 10 * time.Second, BootFiles: e.apps.BootFiles}, nil)
+	e.activity = activity.New()
+	activityLog := slog.New(activity.Tap(slog.DiscardHandler, e.activity))
+	e.sandboxes = sandbox.NewManagerWithNode(st, n, egress.SpecFunc(st, 15002), sandbox.Options{TunnelPort: port, ConnectTimeout: 10 * time.Second, BootFiles: e.apps.BootFiles, LastActivity: e.activity.Last}, activityLog)
 	e.apps.Sandboxes = e.sandboxes
 	t.Cleanup(func() {
 		// Finish the background operations first: one still starting a
@@ -207,7 +213,7 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	e.logins = &logins.Service{Store: st, Box: box, Audit: &audit.Log{Store: st}, Invalidate: e.directory.Invalidate}
 	e.directory.Logins = e.logins
 	e.store = st
-	e.sessions = session.NewManager(st, nil, nil)
+	e.sessions = session.NewManager(st, nil, activityLog)
 	e.sessions.SetLogins(e.logins)
 	e.logins.Restart = e.sessions.Restart
 	e.sessions.SetTools(tools.Provider{Store: st, PlatformCommand: sandboxdBin})
@@ -246,7 +252,7 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Node: n, Nodes: nodes, Limits: cfg.Sandbox,
 		Box: box, Egress: e.directory, Sessions: e.sessions, Idle: e.sleeper, Audit: &audit.Log{Store: st}, ShowTestHarness: true,
 		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins,
-		Preview: e.preview, Identity: e.identity, Apps: e.apps,
+		Preview: e.preview, Identity: e.identity, Apps: e.apps, Activity: e.activity,
 	})
 	e.api, e.auth, e.box = a, authSvc, box
 	e.sessions.SetWaker(a.Wake)

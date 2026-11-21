@@ -1193,6 +1193,30 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 
+  /agents/{agentId}/activity:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listAgentActivity
+      tags: [agents]
+      description: |
+        What the platform is doing for this agent right now, oldest first: waking its machine (resume or cold
+        boot, and why), the guest's boot console, sandboxd's tunnel attempts, the harness start (process, ACP
+        initialize, session setup, first answer, with timings) and the harness's stderr. In memory on the
+        controller and bounded (the latest few hundred entries); poll with `after` for new ones. Anyone who can
+        use the agent.
+      parameters:
+        - { name: after, in: query, schema: { type: integer, format: int64 }, description: Only entries after this seq. }
+      responses:
+        "200":
+          description: Entries in order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ActivityEntry" }
+        "404": { $ref: "#/components/responses/Error" }
+
   /agents/{agentId}/exposures:
     parameters:
       - $ref: "#/components/parameters/AgentId"
@@ -2696,6 +2720,18 @@ components:
         data:
           type: object
           additionalProperties: true
+
+    ActivityEntry:
+      type: object
+      required: [seq, at, level, source, message]
+      properties:
+        seq: { type: integer, format: int64 }
+        at: { type: string, format: date-time }
+        level: { type: string, enum: [debug, info, warn, error] }
+        source:
+          type: string
+          description: "What wrote it: machine, guest, tunnel, harness, stderr, acp, server."
+        message: { type: string }
 
     ShareInput:
       type: object

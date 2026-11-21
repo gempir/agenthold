@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Composer } from '@/components/chat/Composer';
 import { ToolCard } from '@/components/chat/ToolCard';
 import { useSessionStream } from '@/components/chat/useSessionStream';
+import { ActivityDisclosure } from '@/components/chat/LiveLog';
 import { meQuery, type SandboxState } from '@/api/queries';
 import { Avatar } from '@/components/Avatar';
 import {
@@ -343,22 +344,58 @@ function Presence({ viewers }: { viewers: Viewer[] }) {
   );
 }
 
-/** "Working 12s", counted from when this component mounted. */
-function WorkingStatus({ label }: { label: string }) {
+/**
+ * "Working 12s", counted from when this component mounted. With an agent, it
+ * offers the live activity log: what the wake or the harness start is doing.
+ */
+function WorkingStatus({
+  label,
+  agentId,
+  waiting,
+}: {
+  label: string;
+  agentId?: string;
+  /** No answer yet in this turn: the log is the exit hatch. */
+  waiting: boolean;
+}) {
   const [start] = useState(() => Date.now());
   const now = useNow(1000);
+  const slow = now - start > 5000;
   return (
-    <p
-      role="status"
-      className="flex items-center gap-2 text-sm text-muted-foreground"
-    >
-      <Loader2 className="size-3.5 animate-spin text-sky-400" aria-hidden />
-      {label}
-      <span className="tabular-nums text-muted-foreground/70">
-        {elapsed(now - start)}
-      </span>
-    </p>
+    <div className="grid gap-1">
+      <p
+        role="status"
+        className="flex items-center gap-2 text-sm text-muted-foreground"
+      >
+        <Loader2 className="size-3.5 animate-spin text-sky-400" aria-hidden />
+        {label}
+        <span className="tabular-nums text-muted-foreground/70">
+          {elapsed(now - start)}
+        </span>
+      </p>
+      {agentId && (waiting || slow) && (
+        <ActivityDisclosure
+          agentId={agentId}
+          live
+          label={
+            waiting && slow
+              ? 'Taking a while? See what is happening'
+              : 'What is happening'
+          }
+        />
+      )}
+    </div>
   );
+}
+
+/** Whether anything but notices came after the last prompt. */
+function answeredSinceLastPrompt(items: ChatItem[]) {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const k = items[i].kind;
+    if (k === 'user') return false;
+    if (k !== 'notice') return true;
+  }
+  return false;
 }
 
 function SessionComposer({
@@ -420,6 +457,7 @@ function SessionComposer({
 
 export default function ChatView({
   sessionId,
+  agentId,
   canUse,
   initialRunning = false,
   agentState,
@@ -427,6 +465,8 @@ export default function ChatView({
   notice,
 }: {
   sessionId: string;
+  /** Enables the live activity log while the agent wakes or starts. */
+  agentId?: string;
   canUse: boolean;
   agentState?: SandboxState;
   initialRunning?: boolean;
@@ -503,8 +543,17 @@ export default function ChatView({
             ),
           )}
           {state.plan && state.plan.length > 0 && <Plan entries={state.plan} />}
+          {!running && agentId && last?.kind === 'error' && (
+            <ActivityDisclosure
+              agentId={agentId}
+              live={false}
+              label="Show what happened"
+            />
+          )}
           {running && (
             <WorkingStatus
+              agentId={agentId}
+              waiting={!answeredSinceLastPrompt(state.items)}
               label={
                 agentState === 'sleeping' || agentState === 'starting'
                   ? 'Waking the agent…'

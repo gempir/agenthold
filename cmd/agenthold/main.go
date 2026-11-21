@@ -20,6 +20,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gempir/agenthold/internal/activity"
+
 	"github.com/gempir/agenthold/internal/api"
 	"github.com/gempir/agenthold/internal/apps"
 	"github.com/gempir/agenthold/internal/audit"
@@ -92,7 +94,10 @@ func run() error {
 		return nil
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	// Records that name an agent also feed its live activity log (the chat's
+	// "what is happening" view), debug ones included.
+	activityLog := activity.New()
+	logger := slog.New(activity.Tap(slog.NewJSONHandler(os.Stderr, nil), activityLog))
 	slog.SetDefault(logger)
 
 	cfg, err := config.Load()
@@ -208,7 +213,8 @@ func run() error {
 	// Services reach every machine in its boot files.
 	appsMgr := &apps.Manager{Store: st, Node: cluster, Audit: auditLog, Limits: cfg.Apps, Log: logger}
 	sandboxes := sandbox.NewManagerWithNode(st, cluster, specForAgent, sandbox.Options{
-		TunnelPort: tunnelPort, BootFiles: appsMgr.BootFiles,
+		LastActivity: activityLog.Last,
+		TunnelPort:   tunnelPort, BootFiles: appsMgr.BootFiles,
 	}, logger)
 	appsMgr.Sandboxes = sandboxes
 	sandboxes.OnChange(func(string, sandbox.Phase) { directory.Invalidate() })
@@ -307,7 +313,7 @@ func run() error {
 	apiSrv := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Node: cluster, Nodes: cluster, Limits: cfg.Sandbox,
 		Box: box, Egress: directory, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc,
-		Preview: previewSvc, Identity: identity, Apps: appsMgr,
+		Preview: previewSvc, Identity: identity, Apps: appsMgr, Activity: activityLog,
 		ShowTestHarness: cfg.TestHarness || driverName == "fake",
 	})
 	sessions.SetWaker(apiSrv.Wake)

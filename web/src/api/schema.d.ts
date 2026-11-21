@@ -999,6 +999,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agentId}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description What the platform is doing for this agent right now, oldest first: waking its machine (resume or cold
+         *     boot, and why), the guest's boot console, sandboxd's tunnel attempts, the harness start (process, ACP
+         *     initialize, session setup, first answer, with timings) and the harness's stderr. In memory on the
+         *     controller and bounded (the latest few hundred entries); poll with `after` for new ones. Anyone who can
+         *     use the agent.
+         */
+        get: operations["listAgentActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agentId}/exposures": {
         parameters: {
             query?: never;
@@ -2308,6 +2334,17 @@ export interface components {
             data: {
                 [key: string]: unknown;
             };
+        };
+        ActivityEntry: {
+            /** Format: int64 */
+            seq: number;
+            /** Format: date-time */
+            at: string;
+            /** @enum {string} */
+            level: "debug" | "info" | "warn" | "error";
+            /** @description What wrote it: machine, guest, tunnel, harness, stderr, acp, server. */
+            source: string;
+            message: string;
         };
         ShareInput: {
             /** @description The verified email of a user who has signed in before. */
@@ -4377,6 +4414,33 @@ export interface operations {
                 };
             };
             403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listAgentActivity: {
+        parameters: {
+            query?: {
+                /** @description Only entries after this seq. */
+                after?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Entries in order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityEntry"][];
+                };
+            };
             404: components["responses"]["Error"];
         };
     };

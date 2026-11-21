@@ -170,6 +170,7 @@ export function AgentPage({
             <ChatView
               key={sessionId}
               sessionId={sessionId}
+              agentId={agentId}
               canUse={access.canUse}
               agentState={a.state}
               initialRunning={selected?.running}

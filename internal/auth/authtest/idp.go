@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -26,6 +27,10 @@ type User struct {
 	EmailVerified bool
 	Name          string
 	Username      string
+	// Claims are added to the ID token (roles, resource_access, ...).
+	Claims map[string]any
+	// UserInfo claims are served only by the userinfo endpoint.
+	UserInfo map[string]any
 }
 
 type pendingCode struct {
@@ -41,10 +46,11 @@ type IdP struct {
 	*httptest.Server
 	ClientID, ClientSecret string
 
-	mu    sync.Mutex
-	next  User
-	codes map[string]pendingCode
-	key   *rsa.PrivateKey
+	mu     sync.Mutex
+	next   User
+	codes  map[string]pendingCode
+	tokens map[string]User
+	key    *rsa.PrivateKey
 }
 
 // NewIdP starts a fake OIDC provider.
@@ -54,12 +60,13 @@ func NewIdP(t testing.TB) *IdP {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &IdP{ClientID: "test-client", ClientSecret: "test-secret", codes: map[string]pendingCode{}, key: key}
+	p := &IdP{ClientID: "test-client", ClientSecret: "test-secret", codes: map[string]pendingCode{}, tokens: map[string]User{}, key: key}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/openid-configuration", p.discovery)
 	mux.HandleFunc("GET /authorize", p.authorize)
 	mux.HandleFunc("POST /token", p.token)
 	mux.HandleFunc("GET /jwks", p.jwks)
+	mux.HandleFunc("GET /userinfo", p.userinfo)
 	p.Server = httptest.NewServer(mux)
 	t.Cleanup(p.Close)
 	return p
@@ -78,6 +85,7 @@ func (p *IdP) discovery(w http.ResponseWriter, _ *http.Request) {
 		"authorization_endpoint":                p.URL + "/authorize",
 		"token_endpoint":                        p.URL + "/token",
 		"jwks_uri":                              p.URL + "/jwks",
+		"userinfo_endpoint":                     p.URL + "/userinfo",
 		"response_types_supported":              []string{"code"},
 		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"RS256"},
@@ -131,6 +139,9 @@ func (p *IdP) token(w http.ResponseWriter, r *http.Request) {
 		"email": pc.user.Email, "email_verified": pc.user.EmailVerified,
 		"name": pc.user.Name, "preferred_username": pc.user.Username,
 	}
+	for k, v := range pc.user.Claims {
+		claims[k] = v
+	}
 	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: jose.JSONWebKey{Key: p.key, KeyID: "k1"}}, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -143,7 +154,27 @@ func (p *IdP) token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	idToken, _ := jws.CompactSerialize()
-	writeJSON(w, map[string]any{"access_token": randString(), "token_type": "Bearer", "expires_in": 3600, "id_token": idToken})
+	access := randString()
+	p.mu.Lock()
+	p.tokens[access] = pc.user
+	p.mu.Unlock()
+	writeJSON(w, map[string]any{"access_token": access, "token_type": "Bearer", "expires_in": 3600, "id_token": idToken})
+}
+
+func (p *IdP) userinfo(w http.ResponseWriter, r *http.Request) {
+	tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	p.mu.Lock()
+	u, ok := p.tokens[tok]
+	p.mu.Unlock()
+	if !ok {
+		http.Error(w, "bad token", http.StatusUnauthorized)
+		return
+	}
+	out := map[string]any{"sub": u.Subject, "email": u.Email}
+	for k, v := range u.UserInfo {
+		out[k] = v
+	}
+	writeJSON(w, out)
 }
 
 func (p *IdP) jwks(w http.ResponseWriter, _ *http.Request) {

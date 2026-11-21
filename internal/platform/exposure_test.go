@@ -24,6 +24,9 @@ func newExposureService(t *testing.T, suffix string) (*Service, string) {
 	if err := st.CreateUser(ctx, db.CreateUserParams{ID: "usr_1", Name: "A", CreatedAt: 1, UpdatedAt: 1}); err != nil {
 		t.Fatal(err)
 	}
+	if err := st.SetUserRole(ctx, db.SetUserRoleParams{Role: "user", ID: "usr_1"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.CreateAgent(ctx, db.CreateAgentParams{ID: "agt_1", OwnerID: "usr_1", Name: "web", Image: "x", Harness: "fake", Cpus: 1, MemoryMb: 1024, CreatedAt: 1, UpdatedAt: 1}); err != nil {
 		t.Fatal(err)
 	}

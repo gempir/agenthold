@@ -198,7 +198,11 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 	now := a.Now().Unix()
 	agentID := id.New("ag")
 	var provision func()
+	defer a.agentLock(u.ID)()
 	err = a.Store.Tx(ctx, func(q *db.Queries) error {
+		if err := a.checkAgentQuota(ctx, q, *u); err != nil {
+			return err
+		}
 		// New agents use their owner's account logins (shown on the agent).
 		if err := q.CreateAgent(ctx, db.CreateAgentParams{
 			ID: agentID, OwnerID: u.ID, Name: s.name, Image: "base",
@@ -531,6 +535,12 @@ func (a *API) CloneAgent(ctx context.Context, req gen.CloneAgentRequestObject) (
 			return nil, badRequest("an app name is 1 to 40 lowercase letters, digits and hyphens, starting and ending with a letter or digit")
 		}
 		defer a.Apps.OwnerLock(u.ID)()
+	} else {
+		defer a.agentLock(u.ID)()
+		// Said before the checks that need the machine; checked again with the insert.
+		if err := a.checkAgentQuota(ctx, a.Store.Queries, *u); err != nil {
+			return nil, err
+		}
 	}
 	if err := a.Sandboxes.Reachable(ctx, src.ID); err != nil {
 		return nil, err
@@ -562,6 +572,8 @@ func (a *API) CloneAgent(ctx context.Context, req gen.CloneAgentRequestObject) (
 			if err := a.Apps.CheckOwnerLimit(ctx, q, u.ID); err != nil {
 				return err
 			}
+		} else if err := a.checkAgentQuota(ctx, q, *u); err != nil {
+			return err
 		}
 		if err := q.CreateClonedAgent(ctx, db.CreateClonedAgentParams{
 			ID: dstID, OwnerID: u.ID, Name: name, Image: src.Image, Harness: src.Harness, Model: src.Model,

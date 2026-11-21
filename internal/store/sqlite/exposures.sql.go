@@ -252,7 +252,7 @@ func (q *Queries) GetExposureByPort(ctx context.Context, arg GetExposureByPortPa
 }
 
 const getPreviewSessionUser = `-- name: GetPreviewSessionUser :one
-SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at FROM preview_sessions JOIN users ON users.id = preview_sessions.user_id
+SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, users.role, users.role_override FROM preview_sessions JOIN users ON users.id = preview_sessions.user_id
 WHERE preview_sessions.token_hash = ? AND preview_sessions.exposure_id = ? AND preview_sessions.host = ? AND preview_sessions.expires_at > ?
 `
 
@@ -283,6 +283,8 @@ func (q *Queries) GetPreviewSessionUser(ctx context.Context, arg GetPreviewSessi
 		&i.User.AvatarUrl,
 		&i.User.CreatedAt,
 		&i.User.UpdatedAt,
+		&i.User.Role,
+		&i.User.RoleOverride,
 	)
 	return i, err
 }

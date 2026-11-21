@@ -18,6 +18,7 @@ import (
 
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
+	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
@@ -74,6 +75,9 @@ func (r *Runner) Fire(ctx context.Context, agentID, sessionID, creatorID, source
 	user, err := r.Store.GetUser(ctx, creatorID)
 	if err != nil {
 		return err
+	}
+	if authz.UserRole(user) == config.RoleDisabled {
+		return ErrNoAccess // a Disabled user's schedules and webhooks do nothing
 	}
 	if err := r.Sessions.Prompt(ctx, sessionID, creatorID, user.Name+" ("+source+")", text, nil); err != nil {
 		if errors.Is(err, session.ErrBusy) {

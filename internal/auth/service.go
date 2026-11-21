@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/id"
 	"github.com/gempir/agenthold/internal/store"
@@ -39,6 +40,7 @@ var (
 	ErrInvalidState    = errors.New("login expired or invalid, please try again")
 	ErrUnauthenticated = errors.New("not signed in")
 	ErrNotAllowed      = errors.New("this account is not allowed to sign in")
+	ErrDisabled        = errors.New(authz.ErrDisabledMessage)
 )
 
 // Service owns providers and sessions.
@@ -82,16 +84,16 @@ func NewService(st *store.Store, cfg *config.Config) (*Service, error) {
 	return s, nil
 }
 
-// IsAdmin reports whether u manages the installation: the configured local
-// admin (auth.local) or a user whose verified e-mail is in auth.admins.
-func (s *Service) IsAdmin(ctx context.Context, u db.User) (bool, error) {
-	if u.EmailVerified == 1 && s.admins.IsAdminEmail(u.Email) {
-		return true, nil
-	}
-	if s.local == nil {
-		return false, nil
-	}
-	n, err := s.store.CountUserIdentities(ctx, db.CountUserIdentitiesParams{UserID: u.ID, Provider: config.LocalProviderID})
+// Role is u's role on the installation (see roles.go for the precedence).
+func Role(u db.User) config.Role { return authz.UserRole(u) }
+
+// IsAdmin reports whether u has the Admin role.
+func IsAdmin(u db.User) bool { return Role(u) == config.RoleAdmin }
+
+// IsLocalAdmin reports whether u is the local admin (auth.local), whose role
+// no override changes.
+func (s *Service) IsLocalAdmin(ctx context.Context, userID string) (bool, error) {
+	n, err := s.store.CountUserIdentities(ctx, db.CountUserIdentitiesParams{UserID: userID, Provider: config.LocalProviderID})
 	return n > 0, err
 }
 
@@ -154,14 +156,11 @@ func (s *Service) FinishLogin(ctx context.Context, providerID, code, state, user
 	if err != nil {
 		return "", "", err
 	}
-	provider := p.Info()
-	if provider.Type == config.ProviderGitHub && len(provider.GitHubAllowedIDs) > 0 && !contains(provider.GitHubAllowedIDs, claims.Subject) {
-		return "", "", ErrNotAllowed
-	}
 	if claims.Subject == "" {
 		return "", "", errors.New("provider returned no subject")
 	}
-	userID, err := s.upsertUser(ctx, providerID, claims)
+	role, allowed := s.configRole(p.Info(), claims.ProviderRole, claims.Email, claims.EmailVerified)
+	userID, err := s.upsertUser(ctx, providerID, claims, role, allowed)
 	if err != nil {
 		return "", "", err
 	}
@@ -181,16 +180,37 @@ func contains(values []string, value string) bool {
 	return false
 }
 
-// upsertUser maps (provider, subject) to a user. Users are never linked by
-// email across providers: an email address alone does not prove identity.
-func (s *Service) upsertUser(ctx context.Context, providerID string, c *Claims) (string, error) {
+// upsertUser maps (provider, subject) to a user and stores the role the
+// configuration gives it. Users are never linked by email across providers:
+// an email address alone does not prove identity. A sign-in the
+// configuration refuses (allowed false) is still let in for an existing user
+// an admin gave an override: the override wins over configuration.
+func (s *Service) upsertUser(ctx context.Context, providerID string, c *Claims, role config.Role, allowed bool) (string, error) {
 	now := s.now().Unix()
 	var userID string
+	refused := false
 	err := s.store.Tx(ctx, func(q *db.Queries) error {
 		ident, err := q.GetIdentity(ctx, db.GetIdentityParams{Provider: providerID, Subject: c.Subject})
 		switch {
 		case err == nil:
 			userID = ident.UserID
+			if !allowed {
+				u, err := q.GetUser(ctx, userID)
+				if err != nil {
+					return err
+				}
+				if u.RoleOverride == "" {
+					// Refused now: the user's other sessions lose access, too.
+					refused = true
+					return q.SetUserRole(ctx, db.SetUserRoleParams{Role: string(config.RoleDisabled), ID: userID})
+				}
+			}
+			if err := q.SetIdentityProviderRole(ctx, db.SetIdentityProviderRoleParams{ProviderRole: string(c.ProviderRole), Provider: providerID, Subject: c.Subject}); err != nil {
+				return err
+			}
+			if err := q.SetUserRole(ctx, db.SetUserRoleParams{Role: string(role), ID: userID}); err != nil {
+				return err
+			}
 			if err := q.TouchIdentity(ctx, db.TouchIdentityParams{
 				Email: c.Email, Username: c.Username, LastLoginAt: now, Provider: providerID, Subject: c.Subject,
 			}); err != nil {
@@ -200,20 +220,32 @@ func (s *Service) upsertUser(ctx context.Context, providerID string, c *Claims) 
 				Email: c.Email, EmailVerified: b2i(c.EmailVerified), Name: displayName(c), AvatarUrl: c.AvatarURL, UpdatedAt: now, ID: userID,
 			})
 		case errors.Is(err, sql.ErrNoRows):
+			if !allowed {
+				return ErrNotAllowed
+			}
 			userID = id.New("usr")
 			if err := q.CreateUser(ctx, db.CreateUserParams{
 				ID: userID, Email: c.Email, EmailVerified: b2i(c.EmailVerified), Name: displayName(c), AvatarUrl: c.AvatarURL, CreatedAt: now, UpdatedAt: now,
 			}); err != nil {
 				return err
 			}
-			return q.CreateIdentity(ctx, db.CreateIdentityParams{
+			if err := q.SetUserRole(ctx, db.SetUserRoleParams{Role: string(role), ID: userID}); err != nil {
+				return err
+			}
+			if err := q.CreateIdentity(ctx, db.CreateIdentityParams{
 				Provider: providerID, Subject: c.Subject, UserID: userID, Email: c.Email,
 				Username: c.Username, CreatedAt: now, LastLoginAt: now,
-			})
+			}); err != nil {
+				return err
+			}
+			return q.SetIdentityProviderRole(ctx, db.SetIdentityProviderRoleParams{ProviderRole: string(c.ProviderRole), Provider: providerID, Subject: c.Subject})
 		default:
 			return err
 		}
 	})
+	if err == nil && refused {
+		return "", ErrNotAllowed
+	}
 	return userID, err
 }
 

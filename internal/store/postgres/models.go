@@ -123,13 +123,14 @@ type ExposureReleasedName struct {
 }
 
 type Identity struct {
-	Provider    string
-	Subject     string
-	UserID      string
-	Email       string
-	Username    string
-	CreatedAt   int64
-	LastLoginAt int64
+	Provider     string
+	Subject      string
+	UserID       string
+	Email        string
+	Username     string
+	CreatedAt    int64
+	LastLoginAt  int64
+	ProviderRole string
 }
 
 type LoginState struct {
@@ -353,6 +354,8 @@ type User struct {
 	AvatarUrl     string
 	CreatedAt     int64
 	UpdatedAt     int64
+	Role          string
+	RoleOverride  string
 }
 
 type Webhook struct {

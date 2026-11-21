@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
 import { appsQuery, meQuery } from '@/api/queries';
+import { ROLE_LABEL } from '@/lib/roles';
 import { AgentStateDot } from '@/components/AgentStateBadge';
 import { Avatar } from '@/components/Avatar';
 import { ErrorText } from '@/components/Spinner';
@@ -456,7 +457,14 @@ function Footer() {
         title="Account settings"
       >
         {user && <Avatar name={user.name} url={user.avatarUrl} size="sm" />}
-        <span className="min-w-0 truncate">{user?.name}</span>
+        <span className="grid min-w-0 leading-tight">
+          <span className="truncate">{user?.name}</span>
+          {me.data?.role && (
+            <span className="text-xs text-muted-foreground">
+              {ROLE_LABEL[me.data.role]}
+            </span>
+          )}
+        </span>
       </Link>
       <Button
         asChild

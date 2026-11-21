@@ -108,7 +108,7 @@ func (q *Queries) ListAgentAudit(ctx context.Context, arg ListAgentAuditParams) 
 }
 
 const listAgentShares = `-- name: ListAgentShares :many
-SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, agent_shares.created_at AS shared_at
+SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, users.role, users.role_override, agent_shares.created_at AS shared_at
 FROM agent_shares JOIN users ON users.id = agent_shares.user_id
 WHERE agent_shares.agent_id = $1
 ORDER BY users.name, users.email, users.id
@@ -136,6 +136,8 @@ func (q *Queries) ListAgentShares(ctx context.Context, agentID string) ([]ListAg
 			&i.User.AvatarUrl,
 			&i.User.CreatedAt,
 			&i.User.UpdatedAt,
+			&i.User.Role,
+			&i.User.RoleOverride,
 			&i.SharedAt,
 		); err != nil {
 			return nil, err

@@ -151,6 +151,10 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		{ID: "oidc", Type: config.ProviderOIDC, Name: "Test IdP", Issuer: idp.URL, ClientID: idp.ClientID, ClientSecret: idp.ClientSecret},
 		{ID: "github", Type: config.ProviderGitHub, Name: "GitHub", ClientID: gh.ClientID, ClientSecret: gh.ClientSecret, GitHubURL: gh.URL, GitHubAPIURL: gh.URL + "/api"},
 	}}}
+	// Test users get the User role without a quota unless a test configures
+	// roles itself (the shipped default is Disabled with 2 agents).
+	cfg.Auth.DefaultRole = config.RoleUser
+	cfg.Auth.UserMaxAgents = new(1000)
 	if configure != nil {
 		configure(cfg)
 	}
@@ -253,7 +257,7 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Node: n, Nodes: nodes, Limits: cfg.Sandbox,
 		Box: box, Egress: e.directory, Sessions: e.sessions, Idle: e.sleeper, Audit: &audit.Log{Store: st}, ShowTestHarness: true,
 		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins,
-		Preview: e.preview, Identity: e.identity, Apps: e.apps, Activity: e.activity,
+		Preview: e.preview, Identity: e.identity, Apps: e.apps, Activity: e.activity, UserMaxAgents: cfg.Auth.UserMaxAgents,
 	})
 	e.api, e.auth, e.box = a, authSvc, box
 	e.sessions.SetWaker(a.Wake)

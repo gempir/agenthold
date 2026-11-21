@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gempir/agenthold/internal/api/gen"
+	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/version"
 )
@@ -35,11 +36,7 @@ func (a *API) requireAdmin(ctx context.Context) error {
 	if u == nil {
 		return errUnauthorized
 	}
-	ok, err := a.Auth.IsAdmin(ctx, *u)
-	if err != nil {
-		return err
-	}
-	if !ok {
+	if !auth.IsAdmin(*u) {
 		return errStatus(http.StatusForbidden, "this is for admins only")
 	}
 	return nil

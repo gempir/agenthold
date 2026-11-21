@@ -136,6 +136,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Every user of this installation with its role: the role sign-in configuration gives it, the override an admin set (if any) and the role that results. Admins only. */
+        get: operations["listAdminUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{userId}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Overrides a user's role (it then wins over configuration) or, with `override: null`, removes the override so configuration decides again. Takes effect at the user's next request. Admins only; the local admin and your own account cannot be changed. */
+        put: operations["setUserRoleOverride"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/nodes": {
         parameters: {
             query?: never;
@@ -1793,8 +1827,37 @@ export interface components {
         };
         Me: {
             user: components["schemas"]["User"];
-            /** @description Manages the installation: the local admin or a user listed in auth.admins. */
+            role: components["schemas"]["Role"];
+            /** @description The Admin role: manages the installation. */
             admin: boolean;
+            agents: components["schemas"]["AgentQuota"];
+        };
+        /**
+         * @description What a user may do. admin: everything, including the installation-wide admin pages, with no agent limit. user: its own and shared agents, and creating agents up to its quota. disabled: nothing but signing out.
+         * @enum {string}
+         */
+        Role: "admin" | "user" | "disabled";
+        AgentQuota: {
+            /** @description Agents the user owns (templates and clones included). */
+            used: number;
+            /** @description The most the user may own (auth.user_max_agents); absent means no limit. */
+            max?: number;
+        };
+        AdminUser: {
+            user: components["schemas"]["User"];
+            role: components["schemas"]["Role"];
+            configRole: components["schemas"]["Role"];
+            override?: components["schemas"]["Role"];
+            /** @description The provider id the user signs in with (local for auth.local). */
+            provider: string;
+            username: string;
+            agents: number;
+            /** @description The local admin; its role is always admin. */
+            local: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            lastLoginAt?: string;
         };
         /** @enum {string} */
         SandboxState: "creating" | "starting" | "running" | "stopping" | "sleeping" | "rebuilding" | "destroying" | "error" | "unreachable";
@@ -2878,6 +2941,65 @@ export interface operations {
                 };
             };
             401: components["responses"]["Error"];
+        };
+    };
+    listAdminUsers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The users, oldest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"][];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    setUserRoleOverride: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description The role to give the user, or null to let configuration decide.
+                     * @enum {string|null}
+                     */
+                    override: "admin" | "user" | "disabled" | null;
+                };
+            };
+        };
+        responses: {
+            /** @description The user with its new role. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
         };
     };
     listNodes: {

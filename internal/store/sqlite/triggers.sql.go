@@ -245,7 +245,7 @@ func (q *Queries) GetSchedule(ctx context.Context, id string) (Schedule, error) 
 }
 
 const getTokenUser = `-- name: GetTokenUser :one
-SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, api_tokens.id AS token_id, api_tokens.last_used_at
+SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, users.role, users.role_override, api_tokens.id AS token_id, api_tokens.last_used_at
 FROM api_tokens JOIN users ON users.id = api_tokens.user_id
 WHERE api_tokens.token_hash = ? AND (api_tokens.expires_at IS NULL OR api_tokens.expires_at > ?)
 `
@@ -272,6 +272,8 @@ func (q *Queries) GetTokenUser(ctx context.Context, arg GetTokenUserParams) (Get
 		&i.User.AvatarUrl,
 		&i.User.CreatedAt,
 		&i.User.UpdatedAt,
+		&i.User.Role,
+		&i.User.RoleOverride,
 		&i.TokenID,
 		&i.LastUsedAt,
 	)

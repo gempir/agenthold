@@ -17,6 +17,9 @@ type Claims struct {
 	Name          string
 	Username      string
 	AvatarURL     string
+	// ProviderRole is what the provider's role mapping (github_roles,
+	// github_allowed_ids, role_attribute_path) says; "" when nothing matched.
+	ProviderRole config.Role
 }
 
 // Provider is one configured identity provider.
@@ -33,7 +36,7 @@ type Provider interface {
 func NewProvider(p config.Provider, redirectURL string) (Provider, error) {
 	switch p.Type {
 	case config.ProviderOIDC:
-		return newOIDC(p, redirectURL), nil
+		return newOIDC(p, redirectURL)
 	case config.ProviderGitHub:
 		return newGitHub(p, redirectURL), nil
 	}

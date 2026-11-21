@@ -61,8 +61,11 @@ type Deps struct {
 	Activity *activity.Log
 	// ShowTestHarness lists the scripted test harness (development).
 	ShowTestHarness bool
-	Limits          config.Sandbox
-	Now             func() time.Time
+	// UserMaxAgents is auth.user_max_agents: how many agents a user with the
+	// User role may own. Nil means no limit.
+	UserMaxAgents *int
+	Limits        config.Sandbox
+	Now           func() time.Time
 }
 
 // API implements gen.StrictServerInterface.
@@ -71,6 +74,7 @@ type API struct {
 	authz authz.Checker
 	usage *usageCache
 	wakes
+	agentLocks keyedLocks
 }
 
 var _ gen.StrictServerInterface = (*API)(nil)
@@ -108,7 +112,7 @@ func (a *API) Mount(r chi.Router) {
 
 func (a *API) mountAuthenticated(r chi.Router) {
 	{
-		r.Use(a.Auth.Middleware, limitBodies)
+		r.Use(a.Auth.Middleware, blockDisabled, limitBodies)
 		r.Get("/auth/login/{provider}", a.login)
 		r.Get("/auth/callback/{provider}", a.callback)
 		r.Post("/auth/local", a.localLogin)
@@ -139,11 +143,40 @@ func requireUser(f gen.StrictHandlerFunc, operationID string) gen.StrictHandlerF
 		return f
 	}
 	return func(ctx context.Context, w http.ResponseWriter, r *http.Request, req any) (any, error) {
-		if auth.UserFrom(ctx) == nil {
+		u := auth.UserFrom(ctx)
+		if u == nil {
 			return nil, errUnauthorized
+		}
+		// Also checked here, not only in blockDisabled, for callers that
+		// reach the handlers another way.
+		if !allowedForDisabled[operationID] && auth.Role(*u) == config.RoleDisabled {
+			return nil, errDisabled
 		}
 		return f(ctx, w, r, req)
 	}
+}
+
+// allowedForDisabled are the operations a Disabled user may still call:
+// who am I (the web shows the "no access" page from it) and the public ones.
+var allowedForDisabled = map[string]bool{"GetMe": true, "GetVersion": true, "ListAuthProviders": true}
+
+var errDisabled = errStatus(http.StatusForbidden, authz.ErrDisabledMessage)
+
+// blockDisabled answers every request of a Disabled user with 403, except
+// GET /me, signing in and out, and the public endpoints. The user row is
+// read for every request, so a downgrade applies at once.
+func blockDisabled(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if u := auth.UserFrom(r.Context()); u != nil && auth.Role(*u) == config.RoleDisabled {
+			p := strings.TrimPrefix(r.URL.Path, "/api/v1")
+			ok := strings.HasPrefix(p, "/auth/") || (r.Method == http.MethodGet && (p == "/me" || p == "/version"))
+			if !ok {
+				writeError(w, r, errDisabled)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func me(ctx context.Context) *db.User { return auth.UserFrom(ctx) }

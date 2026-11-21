@@ -2,8 +2,10 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -15,13 +17,18 @@ import (
 type oidcProvider struct {
 	cfg         config.Provider
 	redirectURL string
+	role        *roleExpr
 
 	mu       sync.Mutex
 	provider *oidc.Provider // discovered lazily so the server starts while the IdP is down
 }
 
-func newOIDC(p config.Provider, redirectURL string) *oidcProvider {
-	return &oidcProvider{cfg: p, redirectURL: redirectURL}
+func newOIDC(p config.Provider, redirectURL string) (*oidcProvider, error) {
+	role, err := compileRoleExpr(p.RoleAttributePath)
+	if err != nil {
+		return nil, err
+	}
+	return &oidcProvider{cfg: p, redirectURL: redirectURL, role: role}, nil
 }
 
 func (p *oidcProvider) Info() config.Provider { return p.cfg }
@@ -96,12 +103,44 @@ func (p *oidcProvider) Exchange(ctx context.Context, code, verifier, nonce strin
 	if err := idToken.Claims(&c); err != nil {
 		return nil, fmt.Errorf("decode claims: %w", err)
 	}
-	return &Claims{
+	out := &Claims{
 		Subject:       idToken.Subject,
 		Email:         c.Email,
 		EmailVerified: c.EmailVerified != nil && *c.EmailVerified,
 		Name:          c.Name,
 		Username:      c.PreferredUsername,
 		AvatarURL:     c.Picture,
-	}, nil
+	}
+	if p.role != nil {
+		out.ProviderRole = p.evalRole(ctx, provider, conf, tok, idToken)
+	}
+	return out, nil
+}
+
+// evalRole runs role_attribute_path over the ID token's claims and, when that
+// yields nothing, over the userinfo response (Keycloak puts client roles in
+// one or the other, depending on its mappers), like Grafana.
+func (p *oidcProvider) evalRole(ctx context.Context, provider *oidc.Provider, conf *oauth2.Config, tok *oauth2.Token, idToken *oidc.IDToken) config.Role {
+	var raw json.RawMessage
+	if err := idToken.Claims(&raw); err == nil {
+		if r := p.role.eval(claimsMap(raw)); r != "" {
+			return r
+		}
+	}
+	if provider.UserInfoEndpoint() == "" {
+		return ""
+	}
+	info, err := provider.UserInfo(ctx, conf.TokenSource(ctx, tok))
+	if err != nil {
+		slog.WarnContext(ctx, "oidc userinfo for role_attribute_path", "provider", p.cfg.ID, "err", err)
+		return ""
+	}
+	if info.Subject != idToken.Subject {
+		return ""
+	}
+	var m map[string]any
+	if err := info.Claims(&m); err != nil {
+		return ""
+	}
+	return p.role.eval(m)
 }

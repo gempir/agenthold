@@ -218,3 +218,12 @@ export const appQuery = (appId: string) =>
     refetchInterval: (q) => agentPollInterval(q.state.data),
     retry: false,
   });
+
+export type AdminUser = components['schemas']['AdminUser'];
+
+/** Every user with its role. Admins only. */
+export const adminUsersQuery = queryOptions({
+  queryKey: ['admin', 'users'],
+  queryFn: () => unwrap(api.GET('/admin/users')),
+  retry: false,
+});

@@ -14,6 +14,7 @@ type Querier interface {
 	CountAgentApps(ctx context.Context, createdByAgentID string) (int64, error)
 	CountExposures(ctx context.Context, agentID string) (int64, error)
 	CountNodeSandboxes(ctx context.Context, nodeID string) (int64, error)
+	CountOwnedAgents(ctx context.Context, ownerID string) (int64, error)
 	CountOwnerApps(ctx context.Context, ownerID string) (int64, error)
 	CountUserIdentities(ctx context.Context, arg CountUserIdentitiesParams) (int64, error)
 	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) error
@@ -126,6 +127,7 @@ type Querier interface {
 	ListAgentsByLoginUser(ctx context.Context, loginUserID string) ([]Agent, error)
 	ListAllMachines(ctx context.Context) ([]ListAllMachinesRow, error)
 	ListExposures(ctx context.Context, agentID string) ([]Exposure, error)
+	ListIdentities(ctx context.Context) ([]ListIdentitiesRow, error)
 	ListNodeSandboxes(ctx context.Context, nodeID string) ([]Sandbox, error)
 	ListNodes(ctx context.Context) ([]Node, error)
 	ListProviderLogins(ctx context.Context) ([]ProviderLogin, error)
@@ -145,6 +147,7 @@ type Querier interface {
 	ListUserSkills(ctx context.Context, ownerID string) ([]Skill, error)
 	ListUserSlackUsers(ctx context.Context, userID string) ([]SlackUser, error)
 	ListUsersByVerifiedEmail(ctx context.Context, lower string) ([]User, error)
+	ListUsersWithIdentity(ctx context.Context) ([]ListUsersWithIdentityRow, error)
 	MakeAppClone(ctx context.Context, id string) error
 	MarkCredentialsInSandbox(ctx context.Context, id string) error
 	MaxSessionSeq(ctx context.Context, sessionID string) (int64, error)
@@ -164,6 +167,7 @@ type Querier interface {
 	SetAgentTemplate(ctx context.Context, arg SetAgentTemplateParams) error
 	SetBootToken(ctx context.Context, arg SetBootTokenParams) error
 	SetExposurePort(ctx context.Context, arg SetExposurePortParams) error
+	SetIdentityProviderRole(ctx context.Context, arg SetIdentityProviderRoleParams) error
 	SetNodeCapacity(ctx context.Context, arg SetNodeCapacityParams) error
 	SetNodeState(ctx context.Context, arg SetNodeStateParams) error
 	SetNodeVersion(ctx context.Context, arg SetNodeVersionParams) error
@@ -181,6 +185,8 @@ type Querier interface {
 	SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error
 	SetSlackThreadCursor(ctx context.Context, arg SetSlackThreadCursorParams) error
 	SetSlackThreadHeader(ctx context.Context, arg SetSlackThreadHeaderParams) error
+	SetUserRole(ctx context.Context, arg SetUserRoleParams) error
+	SetUserRoleOverride(ctx context.Context, arg SetUserRoleOverrideParams) error
 	ShareAgent(ctx context.Context, arg ShareAgentParams) error
 	StoreRefreshedLogin(ctx context.Context, arg StoreRefreshedLoginParams) (int64, error)
 	TakeLoginState(ctx context.Context, arg TakeLoginStateParams) (LoginState, error)

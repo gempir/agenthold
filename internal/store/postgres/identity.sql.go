@@ -9,6 +9,18 @@ import (
 	"context"
 )
 
+const countOwnedAgents = `-- name: CountOwnedAgents :one
+SELECT COUNT(*) FROM agents WHERE owner_id = $1 AND kind = 'agent'
+`
+
+// Machines of kind agent (templates and clones included) a user owns, for auth.user_max_agents.
+func (q *Queries) CountOwnedAgents(ctx context.Context, ownerID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countOwnedAgents, ownerID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createIdentity = `-- name: CreateIdentity :exec
 INSERT INTO identities (provider, subject, user_id, email, username, created_at, last_login_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -157,7 +169,7 @@ func (q *Queries) ExtendSession(ctx context.Context, arg ExtendSessionParams) er
 }
 
 const getIdentity = `-- name: GetIdentity :one
-SELECT provider, subject, user_id, email, username, created_at, last_login_at FROM identities WHERE provider = $1 AND subject = $2
+SELECT provider, subject, user_id, email, username, created_at, last_login_at, provider_role FROM identities WHERE provider = $1 AND subject = $2
 `
 
 type GetIdentityParams struct {
@@ -176,12 +188,13 @@ func (q *Queries) GetIdentity(ctx context.Context, arg GetIdentityParams) (Ident
 		&i.Username,
 		&i.CreatedAt,
 		&i.LastLoginAt,
+		&i.ProviderRole,
 	)
 	return i, err
 }
 
 const getSessionUser = `-- name: GetSessionUser :one
-SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, sessions.expires_at
+SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, users.role, users.role_override, sessions.expires_at
 FROM sessions JOIN users ON users.id = sessions.user_id
 WHERE sessions.token_hash = $1 AND sessions.expires_at > $2
 `
@@ -207,13 +220,15 @@ func (q *Queries) GetSessionUser(ctx context.Context, arg GetSessionUserParams) 
 		&i.User.AvatarUrl,
 		&i.User.CreatedAt,
 		&i.User.UpdatedAt,
+		&i.User.Role,
+		&i.User.RoleOverride,
 		&i.ExpiresAt,
 	)
 	return i, err
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, email, email_verified, name, avatar_url, created_at, updated_at FROM users WHERE id = $1
+SELECT id, email, email_verified, name, avatar_url, created_at, updated_at, role, role_override FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUser(ctx context.Context, id string) (User, error) {
@@ -227,12 +242,69 @@ func (q *Queries) GetUser(ctx context.Context, id string) (User, error) {
 		&i.AvatarUrl,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Role,
+		&i.RoleOverride,
 	)
 	return i, err
 }
 
+const listIdentities = `-- name: ListIdentities :many
+SELECT identities.provider, identities.subject, identities.user_id, identities.email, identities.username, identities.created_at, identities.last_login_at, identities.provider_role, users.email AS user_email, users.email_verified AS user_email_verified, users.role AS user_role
+FROM identities JOIN users ON users.id = identities.user_id ORDER BY identities.user_id
+`
+
+type ListIdentitiesRow struct {
+	Provider          string
+	Subject           string
+	UserID            string
+	Email             string
+	Username          string
+	CreatedAt         int64
+	LastLoginAt       int64
+	ProviderRole      string
+	UserEmail         string
+	UserEmailVerified int64
+	UserRole          string
+}
+
+// Every identity with its user, for re-evaluating roles at start.
+func (q *Queries) ListIdentities(ctx context.Context) ([]ListIdentitiesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listIdentities)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListIdentitiesRow{}
+	for rows.Next() {
+		var i ListIdentitiesRow
+		if err := rows.Scan(
+			&i.Provider,
+			&i.Subject,
+			&i.UserID,
+			&i.Email,
+			&i.Username,
+			&i.CreatedAt,
+			&i.LastLoginAt,
+			&i.ProviderRole,
+			&i.UserEmail,
+			&i.UserEmailVerified,
+			&i.UserRole,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUsersByVerifiedEmail = `-- name: ListUsersByVerifiedEmail :many
-SELECT id, email, email_verified, name, avatar_url, created_at, updated_at FROM users WHERE LOWER(email) = LOWER($1) AND email_verified = 1 ORDER BY created_at
+SELECT id, email, email_verified, name, avatar_url, created_at, updated_at, role, role_override FROM users WHERE LOWER(email) = LOWER($1) AND email_verified = 1 ORDER BY created_at
 `
 
 // Users with this verified email, for sharing. Emails are compared case-insensitively.
@@ -253,6 +325,8 @@ func (q *Queries) ListUsersByVerifiedEmail(ctx context.Context, lower string) ([
 			&i.AvatarUrl,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Role,
+			&i.RoleOverride,
 		); err != nil {
 			return nil, err
 		}
@@ -265,6 +339,114 @@ func (q *Queries) ListUsersByVerifiedEmail(ctx context.Context, lower string) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const listUsersWithIdentity = `-- name: ListUsersWithIdentity :many
+SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, users.role, users.role_override,
+    CAST(COALESCE((SELECT i.provider FROM identities i WHERE i.user_id = users.id ORDER BY i.created_at LIMIT 1), '') AS TEXT) AS provider,
+    CAST(COALESCE((SELECT i.username FROM identities i WHERE i.user_id = users.id ORDER BY i.created_at LIMIT 1), '') AS TEXT) AS username,
+    CAST(COALESCE((SELECT MAX(i.last_login_at) FROM identities i WHERE i.user_id = users.id), 0) AS BIGINT) AS last_login_at,
+    CAST((SELECT COUNT(*) FROM agents a WHERE a.owner_id = users.id AND a.kind = 'agent') AS BIGINT) AS agents
+FROM users ORDER BY users.created_at
+`
+
+type ListUsersWithIdentityRow struct {
+	ID            string
+	Email         string
+	EmailVerified int64
+	Name          string
+	AvatarUrl     string
+	CreatedAt     int64
+	UpdatedAt     int64
+	Role          string
+	RoleOverride  string
+	Provider      string
+	Username      string
+	LastLoginAt   int64
+	Agents        int64
+}
+
+// The admin users list: every user, the provider and username they signed
+// in with (the oldest identity) and how many agents they own.
+func (q *Queries) ListUsersWithIdentity(ctx context.Context) ([]ListUsersWithIdentityRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUsersWithIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUsersWithIdentityRow{}
+	for rows.Next() {
+		var i ListUsersWithIdentityRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.EmailVerified,
+			&i.Name,
+			&i.AvatarUrl,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Role,
+			&i.RoleOverride,
+			&i.Provider,
+			&i.Username,
+			&i.LastLoginAt,
+			&i.Agents,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setIdentityProviderRole = `-- name: SetIdentityProviderRole :exec
+UPDATE identities SET provider_role = $1 WHERE provider = $2 AND subject = $3
+`
+
+type SetIdentityProviderRoleParams struct {
+	ProviderRole string
+	Provider     string
+	Subject      string
+}
+
+func (q *Queries) SetIdentityProviderRole(ctx context.Context, arg SetIdentityProviderRoleParams) error {
+	_, err := q.db.ExecContext(ctx, setIdentityProviderRole, arg.ProviderRole, arg.Provider, arg.Subject)
+	return err
+}
+
+const setUserRole = `-- name: SetUserRole :exec
+UPDATE users SET role = $1 WHERE id = $2
+`
+
+type SetUserRoleParams struct {
+	Role string
+	ID   string
+}
+
+func (q *Queries) SetUserRole(ctx context.Context, arg SetUserRoleParams) error {
+	_, err := q.db.ExecContext(ctx, setUserRole, arg.Role, arg.ID)
+	return err
+}
+
+const setUserRoleOverride = `-- name: SetUserRoleOverride :exec
+UPDATE users SET role_override = $1, updated_at = $2 WHERE id = $3
+`
+
+type SetUserRoleOverrideParams struct {
+	RoleOverride string
+	UpdatedAt    int64
+	ID           string
+}
+
+func (q *Queries) SetUserRoleOverride(ctx context.Context, arg SetUserRoleOverrideParams) error {
+	_, err := q.db.ExecContext(ctx, setUserRoleOverride, arg.RoleOverride, arg.UpdatedAt, arg.ID)
+	return err
 }
 
 const takeLoginState = `-- name: TakeLoginState :one

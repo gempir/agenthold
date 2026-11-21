@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gempir/agenthold/internal/api/gen"
+	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/version"
 )
@@ -31,11 +32,13 @@ func (a *API) ListAuthProviders(context.Context, gen.ListAuthProvidersRequestObj
 // GetMe implements gen.StrictServerInterface.
 func (a *API) GetMe(ctx context.Context, _ gen.GetMeRequestObject) (gen.GetMeResponseObject, error) {
 	u := me(ctx)
-	admin, err := a.Auth.IsAdmin(ctx, *u)
+	role := auth.Role(*u)
+	used, err := a.Store.CountOwnedAgents(ctx, u.ID)
 	if err != nil {
 		return nil, err
 	}
-	return gen.GetMe200JSONResponse{User: apiUser(*u), Admin: admin}, nil
+	quota := gen.AgentQuota{Used: int(used), Max: a.maxAgents(role)}
+	return gen.GetMe200JSONResponse{User: apiUser(*u), Admin: role == config.RoleAdmin, Role: gen.Role(role), Agents: quota}, nil
 }
 
 func validName(name string) (string, error) {

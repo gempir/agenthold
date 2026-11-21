@@ -6,6 +6,7 @@ import { meQuery, overviewQuery } from '@/api/queries';
 import type { components } from '@/api/schema';
 import { AgentStateBadge, AgentStateDot } from '@/components/AgentStateBadge';
 import { ErrorText, Loading } from '@/components/Spinner';
+import { UsersAdmin } from '@/components/UsersAdmin';
 import { Crumb, TopBar } from '@/components/layout/TopBar';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -42,7 +43,10 @@ export function OverviewPage() {
           {me.isPending ? (
             <Loading />
           ) : me.data?.admin ? (
-            <OverviewContent />
+            <>
+              <OverviewContent />
+              <UsersAdmin />
+            </>
           ) : (
             <p className="text-sm text-muted-foreground">
               Only admins can see the overview.

@@ -70,6 +70,7 @@ func (p *githubProvider) Exchange(ctx context.Context, code, verifier, _ string)
 	if c.Name == "" {
 		c.Name = user.Login
 	}
+	c.ProviderRole = githubRole(p.cfg, c.Subject)
 
 	var emails []struct {
 		Email    string `json:"email"`

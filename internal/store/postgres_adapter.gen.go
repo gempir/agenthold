@@ -92,6 +92,10 @@ func (p postgresQueries) CreateExposure(ctx context.Context, arg db.CreateExposu
 	return p.q.CreateExposure(ctx, postgres.CreateExposureParams(arg))
 }
 
+func (p postgresQueries) CreateGitCredential(ctx context.Context, arg db.CreateGitCredentialParams) error {
+	return p.q.CreateGitCredential(ctx, postgres.CreateGitCredentialParams(arg))
+}
+
 func (p postgresQueries) CreateIdentity(ctx context.Context, arg db.CreateIdentityParams) error {
 	return p.q.CreateIdentity(ctx, postgres.CreateIdentityParams(arg))
 }
@@ -199,6 +203,11 @@ func (p postgresQueries) DeleteExpiredSlackLinkCodes(ctx context.Context, expire
 
 func (p postgresQueries) DeleteExposure(ctx context.Context, id string) (int64, error) {
 	value, err := p.q.DeleteExposure(ctx, id)
+	return value, err
+}
+
+func (p postgresQueries) DeleteGitCredential(ctx context.Context, arg db.DeleteGitCredentialParams) (int64, error) {
+	value, err := p.q.DeleteGitCredential(ctx, postgres.DeleteGitCredentialParams(arg))
 	return value, err
 }
 
@@ -351,6 +360,16 @@ func (p postgresQueries) GetExposureByPort(ctx context.Context, arg db.GetExposu
 	return db.Exposure(value), err
 }
 
+func (p postgresQueries) GetGitCredential(ctx context.Context, id string) (db.GitCredential, error) {
+	value, err := p.q.GetGitCredential(ctx, id)
+	return db.GitCredential(value), err
+}
+
+func (p postgresQueries) GetGitCredentialByHost(ctx context.Context, arg db.GetGitCredentialByHostParams) (db.GitCredential, error) {
+	value, err := p.q.GetGitCredentialByHost(ctx, postgres.GetGitCredentialByHostParams(arg))
+	return db.GitCredential(value), err
+}
+
 func (p postgresQueries) GetIdentity(ctx context.Context, arg db.GetIdentityParams) (db.Identity, error) {
 	value, err := p.q.GetIdentity(ctx, postgres.GetIdentityParams(arg))
 	return db.Identity(value), err
@@ -474,6 +493,11 @@ func (p postgresQueries) GetTokenUser(ctx context.Context, arg db.GetTokenUserPa
 func (p postgresQueries) GetUser(ctx context.Context, id string) (db.User, error) {
 	value, err := p.q.GetUser(ctx, id)
 	return db.User(value), err
+}
+
+func (p postgresQueries) GetUserGitConfig(ctx context.Context, userID string) (db.UserGitConfig, error) {
+	value, err := p.q.GetUserGitConfig(ctx, userID)
+	return db.UserGitConfig(value), err
 }
 
 func (p postgresQueries) GetWebhook(ctx context.Context, id string) (db.Webhook, error) {
@@ -680,6 +704,18 @@ func (p postgresQueries) ListExposures(ctx context.Context, agentID string) ([]d
 	result := make([]db.Exposure, 0, len(value))
 	for _, row := range value {
 		result = append(result, db.Exposure(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListGitCredentials(ctx context.Context, userID string) ([]db.GitCredential, error) {
+	value, err := p.q.ListGitCredentials(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.GitCredential, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.GitCredential(row))
 	}
 	return result, nil
 }
@@ -1070,6 +1106,10 @@ func (p postgresQueries) SetSessionACPID(ctx context.Context, arg db.SetSessionA
 	return p.q.SetSessionACPID(ctx, postgres.SetSessionACPIDParams(arg))
 }
 
+func (p postgresQueries) SetSessionGit(ctx context.Context, arg db.SetSessionGitParams) error {
+	return p.q.SetSessionGit(ctx, postgres.SetSessionGitParams(arg))
+}
+
 func (p postgresQueries) SetSessionModel(ctx context.Context, arg db.SetSessionModelParams) error {
 	return p.q.SetSessionModel(ctx, postgres.SetSessionModelParams(arg))
 }
@@ -1159,8 +1199,16 @@ func (p postgresQueries) UpdateAgent(ctx context.Context, arg db.UpdateAgentPara
 	return p.q.UpdateAgent(ctx, postgres.UpdateAgentParams(arg))
 }
 
+func (p postgresQueries) UpdateAgentRepoBranch(ctx context.Context, arg db.UpdateAgentRepoBranchParams) error {
+	return p.q.UpdateAgentRepoBranch(ctx, postgres.UpdateAgentRepoBranchParams(arg))
+}
+
 func (p postgresQueries) UpdateExposure(ctx context.Context, arg db.UpdateExposureParams) error {
 	return p.q.UpdateExposure(ctx, postgres.UpdateExposureParams(arg))
+}
+
+func (p postgresQueries) UpdateGitCredential(ctx context.Context, arg db.UpdateGitCredentialParams) error {
+	return p.q.UpdateGitCredential(ctx, postgres.UpdateGitCredentialParams(arg))
 }
 
 func (p postgresQueries) UpdateMCPServer(ctx context.Context, arg db.UpdateMCPServerParams) error {
@@ -1173,6 +1221,10 @@ func (p postgresQueries) UpdateSchedule(ctx context.Context, arg db.UpdateSchedu
 
 func (p postgresQueries) UpdateSecret(ctx context.Context, arg db.UpdateSecretParams) error {
 	return p.q.UpdateSecret(ctx, postgres.UpdateSecretParams(arg))
+}
+
+func (p postgresQueries) UpdateSessionGitStatus(ctx context.Context, arg db.UpdateSessionGitStatusParams) error {
+	return p.q.UpdateSessionGitStatus(ctx, postgres.UpdateSessionGitStatusParams(arg))
 }
 
 func (p postgresQueries) UpdateSkill(ctx context.Context, arg db.UpdateSkillParams) error {
@@ -1197,4 +1249,8 @@ func (p postgresQueries) UpsertModelCatalog(ctx context.Context, arg db.UpsertMo
 
 func (p postgresQueries) UpsertService(ctx context.Context, arg db.UpsertServiceParams) error {
 	return p.q.UpsertService(ctx, postgres.UpsertServiceParams(arg))
+}
+
+func (p postgresQueries) UpsertUserGitConfig(ctx context.Context, arg db.UpsertUserGitConfigParams) error {
+	return p.q.UpsertUserGitConfig(ctx, postgres.UpsertUserGitConfigParams(arg))
 }

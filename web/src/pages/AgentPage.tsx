@@ -1,7 +1,14 @@
 import { lazy, Suspense, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Bot, PanelRight, Settings2, SquarePen } from 'lucide-react';
+import {
+  Bot,
+  FolderGit2,
+  GitBranch,
+  PanelRight,
+  Settings2,
+  SquarePen,
+} from 'lucide-react';
 import { agentQuery, sessionsQuery, type Agent } from '@/api/queries';
 import { AgentStateDot } from '@/components/AgentStateBadge';
 import { Loading } from '@/components/Spinner';
@@ -13,6 +20,7 @@ import {
   panelTabNeedsUse,
   type PanelTab,
 } from '@/components/agent/AgentPanel';
+import { GitMeta, gitStartArgs, useGitDraft } from '@/components/agent/GitMeta';
 import { HarnessMeta } from '@/components/agent/HarnessMeta';
 import { DraftChat } from '@/components/chat/DraftChat';
 import { Crumb, CrumbSep, TopBar } from '@/components/layout/TopBar';
@@ -33,11 +41,14 @@ export function AgentPage({
   agentId,
   sessionId,
   panel,
+  cwd,
   onPanel,
 }: {
   agentId: string;
   sessionId?: string;
   panel?: PanelTab;
+  /** Preselects this directory (a repository) in the draft composer. */
+  cwd?: string;
   onPanel: (p: PanelTab | undefined) => void;
 }) {
   const q = useQuery(agentQuery(agentId));
@@ -46,6 +57,7 @@ export function AgentPage({
     () => readPref('panelWide', '') === '1',
   );
   const start = useStartChat();
+  const [gitDraft, setGitDraft] = useGitDraft(cwd);
   const [draftModel, setDraftModel] = useState<Choice>({
     model: '',
     options: {},
@@ -144,6 +156,28 @@ export function AgentPage({
                   {selected.title || 'New session'}
                 </span>
               </Crumb>
+              {(selected.git?.project || selected.git?.branch) && (
+                <span
+                  data-testid="topbar-git"
+                  title={[selected.git.project, selected.git.branch]
+                    .filter(Boolean)
+                    .join(' · ')}
+                  className="ml-2 hidden min-w-0 shrink items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs text-muted-foreground md:flex"
+                >
+                  <FolderGit2 className="size-3 shrink-0" aria-hidden />
+                  <span className="max-w-28 truncate">
+                    {selected.git.project}
+                  </span>
+                  {selected.git.branch && (
+                    <>
+                      <GitBranch className="size-3 shrink-0" aria-hidden />
+                      <span className="max-w-28 truncate font-mono">
+                        {selected.git.branch}
+                      </span>
+                    </>
+                  )}
+                </span>
+              )}
             </>
           )}
         </TopBar>
@@ -181,11 +215,18 @@ export function AgentPage({
               agentState={a.state}
               initialRunning={selected?.running}
               composerMeta={
-                <HarnessMeta
-                  agent={a}
-                  session={selected}
-                  canUse={access.canUse}
-                />
+                <>
+                  <HarnessMeta
+                    agent={a}
+                    session={selected}
+                    canUse={access.canUse}
+                  />
+                  <GitMeta
+                    agent={a}
+                    session={selected}
+                    canUse={access.canUse}
+                  />
+                </>
               }
               notice={notice}
             />
@@ -204,12 +245,20 @@ export function AgentPage({
                 : 'Each chat is its own session with the agent; files persist across them.'
             }
             meta={
-              <HarnessMeta
-                agent={a}
-                draft={draftModel}
-                onDraft={setDraftModel}
-                canUse={access.canUse}
-              />
+              <>
+                <HarnessMeta
+                  agent={a}
+                  draft={draftModel}
+                  onDraft={setDraftModel}
+                  canUse={access.canUse}
+                />
+                <GitMeta
+                  agent={a}
+                  draft={gitDraft}
+                  onDraft={setGitDraft}
+                  canUse={access.canUse}
+                />
+              </>
             }
             notice={notice}
             readOnly={!access.canUse}
@@ -222,7 +271,12 @@ export function AgentPage({
             pending={start.isPending}
             error={start.error}
             onSend={(text) =>
-              start.mutate({ agentId, text, model: draftModel })
+              start.mutate({
+                agentId,
+                text,
+                model: draftModel,
+                ...gitStartArgs(gitDraft),
+              })
             }
           />
         )}

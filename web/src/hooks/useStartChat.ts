@@ -14,11 +14,21 @@ export function useStartChat() {
       agentId: string;
       text: string;
       model?: Choice;
+      /** Working directory relative to home, e.g. a repository. */
+      cwd?: string;
+      gitBranch?: string;
+      createBranch?: boolean;
+      createWorktree?: boolean;
     }) => {
       const s = await unwrap(
         api.POST('/agents/{agentId}/sessions', {
           params: { path: { agentId: v.agentId } },
-          body: {},
+          body: {
+            ...(v.cwd && { cwd: v.cwd }),
+            ...(v.gitBranch && { gitBranch: v.gitBranch }),
+            ...(v.createBranch && { createBranch: true }),
+            ...(v.createWorktree && { createWorktree: true }),
+          },
         }),
       );
       if (v.model?.model || Object.keys(v.model?.options ?? {}).length) {

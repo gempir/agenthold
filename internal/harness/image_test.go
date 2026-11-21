@@ -66,6 +66,44 @@ func TestAdaptersMatchBaseImage(t *testing.T) {
 	}
 }
 
+// The base image must ship git and git-lfs and point git at the agenthold defaults, and
+// image.env must stop git from prompting on the terminal.
+func TestBaseImageIncludesGit(t *testing.T) {
+	pkgs, err := os.ReadFile("../../images/base/packages.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	have := map[string]bool{}
+	for line := range strings.SplitSeq(string(pkgs), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		have[line] = true
+	}
+	for _, p := range []string{"git", "git-lfs"} {
+		if !have[p] {
+			t.Errorf("images/base/packages.txt does not install %s", p)
+		}
+	}
+
+	env, err := os.ReadFile("../../images/base/image.env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(strings.Split(string(env), "\n"), "GIT_TERMINAL_PROMPT=0") {
+		t.Error("images/base/image.env does not set GIT_TERMINAL_PROMPT=0")
+	}
+
+	prov, err := os.ReadFile("../../images/base/provision.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(prov), "git config --system include.path /etc/agenthold/gitconfig") {
+		t.Error("images/base/provision.sh does not include /etc/agenthold/gitconfig in the system git config")
+	}
+}
+
 func readJSON(t *testing.T, path string, v any) {
 	t.Helper()
 	b, err := os.ReadFile(path)

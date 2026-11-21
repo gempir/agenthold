@@ -50,6 +50,8 @@ tags:
     description: WebSocket endpoints. Not generated as JSON handlers.
   - name: slack
     description: Linking Slack users to agenthold accounts.
+  - name: git
+    description: Git author identity, proxy-injected HTTPS credentials, repositories, branches and worktrees.
   - name: meta
 
 paths:
@@ -1020,14 +1022,20 @@ paths:
               type: object
               properties:
                 title: { type: string, maxLength: 200 }
+                cwd: { type: string, maxLength: 4096, description: "Optional working directory relative to the agent's home directory." }
+                gitBranch: { type: string, maxLength: 255, description: "Optional branch to check out or create when starting in a git repository." }
+                createBranch: { type: boolean, description: "Create gitBranch if it does not exist." }
+                createWorktree: { type: boolean, description: "Create a new git worktree on gitBranch for this session." }
       responses:
         "201":
           description: Created.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Session" }
+        "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
   /sessions/{sessionId}:
     parameters:
@@ -2128,6 +2136,250 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
         "413": { $ref: "#/components/responses/Error" }
 
+  /me/git:
+    get:
+      operationId: getGitSettings
+      tags: [git]
+      description: Your git author identity and connected HTTPS credentials.
+      responses:
+        "200":
+          description: Current git settings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitSettings" }
+    put:
+      operationId: updateGitSettings
+      tags: [git]
+      description: Update your git author name and email (empty values fall back to your account profile).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [authorName, authorEmail]
+              properties:
+                authorName: { type: string, maxLength: 200 }
+                authorEmail: { type: string, maxLength: 320 }
+      responses:
+        "200":
+          description: Updated git settings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitSettings" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /me/git/credentials:
+    post:
+      operationId: upsertGitCredential
+      tags: [git]
+      description: Store or replace an HTTPS git credential for a host. Tokens are encrypted at rest and injected by the egress proxy.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GitCredentialInput" }
+      responses:
+        "200":
+          description: Stored credential metadata.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitCredential" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /me/git/credentials/{credentialId}:
+    parameters:
+      - name: credentialId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      operationId: deleteGitCredential
+      tags: [git]
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/git/repos:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listAgentGitRepos
+      tags: [git]
+      description: Discover git repositories and worktrees inside a running agent's home directory.
+      responses:
+        "200":
+          description: Discovered repositories.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitRepoList" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/git/status:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+      - name: path
+        in: query
+        schema: { type: string }
+        description: Relative path inside the agent's home directory (empty for home).
+    get:
+      operationId: getAgentGitStatus
+      tags: [git]
+      description: Inspect git repository status and branches for a directory in a running agent.
+      responses:
+        "200":
+          description: Repository status and branch list.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitRepoStatus" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/git/clone:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: cloneAgentGitRepo
+      tags: [git]
+      description: Clone a git repository into a running agent's home directory.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string, minLength: 1, maxLength: 2048 }
+                path: { type: string, maxLength: 4096, description: "Optional target directory relative to home." }
+                branch: { type: string, maxLength: 255, description: "Optional branch to check out." }
+      responses:
+        "201":
+          description: Cloned repository.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitRepo" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/git/checkout:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: checkoutAgentGitBranch
+      tags: [git]
+      description: Switch to or create a branch in a repository inside a running agent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, branch]
+              properties:
+                path: { type: string, maxLength: 4096 }
+                branch: { type: string, minLength: 1, maxLength: 255 }
+                create: { type: boolean }
+                fromRef: { type: string, maxLength: 255 }
+      responses:
+        "200":
+          description: Updated repository state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitRepo" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/git/worktrees:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: createAgentGitWorktree
+      tags: [git]
+      description: Create a new git worktree for a repository inside a running agent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, branch]
+              properties:
+                path: { type: string, maxLength: 4096, description: "Repository path relative to home." }
+                branch: { type: string, minLength: 1, maxLength: 255 }
+                create: { type: boolean, description: "Create a new branch for the worktree." }
+                fromRef: { type: string, maxLength: 255, description: "Optional base ref when creating a new branch." }
+                worktreePath: { type: string, maxLength: 4096, description: "Optional worktree path relative to home." }
+      responses:
+        "201":
+          description: Created worktree.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitRepo" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/git/pull:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: pullAgentGitRepo
+      tags: [git]
+      description: Fetch or pull updates in a repository inside a running agent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string, maxLength: 4096 }
+                fetchOnly: { type: boolean }
+      responses:
+        "200":
+          description: Updated repository state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitRepo" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/git:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    patch:
+      operationId: updateSessionGit
+      tags: [sessions, git]
+      description: Update a session's working directory or refresh its detected git project and branch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cwd: { type: string, maxLength: 4096, description: "Working directory relative to home (empty clears)." }
+                refresh: { type: boolean, description: "Re-detect git project and branch from the running sandbox." }
+      responses:
+        "200":
+          description: Updated session.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
 security:
   - session: []
   - token: []
@@ -2802,6 +3054,10 @@ components:
             sessionId: { type: string, description: The other agent's session that sent the messages. }
         title: { type: string }
         running: { type: boolean }
+        cwd: { type: string, description: "Working directory relative to the agent's home directory." }
+        git:
+          $ref: "#/components/schemas/SessionGit"
+          description: "The git project and branch this session is on; absent when not in a git repository."
         model:
           $ref: "#/components/schemas/ModelChoice"
           description: The session's own model choice; absent when it uses the agent's default.
@@ -3209,3 +3465,76 @@ components:
           required: [url]
           properties:
             url: { type: string, description: The secret delivery URL. Shown once. }
+
+    SessionGit:
+      type: object
+      required: [project, branch]
+      properties:
+        project: { type: string }
+        branch: { type: string }
+        repoPath: { type: string }
+
+    GitCredentialInput:
+      type: object
+      required: [host, token]
+      properties:
+        host: { type: string, minLength: 1, maxLength: 253, description: "Hostname, e.g. github.com or gitlab.com." }
+        username: { type: string, maxLength: 200, description: "Optional HTTP Basic username (defaults to x-access-token for github.com, oauth2 for gitlab.com, git otherwise)." }
+        token: { type: string, minLength: 1, maxLength: 16384 }
+        label: { type: string, maxLength: 100 }
+
+    GitCredential:
+      type: object
+      required: [id, host, username, label, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        host: { type: string }
+        username: { type: string }
+        label: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    GitSettings:
+      type: object
+      required: [authorName, authorEmail, defaultAuthorName, defaultAuthorEmail, credentials]
+      properties:
+        authorName: { type: string }
+        authorEmail: { type: string }
+        defaultAuthorName: { type: string }
+        defaultAuthorEmail: { type: string }
+        credentials:
+          type: array
+          items: { $ref: "#/components/schemas/GitCredential" }
+
+    GitRepo:
+      type: object
+      required: [path, project, branch, detached, dirty, ahead, behind, isWorktree]
+      properties:
+        path: { type: string }
+        project: { type: string }
+        remoteUrl: { type: string }
+        branch: { type: string }
+        detached: { type: boolean }
+        dirty: { type: boolean }
+        ahead: { type: integer }
+        behind: { type: integer }
+        isWorktree: { type: boolean }
+        mainPath: { type: string }
+
+    GitRepoList:
+      type: object
+      required: [connected, repos]
+      properties:
+        connected: { type: boolean }
+        repos:
+          type: array
+          items: { $ref: "#/components/schemas/GitRepo" }
+
+    GitRepoStatus:
+      type: object
+      required: [branches]
+      properties:
+        repo: { $ref: "#/components/schemas/GitRepo" }
+        branches:
+          type: array
+          items: { type: string }

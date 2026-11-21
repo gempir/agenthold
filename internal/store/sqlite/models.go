@@ -62,6 +62,10 @@ type AgentSession struct {
 	OriginSessionID string
 	Model           string
 	ModelOptions    string
+	Cwd             string
+	GitProject      string
+	GitBranch       string
+	GitRepoPath     string
 }
 
 type AgentSessionEvent struct {
@@ -120,6 +124,17 @@ type ExposureReleasedName struct {
 	Name       string
 	OwnerID    string
 	ReleasedAt int64
+}
+
+type GitCredential struct {
+	ID         string
+	UserID     string
+	Host       string
+	Username   string
+	Ciphertext []byte
+	Label      string
+	CreatedAt  int64
+	UpdatedAt  int64
 }
 
 type Identity struct {
@@ -357,6 +372,13 @@ type User struct {
 	UpdatedAt     int64
 	Role          string
 	RoleOverride  string
+}
+
+type UserGitConfig struct {
+	UserID      string
+	AuthorName  string
+	AuthorEmail string
+	UpdatedAt   int64
 }
 
 type Webhook struct {

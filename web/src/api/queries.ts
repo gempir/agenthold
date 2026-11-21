@@ -99,6 +99,7 @@ export const agentQuery = (agentId: string) =>
   });
 
 export type Session = components['schemas']['Session'];
+export type SessionGit = components['schemas']['SessionGit'];
 export type HarnessType = components['schemas']['HarnessType'];
 
 export const sessionsQuery = (agentId: string) =>
@@ -227,3 +228,43 @@ export const adminUsersQuery = queryOptions({
   queryFn: () => unwrap(api.GET('/admin/users')),
   retry: false,
 });
+
+export type GitSettings = components['schemas']['GitSettings'];
+export type GitCredential = components['schemas']['GitCredential'];
+export type GitRepo = components['schemas']['GitRepo'];
+export type GitRepoList = components['schemas']['GitRepoList'];
+export type GitRepoStatus = components['schemas']['GitRepoStatus'];
+
+/** Your git author identity and connected HTTPS credentials. */
+export const gitSettingsQuery = queryOptions({
+  queryKey: ['me', 'git'],
+  queryFn: () => unwrap(api.GET('/me/git')),
+  retry: false,
+});
+
+/** Git repositories and worktrees found in a running agent's home. */
+export const agentGitReposQuery = (agentId: string) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'git', 'repos'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/git/repos', {
+          params: { path: { agentId } },
+        }),
+      ),
+    refetchInterval: 15_000,
+    retry: false,
+  });
+
+/** Status and branches of one repository (path relative to home). */
+export const agentGitStatusQuery = (agentId: string, path: string) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'git', 'status', path],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/git/status', {
+          params: { path: { agentId }, query: { path } },
+        }),
+      ),
+    retry: false,
+  });

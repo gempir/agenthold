@@ -191,3 +191,51 @@ func TestDatabaseLocations(t *testing.T) {
 		}
 	}
 }
+
+// The role columns (migration 00008) and their queries, on both engines.
+func TestRoleColumnsContract(t *testing.T) {
+	ctx := t.Context()
+	s, err := Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if err := s.CreateUser(ctx, db.CreateUserParams{ID: "u1", Email: "u1@example.com", CreatedAt: 1, UpdatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	u, err := s.GetUser(ctx, "u1")
+	if err != nil || u.Role != "disabled" || u.RoleOverride != "" {
+		t.Fatalf("new user: %+v %v", u, err)
+	}
+	if err := s.CreateIdentity(ctx, db.CreateIdentityParams{Provider: "gh", Subject: "42", UserID: "u1", Username: "octo", CreatedAt: 1, LastLoginAt: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetIdentityProviderRole(ctx, db.SetIdentityProviderRoleParams{ProviderRole: "admin", Provider: "gh", Subject: "42"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetUserRole(ctx, db.SetUserRoleParams{Role: "user", ID: "u1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetUserRoleOverride(ctx, db.SetUserRoleOverrideParams{RoleOverride: "admin", UpdatedAt: 2, ID: "u1"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"a1", "a2"} {
+		if err := s.CreateAgent(ctx, db.CreateAgentParams{ID: id, OwnerID: "u1", Name: id, Image: "base", Cpus: 1, MemoryMb: 512}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := s.CountOwnedAgents(ctx, "u1"); err != nil || n != 2 {
+		t.Fatalf("CountOwnedAgents = %d, %v", n, err)
+	}
+	ids, err := s.ListIdentities(ctx)
+	if err != nil || len(ids) != 1 || ids[0].ProviderRole != "admin" || ids[0].UserRole != "user" || ids[0].UserEmail != "u1@example.com" {
+		t.Fatalf("ListIdentities = %+v %v", ids, err)
+	}
+	users, err := s.ListUsersWithIdentity(ctx)
+	if err != nil || len(users) != 1 {
+		t.Fatalf("ListUsersWithIdentity = %+v %v", users, err)
+	}
+	if r := users[0]; r.Role != "user" || r.RoleOverride != "admin" || r.Provider != "gh" || r.Username != "octo" || r.LastLoginAt != 5 || r.Agents != 2 {
+		t.Fatalf("row = %+v", r)
+	}
+}

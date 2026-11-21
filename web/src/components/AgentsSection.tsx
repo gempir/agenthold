@@ -13,6 +13,8 @@ import {
   sandboxLimitsQuery,
   type Agent,
 } from '@/api/queries';
+import { cn } from '@/lib/utils';
+import { quotaFull, quotaText } from '@/lib/roles';
 import { AgentStateBadge } from '@/components/AgentStateBadge';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
@@ -154,7 +156,10 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
   const [templateId, setTemplateId] = useState('');
   const template = templates.find((t) => t.id === templateId);
   // Admins may pick the node. '' is automatic placement.
-  const admin = !!useQuery(meQuery).data?.admin;
+  const meData = useQuery(meQuery).data;
+  const admin = !!meData?.admin;
+  const quota = meData?.agents;
+  const full = quotaFull(quota);
   const nodes = useQuery({ ...nodesQuery, enabled: admin }).data ?? [];
   const [nodePick, setNodePick] = useState('');
   const chosen = nodes.find((n) => n.id === nodePick);
@@ -186,6 +191,7 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
           ),
     onSuccess: async (a) => {
       await qc.invalidateQueries({ queryKey: agentsQuery.queryKey });
+      await qc.invalidateQueries({ queryKey: meQuery.queryKey, exact: true });
       onClose();
       await navigate({ to: '/a/$agentId', params: { agentId: a.id } });
     },
@@ -327,6 +333,18 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
               )}
             </>
           )}
+          {quotaText(quota) && (
+            <p
+              className={cn(
+                'text-sm',
+                full ? 'text-destructive' : 'text-muted-foreground',
+              )}
+            >
+              {quotaText(quota)}
+              {full &&
+                '. Delete an agent or ask an admin for more; templates and clones count, too.'}
+            </p>
+          )}
           <ErrorText error={create.error} />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
@@ -336,6 +354,7 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
               type="submit"
               disabled={
                 !name.trim() ||
+                full ||
                 (!template && !resourcesValid) ||
                 (pickNode && !!nodeProblem?.disabled) ||
                 create.isPending

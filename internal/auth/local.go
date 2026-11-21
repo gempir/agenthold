@@ -59,7 +59,7 @@ func (s *Service) LocalLogin(ctx context.Context, username, pw, client, userAgen
 	if !pwOK || !userOK {
 		return "", ErrBadCredentials
 	}
-	userID, err := s.upsertUser(ctx, config.LocalProviderID, &Claims{Subject: l.username, Username: l.username, Name: l.username})
+	userID, err := s.upsertUser(ctx, config.LocalProviderID, &Claims{Subject: l.username, Username: l.username, Name: l.username, ProviderRole: config.RoleAdmin}, config.RoleAdmin, true)
 	if err != nil {
 		return "", err
 	}

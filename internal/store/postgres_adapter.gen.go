@@ -53,6 +53,11 @@ func (p postgresQueries) CountNodeSandboxes(ctx context.Context, nodeID string) 
 	return value, err
 }
 
+func (p postgresQueries) CountOwnedAgents(ctx context.Context, ownerID string) (int64, error) {
+	value, err := p.q.CountOwnedAgents(ctx, ownerID)
+	return value, err
+}
+
 func (p postgresQueries) CountOwnerApps(ctx context.Context, ownerID string) (int64, error) {
 	value, err := p.q.CountOwnerApps(ctx, ownerID)
 	return value, err
@@ -675,6 +680,18 @@ func (p postgresQueries) ListExposures(ctx context.Context, agentID string) ([]d
 	return result, nil
 }
 
+func (p postgresQueries) ListIdentities(ctx context.Context) ([]db.ListIdentitiesRow, error) {
+	value, err := p.q.ListIdentities(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ListIdentitiesRow, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.ListIdentitiesRow(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListNodeSandboxes(ctx context.Context, nodeID string) ([]db.Sandbox, error) {
 	value, err := p.q.ListNodeSandboxes(ctx, nodeID)
 	if err != nil {
@@ -903,6 +920,18 @@ func (p postgresQueries) ListUsersByVerifiedEmail(ctx context.Context, lower str
 	return result, nil
 }
 
+func (p postgresQueries) ListUsersWithIdentity(ctx context.Context) ([]db.ListUsersWithIdentityRow, error) {
+	value, err := p.q.ListUsersWithIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ListUsersWithIdentityRow, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.ListUsersWithIdentityRow(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) MakeAppClone(ctx context.Context, id string) error {
 	return p.q.MakeAppClone(ctx, id)
 }
@@ -980,6 +1009,10 @@ func (p postgresQueries) SetExposurePort(ctx context.Context, arg db.SetExposure
 	return p.q.SetExposurePort(ctx, postgres.SetExposurePortParams(arg))
 }
 
+func (p postgresQueries) SetIdentityProviderRole(ctx context.Context, arg db.SetIdentityProviderRoleParams) error {
+	return p.q.SetIdentityProviderRole(ctx, postgres.SetIdentityProviderRoleParams(arg))
+}
+
 func (p postgresQueries) SetNodeCapacity(ctx context.Context, arg db.SetNodeCapacityParams) error {
 	return p.q.SetNodeCapacity(ctx, postgres.SetNodeCapacityParams(arg))
 }
@@ -1047,6 +1080,14 @@ func (p postgresQueries) SetSlackThreadCursor(ctx context.Context, arg db.SetSla
 
 func (p postgresQueries) SetSlackThreadHeader(ctx context.Context, arg db.SetSlackThreadHeaderParams) error {
 	return p.q.SetSlackThreadHeader(ctx, postgres.SetSlackThreadHeaderParams(arg))
+}
+
+func (p postgresQueries) SetUserRole(ctx context.Context, arg db.SetUserRoleParams) error {
+	return p.q.SetUserRole(ctx, postgres.SetUserRoleParams(arg))
+}
+
+func (p postgresQueries) SetUserRoleOverride(ctx context.Context, arg db.SetUserRoleOverrideParams) error {
+	return p.q.SetUserRoleOverride(ctx, postgres.SetUserRoleOverrideParams(arg))
 }
 
 func (p postgresQueries) ShareAgent(ctx context.Context, arg db.ShareAgentParams) error {

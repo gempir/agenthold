@@ -19,6 +19,8 @@ type Querier interface {
 	CountAgentApps(ctx context.Context, createdByAgentID string) (int64, error)
 	CountExposures(ctx context.Context, agentID string) (int64, error)
 	CountNodeSandboxes(ctx context.Context, nodeID string) (int64, error)
+	// Machines of kind agent (templates and clones included) a user owns, for auth.user_max_agents.
+	CountOwnedAgents(ctx context.Context, ownerID string) (int64, error)
 	CountOwnerApps(ctx context.Context, ownerID string) (int64, error)
 	CountUserIdentities(ctx context.Context, arg CountUserIdentitiesParams) (int64, error)
 	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) error
@@ -137,6 +139,8 @@ type Querier interface {
 	// Every machine with its sandbox and owner (the admin overview).
 	ListAllMachines(ctx context.Context) ([]ListAllMachinesRow, error)
 	ListExposures(ctx context.Context, agentID string) ([]Exposure, error)
+	// Every identity with its user, for re-evaluating roles at start.
+	ListIdentities(ctx context.Context) ([]ListIdentitiesRow, error)
 	ListNodeSandboxes(ctx context.Context, nodeID string) ([]Sandbox, error)
 	ListNodes(ctx context.Context) ([]Node, error)
 	ListProviderLogins(ctx context.Context) ([]ProviderLogin, error)
@@ -160,6 +164,9 @@ type Querier interface {
 	ListUserSlackUsers(ctx context.Context, userID string) ([]SlackUser, error)
 	// Users with this verified email, for sharing. Emails are compared case-insensitively.
 	ListUsersByVerifiedEmail(ctx context.Context, lower string) ([]User, error)
+	// The admin users list: every user, the provider and username they signed
+	// in with (the oldest identity) and how many agents they own.
+	ListUsersWithIdentity(ctx context.Context) ([]ListUsersWithIdentityRow, error)
 	// A clone of an app is an app of its cloner, managed by no agent.
 	MakeAppClone(ctx context.Context, id string) error
 	MarkCredentialsInSandbox(ctx context.Context, id string) error
@@ -183,6 +190,7 @@ type Querier interface {
 	SetAgentTemplate(ctx context.Context, arg SetAgentTemplateParams) error
 	SetBootToken(ctx context.Context, arg SetBootTokenParams) error
 	SetExposurePort(ctx context.Context, arg SetExposurePortParams) error
+	SetIdentityProviderRole(ctx context.Context, arg SetIdentityProviderRoleParams) error
 	SetNodeCapacity(ctx context.Context, arg SetNodeCapacityParams) error
 	SetNodeState(ctx context.Context, arg SetNodeStateParams) error
 	SetNodeVersion(ctx context.Context, arg SetNodeVersionParams) error
@@ -201,6 +209,8 @@ type Querier interface {
 	SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error
 	SetSlackThreadCursor(ctx context.Context, arg SetSlackThreadCursorParams) error
 	SetSlackThreadHeader(ctx context.Context, arg SetSlackThreadHeaderParams) error
+	SetUserRole(ctx context.Context, arg SetUserRoleParams) error
+	SetUserRoleOverride(ctx context.Context, arg SetUserRoleOverrideParams) error
 	ShareAgent(ctx context.Context, arg ShareAgentParams) error
 	// Only if nobody replaced the credential meanwhile.
 	StoreRefreshedLogin(ctx context.Context, arg StoreRefreshedLoginParams) (int64, error)

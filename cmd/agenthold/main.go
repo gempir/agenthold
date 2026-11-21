@@ -136,6 +136,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Roles follow the configuration this process loaded, before anyone is served.
+	if err := authSvc.ReconcileRoles(ctx); err != nil {
+		return fmt.Errorf("re-evaluate user roles: %w", err)
+	}
+	if cfg.Auth.DefaultRole == config.RoleDisabled {
+		logger.Info("users no role rule matches sign in as Disabled (auth.default_role); see the auth docs to give them a role")
+	}
 	if !cfg.Auth.SignInConfigured() {
 		logger.Warn("nobody can sign in: no sign-in method is configured. Add a local admin " +
 			"(auth.local with username and a password_hash from `agenthold hash-password`) " +
@@ -329,7 +336,7 @@ func run() error {
 		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Node: cluster, Nodes: cluster, Limits: cfg.Sandbox,
 		Box: box, Egress: directory, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc,
 		Preview: previewSvc, Identity: identity, Apps: appsMgr, Activity: activityLog,
-		ShowTestHarness: cfg.TestHarness || driverName == "fake",
+		ShowTestHarness: cfg.TestHarness || driverName == "fake", UserMaxAgents: cfg.Auth.UserMaxAgents,
 	})
 	sessions.SetWaker(apiSrv.Wake)
 	appsMgr.Wake = apiSrv.Wake

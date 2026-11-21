@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jmespath-community/go-jmespath"
 	"go.yaml.in/yaml/v3"
 	"golang.org/x/net/publicsuffix"
 
@@ -298,9 +299,70 @@ type Auth struct {
 	Local *Local `yaml:"local"`
 	// SessionTTL is how long a browser session lasts without use. Default 30 days.
 	SessionTTL time.Duration `yaml:"session_ttl"`
-	// Admins are the verified e-mail addresses of users who manage the
-	// installation (edge nodes). The local admin (auth.local) always is one.
+	// Admins are the verified e-mail addresses of users who get the Admin
+	// role. The local admin (auth.local) always is one.
 	Admins []string `yaml:"admins"`
+	// DefaultRole is the role of a user no rule gives one (see docs/auth):
+	// admin, user or disabled. Default disabled. A provider's default_role
+	// takes precedence for its users.
+	DefaultRole Role `yaml:"default_role"`
+	// UserMaxAgents is how many agents (templates and clones included) a
+	// user with the User role may own. Default 2; 0 means none. Admins have
+	// no limit.
+	UserMaxAgents *int `yaml:"user_max_agents"`
+}
+
+// Role is what a user may do on this installation.
+type Role string
+
+// Roles, from least to most rights.
+const (
+	// RoleDisabled signs in but may do nothing.
+	RoleDisabled Role = "disabled"
+	// RoleUser uses its own and shared agents and creates agents up to
+	// auth.user_max_agents.
+	RoleUser Role = "user"
+	// RoleAdmin may do everything, including the installation-wide admin
+	// pages, and has no agent limit.
+	RoleAdmin Role = "admin"
+)
+
+// ParseRole reads a role name, case-insensitively ("Admin" is admin).
+func ParseRole(s string) (Role, bool) {
+	switch r := Role(strings.ToLower(strings.TrimSpace(s))); r {
+	case RoleDisabled, RoleUser, RoleAdmin:
+		return r, true
+	}
+	return "", false
+}
+
+// UnmarshalYAML accepts role names in any case.
+func (r *Role) UnmarshalYAML(n *yaml.Node) error {
+	var s string
+	if err := n.Decode(&s); err != nil {
+		return err
+	}
+	if s == "" {
+		*r = ""
+		return nil
+	}
+	role, ok := ParseRole(s)
+	if !ok {
+		return fmt.Errorf("line %d: unknown role %q (want admin, user or disabled)", n.Line, s)
+	}
+	*r = role
+	return nil
+}
+
+// Rank orders roles: disabled < user < admin. Unknown roles rank lowest.
+func (r Role) Rank() int {
+	switch r {
+	case RoleAdmin:
+		return 2
+	case RoleUser:
+		return 1
+	}
+	return 0
 }
 
 // Local is the local admin account.
@@ -347,9 +409,28 @@ type Provider struct {
 	// GitHub: overrides for GitHub Enterprise Server. Defaults to github.com.
 	GitHubURL    string `yaml:"github_url"`
 	GitHubAPIURL string `yaml:"github_api_url"`
-	// GitHubAllowedIDs optionally restricts sign-in to these immutable GitHub user IDs.
-	// An empty list allows any GitHub account to sign in.
+	// GitHubAllowedIDs optionally restricts sign-in to these immutable GitHub user IDs,
+	// which get at least the User role. An empty list allows any GitHub account to
+	// sign in (with the role the other rules give it).
 	GitHubAllowedIDs []string `yaml:"github_allowed_ids"`
+	// GitHubRoles gives GitHub accounts a role by their immutable numeric
+	// user id (logins can be renamed and then taken by somebody else):
+	// {admin: ["9765622"], user: [...], disabled: [...]}. An account listed
+	// here may sign in even when github_allowed_ids does not list it.
+	GitHubRoles map[Role][]string `yaml:"github_roles"`
+
+	// OIDC: a JMESPath expression evaluated over the ID token's claims (and,
+	// when it yields nothing there, the userinfo response) that returns the
+	// user's role, like Grafana's role_attribute_path:
+	// contains(roles[*], 'admin') && 'Admin' || 'User'.
+	RoleAttributePath string `yaml:"role_attribute_path"`
+	// OIDC: refuse sign-in when role_attribute_path yields no valid role,
+	// instead of falling back to the default role.
+	RoleAttributeStrict bool `yaml:"role_attribute_strict"`
+
+	// DefaultRole is the role of this provider's users no rule gives one.
+	// Default: auth.default_role.
+	DefaultRole Role `yaml:"default_role"`
 }
 
 // Load reads the config file named by AGENTHOLD_CONFIG (optional) and applies
@@ -546,6 +627,12 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.Auth.SessionTTL == 0 {
 		cfg.Auth.SessionTTL = 30 * 24 * time.Hour
 	}
+	if cfg.Auth.DefaultRole == "" {
+		cfg.Auth.DefaultRole = RoleDisabled
+	}
+	if cfg.Auth.UserMaxAgents == nil {
+		cfg.Auth.UserMaxAgents = intPtr(2)
+	}
 	for i := range cfg.Auth.Providers {
 		p := &cfg.Auth.Providers[i]
 		if p.Name == "" {
@@ -626,6 +713,12 @@ func (c *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("nodes.advertise: want host:port, got %q", c.Nodes.Advertise))
 		}
 	}
+	if _, ok := ParseRole(string(c.Auth.DefaultRole)); !ok {
+		errs = append(errs, fmt.Errorf("auth.default_role: unknown role %q (want admin, user or disabled)", c.Auth.DefaultRole))
+	}
+	if c.Auth.UserMaxAgents == nil || *c.Auth.UserMaxAgents < 0 {
+		errs = append(errs, errors.New("auth.user_max_agents: must not be negative"))
+	}
 	for i, a := range c.Auth.Admins {
 		if !strings.Contains(a, "@") {
 			errs = append(errs, fmt.Errorf("auth.admins[%d]: want an e-mail address, got %q", i, a))
@@ -671,7 +764,22 @@ func (c *Config) Validate() error {
 			if p.Issuer == "" {
 				errs = append(errs, fmt.Errorf("%s: issuer is required for oidc", prefix))
 			}
+			if p.RoleAttributePath != "" {
+				if _, err := jmespath.Compile(p.RoleAttributePath); err != nil {
+					errs = append(errs, fmt.Errorf("%s.role_attribute_path: %w", prefix, err))
+				}
+			}
+			if p.RoleAttributeStrict && p.RoleAttributePath == "" {
+				errs = append(errs, fmt.Errorf("%s.role_attribute_strict: needs role_attribute_path", prefix))
+			}
+			if len(p.GitHubRoles) > 0 || len(p.GitHubAllowedIDs) > 0 {
+				errs = append(errs, fmt.Errorf("%s: github_roles and github_allowed_ids are for github providers", prefix))
+			}
 		case ProviderGitHub:
+			if p.RoleAttributePath != "" || p.RoleAttributeStrict {
+				errs = append(errs, fmt.Errorf("%s: role_attribute_path and role_attribute_strict are for oidc providers", prefix))
+			}
+			errs = append(errs, validateGitHubRoles(prefix, p)...)
 		default:
 			errs = append(errs, fmt.Errorf("%s: unknown type %q (want oidc or github)", prefix, p.Type))
 		}
@@ -685,6 +793,50 @@ func (c *Config) Validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// validateGitHubRoles checks github_roles and github_allowed_ids: numeric
+// user ids, each in at most one role.
+func validateGitHubRoles(prefix string, p Provider) []error {
+	var errs []error
+	for i, id := range p.GitHubAllowedIDs {
+		if !numericID(id) {
+			errs = append(errs, fmt.Errorf("%s.github_allowed_ids[%d]: want a numeric GitHub user id, got %q", prefix, i, id))
+		}
+	}
+	seen := map[string]Role{}
+	for _, role := range []Role{RoleAdmin, RoleUser, RoleDisabled} {
+		for i, id := range p.GitHubRoles[role] {
+			id = strings.TrimSpace(id)
+			if !numericID(id) {
+				errs = append(errs, fmt.Errorf("%s.github_roles.%s[%d]: want a numeric GitHub user id (logins can be renamed), got %q; find it at https://api.github.com/users/<login>", prefix, role, i, id))
+				continue
+			}
+			if other, dup := seen[id]; dup {
+				errs = append(errs, fmt.Errorf("%s.github_roles: id %s is listed under both %s and %s", prefix, id, other, role))
+			}
+			seen[id] = role
+		}
+	}
+	for role := range p.GitHubRoles {
+		if _, ok := ParseRole(string(role)); !ok {
+			errs = append(errs, fmt.Errorf("%s.github_roles: unknown role %q (want admin, user or disabled)", prefix, role))
+		}
+	}
+	return errs
+}
+
+func numericID(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > 20 {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // IsAdminEmail reports whether a verified e-mail address is in auth.admins.

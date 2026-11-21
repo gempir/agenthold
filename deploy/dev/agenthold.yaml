@@ -3,6 +3,8 @@ data_dir: /var/lib/agenthold-dev
 public_url: http://localhost:8080
 test_harness: true
 auth:
+  # Development: users of a provider you enable here get the User role (the shipped default is disabled).
+  default_role: user
   # Development only: admin / admin. Generate your own with agenthold hash-password.
   local:
     username: admin

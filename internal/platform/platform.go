@@ -20,6 +20,7 @@ import (
 	"github.com/gempir/agenthold/internal/apps"
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
+	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store"
@@ -154,6 +155,12 @@ func (p *Service) Call(ctx context.Context, callerID, sessionID, tool string, ar
 	if caller.Kind == apps.KindApp {
 		// Only agents act on the platform; an app's processes get nothing.
 		return nil, errors.New("platform tools are for agents, not apps")
+	}
+	// An agent acts for its owner: a Disabled owner's agents get nothing.
+	if owner, err := p.Store.GetUser(ctx, caller.OwnerID); err != nil {
+		return nil, err
+	} else if authz.UserRole(owner) == config.RoleDisabled {
+		return nil, errors.New("this agent's owner has no access to this agenthold")
 	}
 	var in toolArgs
 	if len(args) > 0 {

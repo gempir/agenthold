@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Outlet, useRouterState } from '@tanstack/react-router';
 import { meQuery } from '@/api/queries';
 import { NewAgentDialog } from '@/components/AgentsSection';
+import { NoAccess } from '@/components/NoAccess';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Sidebar } from '@/components/layout/Sidebar';
 import {
@@ -54,6 +55,8 @@ export function AppShell() {
         <ErrorText error={me.error} />
       </div>
     );
+
+  if (me.data.role === 'disabled') return <NoAccess user={me.data.user} />;
 
   return (
     <ShellContext.Provider value={shell}>

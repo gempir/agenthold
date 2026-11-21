@@ -31,6 +31,52 @@ auth:
       client_secret: ${KEYCLOAK_CLIENT_SECRET}
 ```
 
+## Roles
+
+`role_attribute_path` maps the token's claims to a role, with the same JMESPath syntax as Grafana's
+`role_attribute_path`. It is evaluated over the ID token's claims and, if that yields nothing, over the userinfo
+response. The result must be `Admin`, `User` or `Disabled` (any case); anything else counts as no match. An
+invalid expression stops the server at startup.
+
+```yaml
+auth:
+  default_role: disabled
+  providers:
+    - id: keycloak
+      type: oidc
+      issuer: https://sso.example.com/realms/main
+      client_id: agenthold
+      client_secret: ${KEYCLOAK_CLIENT_SECRET}
+      # Client roles of the agenthold client (Keycloak: resource_access.<client id>.roles)
+      role_attribute_path: >-
+        contains(resource_access.agenthold.roles[*], 'admin') && 'Admin' ||
+        contains(resource_access.agenthold.roles[*], 'user') && 'User' || 'Disabled'
+      role_attribute_strict: false   # true: refuse sign-in when the path yields no role
+```
+
+Other common shapes:
+
+```yaml
+# Realm roles
+role_attribute_path: "contains(realm_access.roles[*], 'agenthold-admin') && 'Admin' || 'User'"
+# A flat roles claim (a Keycloak "User Client Role" mapper with token claim name "roles")
+role_attribute_path: "contains(roles[*], 'admin') && 'Admin' || contains(roles[*], 'editor') && 'User' || 'Disabled'"
+# Groups (Keycloak "Group Membership" mapper, claim name "groups")
+role_attribute_path: "contains(groups[*], '/agenthold-admins') && 'Admin' || contains(groups[*], '/staff') && 'User'"
+```
+
+Keycloak puts client and realm roles in the **access token** by default. agenthold reads the ID token and
+userinfo, so in Keycloak open Client scopes, `roles`, Mappers, and turn on **Add to ID token** (or **Add to
+userinfo**) for the *client roles* and *realm roles* mappers, or add a mapper of your own to the agenthold
+client's dedicated scope. Check the claims with Keycloak's *Client scopes, Evaluate, Generated ID token*.
+
+`contains()` answers false for a missing claim instead of failing, so a chain such as "realm role, else
+group" reaches its later branches for users without the first claim; otherwise expressions behave as in
+JMESPath (and Grafana). Without a match the user gets the provider's `default_role`, else `auth.default_role`
+(default **Disabled**); with `role_attribute_strict: true` the sign-in is refused and no user is created. The
+role is re-evaluated at every sign-in; see [Roles](/auth/#roles) for the precedence with `auth.admins` and
+overrides.
+
 `issuer` is the realm URL (`https://<host>/realms/<realm>`; older Keycloak versions with a legacy path
 use `/auth/realms/<realm>`). Check it against `<issuer>/.well-known/openid-configuration`. Add `discovery_url`
 only if the server reaches Keycloak through a different (internal) URL than the issuer.

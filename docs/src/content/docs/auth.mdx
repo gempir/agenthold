@@ -53,6 +53,63 @@ creates two separate users, because an email claim alone does not prove that bot
 A user exists once they have signed in. Agents are shared by the email address a provider reported as
 verified; see [Sharing and audit](/sharing/).
 
+## Roles
+
+Every user has one of three roles:
+
+| Role | May |
+| --- | --- |
+| **Admin** | Everything: the **Overview** (every node, machine and user), nodes and join tokens, picking the node of a new agent, the Slack connection, role overrides, and all a User may, with no agent limit. |
+| **User** | Use the agents it owns and the ones shared with it (chats, prompts, terminal, files) and create its own agents, up to `auth.user_max_agents` (default 2; templates and clones count). |
+| **Disabled** | Nothing. The user can sign in, but sees *"Your account has no access to this agenthold"* and can only sign out. Every API call but `GET /me` and sign-in/out answers 403, its API tokens and Slack link do nothing, its schedules and webhooks do not run, and its agents get no platform tools. |
+
+**New installs default to Disabled**: a person who signs in and matches no rule below gets no access until the
+config or an admin gives them a role. Sharing does not change roles: a shared agent is usable by a User (and an
+Admin), not by a Disabled user.
+
+### Where a role comes from
+
+The rules, in order; the first that applies decides:
+
+1. The **local admin** (`auth.local`) is always Admin. No override applies to it.
+2. An admin's **override** for the user (Overview, *Users*), if one is set.
+3. A verified e-mail address listed in **`auth.admins`**: Admin.
+4. The **provider's mapping**:
+   - GitHub: `github_roles` by numeric user id, else an id in `github_allowed_ids` gets User
+     ([GitHub sign-in](/auth-github/)).
+   - OIDC: `role_attribute_path`, a JMESPath expression over the ID token and userinfo claims, like Grafana's
+     ([Keycloak and OIDC](/auth-keycloak/)).
+5. **Nothing matched**: a strict provider refuses the sign-in (no user is created): an OIDC provider with
+   `role_attribute_strict: true`, or a GitHub provider with a non-empty `github_allowed_ids` (as before roles
+   existed). Otherwise the user gets the provider's `default_role`, else `auth.default_role` (default `disabled`).
+
+The role is evaluated at **every sign-in** and stored with the user. It is also re-evaluated for every user when
+the server **starts**, so removing someone from `auth.admins` or `github_roles` takes effect with the restart that
+loads the new config, not at their next sign-in. OIDC claims are not stored: at a start the result of the user's
+last `role_attribute_path` evaluation is reused, and a role removed in the identity provider applies at the
+user's next sign-in. agenthold keeps its own session and does not refresh provider tokens, so to cut somebody off
+at once, set an override to **Disabled** in the Overview.
+
+The role is read from the database on every request: a change (sign-in, restart or override) applies to the
+user's existing sessions and API tokens immediately.
+
+### Overrides
+
+Admins see a **Users** list at the bottom of the Overview with each user's provider, agent count, last sign-in,
+the role configuration gives them and an override select (`PUT /api/v1/admin/users/{id}/role`, body
+`{"override": "admin" | "user" | "disabled" | null}`). An override wins over configuration until it is cleared
+(*From configuration*), and it also lets a user in whom a strict provider would refuse. Admins cannot change
+their own role (another admin can) or the local admin's, so an installation cannot lose its last admin by
+accident. Overrides exist because identity-provider changes only apply at the next sign-in and config changes
+need a restart; they are logged, and the config file stays the place for durable rules.
+
+```yaml
+auth:
+  default_role: disabled        # admin | user | disabled (any case); default disabled
+  user_max_agents: 2            # agents a User may own, templates and clones included; default 2, 0 = none
+  admins: [ops@example.com]     # verified e-mail addresses that get Admin
+```
+
 ## Sessions
 
 Sessions are cookie based and expire after `session_ttl` without use (default `720h`, 30 days). With an https
@@ -67,6 +124,9 @@ public_url: https://agenthold.example.com   # default http://localhost:8080; use
 data_dir: /data                    # default ./data
 auth:
   session_ttl: 720h                # Go duration, default 30 days
+  default_role: disabled           # role when no rule matches: admin | user | disabled
+  user_max_agents: 2               # agents a User may own (Admins: no limit)
+  admins: []                       # verified e-mails that get the Admin role
   local:                           # optional, the one local admin
     username: admin
     password_hash: $argon2id$...   # from agenthold hash-password
@@ -79,8 +139,13 @@ auth:
       scopes: [openid, profile, email]   # optional, see defaults below
       issuer: https://sso.example.com/realms/main   # oidc, required
       discovery_url: ""            # oidc, optional
+      role_attribute_path: ""      # oidc, optional JMESPath returning Admin | User | Disabled
+      role_attribute_strict: false # oidc, refuse sign-in when the path yields no role
+      default_role: ""             # optional, overrides auth.default_role for this provider
       github_url: ""               # github, optional
       github_api_url: ""           # github, optional
+      github_allowed_ids: []       # github, optional numeric ids: at least User; others refused
+      github_roles: {}             # github, optional {admin: [ids], user: [ids], disabled: [ids]}
 preview:
   host_suffix: ""                  # e.g. .apps.example.com; empty = preview URLs off, see Preview URLs
 ```
@@ -96,6 +161,11 @@ preview:
 | `discovery_url` | oidc | Base URL to fetch `/.well-known/openid-configuration` from, when the server cannot reach `issuer`. |
 | `github_url` | github | Default `https://github.com`. |
 | `github_api_url` | github | Default `https://api.github.com`. |
+| `role_attribute_path` | oidc | JMESPath over the ID token claims, then the userinfo claims; must return `Admin`, `User` or `Disabled` (any case). Checked at startup. |
+| `role_attribute_strict` | oidc | Refuse sign-in when `role_attribute_path` yields no valid role. Needs `role_attribute_path`. |
+| `default_role` | all | Role for this provider's users no rule matches. Default `auth.default_role`. |
+| `github_allowed_ids` | github | Numeric user ids that may sign in, with at least the User role. Non-empty means: others are refused. |
+| `github_roles` | github | Numeric user ids per role. Listed ids may sign in even if `github_allowed_ids` omits them. An id may be in one role only. |
 
 Environment overrides: `AGENTHOLD_LISTEN`, `AGENTHOLD_PUBLIC_URL`, `AGENTHOLD_DATA_DIR`, `AGENTHOLD_DEV_PROXY`,
 `AGENTHOLD_PREVIEW_HOST_SUFFIX`. `preview.host_suffix` is described in [Preview URLs](/previews/).

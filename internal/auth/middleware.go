@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/store/db"
 )
 
@@ -88,6 +89,9 @@ func (s *Service) UserContext(ctx context.Context, userID string) (context.Conte
 	u, err := s.store.GetUser(ctx, userID)
 	if err != nil {
 		return ctx, nil, err
+	}
+	if Role(u) == config.RoleDisabled {
+		return ctx, nil, ErrDisabled
 	}
 	return WithUser(ctx, &u), &u, nil
 }

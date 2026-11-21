@@ -14,6 +14,7 @@ import (
 
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/authz"
+	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/id"
 	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/store/db"
@@ -184,6 +185,9 @@ func (a *API) previewVisitor(r *http.Request, e db.Exposure) (visitor, error) {
 		u = tu
 	} else if c, err := r.Cookie(a.previewCookieName()); err == nil && c.Value != "" {
 		u, _ = a.Preview.SessionUser(r.Context(), c.Value, e) // a stale cookie means: sign in again
+	}
+	if u != nil && auth.Role(*u) == config.RoleDisabled {
+		u = nil // a Disabled user is nobody: only public exposures serve it
 	}
 	if u == nil {
 		return visitor{}, nil

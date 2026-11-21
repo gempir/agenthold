@@ -39,8 +39,9 @@ it is set to `firecracker`. `sandbox.driver: none` makes the server a pure contr
 
 ## Who manages nodes
 
-Nodes are managed by **admins**: the local admin from `auth.local`, and users whose verified e-mail address
-is listed in `auth.admins`. Admins see **Settings → Nodes**; everybody else does not.
+Nodes are managed by users with the **Admin** role: the local admin from `auth.local`, users whose verified
+e-mail address is listed in `auth.admins`, and those a provider mapping or an override makes Admin (see
+[Roles](/auth/#roles)). Admins see **Settings → Nodes**; everybody else does not.
 
 ```yaml
 auth:

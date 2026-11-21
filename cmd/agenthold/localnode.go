@@ -159,13 +159,25 @@ func newDriver(ctx context.Context, cfg *config.Config, name string, fw *egress.
 		if err != nil {
 			return nil, err
 		}
+		if fc.TransparentHugepages != "keep" {
+			if prev, err := firecracker.EnableHugePages(); err != nil {
+				logger.Warn("guest memory is faulted in 4 KiB pages: VMs boot and run slower", "err", err)
+			} else if prev != "always" {
+				logger.Info("switched transparent huge pages to always for guest memory", "was", prev)
+			}
+		}
+		nested := firecracker.NestedVirtualization()
+		snapshots := fc.SnapshotsEnabled(nested)
+		if nested != "" && fc.Snapshots == nil {
+			logger.Info("memory snapshots are off: this host is a virtual machine, where resumed guests run far slower than cold-booted ones; set sandbox.firecracker.snapshots to override", "hypervisor", nested)
+		}
 		return firecracker.New(ctx, firecracker.Config{
 			DataDir: dataDir, BaseImagePath: fc.BaseImage, KernelPath: fc.Kernel,
 			FirecrackerPath: fc.Binary, JailerPath: fc.Jailer, SandboxdPath: cfg.Sandbox.SandboxdPath,
 			NetworkPool:      netip.MustParsePrefix(cfg.Sandbox.NetworkPool),
 			OverlaySizeBytes: fc.OverlayGB << 30, HomeSizeBytes: fc.HomeGB << 30,
 			Shutdown: cb.shutdown, RegisterNetwork: fw.Register, UnregisterNetwork: fw.Unregister,
-			Snapshots: fc.SnapshotsEnabled(), Suspend: cb.suspend, WaitConnected: cb.connected,
+			Snapshots: snapshots, Suspend: cb.suspend, WaitConnected: cb.connected,
 			SnapshotMaxBytes: fc.SnapshotMaxGB << 30, SnapshotReserveBytes: fc.SnapshotReserveGB << 30,
 			Balloon: fc.BalloonEnabled(), Log: logger,
 		})

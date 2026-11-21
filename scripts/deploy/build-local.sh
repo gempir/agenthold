@@ -271,7 +271,8 @@ if [[ ! -f "$base_cache/base-arm64.ext4.zst" ]]; then
   rm -rf -- "$base_cache"
   mv -T -- "$tmpb" "$base_cache"
 fi
-phase kvm root make test-kvm
+# Under the lock every KVM experiment on this host takes, so they never run beside these tests.
+phase kvm root flock /tmp/agenthold-kvm.lock make test-kvm
 
 # --- publish ----------------------------------------------------------------------------------
 out="$wt/build/release/arm64"

@@ -117,6 +117,7 @@ func TestJailedLifecycle(t *testing.T) {
 		}
 		return s.Shutdown(ctx)
 	}
+	cfg.WaitConnected = func(ctx context.Context, id sandbox.ID) error { return hub.WaitConnected(ctx, string(id)) }
 	d, err := New(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)

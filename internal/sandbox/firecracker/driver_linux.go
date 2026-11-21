@@ -491,6 +491,17 @@ func (d *Driver) Start(ctx context.Context, id sandbox.ID, boot sandbox.Boot) er
 	return err
 }
 
+// connectedNow reports whether the machine's sandboxd holds a tunnel to the
+// node right now (false when the node cannot tell).
+func (d *Driver) connectedNow(ctx context.Context, id sandbox.ID) bool {
+	if d.cfg.WaitConnected == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	return d.cfg.WaitConnected(ctx, id) == nil
+}
+
 // start boots or resumes the VM with the driver lock held. It returns the
 // resumed VMM's process when it resumed one.
 func (d *Driver) start(ctx context.Context, id sandbox.ID, boot sandbox.Boot, allowResume bool) (resumed *process, err error) {
@@ -517,9 +528,27 @@ func (d *Driver) start(ctx context.Context, id sandbox.ID, boot sandbox.Boot, al
 		}
 		if state == "Paused" {
 			d.unpause(ctx, id, m, boot)
-		}
-		if state == "Running" || state == "Paused" {
 			return nil, nil
+		}
+		if state == "Running" {
+			// The VM outlived an earlier start (the controller stopped waiting
+			// for its tunnel, or the node restarted): its sandboxd holds a
+			// token the node no longer accepts. Hand it this start's token;
+			// a guest that cannot take it (still booting, or no vsock) is
+			// booted again so that it reads the token from its config disk.
+			if boot.Token == "" || d.connectedNow(ctx, id) {
+				return nil, nil
+			}
+			if m.Resumable {
+				_, e = d.sendResume(ctx, id, boot)
+				if e == nil {
+					d.cfg.Log.Info("machine was running; handed it the new tunnel token", "sandbox", id)
+					return nil, nil
+				}
+			} else {
+				e = errors.New("the machine has no vsock device")
+			}
+			d.cfg.Log.Warn("machine is running but did not take the new tunnel token; booting it again", "sandbox", id, "err", e)
 		}
 		if e = d.kill(m); e != nil {
 			return nil, e

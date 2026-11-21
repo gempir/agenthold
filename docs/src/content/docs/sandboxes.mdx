@@ -129,9 +129,19 @@ disks; wake starts a new microVM from that snapshot and resumes it. What survive
 - TCP connections to the outside are broken (the remote ends gave up long ago): clients must reconnect;
 - terminals and the harness are not kept: they end with the sleep, like a disconnect.
 
-A wake from a snapshot takes about half a second until sandboxd is connected (1 GiB guest on the demo box,
-nested virtualization), against about 2.5 s for a boot, and its services answer right away instead of starting
-up: a preview request to a sleeping app is served in about half a second.
+A wake from a snapshot takes about half a second until sandboxd is connected, and its services answer right
+away instead of starting up.
+
+**Not on a nested host.** Snapshots are off by default when the node itself runs in a virtual machine (Lima,
+a cloud VM, the demo box). A resumed guest's memory is mapped from the snapshot file, which gets no huge pages:
+every page the guest touches again is a 4 KiB fault, and under nested virtualization each fault is an exit to
+the outer hypervisor. Measured on the demo box (4 GiB guest): allocating 1 GiB took 0.4 s after a cold boot and
+17 to 150 s after a resume, and a resumed Claude Code needed 111 s to start. A cold boot there reaches sandboxd
+in about 0.4 s. Set `snapshots: true` to use them anyway.
+
+**Huge pages.** The node switches the host's transparent huge pages to `always` at start (Firecracker does not
+mark guest memory for them, so the common `madvise` mode leaves guest RAM in 4 KiB pages). On the demo box this
+took a 4 GiB guest's boot from 25 s to 0.13 s until init. `transparent_hugepages: keep` leaves the host setting.
 
 **Cold boot fallback.** Anything unexpected makes the wake a normal boot from the disks, which are then as a
 power cut left them (sandboxd flushed them before the snapshot was taken, and the journal is replayed):
@@ -170,7 +180,8 @@ machines on the node are not held up meanwhile.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `snapshots` | `true` | `false`: sleep is a shutdown and wake a boot. |
+| `snapshots` | `true`, `false` on a nested host | `false`: sleep is a shutdown and wake a boot. |
+| `transparent_hugepages` | `always` | `keep`: do not switch the host's transparent huge pages to `always`. |
 | `snapshot_max_gb` | `0` (no cap) | Disk space all snapshots of this node may take. A sleep that would exceed it is a shutdown. |
 | `snapshot_reserve_gb` | `2` | Free space a snapshot must leave on the data filesystem. |
 | `balloon` | `true` | Shrink snapshots with a virtio balloon (adds 0.2 to 1.5 s to a sleep, up to about 2 s for a 2 GiB machine with much freed memory). With it, the guest also reports the memory it frees to the host (free page reporting). Takes effect at a machine's next boot. |

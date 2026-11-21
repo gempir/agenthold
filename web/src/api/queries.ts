@@ -268,3 +268,45 @@ export const agentGitStatusQuery = (agentId: string, path: string) =>
       ),
     retry: false,
   });
+
+export type BuiltinBaseImage = components['schemas']['BuiltinBaseImage'];
+export type CustomImage = components['schemas']['CustomImage'];
+export type CustomImageDetail = components['schemas']['CustomImageDetail'];
+export type ImageBuild = components['schemas']['ImageBuild'];
+export type ImageBuildDetail = components['schemas']['ImageBuildDetail'];
+export type ImageInput = components['schemas']['ImageInput'];
+export type ImageList = components['schemas']['ImageList'];
+
+/** Built-in base image and organization custom images. */
+export const imagesQuery = queryOptions({
+  queryKey: ['images'],
+  queryFn: () => unwrap(api.GET('/images')),
+  refetchInterval: (q) =>
+    q.state.data?.images.some((i) => i.building) ? 3000 : false,
+  retry: false,
+});
+
+export const imageQuery = (imageId: string) =>
+  queryOptions({
+    queryKey: ['images', imageId],
+    queryFn: () =>
+      unwrap(api.GET('/images/{imageId}', { params: { path: { imageId } } })),
+    refetchInterval: (q) => (q.state.data?.building ? 2000 : false),
+    retry: false,
+  });
+
+export const imageBuildQuery = (imageId: string, buildId: string) =>
+  queryOptions({
+    queryKey: ['images', imageId, 'builds', buildId],
+    queryFn: () =>
+      unwrap(
+        api.GET('/images/{imageId}/builds/{buildId}', {
+          params: { path: { imageId, buildId } },
+        }),
+      ),
+    refetchInterval: (q) =>
+      q.state.data?.status === 'queued' || q.state.data?.status === 'building'
+        ? 1500
+        : false,
+    retry: false,
+  });

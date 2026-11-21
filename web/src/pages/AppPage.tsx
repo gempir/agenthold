@@ -18,6 +18,7 @@ import { api, unwrap } from '@/api/client';
 import {
   appQuery,
   appsQuery,
+  imagesQuery,
   isOwner as ownerOf,
   sandboxLimitsQuery,
   type App,
@@ -32,6 +33,7 @@ import { SharingTab } from '@/components/SharingTab';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { AgentLoadError } from '@/components/agent/AgentLoadError';
 import {
   SettingsHeader,
@@ -208,6 +210,12 @@ function Section({ app, section }: { app: App; section: AppSection }) {
               {app.idleMinutes === 0 && (
                 <span className="text-xs text-muted-foreground">Always on</span>
               )}
+              {app.imageName && (
+                <span className="text-xs text-muted-foreground">
+                  {app.imageName}
+                  {app.imageRevision ? ` · rev ${app.imageRevision}` : ''}
+                </span>
+              )}
             </div>
             {app.createdByAgent && <ManagedBy app={app} owner={owner} />}
             {app.state === 'error' && app.stateError && (
@@ -310,11 +318,17 @@ function Section({ app, section }: { app: App; section: AppSection }) {
 function AppSettingsForm({ app }: { app: App }) {
   const qc = useQueryClient();
   const limits = useQuery(sandboxLimitsQuery).data;
+  const imageCatalog = useQuery(imagesQuery).data;
+  const readyImages = (imageCatalog?.images ?? []).filter(
+    (img) => img.latestRevision > 0 && img.readyArches.length > 0,
+  );
+  const currentImageKey = app.imageId || 'base';
   const [name, setName] = useState(app.name);
   const [cpus, setCpus] = useState(String(app.cpus));
   const [memory, setMemory] = useState(String(app.memoryMb));
   const [alwaysOn, setAlwaysOn] = useState(app.idleMinutes === 0);
   const [idle, setIdle] = useState(String(app.idleMinutes || 30));
+  const [imageId, setImageId] = useState(currentImageKey);
   const save = useMutation({
     mutationFn: () =>
       unwrap(
@@ -325,6 +339,7 @@ function AppSettingsForm({ app }: { app: App }) {
             cpus: Number(cpus),
             memoryMb: Number(memory),
             idleMinutes: alwaysOn ? 0 : Number(idle),
+            ...(imageId !== currentImageKey && { imageId }),
           },
         }),
       ),
@@ -383,6 +398,24 @@ function AppSettingsForm({ app }: { app: App }) {
           />
           <span className="text-xs text-muted-foreground">
             A sleeping app wakes when someone allowed to wake it opens its URL.
+          </span>
+        </label>
+      )}
+      {(readyImages.length > 0 || app.imageId) && (
+        <label className="grid gap-1 text-sm">
+          Image
+          <Select value={imageId} onChange={(e) => setImageId(e.target.value)}>
+            <option value="base">
+              {imageCatalog?.base.name ?? 'agenthold Base'}
+            </option>
+            {readyImages.map((img) => (
+              <option key={img.id} value={img.id}>
+                {img.name} (rev {img.latestRevision})
+              </option>
+            ))}
+          </Select>
+          <span className="text-xs text-muted-foreground">
+            Changing the image requires Reset system (home files are kept).
           </span>
         </label>
       )}

@@ -34,6 +34,7 @@ import (
 	_ "github.com/gempir/agenthold/internal/harness/codex"
 	_ "github.com/gempir/agenthold/internal/harness/opencode"
 	"github.com/gempir/agenthold/internal/idle"
+	"github.com/gempir/agenthold/internal/images"
 	"github.com/gempir/agenthold/internal/logins"
 	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/node/enrollment"
@@ -229,10 +230,24 @@ func run() error {
 		}
 	}
 	// Services reach every machine in its boot files.
+	imageMgr := images.NewManager(images.Config{
+		Store:             st,
+		DataDir:           cfg.DataDir,
+		Nodes:             cluster,
+		Box:               box,
+		ExplicitProxyPort: cfg.Egress.ExplicitPort,
+		Log:               logger,
+	})
+	if err := imageMgr.Start(ctx); err != nil {
+		return fmt.Errorf("reconcile image builds: %w", err)
+	}
+	defer imageMgr.Close()
 	appsMgr := &apps.Manager{Store: st, Node: cluster, Audit: auditLog, Limits: cfg.Apps, Log: logger}
 	sandboxes := sandbox.NewManagerWithNode(st, cluster, specForAgent, sandbox.Options{
-		LastActivity: activityLog.Last,
-		TunnelPort:   tunnelPort, BootFiles: appsMgr.BootFiles,
+		LastActivity:  activityLog.Last,
+		TunnelPort:    tunnelPort,
+		BootFiles:     appsMgr.BootFiles,
+		PrepareLayers: imageMgr.PrepareLayers,
 	}, logger)
 	appsMgr.Sandboxes = sandboxes
 	sandboxes.OnChange(func(string, sandbox.Phase) { directory.Invalidate() })
@@ -335,7 +350,7 @@ func run() error {
 	apiSrv := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Node: cluster, Nodes: cluster, Limits: cfg.Sandbox,
 		Box: box, Egress: directory, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc,
-		Preview: previewSvc, Identity: identity, Apps: appsMgr, Activity: activityLog,
+		Preview: previewSvc, Identity: identity, Apps: appsMgr, Images: imageMgr, Activity: activityLog,
 		ShowTestHarness: cfg.TestHarness || driverName == "fake", UserMaxAgents: cfg.Auth.UserMaxAgents,
 	})
 	sessions.SetWaker(apiSrv.Wake)

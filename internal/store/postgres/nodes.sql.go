@@ -120,7 +120,7 @@ func (q *Queries) DeleteStaleNodeJoinTokens(ctx context.Context, before int64) e
 }
 
 const getNode = `-- name: GetNode :one
-SELECT id, name, cert_fingerprint, state, cpus, memory_bytes, disk_bytes, last_seen_at, created_at, version, memory_total_bytes, disk_allocated_bytes FROM nodes WHERE id = $1
+SELECT id, name, cert_fingerprint, state, cpus, memory_bytes, disk_bytes, last_seen_at, created_at, version, memory_total_bytes, disk_allocated_bytes, arch FROM nodes WHERE id = $1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -139,12 +139,13 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.Version,
 		&i.MemoryTotalBytes,
 		&i.DiskAllocatedBytes,
+		&i.Arch,
 	)
 	return i, err
 }
 
 const getNodeByFingerprint = `-- name: GetNodeByFingerprint :one
-SELECT id, name, cert_fingerprint, state, cpus, memory_bytes, disk_bytes, last_seen_at, created_at, version, memory_total_bytes, disk_allocated_bytes FROM nodes WHERE cert_fingerprint = $1 AND cert_fingerprint != ''
+SELECT id, name, cert_fingerprint, state, cpus, memory_bytes, disk_bytes, last_seen_at, created_at, version, memory_total_bytes, disk_allocated_bytes, arch FROM nodes WHERE cert_fingerprint = $1 AND cert_fingerprint != ''
 `
 
 func (q *Queries) GetNodeByFingerprint(ctx context.Context, certFingerprint string) (Node, error) {
@@ -163,6 +164,7 @@ func (q *Queries) GetNodeByFingerprint(ctx context.Context, certFingerprint stri
 		&i.Version,
 		&i.MemoryTotalBytes,
 		&i.DiskAllocatedBytes,
+		&i.Arch,
 	)
 	return i, err
 }
@@ -230,7 +232,7 @@ func (q *Queries) ListNodeSandboxes(ctx context.Context, nodeID string) ([]Sandb
 }
 
 const listNodes = `-- name: ListNodes :many
-SELECT id, name, cert_fingerprint, state, cpus, memory_bytes, disk_bytes, last_seen_at, created_at, version, memory_total_bytes, disk_allocated_bytes FROM nodes ORDER BY name, id
+SELECT id, name, cert_fingerprint, state, cpus, memory_bytes, disk_bytes, last_seen_at, created_at, version, memory_total_bytes, disk_allocated_bytes, arch FROM nodes ORDER BY name, id
 `
 
 func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
@@ -255,6 +257,7 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.Version,
 			&i.MemoryTotalBytes,
 			&i.DiskAllocatedBytes,
+			&i.Arch,
 		); err != nil {
 			return nil, err
 		}

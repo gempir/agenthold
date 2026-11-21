@@ -28,6 +28,8 @@ type Agent struct {
 	Kind                 string
 	CreatedByAgentID     string
 	ModelOptions         string
+	ImageID              string
+	ImageRevision        int64
 }
 
 type AgentMcpServer struct {
@@ -134,6 +136,41 @@ type Identity struct {
 	RoleConfig   string
 }
 
+type Image struct {
+	ID          string
+	Name        string
+	Description string
+	AptPackages string
+	SetupScript string
+	EnvJson     string
+	SecretIds   string
+	IsDefault   int64
+	LatestRev   int64
+	CreatedBy   string
+	CreatedAt   int64
+	UpdatedAt   int64
+}
+
+type ImageBuild struct {
+	ID          string
+	ImageID     string
+	Revision    int64
+	Arch        string
+	NodeID      string
+	Status      string
+	Error       string
+	RecipeJson  string
+	BaseKey     string
+	LayerSha256 string
+	LayerSize   int64
+	ZstdSha256  string
+	ZstdSize    int64
+	LogText     string
+	StartedAt   int64
+	FinishedAt  int64
+	CreatedAt   int64
+}
+
 type LoginState struct {
 	State      string
 	Provider   string
@@ -171,6 +208,7 @@ type Node struct {
 	Version            string
 	MemoryTotalBytes   int64
 	DiskAllocatedBytes int64
+	Arch               string
 }
 
 type NodeJoinToken struct {

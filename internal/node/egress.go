@@ -39,9 +39,10 @@ type (
 type (
 	interceptResult struct{ Handled bool }
 	proxyDirectory  struct {
-		mu       sync.RWMutex
-		agents   []configuredAgent
-		requests chan interceptEvent
+		mu        sync.RWMutex
+		agents    []configuredAgent
+		ephemeral map[string]configuredAgent
+		requests  chan interceptEvent
 	}
 )
 
@@ -65,7 +66,35 @@ func (d *proxyDirectory) AgentForSource(ctx context.Context, ip netip.Addr) (*eg
 			return a.agent, nil
 		}
 	}
+	for _, a := range d.ephemeral {
+		if a.subnet.IsValid() && a.subnet.Contains(ip) {
+			return a.agent, nil
+		}
+	}
 	return nil, nil
+}
+
+// SetEphemeralAgent registers a temporary egress configuration (such as a
+// custom image builder VM with build-time secrets) independently of
+// SetAgentConfigs.
+func (n *Local) SetEphemeralAgent(id string, subnet netip.Prefix, injections []secrets.Injection) {
+	n.proxy.mu.Lock()
+	defer n.proxy.mu.Unlock()
+	if n.proxy.ephemeral == nil {
+		n.proxy.ephemeral = map[string]configuredAgent{}
+	}
+	n.proxy.ephemeral[id] = configuredAgent{
+		subnet: subnet,
+		agent:  &egress.Agent{ID: id, Injections: append([]secrets.Injection(nil), injections...)},
+	}
+}
+
+// RemoveEphemeralAgent removes a temporary egress configuration registered by
+// SetEphemeralAgent.
+func (n *Local) RemoveEphemeralAgent(id string) {
+	n.proxy.mu.Lock()
+	defer n.proxy.mu.Unlock()
+	delete(n.proxy.ephemeral, id)
 }
 
 // SetAgentConfigs atomically replaces the proxy rules with an owned snapshot.

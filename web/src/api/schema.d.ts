@@ -276,6 +276,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Lists the built-in base image and all custom enterprise images. All signed-in users may list images to pick one when creating an agent or app; build-time secret IDs are included for admins only. */
+        get: operations["listImages"];
+        put?: never;
+        /** @description Creates a custom image recipe. Admins only. */
+        post: operations["createImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/images/{imageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        /** @description Returns a custom image and its build history. */
+        get: operations["getImage"];
+        put?: never;
+        post?: never;
+        /** @description Deletes a custom image when no machine references it. Admins only. */
+        delete: operations["deleteImage"];
+        options?: never;
+        head?: never;
+        /** @description Updates a custom image recipe or its default status. Admins only. */
+        patch: operations["updateImage"];
+        trace?: never;
+    };
+    "/images/{imageId}/builds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        /** @description Lists builds of a custom image, newest revision first. Admins only. */
+        get: operations["listImageBuilds"];
+        put?: never;
+        /** @description Starts a new revision build of the image on one connected node per architecture. Admins only. */
+        post: operations["startImageBuild"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/images/{imageId}/builds/{buildId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+                buildId: string;
+            };
+            cookie?: never;
+        };
+        /** @description Returns a build's status and full/live log output. Admins only. */
+        get: operations["getImageBuild"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents": {
         parameters: {
             query?: never;
@@ -1867,6 +1946,8 @@ export interface components {
             online: boolean;
             /** @description The controller's built-in node. */
             local: boolean;
+            /** @description CPU architecture of the node (arm64 or amd64), when known. */
+            arch?: string;
             /** @description Agents placed on this node. */
             agents: number;
             /** @description Logical CPUs reported by the node. */
@@ -2060,6 +2141,17 @@ export interface components {
             nodeId?: string;
             /** @description Assigned node name when known. */
             nodeName?: string;
+            /** @description Custom image ID, or empty string for the built-in agenthold Base image. */
+            imageId?: string;
+            /** @description Display name of the machine's image. */
+            imageName?: string;
+            /**
+             * Format: int64
+             * @description Pinned custom image revision (0 for built-in base).
+             */
+            imageRevision?: number;
+            /** @description True when the machine's custom image has a newer ready revision. */
+            imageUpdateAvailable?: boolean;
             harness: string;
             cpus: number;
             /** Format: int64 */
@@ -2113,6 +2205,8 @@ export interface components {
             model?: string;
             /** @enum {string} */
             permissionPolicy?: "auto-approve" | "ask";
+            /** @description Custom image ID to build the machine from, "base" for the built-in base image, or omit to use the installation's default image. */
+            imageId?: string;
             /** @description Place the agent on this node (an `id` from `GET /nodes`). Omit it for automatic placement. Admins only (403 otherwise). 400 if the node does not exist; 409 if it is offline, cannot report its capacity or has less available memory than `memoryMb`. The agent stays on the node for its whole life. */
             nodeId?: string;
         };
@@ -2143,6 +2237,13 @@ export interface components {
             };
             /** @enum {string} */
             permissionPolicy?: "auto-approve" | "ask";
+            /** @description Switch to another custom image ID (pinned to its latest ready revision), or "base" for the built-in base image. Takes effect after Reset system (needsRebuild). */
+            imageId?: string;
+            /**
+             * Format: int64
+             * @description Upgrade or pin a specific ready revision of the machine's current custom image. Takes effect after Reset system (needsRebuild).
+             */
+            imageRevision?: number;
         };
         ModelChoice: {
             /** @description Model id ('' keeps the default). */
@@ -2539,6 +2640,17 @@ export interface components {
             owner: components["schemas"]["User"];
             nodeId?: string;
             nodeName?: string;
+            /** @description Custom image ID, or empty string for the built-in agenthold Base image. */
+            imageId?: string;
+            /** @description Display name of the app's image. */
+            imageName?: string;
+            /**
+             * Format: int64
+             * @description Pinned custom image revision (0 for built-in base).
+             */
+            imageRevision?: number;
+            /** @description True when the app's custom image has a newer ready revision. */
+            imageUpdateAvailable?: boolean;
             cpus: number;
             /** Format: int64 */
             memoryMb: number;
@@ -2590,6 +2702,8 @@ export interface components {
             memoryMb?: number;
             /** @description Default 0 (always on). */
             idleMinutes?: number;
+            /** @description Custom image ID, "base" for built-in base, or omit for the installation default. */
+            imageId?: string;
         };
         AppPatch: {
             /** @description Convert to a template (it is stopped first) or back */
@@ -2599,6 +2713,91 @@ export interface components {
             /** Format: int64 */
             memoryMb?: number;
             idleMinutes?: number;
+            /** @description Switch image (takes effect after Reset system). */
+            imageId?: string;
+            /**
+             * Format: int64
+             * @description Switch to a specific ready revision (takes effect after Reset system).
+             */
+            imageRevision?: number;
+        };
+        BuiltinBaseImage: {
+            id: string;
+            name: string;
+            description: string;
+            isDefault: boolean;
+        };
+        ImageInput: {
+            name: string;
+            description?: string;
+            aptPackages?: string[];
+            /** @description Bash script executed as root inside an isolated builder microVM. */
+            setupScript?: string;
+            /** @description Environment variables written to /etc/agenthold/image.env.d/10-custom.env. PATH supports $PATH/${PATH}. */
+            env?: {
+                [key: string]: string;
+            };
+            /** @description Secret IDs injected via the egress proxy during image builds only (never baked into the image). */
+            secretIds?: string[];
+            /** @description Make this custom image the installation default for new agents and apps. */
+            isDefault?: boolean;
+        };
+        CustomImage: {
+            id: string;
+            name: string;
+            description: string;
+            aptPackages: string[];
+            setupScript: string;
+            env: {
+                [key: string]: string;
+            };
+            secretIds: string[];
+            isDefault: boolean;
+            /** Format: int64 */
+            latestRevision: number;
+            readyArches: string[];
+            building: boolean;
+            /** Format: int64 */
+            agentCount: number;
+            /** @enum {string} */
+            latestBuildStatus?: "queued" | "building" | "ready" | "failed";
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ImageBuild: {
+            id: string;
+            imageId: string;
+            /** Format: int64 */
+            revision: number;
+            arch: string;
+            nodeId: string;
+            /** @enum {string} */
+            status: "queued" | "building" | "ready" | "failed";
+            error: string;
+            baseKey?: string;
+            layerSha256: string;
+            /** Format: int64 */
+            layerSize: number;
+            /** Format: int64 */
+            zstdSize: number;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ImageBuildDetail: components["schemas"]["ImageBuild"] & {
+            log: string;
+        };
+        CustomImageDetail: components["schemas"]["CustomImage"] & {
+            builds: components["schemas"]["ImageBuild"][];
+        };
+        ImageList: {
+            base: components["schemas"]["BuiltinBaseImage"];
+            images: components["schemas"]["CustomImage"][];
         };
         DeployInput: {
             /** @description The machine to copy from. */
@@ -3195,6 +3394,203 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+        };
+    };
+    listImages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Images. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageList"];
+                };
+            };
+        };
+    };
+    createImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageInput"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomImage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Image details. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomImageDetail"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageInput"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomImage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    listImageBuilds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Builds. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageBuild"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    startImageBuild: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Build started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageBuild"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getImageBuild: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+                buildId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Build details with logs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageBuildDetail"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
         };
     };
     listAgents: {

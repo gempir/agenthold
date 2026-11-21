@@ -27,6 +27,8 @@ tags:
   - name: auth
   - name: agents
   - name: nodes
+  - name: images
+    description: Enterprise custom VM images built as read-only layers on top of the base image.
   - name: admin
   - name: files
   - name: sessions
@@ -354,6 +356,133 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+
+  /images:
+    get:
+      operationId: listImages
+      tags: [images]
+      description: >-
+        Lists the built-in base image and all custom enterprise images. All signed-in users may
+        list images to pick one when creating an agent or app; build-time secret IDs are included
+        for admins only.
+      responses:
+        "200":
+          description: Images.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImageList" }
+    post:
+      operationId: createImage
+      tags: [images]
+      description: Creates a custom image recipe. Admins only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImageInput" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomImage" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /images/{imageId}:
+    parameters:
+      - { name: imageId, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getImage
+      tags: [images]
+      description: Returns a custom image and its build history.
+      responses:
+        "200":
+          description: Image details.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomImageDetail" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateImage
+      tags: [images]
+      description: Updates a custom image recipe or its default status. Admins only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImageInput" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomImage" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteImage
+      tags: [images]
+      description: Deletes a custom image when no machine references it. Admins only.
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /images/{imageId}/builds:
+    parameters:
+      - { name: imageId, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: listImageBuilds
+      tags: [images]
+      description: Lists builds of a custom image, newest revision first. Admins only.
+      responses:
+        "200":
+          description: Builds.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ImageBuild" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: startImageBuild
+      tags: [images]
+      description: >-
+        Starts a new revision build of the image on one connected node per architecture. Admins only.
+      responses:
+        "202":
+          description: Build started.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ImageBuild" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /images/{imageId}/builds/{buildId}:
+    parameters:
+      - { name: imageId, in: path, required: true, schema: { type: string } }
+      - { name: buildId, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getImageBuild
+      tags: [images]
+      description: Returns a build's status and full/live log output. Admins only.
+      responses:
+        "200":
+          description: Build details with logs.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImageBuildDetail" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
 
   /agents:
     get:
@@ -2296,6 +2425,7 @@ components:
         name: { type: string }
         online: { type: boolean }
         local: { type: boolean, description: The controller's built-in node. }
+        arch: { type: string, description: "CPU architecture of the node (arm64 or amd64), when known." }
         agents: { type: integer, description: Agents placed on this node. }
         cpus: { type: integer, description: Logical CPUs reported by the node. }
         availableMemoryBytes: { type: integer, format: int64, description: Available memory at the last report. }
@@ -2426,6 +2556,10 @@ components:
         owner: { $ref: "#/components/schemas/User" }
         nodeId: { type: string, description: Assigned node ID; absent before placement. }
         nodeName: { type: string, description: Assigned node name when known. }
+        imageId: { type: string, description: "Custom image ID, or empty string for the built-in agenthold Base image." }
+        imageName: { type: string, description: "Display name of the machine's image." }
+        imageRevision: { type: integer, format: int64, description: "Pinned custom image revision (0 for built-in base)." }
+        imageUpdateAvailable: { type: boolean, description: "True when the machine's custom image has a newer ready revision." }
         harness: { type: string }
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }
@@ -2476,6 +2610,11 @@ components:
         harness: { type: string, description: Harness id (see /harnesses). Default claude-code. }
         model: { type: string }
         permissionPolicy: { type: string, enum: [auto-approve, ask] }
+        imageId:
+          type: string
+          description: >-
+            Custom image ID to build the machine from, "base" for the built-in base image,
+            or omit to use the installation's default image.
         nodeId:
           type: string
           description: >-
@@ -2511,6 +2650,17 @@ components:
           additionalProperties: { type: string }
           description: Default model options, by harness config option id. Changing the harness resets them.
         permissionPolicy: { type: string, enum: [auto-approve, ask] }
+        imageId:
+          type: string
+          description: >-
+            Switch to another custom image ID (pinned to its latest ready revision), or "base" for
+            the built-in base image. Takes effect after Reset system (needsRebuild).
+        imageRevision:
+          type: integer
+          format: int64
+          description: >-
+            Upgrade or pin a specific ready revision of the machine's current custom image.
+            Takes effect after Reset system (needsRebuild).
 
     ModelChoice:
       type: object
@@ -2992,6 +3142,10 @@ components:
         owner: { $ref: "#/components/schemas/User" }
         nodeId: { type: string }
         nodeName: { type: string }
+        imageId: { type: string, description: "Custom image ID, or empty string for the built-in agenthold Base image." }
+        imageName: { type: string, description: "Display name of the app's image." }
+        imageRevision: { type: integer, format: int64, description: "Pinned custom image revision (0 for built-in base)." }
+        imageUpdateAvailable: { type: boolean, description: "True when the app's custom image has a newer ready revision." }
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }
         idleMinutes: { type: integer, description: 0 means always on (never sleeps for idleness). }
@@ -3036,6 +3190,9 @@ components:
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }
         idleMinutes: { type: integer, minimum: 0, maximum: 10080, description: Default 0 (always on). }
+        imageId:
+          type: string
+          description: Custom image ID, "base" for built-in base, or omit for the installation default.
 
     AppPatch:
       type: object
@@ -3045,6 +3202,113 @@ components:
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }
         idleMinutes: { type: integer, minimum: 0, maximum: 10080 }
+        imageId: { type: string, description: Switch image (takes effect after Reset system). }
+        imageRevision: { type: integer, format: int64, description: Switch to a specific ready revision (takes effect after Reset system). }
+
+    BuiltinBaseImage:
+      type: object
+      required: [id, name, description, isDefault]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        isDefault: { type: boolean }
+
+    ImageInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        description: { type: string, maxLength: 500 }
+        aptPackages:
+          type: array
+          items: { type: string }
+        setupScript: { type: string, description: Bash script executed as root inside an isolated builder microVM. }
+        env:
+          type: object
+          additionalProperties: { type: string }
+          description: Environment variables written to /etc/agenthold/image.env.d/10-custom.env. PATH supports $PATH/${PATH}.
+        secretIds:
+          type: array
+          items: { type: string }
+          description: Secret IDs injected via the egress proxy during image builds only (never baked into the image).
+        isDefault:
+          type: boolean
+          description: Make this custom image the installation default for new agents and apps.
+
+    CustomImage:
+      type: object
+      required: [id, name, description, aptPackages, setupScript, env, secretIds, isDefault, latestRevision, readyArches, building, agentCount, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        aptPackages:
+          type: array
+          items: { type: string }
+        setupScript: { type: string }
+        env:
+          type: object
+          additionalProperties: { type: string }
+        secretIds:
+          type: array
+          items: { type: string }
+        isDefault: { type: boolean }
+        latestRevision: { type: integer, format: int64 }
+        readyArches:
+          type: array
+          items: { type: string }
+        building: { type: boolean }
+        agentCount: { type: integer, format: int64 }
+        latestBuildStatus: { type: string, enum: [queued, building, ready, failed] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ImageBuild:
+      type: object
+      required: [id, imageId, revision, arch, nodeId, status, error, layerSha256, layerSize, zstdSize, createdAt]
+      properties:
+        id: { type: string }
+        imageId: { type: string }
+        revision: { type: integer, format: int64 }
+        arch: { type: string }
+        nodeId: { type: string }
+        status: { type: string, enum: [queued, building, ready, failed] }
+        error: { type: string }
+        baseKey: { type: string }
+        layerSha256: { type: string }
+        layerSize: { type: integer, format: int64 }
+        zstdSize: { type: integer, format: int64 }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+
+    ImageBuildDetail:
+      allOf:
+        - $ref: "#/components/schemas/ImageBuild"
+        - type: object
+          required: [log]
+          properties:
+            log: { type: string }
+
+    CustomImageDetail:
+      allOf:
+        - $ref: "#/components/schemas/CustomImage"
+        - type: object
+          required: [builds]
+          properties:
+            builds:
+              type: array
+              items: { $ref: "#/components/schemas/ImageBuild" }
+
+    ImageList:
+      type: object
+      required: [base, images]
+      properties:
+        base: { $ref: "#/components/schemas/BuiltinBaseImage" }
+        images:
+          type: array
+          items: { $ref: "#/components/schemas/CustomImage" }
 
     DeployInput:
       type: object

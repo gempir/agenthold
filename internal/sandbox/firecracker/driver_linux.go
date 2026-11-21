@@ -13,12 +13,14 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
 
 	"github.com/gempir/agenthold/internal/sandbox"
+	"github.com/gempir/agenthold/internal/sandboxd"
 )
 
 // Driver serializes operations using a context-cancellable filesystem lock.
@@ -58,6 +60,7 @@ type process struct {
 }
 type manifest struct {
 	BaseImagePath string        `json:"baseImagePath"`
+	Layers        []LayerFile   `json:"layers,omitempty"`
 	Version       int           `json:"version"`
 	Spec          sandbox.Spec  `json:"spec"`
 	Subnet        netip.Prefix  `json:"subnet"`
@@ -143,7 +146,65 @@ func checkRuntimeFiles(cfg Config) error {
 			return fmt.Errorf("%s must not be writable by group or others", name)
 		}
 	}
+	for i, l := range cfg.DefaultLayers {
+		if err := checkLayerFile(fmt.Sprintf("default layer %d", i), l); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func checkLayerFile(name string, l LayerFile) error {
+	if err := validateLayerFile(l); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	st, err := os.Stat(l.Path)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	if !st.Mode().IsRegular() {
+		return fmt.Errorf("%s must be a regular file", name)
+	}
+	if st.Mode()&0o004 == 0 {
+		return fmt.Errorf("%s must be readable by jailed VMM users", name)
+	}
+	return nil
+}
+
+// activeLayers returns all read-only layers attached to m in overlayfs
+// precedence order: m's pinned custom layers first, then node default layers.
+func (d *Driver) activeLayers(m *manifest) []LayerFile {
+	if len(m.Layers) == 0 && len(d.cfg.DefaultLayers) == 0 {
+		return nil
+	}
+	out := make([]LayerFile, 0, len(m.Layers)+len(d.cfg.DefaultLayers))
+	out = append(out, m.Layers...)
+	out = append(out, d.cfg.DefaultLayers...)
+	return out
+}
+
+func (d *Driver) resolveLayers(ctx context.Context, refs []string) ([]LayerFile, error) {
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	if len(refs)+len(d.cfg.DefaultLayers) > sandboxd.MaxGuestLayers {
+		return nil, fmt.Errorf("too many total layers (%d custom + %d default, max %d)", len(refs), len(d.cfg.DefaultLayers), sandboxd.MaxGuestLayers)
+	}
+	if d.cfg.ResolveLayer == nil {
+		return nil, errors.New("custom layers requested but layer resolution is not configured")
+	}
+	out := make([]LayerFile, 0, len(refs))
+	for i, ref := range refs {
+		l, err := d.cfg.ResolveLayer(ctx, ref)
+		if err != nil {
+			return nil, fmt.Errorf("resolve layer %q: %w", ref, err)
+		}
+		if err := checkLayerFile(fmt.Sprintf("layer %d (%s)", i, ref), l); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, nil
 }
 
 // Name implements sandbox.Driver.
@@ -220,6 +281,14 @@ func (d *Driver) load(id sandbox.ID) (*manifest, error) {
 	if !filepath.IsAbs(m.BaseImagePath) || m.Version != 1 || m.Spec.AgentID != string(id) || !m.Subnet.IsValid() || m.Subnet.Bits() != 30 || !d.cfg.NetworkPool.Contains(m.Subnet.Addr()) || m.Subnet != m.Subnet.Masked() || m.UID == 0 || m.GID == 0 {
 		return nil, fmt.Errorf("sandbox %s has an invalid manifest or is outside the configured network pool", id)
 	}
+	if len(m.Layers)+len(d.cfg.DefaultLayers) > sandboxd.MaxGuestLayers {
+		return nil, fmt.Errorf("sandbox %s has too many layers", id)
+	}
+	for i, l := range m.Layers {
+		if err := validateLayerFile(l); err != nil {
+			return nil, fmt.Errorf("sandbox %s manifest layer %d: %w", id, i, err)
+		}
+	}
 	if err := d.recoverProcess(id, &m); err != nil {
 		return nil, err
 	}
@@ -295,6 +364,10 @@ func (d *Driver) Create(ctx context.Context, s sandbox.Spec) (result sandbox.ID,
 	if err := validateSpec(s); err != nil {
 		return "", err
 	}
+	layers, err := d.resolveLayers(ctx, s.Layers)
+	if err != nil {
+		return "", err
+	}
 	id := sandbox.ID(s.AgentID)
 	unlock, err := d.lock(ctx)
 	if err != nil {
@@ -349,8 +422,9 @@ func (d *Driver) Create(ctx context.Context, s sandbox.Spec) (result sandbox.ID,
 		}
 		_ = os.Remove(d.dir(id))
 	}()
-	m := &manifest{BaseImagePath: d.cfg.BaseImagePath, Version: 1, Spec: s, Subnet: subnet, UID: d.cfg.UIDBase + index, GID: d.cfg.GIDBase + index, State: sandbox.StateCreated}
+	m := &manifest{BaseImagePath: d.cfg.BaseImagePath, Layers: layers, Version: 1, Spec: s, Subnet: subnet, UID: d.cfg.UIDBase + index, GID: d.cfg.GIDBase + index, State: sandbox.StateCreated}
 	m.Spec.Env = maps.Clone(s.Env)
+	m.Spec.Layers = slices.Clone(s.Layers)
 	overlay, home := capacities(d.cfg, s)
 	// Kept home disks can be reused after Destroy(KeepHome), but never resized
 	// implicitly. A failed Create cannot truncate existing user data.
@@ -740,6 +814,10 @@ func (d *Driver) Rebuild(ctx context.Context, id sandbox.ID, s sandbox.Spec) err
 	if string(id) != s.AgentID {
 		return errors.New("reset system: sandbox id does not match agent")
 	}
+	layers, err := d.resolveLayers(ctx, s.Layers)
+	if err != nil {
+		return err
+	}
 	unlock, err := d.lockIdle(ctx, id)
 	if err != nil {
 		return err
@@ -780,8 +858,10 @@ func (d *Driver) Rebuild(ctx context.Context, id sandbox.ID, s sandbox.Spec) err
 		return err
 	}
 	m.BaseImagePath = d.cfg.BaseImagePath
+	m.Layers = layers
 	m.Spec = s
 	m.Spec.Env = maps.Clone(s.Env)
+	m.Spec.Layers = slices.Clone(s.Layers)
 	m.State = sandbox.StateStopped
 	return d.save(id, m)
 }

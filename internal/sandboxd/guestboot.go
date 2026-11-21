@@ -24,6 +24,21 @@ const GuestBootMaxSize = 16 << 20
 // byte sectors, 4 KiB keeps page-sized reads).
 const GuestBootAlign = 4096
 
+// MaxGuestLayers caps the number of read-only ext4 layers stacked above the
+// base image in overlayfs.
+const MaxGuestLayers = 8
+
+// GuestLayer describes one read-only ext4 block device stacked above the base
+// image in the root overlay (index 0 has the highest read-only precedence,
+// directly below the per-agent writable overlay).
+type GuestLayer struct {
+	Device string `json:"device"`
+	// Subdir, when non-empty, names a relative directory inside the layer
+	// filesystem to use as the overlayfs lowerdir (for example "upper" for a
+	// sealed overlay disk).
+	Subdir string `json:"subdir,omitempty"`
+}
+
 // GuestBoot is the boot configuration of a microVM. The host writes it,
 // encoded with EncodeGuestBoot, to a small file attached as the read-only
 // config drive; sandboxd reads it as PID 1 before anything else.
@@ -43,8 +58,9 @@ type GuestBoot struct {
 	// Hostname of the guest. Empty means "agent".
 	Hostname string `json:"hostname,omitempty"`
 	// Env is added to the environment of every process sandboxd starts (it
-	// wins over the image's /etc/agenthold/image.env). The ServerPlaceholder
-	// "{{server}}" in values is replaced by the gateway address.
+	// wins over the image's /etc/agenthold/image.env and image.env.d/*.env).
+	// The ServerPlaceholder "{{server}}" in values is replaced by the gateway
+	// address.
 	Env map[string]string `json:"env,omitempty"`
 	// ResetIdentity tells the first boot of a cloned disk to clear the machine
 	// identity it inherited (see EnsureIdentity), whatever the system disk
@@ -53,6 +69,9 @@ type GuestBoot struct {
 	// Files are written into the guest's root (through the overlay) before
 	// sandboxd starts, mode 0644, parent directories 0755. Paths are absolute.
 	Files map[string][]byte `json:"files,omitempty"`
+	// Layers are optional read-only ext4 devices stacked above the base image
+	// in overlayfs, highest precedence first.
+	Layers []GuestLayer `json:"layers,omitempty"`
 }
 
 // serverPlaceholder mirrors sandbox.ServerPlaceholder (that package imports
@@ -139,6 +158,47 @@ func (b GuestBoot) validate() error {
 		if err := checkGuestPath(p); err != nil {
 			return fmt.Errorf("boot configuration: file %q: %w", p, err)
 		}
+	}
+	if len(b.Layers) > MaxGuestLayers {
+		return fmt.Errorf("boot configuration: too many layers (%d, max %d)", len(b.Layers), MaxGuestLayers)
+	}
+	seen := make(map[string]struct{}, len(b.Layers))
+	for i, l := range b.Layers {
+		if err := validateLayerDevice(l.Device); err != nil {
+			return fmt.Errorf("boot configuration: layer %d device %q: %w", i, l.Device, err)
+		}
+		if _, dup := seen[l.Device]; dup {
+			return fmt.Errorf("boot configuration: duplicate layer device %q", l.Device)
+		}
+		seen[l.Device] = struct{}{}
+		if err := ValidateLayerSubdir(l.Subdir); err != nil {
+			return fmt.Errorf("boot configuration: layer %d subdir %q: %w", i, l.Subdir, err)
+		}
+	}
+	return nil
+}
+
+func validateLayerDevice(dev string) error {
+	if !strings.HasPrefix(dev, "/dev/") || filepath.Clean(dev) != dev || dev == "/dev" {
+		return errors.New("must be a clean path under /dev/")
+	}
+	if strings.ContainsAny(dev, "\x00:, \t\r\n") {
+		return errors.New("contains disallowed characters")
+	}
+	return nil
+}
+
+// ValidateLayerSubdir checks that subdir is empty or a clean relative path safe
+// for overlayfs lowerdir mount options.
+func ValidateLayerSubdir(subdir string) error {
+	if subdir == "" {
+		return nil
+	}
+	if filepath.IsAbs(subdir) || filepath.Clean(subdir) != subdir || subdir == "." || subdir == ".." || strings.HasPrefix(subdir, "../") {
+		return errors.New("must be a clean relative path without parent traversal")
+	}
+	if strings.ContainsAny(subdir, "\x00:,\\") {
+		return errors.New("contains disallowed overlayfs mount characters")
 	}
 	return nil
 }

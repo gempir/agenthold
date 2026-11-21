@@ -24,7 +24,10 @@ type Spec struct {
 	// AgentID is the platform's agent id. Drivers use it to name and label resources.
 	AgentID string
 	// Image is the internal base revision used when comparing applied specs.
-	Image     string
+	Image string
+	// Layers are logical read-only rootfs layer references stacked above the
+	// base image, highest precedence first.
+	Layers    []string `json:"layers,omitempty"`
 	Resources Resources
 	// Env is added to processes started by sandboxd.
 	Env map[string]string

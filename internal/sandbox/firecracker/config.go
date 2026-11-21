@@ -15,7 +15,18 @@ import (
 	"time"
 
 	"github.com/gempir/agenthold/internal/sandbox"
+	"github.com/gempir/agenthold/internal/sandboxd"
 )
+
+// LayerFile names one read-only ext4 file on the host stacked above the base
+// image in a microVM's root overlayfs.
+type LayerFile struct {
+	Path string `json:"path"`
+	// Subdir, when non-empty, names a relative directory inside the ext4 image
+	// to use as the overlayfs lowerdir (for example "upper" for a sealed
+	// overlay disk).
+	Subdir string `json:"subdir,omitempty"`
+}
 
 // defaultCgroupRoot is where the jailer puts microVM cgroups (--parent-cgroup agenthold).
 const defaultCgroupRoot = "/sys/fs/cgroup/agenthold"
@@ -35,6 +46,14 @@ type Config struct {
 	FirecrackerPath string
 	JailerPath      string
 	SandboxdPath    string
+	// DefaultLayers are node-wide read-only ext4 layers stacked below custom
+	// Spec.Layers and above BaseImagePath (highest precedence first). They are
+	// resolved dynamically at boot so platform layers (such as harnesses) can
+	// update on restart without resetting a machine's overlay.
+	DefaultLayers []LayerFile
+	// ResolveLayer resolves each logical layer reference in Spec.Layers to a
+	// trusted host LayerFile during Create and Rebuild.
+	ResolveLayer func(ctx context.Context, ref string) (LayerFile, error)
 	// JailDir defaults to DataDir/jailer. Keep it short: Linux Unix socket paths
 	// are limited to 107 bytes. All configured paths must be absolute.
 	JailDir string
@@ -99,6 +118,14 @@ func (c Config) normalized() (Config, error) {
 	for name, p := range map[string]string{"data directory": c.DataDir, "base image": c.BaseImagePath, "kernel": c.KernelPath, "firecracker": c.FirecrackerPath, "jailer": c.JailerPath, "sandboxd": c.SandboxdPath} {
 		if p == "" || !filepath.IsAbs(p) {
 			return c, fmt.Errorf("%s path must be absolute", name)
+		}
+	}
+	if len(c.DefaultLayers) > sandboxd.MaxGuestLayers {
+		return c, fmt.Errorf("too many default layers (%d, max %d)", len(c.DefaultLayers), sandboxd.MaxGuestLayers)
+	}
+	for i, l := range c.DefaultLayers {
+		if err := validateLayerFile(l); err != nil {
+			return c, fmt.Errorf("default layer %d: %w", i, err)
 		}
 	}
 	if c.JailDir == "" {
@@ -207,6 +234,24 @@ func validateSpec(s sandbox.Spec) error {
 		if k == "" || strings.ContainsAny(k, "=\x00") || strings.ContainsRune(v, 0) {
 			return errors.New("invalid guest environment")
 		}
+	}
+	if len(s.Layers) > sandboxd.MaxGuestLayers {
+		return fmt.Errorf("too many layers (%d, max %d)", len(s.Layers), sandboxd.MaxGuestLayers)
+	}
+	for i, ref := range s.Layers {
+		if ref == "" || strings.ContainsAny(ref, "\x00 \t\r\n") {
+			return fmt.Errorf("invalid layer reference at index %d", i)
+		}
+	}
+	return nil
+}
+
+func validateLayerFile(l LayerFile) error {
+	if l.Path == "" || !filepath.IsAbs(l.Path) {
+		return errors.New("path must be absolute")
+	}
+	if err := sandboxd.ValidateLayerSubdir(l.Subdir); err != nil {
+		return fmt.Errorf("subdir %q: %w", l.Subdir, err)
 	}
 	return nil
 }

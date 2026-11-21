@@ -33,11 +33,3 @@ port as `192.168.178.100:8091` (Lima forwards 8091 to the LAN).
   after changing `scripts/deploy`, install them on the host (`pull.sh`, units) and in the container
   (`build-local.sh`, build units) by hand.
 - KVM experiments on korriban: in the container, under `flock /tmp/agenthold-kvm.lock` (the builder's KVM lock).
-
-Use delegates when working. No need to use the smartest models for everything. 
-
-Delegate very simple tasks to Haiku or Luna.
-Medium difficult tasks to Sonnet or Terra.
-Complex coding tasks to Opus or Sol.
-
-Orchestration handled by Fable or Opus.

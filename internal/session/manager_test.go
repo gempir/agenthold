@@ -458,6 +458,32 @@ func TestSessionResumePreferred(t *testing.T) {
 	}
 }
 
+// An idle session is closed in the harness, and the next prompt resumes it
+// in the same harness process; a recently used session is left alone.
+func TestIdleSessionClosedThenResumed(t *testing.T) {
+	e := newEnv(t)
+	e.script("resume")
+	e.ok("remember me")
+	e.m.closeIdleSessions(time.Now())
+	if got := e.restores(); len(got) != 0 {
+		t.Fatalf("a session in use was closed: %q", got)
+	}
+	pids := e.pids()
+	e.m.closeIdleSessions(time.Now().Add(sessionIdleClose + time.Second))
+	if got := e.restores(); !slices.Equal(got, []string{"session/close"}) {
+		t.Fatalf("restores %q", got)
+	}
+	if r := e.ok("hello"); len(r.notices) != 0 {
+		t.Fatalf("notices %q", r.notices)
+	}
+	if got := e.restores(); !slices.Equal(got, []string{"session/close", "session/resume"}) {
+		t.Fatalf("restores %q", got)
+	}
+	if got := e.pids(); !slices.Equal(got, pids) {
+		t.Fatalf("harness restarted: %v, was %v", got, pids)
+	}
+}
+
 func TestSessionResumeFailsFallsBackToLoad(t *testing.T) {
 	e := newEnv(t)
 	e.script("resume", "session/resume error")

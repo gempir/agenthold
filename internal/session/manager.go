@@ -155,7 +155,73 @@ func NewManager(st *store.Store, wake Waker, lg *slog.Logger) *Manager {
 		conns: map[string]*harnessConn{}, turns: map[string]*turn{}, starting: map[string]chan struct{}{},
 	}
 	m.endInterruptedTurns(ctx)
+	go m.closeIdleSessionsLoop()
 	return m
+}
+
+// sessionIdleClose is how long an ACP session may go without a turn before
+// it is closed in its harness (session/close, where the harness offers it
+// and can restore sessions); the next prompt resumes it. Claude Code keeps
+// a process of about 220 MiB per session, which also works for about a
+// minute after it starts: without this, every chat an agent ever had stays
+// in its machine's memory until the harness restarts.
+var sessionIdleClose = 10 * time.Minute
+
+// idleCheckEvery is how often idle sessions are looked for.
+var idleCheckEvery = time.Minute
+
+func (m *Manager) closeIdleSessionsLoop() {
+	t := time.NewTicker(idleCheckEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-t.C:
+			m.closeIdleSessions(time.Now())
+		}
+	}
+}
+
+// closeIdleSessions closes the sessions without a turn since sessionIdleClose
+// before now.
+func (m *Manager) closeIdleSessions(now time.Time) {
+	type closing struct {
+		c    *harnessConn
+		s    idleSession
+		done chan struct{}
+	}
+	var todo []closing
+	m.mu.Lock()
+	if m.closing {
+		m.mu.Unlock()
+		return
+	}
+	for _, c := range m.conns {
+		caps := c.init.AgentCapabilities
+		if c.closed() || caps.SessionCapabilities.Close == nil || (caps.SessionCapabilities.Resume == nil && !caps.LoadSession) {
+			continue
+		}
+		for _, s := range c.idleSessions(now.Add(-sessionIdleClose)) {
+			if _, busy := m.turns[s.sessionID]; busy {
+				continue
+			}
+			// Under m.mu: a turn that starts after this waits for the close.
+			todo = append(todo, closing{c, s, c.beginClose(s.acpID)})
+		}
+	}
+	m.mu.Unlock()
+	for _, x := range todo {
+		ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+		_, err := x.c.acp.CloseSession(ctx, acp.CloseSessionRequest{SessionId: acp.SessionId(x.s.acpID)})
+		cancel()
+		x.c.endClose(x.s.acpID, x.done)
+		if err != nil {
+			m.lg.Warn("harness: closing an idle session failed", "agent", x.c.agentID, "session", x.s.sessionID, "err", err)
+		} else {
+			m.lg.Info("harness: closed an idle session; the next message resumes it", "agent", x.c.agentID, "session", x.s.sessionID, "idleFor", sessionIdleClose)
+		}
+	}
 }
 
 // endInterruptedTurns closes turns that a previous server process left
@@ -495,6 +561,7 @@ func (m *Manager) run(t *turn, sess db.AgentSession, text string, status func(st
 	// Not the setup context: a cancel is session/cancel, answered by the
 	// harness with stopReason "cancelled".
 	res, err := conn.acp.Prompt(t.prompt, acp.PromptRequest{SessionId: acp.SessionId(acpID), Prompt: []acp.ContentBlock{acp.TextBlock(text)}})
+	conn.used(acpID)
 	if err != nil {
 		conn.drainUpdates()
 		var se *stoppedError
@@ -594,6 +661,9 @@ func (m *Manager) giveUp(t *turn, conn *harnessConn, why string) error {
 func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess db.AgentSession, notice func(string)) (string, error) {
 	sess, err := m.store.GetAgentSession(ctx, sess.ID)
 	if err != nil {
+		return "", err
+	}
+	if err := conn.waitClosed(ctx, sess.AcpSessionID); err != nil {
 		return "", err
 	}
 	if sess.AcpSessionID != "" && conn.isActive(sess.AcpSessionID) {

@@ -29,7 +29,8 @@
 //
 // Each prompt is appended to $HOME/.fakeagent/prompts when it arrives, so
 // tests can wait until the harness has it, and each restore request's method
-// (session/load, session/resume) to $HOME/.fakeagent/restores.
+// (session/load, session/resume) and closes (session/close) to
+// $HOME/.fakeagent/restores.
 //
 // $HOME/.fakeagent/script scripts the protocol steps, one directive per line:
 //
@@ -520,6 +521,7 @@ func (a *agent) Prompt(_ context.Context, p acp.PromptRequest) (acp.PromptRespon
 }
 
 func (a *agent) CloseSession(context.Context, acp.CloseSessionRequest) (acp.CloseSessionResponse, error) {
+	a.restored("session/close")
 	return acp.CloseSessionResponse{}, nil
 }
 

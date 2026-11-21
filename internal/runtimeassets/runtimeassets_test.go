@@ -40,7 +40,7 @@ func fixture(t *testing.T) (manifest, fstest.MapFS, []byte, []byte) {
 	t.Helper()
 	m := manifest{Format: 1, Version: "v1.2.3", Arch: runtime.GOARCH, Files: map[string]artifact{}}
 	files := fstest.MapFS{}
-	for _, name := range []string{"firecracker", "jailer", "kernel", "sandboxd"} {
+	for _, name := range bundledNames {
 		data := []byte("verified " + name)
 		files[name] = &fstest.MapFile{Data: data}
 		m.Files[name] = digest(data)

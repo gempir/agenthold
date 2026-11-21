@@ -16,6 +16,8 @@ type Provider struct {
 	// PlatformCommand runs the platform MCP server inside the sandbox
 	// ("<sandboxd> mcp"). Empty leaves the platform tools out.
 	PlatformCommand string
+	// PlatformArgs are its arguments. Default ["mcp"].
+	PlatformArgs []string
 }
 
 // PlatformServerName is the platform MCP server's name.
@@ -33,8 +35,12 @@ func (p Provider) MCPServers(ctx context.Context, agentID, sessionID string, cap
 		return nil, err
 	}
 	if p.PlatformCommand != "" {
+		args := p.PlatformArgs
+		if args == nil {
+			args = []string{"mcp"}
+		}
 		out = append(out, acp.McpServer{Stdio: &acp.McpServerStdio{
-			Name: PlatformServerName, Command: p.PlatformCommand, Args: []string{"mcp"},
+			Name: PlatformServerName, Command: p.PlatformCommand, Args: args,
 			Env: []acp.EnvVariable{{Name: "AGENTHOLD_SESSION", Value: sessionID}},
 		}})
 	}

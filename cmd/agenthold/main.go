@@ -1,4 +1,5 @@
-// Command agenthold is the agenthold server.
+// Command agenthold is the agenthold server, an edge node (agenthold node) and the daemon inside
+// every agent machine (sandboxd, see sandboxd.go).
 package main
 
 import (
@@ -55,6 +56,16 @@ import (
 )
 
 func main() {
+	switch r, args := roleOf(os.Getpid(), os.Args); r {
+	case roleInit:
+		runInit() // never returns
+	case roleSandboxd:
+		if err := runSandboxd(args); err != nil {
+			slog.Error("sandboxd", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 {
 		var err error
 		switch os.Args[1] {
@@ -261,11 +272,15 @@ func run() error {
 	go loginSvc.Run(ctx)
 	runner := &trigger.Runner{Store: st, Sessions: sessions, Audit: auditLog}
 	go (&trigger.Scheduler{Runner: runner, Log: logger}).Run(ctx)
-	platformCmd := sandbox.SandboxdDir + "/sandboxd"
+	platformTools := tools.Provider{Store: st, PlatformCommand: sandbox.SandboxdDir + "/sandboxd"}
 	if driverName == "fake" {
-		platformCmd = cfg.Sandbox.SandboxdPath
+		// Runs on this machine: the server's own binary needs the explicit subcommand.
+		platformTools.PlatformCommand = cfg.Sandbox.SandboxdPath
+		if filepath.Base(cfg.Sandbox.SandboxdPath) != "sandboxd" {
+			platformTools.PlatformArgs = []string{"sandboxd", "mcp"}
+		}
 	}
-	sessions.SetTools(tools.Provider{Store: st, PlatformCommand: platformCmd})
+	sessions.SetTools(platformTools)
 	previewSvc := &preview.Service{Store: st, Hosts: preview.NewHosts(cfg.Preview.HostSuffix, cfg.PublicURL)}
 	var identity *preview.Signer
 	if previewSvc.Enabled() {

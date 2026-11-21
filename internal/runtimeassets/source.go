@@ -6,61 +6,55 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"runtime"
+	"slices"
 	"strings"
 )
 
-// BaseFileName is the name a release's compressed base image has under a /dl/ root.
-func BaseFileName(arch string) string { return "base-" + arch + ".ext4.zst" }
-
-// candidates lists where to try fetching the base, best first:
+// roots lists the /dl/ roots to fetch assets from, best first:
 //
-//  1. Options.BaseURL (explicit configuration; the only candidate when set),
-//  2. the controller an edge node joined, if it runs this node's version,
-//  3. the URL embedded in the manifest, if it is absolute.
+//  1. Options.AssetsURL (explicit configuration),
+//  2. the controller an edge node joined (asked afresh only now, when something is missing).
 //
-// A controller that cannot be used (other version, unusable URL) is skipped with a warning; only
-// when nothing is left is that the error.
-func (o Options) candidates(ctx context.Context, m manifest) ([]string, error) {
-	if o.BaseURL != "" {
-		u, err := resolveRoot(o.BaseURL, m)
+// Assets are named by key, not by release, so a controller on another version can serve them as
+// long as it has the asset this node's release names.
+func (o Options) roots(ctx context.Context) ([]string, error) {
+	var roots []string
+	if o.AssetsURL != "" {
+		u, err := CheckRoot(o.AssetsURL)
 		if err != nil {
-			return nil, fmt.Errorf("sandbox.firecracker.base_url: %w", err)
+			return nil, fmt.Errorf("sandbox.firecracker.assets_url: %w", err)
 		}
-		return []string{u}, nil
+		roots = append(roots, u)
 	}
-	var urls []string
-	var skipped error
 	if c := o.controller(ctx); c.DownloadURL != "" {
-		seen := "runs"
-		if !c.Live {
-			seen = "was last seen running"
-		}
-		if c.Version != m.Version {
-			skipped = fmt.Errorf("this node runs agenthold %s but its controller %s %s, so the controller cannot serve this node's base image: "+
-				"upgrade whichever side is older so both run the same version, or set sandbox.firecracker.base_url",
-				m.Version, seen, c.Version)
-		} else if u, err := resolveRoot(c.DownloadURL, m); err != nil {
-			skipped = fmt.Errorf("the controller's download URL is unusable: %w", err)
-		} else {
-			urls = append(urls, u)
+		u, err := CheckRoot(c.DownloadURL)
+		switch {
+		case err != nil && len(roots) == 0:
+			return nil, fmt.Errorf("the controller's download URL is unusable: %w", err)
+		case err != nil:
+			log(o.Log).Warn("not fetching assets from the controller", "err", err)
+		case !slices.Contains(roots, u):
+			roots = append(roots, u)
 		}
 	}
-	if u, err := url.Parse(m.Base.URL); err == nil && u.Host != "" {
-		if skipped != nil {
-			log(o.Log).Warn("not fetching the base image from the controller", "err", skipped)
-		}
-		urls = append(urls, m.Base.URL)
+	if len(roots) == 0 {
+		return nil, errors.New("no source for the guest kernel and base image: set sandbox.firecracker.assets_url to the /dl/ root " +
+			"of a host that serves this architecture's assets, or place them in the data directory (see the install docs)")
 	}
-	if len(urls) == 0 {
-		if skipped != nil {
-			return nil, skipped
-		}
-		return nil, errors.New("this release names no download location for its base image: set sandbox.firecracker.base_url " +
-			"to a controller's /dl/ root (for example https://demo.agenthold.dev/dl/) or the compressed image's URL, " +
-			"or place base/<sha256>.ext4 or base/<sha256>.ext4.zst in the data directory")
+	return roots, nil
+}
+
+// CheckRoot accepts the /dl/ root of an asset source: an absolute HTTP(S) URL without credentials,
+// query or fragment, ending in "/".
+func CheckRoot(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.User != nil || u.Fragment != "" || u.RawQuery != "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return "", fmt.Errorf("%q must be an absolute HTTP(S) URL without credentials", raw)
 	}
-	return urls, nil
+	if !strings.HasSuffix(u.Path, "/") {
+		return "", fmt.Errorf("%q must be a /dl/ root ending in \"/\"", raw)
+	}
+	return raw, nil
 }
 
 // controller returns what is known about the node's controller, asking it afresh first when the
@@ -77,24 +71,6 @@ func (o Options) controller(ctx context.Context) Controller {
 	}
 	fresh.Live = true
 	return fresh
-}
-
-// resolveRoot turns a configured location into the URL of the compressed base: a URL ending in "/"
-// is a /dl/ root and gets the release's file name (or the manifest's relative base URL) appended;
-// anything else already names the file.
-func resolveRoot(raw string, m manifest) (string, error) {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" || u.User != nil || u.Fragment != "" || (u.Scheme != "https" && u.Scheme != "http") {
-		return "", fmt.Errorf("%q must be an absolute HTTP(S) URL without credentials", raw)
-	}
-	if !strings.HasSuffix(u.Path, "/") {
-		return raw, nil
-	}
-	rel := m.Version + "/" + BaseFileName(runtime.GOARCH)
-	if ru, err := url.Parse(m.Base.URL); err == nil && m.Base.URL != "" && ru.Host == "" && ru.Scheme == "" {
-		rel = m.Base.URL
-	}
-	return u.ResolveReference(&url.URL{Path: strings.TrimLeft(rel, "/")}).String(), nil
 }
 
 func log(l *slog.Logger) *slog.Logger {

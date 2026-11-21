@@ -3,6 +3,8 @@
 #
 #   pull.sh            deploy the source's channel if it is new (what agenthold-pull.timer runs)
 #   pull.sh --check    fetch and verify everything into a temporary directory, change nothing
+#   pull.sh --install  first installation (bootstrap.sh): place the release and its assets and point
+#                      /opt/agenthold/current at it, without a running service to replace or start
 #
 # The source is configured in /etc/agenthold/pull.conf (AGENTHOLD_DEPLOY_CONFIG), one key=value per
 # line, AGENTHOLD_DEPLOY_SOURCE overriding it:
@@ -10,12 +12,18 @@
 #   source=/srv/agenthold/releases          a local release store (what build-local.sh publishes)
 #   source=https://demo.agenthold.dev/dl/   the /dl/ root of another agenthold that deployed one
 #   host_mount=/Users/gempir/dev/agenthold  also require free space on this mount (empty: skip)
+#   mode=node                               an edge node (agenthold node): deploy agenthold-node.service
+#                                           and judge its health by its journal (default: controller)
 #
-# A source is a directory tree shaped like /dl/: channel.json names a sha-<commit> version and the
-# sha256 of its binary, runtime manifest and SHA256SUMS; every other file is checked against those.
-# After a healthy switch the deployed controller serves the same tree under its own /dl/: the
-# compressed base stays in <data_dir>/base/<sha256>.ext4.zst and channel.json, SHA256SUMS and the
-# base manifest go to <data_dir>/dl/, so one demo can be the pull source of another host.
+# A source is a directory tree shaped like /dl/: channel.json (format 3) names a sha-<commit>
+# version, the sha256 of its binary, runtime manifest and SHA256SUMS, and the guest kernel and base
+# image by key with the sha256 of their asset manifests (assets/<arch>/<kind>-<key>.json, which pin
+# the compressed assets/<arch>/<kind>-<key>.zst and the uncompressed file). Every file is checked
+# against that chain. Before the switch the assets are placed where the release binary looks for
+# them: the manifests in <data_dir>/assets/<arch>/, the kernel at <data_dir>/kernel/<sha256> and the
+# base at <data_dir>/base/<sha256>.ext4, each with its compressed file next to it (+.zst). After a
+# healthy switch channel.json and SHA256SUMS go to <data_dir>/dl/, so the deployed controller's
+# /dl/ (which serves the binary and the assets itself) can be the pull source of another host.
 set -euo pipefail
 umask 077
 
@@ -27,22 +35,32 @@ conf() { # conf <key>: the value from the config file, empty if absent
 SOURCE="${AGENTHOLD_DEPLOY_SOURCE:-$(conf source)}"
 SOURCE="${SOURCE:-/srv/agenthold/releases}"
 HOST_MOUNT="${AGENTHOLD_DEPLOY_HOST_MOUNT-$(conf host_mount)}"
+MODE="${AGENTHOLD_DEPLOY_MODE:-$(conf mode)}"
+MODE="${MODE:-controller}"
+[[ "$MODE" == controller || "$MODE" == node ]] || { echo "invalid mode $MODE: controller or node" >&2; exit 1; }
 ROOT="${AGENTHOLD_DEPLOY_ROOT:-/opt/agenthold}"
 HEALTH="${AGENTHOLD_DEPLOY_HEALTH:-http://127.0.0.1:8080}"
 DATA_DIR="${AGENTHOLD_DEPLOY_DATA_DIR:-/var/lib/agenthold}"
 TIMEOUT="${AGENTHOLD_DEPLOY_TIMEOUT:-1800}"
-SERVICE="${AGENTHOLD_DEPLOY_SERVICE:-agenthold.service}"
+if [[ "$MODE" == node ]]; then SERVICE="${AGENTHOLD_DEPLOY_SERVICE:-agenthold-node.service}"
+else SERVICE="${AGENTHOLD_DEPLOY_SERVICE:-agenthold.service}"; fi
 PRUNE="${PRUNE:-1}"
 KEEP_RELEASES=3
 # The local store holds a compressed base per release; rollback needs only the previous one.
 KEEP_STORE=2
-ARCH=arm64
+case "$(uname -m)" in
+  aarch64) ARCH=arm64 ;;
+  x86_64) ARCH=amd64 ;;
+  *) echo 'releases exist for arm64 and amd64 Linux only' >&2; exit 1 ;;
+esac
 
 check=0
+install=0
 case "${1:-}" in
   '') ;;
   --check) check=1 ;;
-  *) echo "usage: pull.sh [--check]" >&2; exit 2 ;;
+  --install) install=1 ;;
+  *) echo "usage: pull.sh [--check|--install]" >&2; exit 2 ;;
 esac
 case "$SOURCE" in
   https://*/) kind=https ;;
@@ -52,8 +70,9 @@ esac
 [[ "$SOURCE" != *[[:space:]\'\"\\]* ]] || { echo 'invalid source' >&2; exit 1; }
 [[ "$ROOT" == /* && "$DATA_DIR" == /* && ( -z "$HOST_MOUNT" || "$HOST_MOUNT" == /* ) ]] || { echo 'invalid deployment paths' >&2; exit 1; }
 [[ "$HEALTH" == 'http://127.0.0.1:'* && "$TIMEOUT" =~ ^[0-9]+$ && "$TIMEOUT" -ge 1 && "$TIMEOUT" -le 3600 ]] || { echo 'invalid health settings' >&2; exit 1; }
-[[ "$(uname -m)" == aarch64 ]] || { echo 'the demo channel requires arm64 Linux' >&2; exit 1; }
-if ((!check)); then
+if ((install)); then
+  [[ -d "$ROOT/releases" && ! -e "$ROOT/current" && ! -L "$ROOT/current" ]] || { echo "$ROOT/current exists (or $ROOT/releases is missing); use pull.sh to update" >&2; exit 1; }
+elif ((!check)); then
   [[ -d "$ROOT/releases" && -L "$ROOT/current" ]] || { echo 'deployment has not been bootstrapped; refusing to start a service' >&2; exit 1; }
   exec 9>"$ROOT/.pull.lock"
   flock -n 9 || { echo 'another pull is running'; exit 0; }
@@ -68,10 +87,14 @@ fi
 if ((check)); then
   work="$(mktemp -d "${TMPDIR:-/var/tmp}/agenthold-pull-check.XXXXXXXX")"
   base_dir="$work/base"
+  kernel_dir="$work/kernel"
+  assets_dir="$work/assets"
 else
-  [[ "$current" == "$ROOT/releases/"* && -x "$current/agenthold" ]] || { echo 'invalid current deployment' >&2; exit 1; }
+  ((install)) || [[ "$current" == "$ROOT/releases/"* && -x "$current/agenthold" ]] || { echo 'invalid current deployment' >&2; exit 1; }
   work="$(mktemp -d "$ROOT/.pull.XXXXXXXX")"
   base_dir="$DATA_DIR/base"
+  kernel_dir="$DATA_DIR/kernel"
+  assets_dir="$DATA_DIR/assets"
 fi
 tmp_files=()
 switched=0
@@ -101,7 +124,7 @@ verify() { printf '%s  %s\n' "$1" "$2" | sha256sum --check --status; }
 # get <relative path> <max bytes> <destination> [timeout]: copy one file of the source.
 get() {
   local rel="$1" max="$2" dest="$3" size
-  [[ "$rel" =~ ^(channel\.json|sha-[0-9a-f]{40}/[A-Za-z0-9][A-Za-z0-9._-]*)$ ]] || { echo "refusing source path $rel" >&2; return 1; }
+  [[ "$rel" =~ ^(channel\.json|sha-[0-9a-f]{40}/[A-Za-z0-9][A-Za-z0-9._-]*|assets/(amd64|arm64)/(kernel|base)-[0-9a-f]{32}\.(json|zst))$ ]] || { echo "refusing source path $rel" >&2; return 1; }
   if [[ "$kind" == local ]]; then
     local src="$SOURCE/$rel"
     [[ -f "$src" && ! -L "$src" && ! -L "$(dirname -- "$src")" ]] || { echo "$src is missing or not a regular file" >&2; return 1; }
@@ -114,9 +137,9 @@ get() {
     ((size <= max)) || { echo "$rel is larger than $max bytes" >&2; return 1; }
   fi
 }
-# place_base <rel> <sha> <size> <dest>: put the compressed base at dest. A local store on the same
+# place_zst <rel> <sha> <size> <dest>: put a compressed asset at dest. A local store on the same
 # filesystem shares the bytes through a hard link; anything else is copied or downloaded.
-place_base() {
+place_zst() {
   local rel="$1" sha="$2" size="$3" dest="$4" tmp
   tmp="$(mktemp "$(dirname -- "$dest")/.download.XXXXXXXX")"
   tmp_files+=("$tmp")
@@ -125,7 +148,7 @@ place_base() {
   else
     get "$rel" "$size" "$tmp" 1800
   fi
-  [[ "$(stat -c %s -- "$tmp")" == "$size" ]] && verify "$sha" "$tmp" || { echo 'compressed base verification failed' >&2; return 1; }
+  [[ "$(stat -c %s -- "$tmp")" == "$size" ]] && verify "$sha" "$tmp" || { echo "compressed $rel verification failed" >&2; return 1; }
   mv -f -- "$tmp" "$dest"
 }
 sum_of() { # sum_of <file name>: its sha256 according to SHA256SUMS
@@ -133,14 +156,19 @@ sum_of() { # sum_of <file name>: its sha256 according to SHA256SUMS
 }
 
 get channel.json 65536 "$work/channel.json"
-commit="$(jq -er --arg arch "$ARCH" 'select(.format == 2 and .arch == $arch) | .commit | select(type == "string" and test("^[0-9a-f]{40}$"))' "$work/channel.json")" ||
-  { echo 'channel.json is not a format 2 arm64 channel' >&2; exit 1; }
+commit="$(jq -er --arg arch "$ARCH" 'select(.format == 3 and .arch == $arch) | .commit | select(type == "string" and test("^[0-9a-f]{40}$"))' "$work/channel.json")" ||
+  { echo "channel.json is not a format 3 $ARCH channel" >&2; exit 1; }
 version="sha-$commit"
-jq -e --arg v "$version" '
+jq -e --arg v "$version" --arg arch "$ARCH" '
+  def sha: type == "string" and test("^[0-9a-f]{64}$");
+  def key: type == "string" and test("^[0-9a-f]{32}$");
   .version == $v and
-  .binary.path == ($v + "/agenthold-linux-arm64") and .runtime_manifest.path == ($v + "/runtime-linux-arm64.manifest.json") and
+  .binary.path == ($v + "/agenthold-linux-" + $arch) and .runtime_manifest.path == ($v + "/runtime-linux-" + $arch + ".manifest.json") and
   .sums.path == ($v + "/SHA256SUMS") and
-  ([.binary.sha256, .runtime_manifest.sha256, .sums.sha256] | all(type == "string" and test("^[0-9a-f]{64}$")))
+  ([.binary.sha256, .runtime_manifest.sha256, .sums.sha256, .kernel.manifest.sha256, .base.manifest.sha256] | all(sha)) and
+  (.kernel.key | key) and (.base.key | key) and
+  .kernel.manifest.path == ("assets/" + $arch + "/kernel-" + .kernel.key + ".json") and
+  .base.manifest.path == ("assets/" + $arch + "/base-" + .base.key + ".json")
 ' "$work/channel.json" >/dev/null || { echo 'channel does not point to the files of its version' >&2; exit 1; }
 binary_sha="$(jq -er .binary.sha256 "$work/channel.json")"
 manifest_sha="$(jq -er .runtime_manifest.sha256 "$work/channel.json")"
@@ -155,76 +183,103 @@ fi
 
 get "$version/SHA256SUMS" 65536 "$work/SHA256SUMS"
 verify "$sums_sha" "$work/SHA256SUMS" || { echo 'SHA256SUMS checksum mismatch' >&2; exit 1; }
-[[ "$(sum_of agenthold-linux-arm64)" == "$binary_sha" && "$(sum_of runtime-linux-arm64.manifest.json)" == "$manifest_sha" ]] ||
+[[ "$(sum_of agenthold-linux-$ARCH)" == "$binary_sha" && "$(sum_of runtime-linux-$ARCH.manifest.json)" == "$manifest_sha" ]] ||
   { echo 'SHA256SUMS disagrees with the channel' >&2; exit 1; }
-base_zst_sum="$(sum_of base-arm64.ext4.zst)" && base_manifest_sum="$(sum_of base-arm64.manifest.json)" ||
-  { echo 'SHA256SUMS does not cover the base image and its manifest' >&2; exit 1; }
-get "$version/runtime-linux-arm64.manifest.json" 65536 "$work/runtime.json"
+get "$version/runtime-linux-$ARCH.manifest.json" 65536 "$work/runtime.json"
 verify "$manifest_sha" "$work/runtime.json" || { echo 'runtime manifest checksum mismatch' >&2; exit 1; }
-jq -e --arg version "$version" '
-  .format == 1 and .arch == "arm64" and .version == $version and (.base.url | type == "string") and
-  (.base.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
-  (.base.compressed.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
-  (.base.size | type == "number" and . == floor and . > 0 and . <= 34359738368) and
-  (.base.compressed.size | type == "number" and . == floor and . > 0 and . <= 2000000000)
+jq -e --arg version "$version" --arg arch "$ARCH" --slurpfile c "$work/channel.json" '
+  .format == 2 and .arch == $arch and .version == $version and .kernel.key == $c[0].kernel.key and .base.key == $c[0].base.key
 ' "$work/runtime.json" >/dev/null || { echo 'runtime manifest does not match the release' >&2; exit 1; }
-base_sha="$(jq -er '.base.sha256' "$work/runtime.json")"
-base_size="$(jq -er '.base.size' "$work/runtime.json")"
-compressed_sha="$(jq -er '.base.compressed.sha256' "$work/runtime.json")"
-compressed_size="$(jq -er '.base.compressed.size' "$work/runtime.json")"
-[[ "$compressed_sha" == "$base_zst_sum" ]] || { echo 'SHA256SUMS and the runtime manifest disagree about the base' >&2; exit 1; }
-get "$version/base-arm64.manifest.json" 65536 "$work/base.manifest.json"
-verify "$base_manifest_sum" "$work/base.manifest.json" || { echo 'base manifest checksum mismatch' >&2; exit 1; }
+
+# The asset manifests, pinned by the channel; each pins its files.
+for k in kernel base; do
+  rel="$(jq -er --arg k "$k" '.[$k].manifest.path' "$work/channel.json")"
+  get "$rel" 65536 "$work/$k.json"
+  verify "$(jq -er --arg k "$k" '.[$k].manifest.sha256' "$work/channel.json")" "$work/$k.json" || { echo "$k asset manifest checksum mismatch" >&2; exit 1; }
+  max=34359738368; [[ "$k" == kernel ]] && max=536870912
+  jq -e --arg k "$k" --arg arch "$ARCH" --argjson max "$max" --slurpfile c "$work/channel.json" '
+    .format == 1 and .kind == $k and .arch == $arch and .key == $c[0][$k].key and
+    (.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and (.compressed.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
+    (.size | type == "number" and . == floor and . > 0 and . <= $max) and
+    (.compressed.size | type == "number" and . == floor and . > 0 and . <= 2000000000)
+  ' "$work/$k.json" >/dev/null || { echo "$k asset manifest does not match the release" >&2; exit 1; }
+done
+kernel_key="$(jq -er .kernel.key "$work/channel.json")"
+base_key="$(jq -er .base.key "$work/channel.json")"
 
 if ((running && !check)); then
   verify "$binary_sha" "$current/agenthold" || { echo 'the running release differs from the channel' >&2; exit 1; }
 else
-  get "$version/agenthold-linux-arm64" 500000000 "$work/agenthold"
+  get "$version/agenthold-linux-$ARCH" 500000000 "$work/agenthold"
   verify "$binary_sha" "$work/agenthold" || { echo 'binary checksum mismatch' >&2; exit 1; }
   chmod 0755 "$work/agenthold"
   [[ "$("$work/agenthold" --version)" == "agenthold $version ("* ]] || { echo 'binary version does not match the release' >&2; exit 1; }
 fi
 
-if ((!check)); then
+if ((install)); then
+  : # nothing runs yet
+elif ((!check)) && [[ "$MODE" == node ]]; then
+  # A node serves no HTTP: its baseline is a running service and the version of its binary.
+  systemctl is-active --quiet "$SERVICE" || { echo 'baseline service is not running; refusing deployment' >&2; exit 1; }
+  old_version="$("$current/agenthold" --version | awk '{print $2}')"
+  [[ -n "$old_version" ]] || { echo 'baseline version is unavailable' >&2; exit 1; }
+elif ((!check)); then
   systemctl is-active --quiet "$SERVICE" && curl -fsS --max-time 3 "$HEALTH/healthz" >/dev/null || { echo 'baseline service is not healthy; refusing deployment' >&2; exit 1; }
   old_version="$(curl -fsS --max-time 3 "$HEALTH/api/v1/version" | jq -er '.version | select(type == "string" and length > 0)')" || { echo 'baseline version is unavailable' >&2; exit 1; }
 fi
 
-# The compressed base stays next to the decompressed one (D1a serves it under /dl/ from there).
-# Both are fetched and verified while the old service is still healthy.
-install -d -m 0700 "$base_dir"
-base="$base_dir/$base_sha.ext4"
-zst="$base_dir/$base_sha.ext4.zst"
-have_zst=0
-have_base=0
-[[ -f "$zst" && ! -L "$zst" && "$(stat -c %s "$zst")" == "$compressed_size" ]] && verify "$compressed_sha" "$zst" && have_zst=1
-[[ -f "$base" && ! -L "$base" && "$(stat -c %s "$base")" == "$base_size" ]] && verify "$base_sha" "$base" && have_base=1
-if ((!have_zst || !have_base)); then
-  required=536870912
-  ((have_zst)) || required=$((required + compressed_size))
-  ((have_base)) || required=$((required + base_size))
+# Each asset's compressed file stays next to the decompressed one (/dl/assets/ serves it from there).
+# Everything is fetched and verified while the old service is still running.
+install -d -m 0700 "$base_dir" "$kernel_dir"
+install -d -m 0755 "$assets_dir" "$assets_dir/$ARCH"
+# Disk space for what is missing, plus headroom for a rollback.
+required=536870912
+for k in kernel base; do
+  sha="$(jq -er .sha256 "$work/$k.json")"; csha="$(jq -er .compressed.sha256 "$work/$k.json")"
+  size="$(jq -er .size "$work/$k.json")"; csize="$(jq -er .compressed.size "$work/$k.json")"
+  if [[ "$k" == kernel ]]; then f="$kernel_dir/$sha"; else f="$base_dir/$sha.ext4"; fi
+  [[ -f "$f.zst" && ! -L "$f.zst" && "$(stat -c %s "$f.zst")" == "$csize" ]] && verify "$csha" "$f.zst" || required=$((required + csize))
+  [[ -f "$f" && ! -L "$f" && "$(stat -c %s "$f")" == "$size" ]] && verify "$sha" "$f" || required=$((required + size))
+done
+if ((required > 536870912)); then
   available="$(df -PB1 "$base_dir" | awk 'END {print $4}')"
-  [[ "$available" =~ ^[0-9]+$ ]] && ((available >= required)) || { echo 'insufficient disk space for the base image and rollback' >&2; exit 1; }
+  [[ "$available" =~ ^[0-9]+$ ]] && ((available >= required)) || { echo 'insufficient disk space for the assets and rollback' >&2; exit 1; }
   if [[ -n "$HOST_MOUNT" ]]; then
     [[ -d "$HOST_MOUNT" ]] || { echo 'host storage mount is unavailable' >&2; exit 1; }
     host_available="$(df -PB1 "$HOST_MOUNT" | awk 'END {print $4}')"
-    [[ "$host_available" =~ ^[0-9]+$ ]] && ((host_available >= required)) || { echo 'insufficient host disk space for the base image and rollback' >&2; exit 1; }
+    [[ "$host_available" =~ ^[0-9]+$ ]] && ((host_available >= required)) || { echo 'insufficient host disk space for the assets and rollback' >&2; exit 1; }
   fi
 fi
-if ((have_zst)); then echo 'verified compressed base is already cached'
-else place_base "$version/base-arm64.ext4.zst" "$compressed_sha" "$compressed_size" "$zst"; fi
-chmod 0644 "$zst"
-if ((have_base)); then echo 'verified base is already cached'
-else
-  base_tmp="$(mktemp "$base_dir/.unpack.XXXXXXXX")"
-  tmp_files+=("$base_tmp")
-  (ulimit -f $(((base_size + 1023) / 1024)); zstd -d -q -f --long=27 --sparse "$zst" -o "$base_tmp")
-  [[ "$(stat -c %s "$base_tmp")" == "$base_size" ]] && verify "$base_sha" "$base_tmp" || { echo 'base image verification failed' >&2; exit 1; }
-  # zstd copies the owner of its input; the cache belongs to the service user.
-  if [[ $EUID -eq 0 ]]; then chown root:root "$base_tmp"; fi
-  chmod 0644 "$base_tmp"
-  mv -f -- "$base_tmp" "$base"
-fi
+# place_asset <kernel|base>: the verified compressed and uncompressed file, then the manifest.
+place_asset() {
+  local k="$1" key sha csha size csize f tmp
+  key="$(jq -er .key "$work/$k.json")"
+  sha="$(jq -er .sha256 "$work/$k.json")"; csha="$(jq -er .compressed.sha256 "$work/$k.json")"
+  size="$(jq -er .size "$work/$k.json")"; csize="$(jq -er .compressed.size "$work/$k.json")"
+  if [[ "$k" == kernel ]]; then f="$kernel_dir/$sha"; else f="$base_dir/$sha.ext4"; fi
+  if [[ -f "$f.zst" && ! -L "$f.zst" && "$(stat -c %s "$f.zst")" == "$csize" ]] && verify "$csha" "$f.zst"; then
+    echo "verified compressed $k is already cached"
+  else
+    place_zst "assets/$ARCH/$k-$key.zst" "$csha" "$csize" "$f.zst"
+  fi
+  chmod 0644 "$f.zst"
+  if [[ -f "$f" && ! -L "$f" && "$(stat -c %s "$f")" == "$size" ]] && verify "$sha" "$f"; then
+    echo "verified $k is already cached"
+  else
+    tmp="$(mktemp "$(dirname -- "$f")/.unpack.XXXXXXXX")"
+    tmp_files+=("$tmp")
+    (ulimit -f $(((size + 1023) / 1024)); zstd -d -q -f --long=27 --sparse "$f.zst" -o "$tmp")
+    [[ "$(stat -c %s "$tmp")" == "$size" ]] && verify "$sha" "$tmp" || { echo "$k verification failed" >&2; return 1; }
+    # zstd copies the owner of its input; the cache belongs to the service user.
+    if [[ $EUID -eq 0 ]]; then chown root:root "$tmp"; fi
+    chmod 0644 "$tmp"
+    mv -f -- "$tmp" "$f"
+  fi
+  install -m 0644 "$work/$k.json" "$assets_dir/$ARCH/.$k-$key.json.tmp"
+  mv -f -- "$assets_dir/$ARCH/.$k-$key.json.tmp" "$assets_dir/$ARCH/$k-$key.json"
+}
+place_asset kernel
+place_asset base
 
 if ((check)); then
   echo "check passed: $version from $SOURCE is complete and verified (running: ${current_commit:-nothing})"
@@ -237,7 +292,6 @@ publish_dl() {
   install -d -m 0755 "$dl"
   tmp="$(mktemp -d "$dl/.publish.XXXXXXXX")"
   install -m 0644 "$work/SHA256SUMS" "$tmp/SHA256SUMS"
-  install -m 0644 "$work/base.manifest.json" "$tmp/base-arm64.manifest.json"
   chmod 0755 "$tmp"
   rm -rf -- "${dl:?}/$version"
   mv -T -- "$tmp" "$dl/$version"
@@ -259,24 +313,47 @@ else
   mkdir "$work/release"
   mv "$work/agenthold" "$work/release/agenthold"
   cp "$work/runtime.json" "$work/release/runtime.manifest.json"
+  # The assets this release runs with, for pruning.
+  cp "$work/kernel.json" "$work/release/kernel.json"
+  cp "$work/base.json" "$work/release/base.json"
   chmod 0755 "$work/release"
   mv "$work/release" "$release_dir"
 fi
 
 healthy() {
   local version="$1" deadline=$((SECONDS + $2)) reply
+  [[ "$MODE" != node ]] || { node_healthy "$@"; return; }
   while ((SECONDS < deadline)); do
     if reply="$(curl -fsS --max-time 3 "$HEALTH/api/v1/version" 2>/dev/null)" &&
        jq -e --arg expected "$version" '.version == $expected' >/dev/null 2>&1 <<<"$reply" &&
        curl -fsS --max-time 3 "$HEALTH/healthz" >/dev/null 2>&1; then return 0; fi
+    ((SECONDS + 5 < deadline)) || break
+    sleep 5
+  done
+  return 1
+}
+
+# node_healthy <version> <seconds>: the node service runs that version (its start line) and reached
+# its controller, both logged by the current invocation of the unit. A node whose controller is
+# unreachable is not healthy: the switch is rolled back and the next timer run tries again.
+node_healthy() {
+  local version="$1" deadline=$((SECONDS + $2)) inv log
+  while ((SECONDS < deadline)); do
+    if systemctl is-active --quiet "$SERVICE" && inv="$(systemctl show -P InvocationID "$SERVICE" 2>/dev/null)" && [[ -n "$inv" ]] &&
+       log="$(journalctl --no-pager -o cat "_SYSTEMD_INVOCATION_ID=$inv" 2>/dev/null)" &&
+       grep -F '"msg":"edge node starting"' <<<"$log" | grep -qF "\"version\":\"$version\"" &&
+       grep -qF '"msg":"connected to controller"' <<<"$log"; then return 0; fi
+    ((SECONDS + 5 < deadline)) || break
     sleep 5
   done
   return 1
 }
 
 # Reclaim disk after a verified switch. Only regular files named <sha256>.ext4 or <sha256>.ext4.zst
-# directly inside the base cache, 40-hex directories directly inside $ROOT/releases and sha-<40-hex>
-# directories directly inside <data_dir>/dl and the local store are ever removed. Any doubt
+# directly inside the base cache, <sha256> or <sha256>.zst inside the kernel cache, asset manifests
+# whose file is gone, assets in the local store no kept version names, 40-hex directories directly
+# inside $ROOT/releases and sha-<40-hex> directories directly inside <data_dir>/dl and the local
+# store are ever removed. Any doubt
 # (unreadable agent state, symlinked directories, missing manifests) skips that part of the prune.
 prune_bytes=0
 prune_remove() { # prune_remove <parent-dir> <path> <file|dir|vdir>
@@ -284,13 +361,15 @@ prune_remove() { # prune_remove <parent-dir> <path> <file|dir|vdir>
   [[ "$(dirname -- "$path")" == "$parent" && ! -L "$path" ]] || { echo "prune: refusing $path" >&2; return 0; }
   case "$kind" in
     file) [[ -f "$path" && "$(basename -- "$path")" =~ ^[0-9a-f]{64}\.ext4(\.zst)?$ ]] || return 0;;
+    kfile) [[ -f "$path" && "$(basename -- "$path")" =~ ^[0-9a-f]{64}(\.zst)?$ ]] || return 0;;
+    asset) [[ -f "$path" && "$(basename -- "$path")" =~ ^(kernel|base)-[0-9a-f]{32}\.(json|zst)$ ]] || return 0;;
     dir) [[ -d "$path" && "$(basename -- "$path")" =~ ^[0-9a-f]{40}$ ]] || return 0;;
     vdir) [[ -d "$path" && "$(basename -- "$path")" =~ ^sha-[0-9a-f]{40}$ ]] || return 0;;
     *) return 0;;
   esac
   size="$(du -sk -- "$path" 2>/dev/null | cut -f1)" || size=0
   [[ "$size" =~ ^[0-9]+$ ]] || size=0
-  if [[ "$kind" == file ]]; then rm -f -- "$path"; else rm -rf -- "$path"; fi
+  if [[ "$kind" == dir || "$kind" == vdir ]]; then rm -rf -- "$path"; else rm -f -- "$path"; fi
   if [[ -e "$path" ]]; then echo "prune: could not remove $path" >&2; return 0; fi
   prune_bytes=$((prune_bytes + size * 1024))
   echo "prune: removed $path ($((size * 1024)) bytes)"
@@ -302,7 +381,9 @@ prune_bases() { # prune_bases <new-release-dir> <previous-release-dir>
   [[ "$real" == "$(cd "$DATA_DIR" && pwd -P)/base" ]] || { echo 'prune: base cache resolves outside the data directory; skipping bases' >&2; return 0; }
   declare -A keep=()
   for dir in "$1" "$2"; do
-    sha="$(jq -er '.base.sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))' "$dir/runtime.manifest.json" 2>/dev/null)" || { echo "prune: no base recorded for $dir; skipping bases" >&2; return 0; }
+    # base.json: releases with base assets; runtime.manifest.json: releases that embedded the base sums.
+    sha="$(jq -er '.sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))' "$dir/base.json" 2>/dev/null ||
+      jq -er '.base.sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))' "$dir/runtime.manifest.json" 2>/dev/null)" || { echo "prune: no base recorded for $dir; skipping bases" >&2; return 0; }
     keep[$sha]=1
   done
   # An agent's overlay depends on the exact base in its state.json until it is reset, so every
@@ -318,6 +399,53 @@ prune_bases() { # prune_bases <new-release-dir> <previous-release-dir>
     sha="${name%%.*}"
     [[ "$sha" =~ ^[0-9a-f]{64}$ && -z "${keep[$sha]:-}" ]] || continue
     prune_remove "$base_dir" "$f" file
+  done
+}
+prune_kernels() { # prune_kernels <new-release-dir> <previous-release-dir>: keep the kernels of both
+  local f sha dir name
+  [[ -d "$kernel_dir" && ! -L "$kernel_dir" ]] || return 0
+  declare -A keep=()
+  sha="$(jq -er '.sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))' "$1/kernel.json" 2>/dev/null)" || { echo "prune: no kernel recorded for $1; skipping kernels" >&2; return 0; }
+  keep[$sha]=1
+  # A previous release from before kernel assets embedded its kernel: nothing to keep for it.
+  if [[ -f "$2/kernel.json" ]]; then
+    sha="$(jq -er '.sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))' "$2/kernel.json" 2>/dev/null)" || { echo "prune: unreadable $2/kernel.json; skipping kernels" >&2; return 0; }
+    keep[$sha]=1
+  fi
+  for f in "$kernel_dir"/*; do
+    [[ -e "$f" || -L "$f" ]] || continue
+    name="$(basename -- "$f")"
+    sha="${name%%.*}"
+    [[ "$sha" =~ ^[0-9a-f]{64}$ && -z "${keep[$sha]:-}" ]] || continue
+    prune_remove "$kernel_dir" "$f" kfile
+  done
+}
+prune_manifests() { # asset manifests whose file the prune removed
+  local f k sha dir="$assets_dir/$ARCH"
+  [[ -d "$dir" && ! -L "$dir" ]] || return 0
+  for f in "$dir"/*.json; do
+    [[ -f "$f" ]] || continue
+    k="$(jq -er .kind "$f" 2>/dev/null)" && sha="$(jq -er '.sha256 | select(test("^[0-9a-f]{64}$"))' "$f" 2>/dev/null)" || continue
+    case "$k" in
+      kernel) [[ -e "$kernel_dir/$sha" ]] || prune_remove "$dir" "$f" asset;;
+      base) [[ -e "$base_dir/$sha.ext4" ]] || prune_remove "$dir" "$f" asset;;
+    esac
+  done
+}
+prune_store_assets() { # store assets that no version left in the local store names
+  local m f name dir="$SOURCE/assets/$ARCH"
+  [[ -d "$dir" && ! -L "$dir" ]] || return 0
+  declare -A keep=()
+  for m in "$SOURCE"/sha-*/runtime-linux-"$ARCH".manifest.json; do
+    [[ -f "$m" ]] || continue
+    keep["kernel-$(jq -er .kernel.key "$m" 2>/dev/null)"]=1 && keep["base-$(jq -er .base.key "$m" 2>/dev/null)"]=1 ||
+      { echo "prune: cannot read $m; skipping store assets" >&2; return 0; }
+    [[ -n "${keep[kernel-]:-}${keep[base-]:-}" ]] && { echo "prune: no keys in $m; skipping store assets" >&2; return 0; }
+  done
+  for f in "$dir"/*.json "$dir"/*.zst; do
+    [[ -f "$f" ]] || continue
+    name="$(basename -- "$f")"
+    [[ -z "${keep[${name%.*}]:-}" ]] && prune_remove "$dir" "$f" asset
   done
 }
 prune_releases() { # prune_releases <new-release-dir> <previous-release-dir>
@@ -351,11 +479,24 @@ prune() {
   local previous="sha-$(basename -- "$2")"
   prune_bytes=0
   prune_bases "$1" "$2"
+  prune_kernels "$1" "$2"
+  prune_manifests
   prune_releases "$1" "$2"
   prune_versions "$dl" 1 "$version"
-  if [[ "$kind" == local ]]; then prune_versions "$SOURCE" "$KEEP_STORE" "$version" "$previous"; fi
+  if [[ "$kind" == local ]]; then
+    prune_versions "$SOURCE" "$KEEP_STORE" "$version" "$previous"
+    prune_store_assets
+  fi
   echo "prune: freed $prune_bytes bytes"
 }
+
+if ((install)); then
+  ln -s "$release_dir" "$work/next"
+  mv -Tf "$work/next" "$ROOT/current"
+  publish_dl
+  echo "installed $version under $ROOT (not started)"
+  exit 0
+fi
 
 ln -s "$release_dir" "$work/next"
 switched=1

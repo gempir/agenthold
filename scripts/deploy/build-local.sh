@@ -1,23 +1,29 @@
 #!/usr/bin/env bash
-# Build, test and publish the main head on this host (the demo box), so releases never depend on
-# GitHub release assets or GitHub-hosted KVM runners.
+# Test and publish a main commit on this host, for this host's architecture (arm64 or amd64): the
+# demo VM for arm64, korriban for amd64. The agenthold binary comes from the commit's GitHub
+# release (sha-<commit>, built by .github/workflows/release.yml); the guest kernel and base image are
+# built here, natively, and cached by their keys. GitHub never hosts kernels or base images.
 #
-#   build-local.sh                 build main's head if it is new (what the timer runs)
-#   build-local.sh --commit SHA    build that commit (it must be reachable from main)
+#   build-local.sh                 publish main's newest released commit if it is new (the timer),
+#                                  or with AGENTHOLD_BUILD_FOLLOW=<controller URL> the commit that
+#                                  controller runs (an edge node of another architecture)
+#   build-local.sh --commit SHA    publish that commit (it must be reachable from main)
 #   build-local.sh --force         rebuild even if the commit was built, deployed or failed before
 #                                  (ignores the failure record and the wait; a failure still counts)
 #
 # Every phase runs as its own transient systemd unit in agenthold-build.slice (memory and CPU
 # limits, nice, idle I/O), as the unprivileged build user except the two that need root (the
-# rootfs build inside scripts/release/build.sh and the KVM tests). systemd reports each phase's
+# asset build, for the base image's mmdebstrap, and the KVM tests). systemd reports each phase's
 # runtime and memory peak; they end up in the log and in $STATE/last-build.json.
 #
-# A commit is published only when everything passed: atomically into $STORE/sha-<commit>/ and then
-# $STORE/channel.json (written last). A failed commit is retried automatically: up to MAX_ATTEMPTS
-# attempts in total (default 3), at least RETRY_DELAY seconds apart (default 15 minutes). Each
-# failure writes $FAILED/<commit>.attempt-N.log, copies it to $FAILED/<commit>.log (the latest) and
-# records the count in $FAILED/<commit>.attempts. After the last failed attempt the commit is not
-# built again until --force; a new commit on main is built normally. pull.sh deploys from $STORE.
+# A commit is published only when everything passed: its assets into $STORE/assets/<arch>/, then
+# atomically $STORE/sha-<commit>/ and $STORE/channel.json (written last). A failed commit is retried
+# automatically: up to MAX_ATTEMPTS attempts in total (default 3), at least RETRY_DELAY seconds apart
+# (default 15 minutes). Each failure writes $FAILED/<commit>.attempt-N.log, copies it to
+# $FAILED/<commit>.log (the latest) and records the count in $FAILED/<commit>.attempts. After the
+# last failed attempt the commit is not built again until --force; a new commit on main is built
+# normally. A commit without a release (yet) is not a failure: it is looked at again next time.
+# pull.sh deploys from $STORE.
 set -euo pipefail
 umask 022
 
@@ -36,6 +42,16 @@ MAX_ATTEMPTS="${AGENTHOLD_BUILD_MAX_ATTEMPTS:-3}"
 RETRY_DELAY="${AGENTHOLD_BUILD_RETRY_DELAY:-900}"
 KEEP_LOGS=20
 GOMAXPROCS_BUILD="${AGENTHOLD_BUILD_GOMAXPROCS:-4}"
+# The base URL of a controller (https://demo.agenthold.dev): build the release it runs (GET
+# /api/v1/version) instead of main's head, so a node built here runs exactly its controller's version.
+FOLLOW="${AGENTHOLD_BUILD_FOLLOW:-}"
+# Where release binaries are downloaded from: <RELEASES>/sha-<commit>/<file>. A file:// directory of
+# the same shape works too (tests). "local" builds the binary here instead (scripts/release/build.sh),
+# for hosts that do not use the GitHub releases.
+RELEASES="${AGENTHOLD_BUILD_RELEASES:-https://github.com/gempir/agenthold/releases/download}"
+# How far back from main's head to look for the newest commit that has a release (docs-only
+# commits skip CI and have none).
+LOOKBACK="${AGENTHOLD_BUILD_LOOKBACK:-20}"
 
 commit=""
 force=0
@@ -47,12 +63,19 @@ while (($#)); do
   esac
 done
 [[ $EUID -eq 0 ]] || { echo 'build-local.sh runs as root (KVM tests and the rootfs build need it)' >&2; exit 1; }
-[[ "$(uname -m)" == aarch64 ]] || { echo 'the demo builder runs on arm64 Linux' >&2; exit 1; }
+case "$(uname -m)" in
+  aarch64) ARCH=arm64 ;;
+  x86_64) ARCH=amd64 ;;
+  *) echo 'the builder runs on arm64 or amd64 Linux' >&2; exit 1 ;;
+esac
+[[ -z "$FOLLOW" || "$FOLLOW" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]] || { echo "invalid AGENTHOLD_BUILD_FOLLOW $FOLLOW: a controller base URL" >&2; exit 2; }
 [[ "$STORE" == /* && "$FAILED" == /* && "$STATE" == /* && "$CACHE" == /* && "$LOGS" == /* ]] || { echo 'paths must be absolute' >&2; exit 2; }
-[[ "$MIN_FREE_GB" =~ ^[0-9]+$ && "$GOMAXPROCS_BUILD" =~ ^[1-9][0-9]*$ ]] || { echo 'invalid limits' >&2; exit 2; }
+[[ "$MIN_FREE_GB" =~ ^[0-9]+$ && "$GOMAXPROCS_BUILD" =~ ^[1-9][0-9]*$ && "$LOOKBACK" =~ ^[1-9][0-9]*$ ]] || { echo 'invalid limits' >&2; exit 2; }
+[[ "$RELEASES" == local || "$RELEASES" =~ ^(https://[A-Za-z0-9.-]+(:[0-9]+)?|file://)(/[A-Za-z0-9._~-]+)*$ ]] || { echo "invalid AGENTHOLD_BUILD_RELEASES $RELEASES" >&2; exit 2; }
+proto='=https'; [[ "$RELEASES" == file://* ]] && proto='=file'
 [[ "$MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ && "$RETRY_DELAY" =~ ^[0-9]+$ ]] || { echo 'invalid retry limits' >&2; exit 2; }
 id -u "$BUILD_USER" >/dev/null 2>&1 || { echo "build user $BUILD_USER does not exist" >&2; exit 1; }
-for tool in git go node pnpm jq zstd sha256sum flock systemd-run make; do
+for tool in git go node pnpm jq zstd sha256sum flock systemd-run make curl; do
   command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
 done
 
@@ -69,14 +92,28 @@ if [[ ! -d "$mirror" ]]; then
 fi
 as_user git -C "$mirror" fetch --quiet --prune "$REPO_URL" "+refs/heads/$BRANCH:refs/heads/$BRANCH"
 head="$(as_user git -C "$mirror" rev-parse --verify "refs/heads/$BRANCH^{commit}")"
+if [[ -z "$commit" && -n "$FOLLOW" ]]; then
+  # Not a failure: the controller may be restarting. The next timer run asks again.
+  commit="$(curl -fsS --proto =https,http --max-time 20 "${FOLLOW%/}/api/v1/version" |
+    jq -er '.version | select(type == "string" and test("^sha-[0-9a-f]{40}$")) | ltrimstr("sha-")')" ||
+    { echo "cannot read the release ${FOLLOW%/} runs; nothing to build"; exit 0; }
+  echo "${FOLLOW%/} runs $commit"
+fi
+# released <commit>: whether the commit's release has this architecture's binary.
+released() { [[ "$RELEASES" == local ]] && return 0; curl -fsS --proto "$proto" --head --location --max-time 20 -o /dev/null "$RELEASES/sha-$1/agenthold-linux-$ARCH"; }
 if [[ -z "$commit" ]]; then
-  commit="$head"
+  while read -r c; do
+    if released "$c"; then commit="$c"; break; fi
+  done < <(as_user git -C "$mirror" rev-list --max-count="$LOOKBACK" "$head")
+  [[ -n "$commit" ]] || { echo "none of the newest $LOOKBACK commits on $BRANCH has a release yet; nothing to build"; exit 0; }
+  [[ "$commit" == "$head" ]] || echo "newest released commit is $commit (main head $head)"
 else
   [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo '--commit takes a full 40-hex commit' >&2; exit 2; }
   as_user git -C "$mirror" merge-base --is-ancestor "$commit" "$head" || { echo "$commit is not on $BRANCH" >&2; exit 1; }
 fi
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo 'unexpected commit id' >&2; exit 1; }
 version="sha-$commit"
+if [[ -n "$FOLLOW" ]] && ! released "$commit"; then echo "$commit has no release for $ARCH yet; nothing to build"; exit 0; fi
 
 # Failed attempts of a commit. A record from before attempts were counted holds one attempt.
 failed_attempts() {
@@ -218,53 +255,83 @@ phase() {
   return "$rc"
 }
 
+# --- the release binary -------------------------------------------------------------------------
+# Downloaded before anything is built: its embedded manifest names the kernel and base this commit
+# needs. It must be the binary of this commit (version) for this architecture.
+rel="$STATE/work/$commit.release"
+rm -rf -- "$rel"
+install -d -m 0755 "$rel"
+if [[ "$RELEASES" == local ]]; then
+  # Built as the build user right after the web phase; checked there.
+  chown "$BUILD_USER:$BUILD_USER" "$rel"
+fi
+[[ "$RELEASES" == local ]] || for f in SHA256SUMS "agenthold-linux-$ARCH" "runtime-linux-$ARCH.manifest.json"; do
+  curl -fsSL --proto "$proto" --proto-redir "$proto" --retry 3 --max-time 600 -o "$rel/$f" "$RELEASES/$version/$f"
+done
+check_release() {
+(cd "$rel" && grep -E "  (agenthold-linux-$ARCH|runtime-linux-$ARCH\.manifest\.json)\$" SHA256SUMS | sha256sum --check --strict --quiet) ||
+  { echo 'release files do not match their SHA256SUMS' >&2; exit 1; }
+[[ "$(grep -cE "  (agenthold-linux-$ARCH|runtime-linux-$ARCH\.manifest\.json)\$" "$rel/SHA256SUMS")" == 2 ]] || { echo 'SHA256SUMS does not cover the release files' >&2; exit 1; }
+chmod 0755 "$rel/agenthold-linux-$ARCH"
+[[ "$("$rel/agenthold-linux-$ARCH" --version)" == "agenthold $version ("* ]] || { echo 'release binary version does not match' >&2; exit 1; }
+want_kernel="$(jq -er --arg v "$version" --arg arch "$ARCH" 'select(.format == 2 and .version == $v and .arch == $arch) | .kernel.key' "$rel/runtime-linux-$ARCH.manifest.json")" &&
+want_base="$(jq -er '.base.key' "$rel/runtime-linux-$ARCH.manifest.json")" ||
+  { echo 'release runtime manifest does not describe this commit' >&2; exit 1; }
+kernel_key="$(cd "$wt" && bash scripts/guest/kernel-key.sh)"
+base_key="$(cd "$wt" && bash scripts/guest/base-key.sh)"
+[[ "$kernel_key" == "$want_kernel" && "$base_key" == "$want_base" ]] ||
+  { echo "release names kernel $want_kernel and base $want_base, the source $kernel_key and $base_key" >&2; exit 1; }
+echo "==> release $version: kernel $kernel_key, base $base_key"
+}
+[[ "$RELEASES" == local ]] || check_release
+
 # Cheap checks first, then the expensive ones.
 phase deploy-tests user bash -c 'bash scripts/deploy/pull_test.sh && bash scripts/deploy/bootstrap_test.sh'
 phase test-go user make test-go
 phase web user make web
+if [[ "$RELEASES" == local ]]; then
+  phase binary user env VERSION="$version" bash scripts/release/build.sh --out "$rel"
+  check_release
+fi
 
-# The guest kernel only changes with its inputs: cache it by their hash (like CI did).
-kernel_key="$(cd "$wt" && { sha256sum scripts/guest/build-kernel.sh; find scripts/guest/kernel -type f -print0 | sort -z | xargs -0 sha256sum; } | sha256sum | cut -c1-32)"
+# The guest kernel only changes with its inputs: cache it by its key.
 kernel_cache="$CACHE/kernel/$kernel_key"
+guest="$wt/build/guest/$ARCH"
+install -d -o "$BUILD_USER" -g "$BUILD_USER" "$wt/build" "$wt/build/guest" "$guest"
 if [[ ! -f "$kernel_cache/kernel.manifest.json" ]]; then
   phase kernel user bash scripts/guest/build-kernel.sh
   tmpk="$(mktemp -d "$CACHE/kernel/.tmp.XXXXXX")"
-  cp -- "$wt/build/guest/arm64/kernel.manifest.json" "$wt/build/guest/arm64/$(jq -er .file "$wt/build/guest/arm64/kernel.manifest.json")" "$tmpk/"
+  cp -- "$guest/kernel.manifest.json" "$guest/$(jq -er .file "$guest/kernel.manifest.json")" "$tmpk/"
   chmod 0755 "$tmpk"
   rm -rf -- "$kernel_cache"
   mv -- "$tmpk" "$kernel_cache"
   find "$CACHE/kernel" -mindepth 1 -maxdepth 1 -type d ! -name "$kernel_key" -mtime +30 -exec rm -rf -- {} +
 else
   echo "==> kernel: cached ($kernel_key)"
-  install -d -o "$BUILD_USER" -g "$BUILD_USER" "$wt/build" "$wt/build/guest" "$wt/build/guest/arm64"
-  cp -- "$kernel_cache"/* "$wt/build/guest/arm64/"
+  cp -- "$kernel_cache"/* "$guest/"
 fi
+printf '%s\n' "$kernel_key" > "$guest/kernel.key"
 
-# The base image only changes with its own inputs (scripts/guest/base-key.sh; sandboxd is not in it):
-# cache its compressed image and manifest by that key. The cached .zst is hard-linked into the store,
-# and pull.sh hard-links the store's copy into the service's base cache, so consecutive releases with
-# the same base share one copy on disk.
-base_key="$(cd "$wt" && bash scripts/guest/base-key.sh)"
-[[ "$base_key" =~ ^[0-9a-f]{32}$ ]] || { echo 'unexpected base key' >&2; exit 1; }
+# The base image only changes with its own inputs: cache its compressed image and manifest by key.
+# The cached .zst is hard-linked into the store, and pull.sh hard-links the store's copy into the
+# service's base cache, so releases with the same base share one copy on disk.
 # Root's own cache (0700): the build user must not be able to swap the base a release ships.
 base_cache="$CACHE/root/base/$base_key"
-guest="$wt/build/guest/arm64"
-if [[ -f "$base_cache/base-arm64.manifest.json" && -f "$base_cache/base-arm64.ext4.zst" ]]; then
+if [[ -f "$base_cache/base-$ARCH.manifest.json" && -f "$base_cache/base-$ARCH.ext4.zst" ]]; then
   echo "==> base: cached ($base_key)"
-  jq -e --arg key "$base_key" '.inputs.baseKey == $key' "$base_cache/base-arm64.manifest.json" >/dev/null || { echo 'cached base manifest has another key' >&2; exit 1; }
-  install -d -o "$BUILD_USER" -g "$BUILD_USER" "$wt/build" "$wt/build/guest" "$guest"
-  cp -- "$base_cache/base-arm64.manifest.json" "$guest/"
-  ln -f -- "$base_cache/base-arm64.ext4.zst" "$guest/base-arm64.ext4.zst" 2>/dev/null || cp -- "$base_cache/base-arm64.ext4.zst" "$guest/"
-  zstd -d -q -f --long=27 --sparse "$guest/base-arm64.ext4.zst" -o "$guest/base-arm64.ext4"
+  jq -e --arg key "$base_key" '.inputs.baseKey == $key' "$base_cache/base-$ARCH.manifest.json" >/dev/null || { echo 'cached base manifest has another key' >&2; exit 1; }
+  cp -- "$base_cache/base-$ARCH.manifest.json" "$guest/"
+  ln -f -- "$base_cache/base-$ARCH.ext4.zst" "$guest/base-$ARCH.ext4.zst" 2>/dev/null || cp -- "$base_cache/base-$ARCH.ext4.zst" "$guest/"
+  zstd -d -q -f --long=27 --sparse "$guest/base-$ARCH.ext4.zst" -o "$guest/base-$ARCH.ext4"
 fi
 
-phase release root bash scripts/release/build.sh
+phase assets root bash scripts/release/build-assets.sh
 
-if [[ ! -f "$base_cache/base-arm64.ext4.zst" ]]; then
+if [[ ! -f "$base_cache/base-$ARCH.ext4.zst" ]]; then
   install -d -m 0700 "$CACHE/root/base"
   tmpb="$(mktemp -d "$CACHE/root/base/.tmp.XXXXXX")"
-  cp -- "$guest/base-arm64.manifest.json" "$tmpb/"
-  ln -f -- "$guest/base-arm64.ext4.zst" "$tmpb/base-arm64.ext4.zst" 2>/dev/null || cp -- "$guest/base-arm64.ext4.zst" "$tmpb/"
+  cp -- "$guest/base-$ARCH.manifest.json" "$tmpb/"
+  ln -f -- "$guest/base-$ARCH.ext4.zst" "$tmpb/base-$ARCH.ext4.zst" 2>/dev/null || cp -- "$guest/base-$ARCH.ext4.zst" "$tmpb/"
   chown -R root:root "$tmpb"
   chmod 0755 "$tmpb"
   chmod 0644 "$tmpb"/*
@@ -272,52 +339,62 @@ if [[ ! -f "$base_cache/base-arm64.ext4.zst" ]]; then
   mv -T -- "$tmpb" "$base_cache"
 fi
 # Under the lock every KVM experiment on this host takes, so they never run beside these tests.
-phase kvm root flock /tmp/agenthold-kvm.lock make test-kvm
+# The machines boot the release binary itself as their sandboxd.
+phase kvm root env AGENTHOLD_KVM_SANDBOXD="$rel/agenthold-linux-$ARCH" flock /tmp/agenthold-kvm.lock make test-kvm
 
 # --- publish ----------------------------------------------------------------------------------
-out="$wt/build/release/arm64"
-(cd "$out" && sha256sum --check --quiet SHA256SUMS)
-for f in agenthold-linux-arm64 runtime-linux-arm64.manifest.json base-arm64.ext4.zst base-arm64.manifest.json; do
-  grep -q "  $f\$" "$out/SHA256SUMS" || { echo "$f is not covered by SHA256SUMS" >&2; exit 1; }
+assets="$wt/build/assets/$ARCH"
+for kind in kernel base; do
+  key="$kernel_key"; [[ "$kind" == base ]] && key="$base_key"
+  jq -e --arg kind "$kind" --arg arch "$ARCH" --arg key "$key" '.format == 1 and .kind == $kind and .arch == $arch and .key == $key' \
+    "$assets/$kind-$key.json" >/dev/null || { echo "$kind asset manifest does not describe this build" >&2; exit 1; }
+  echo "$(jq -er .compressed.sha256 "$assets/$kind-$key.json")  $assets/$kind-$key.zst" | sha256sum --check --status ||
+    { echo "$kind asset does not match its manifest" >&2; exit 1; }
 done
-jq -e --arg v "$version" '.format == 1 and .arch == "arm64" and .version == $v and .base.url == ""' "$out/runtime-linux-arm64.manifest.json" >/dev/null ||
-  { echo 'runtime manifest does not describe this build' >&2; exit 1; }
-[[ "$("$out/agenthold-linux-arm64" --version)" == "agenthold $version ("* ]] || { echo 'binary version does not match' >&2; exit 1; }
+# Assets are named by key and shared by every release that names them: an existing one stays (a
+# rebuild of the same inputs must not change bytes that deployed nodes already verified).
+store_assets="$STORE/assets/$ARCH"
+install -d -m 0755 "$STORE/assets" "$store_assets"
+for kind in kernel base; do
+  key="$kernel_key"; [[ "$kind" == base ]] && key="$base_key"
+  [[ -f "$store_assets/$kind-$key.json" ]] && { echo "==> $kind $key: already in the store"; continue; }
+  ln -f -- "$assets/$kind-$key.zst" "$store_assets/.$kind-$key.zst.tmp" 2>/dev/null || cp -- "$assets/$kind-$key.zst" "$store_assets/.$kind-$key.zst.tmp"
+  cp -- "$assets/$kind-$key.json" "$store_assets/.$kind-$key.json.tmp"
+  chown root:root "$store_assets/.$kind-$key.zst.tmp" "$store_assets/.$kind-$key.json.tmp"
+  chmod 0644 "$store_assets/.$kind-$key.zst.tmp" "$store_assets/.$kind-$key.json.tmp"
+  mv -f -- "$store_assets/.$kind-$key.zst.tmp" "$store_assets/$kind-$key.zst"
+  mv -f -- "$store_assets/.$kind-$key.json.tmp" "$store_assets/$kind-$key.json"
+done
 stage="$(mktemp -d "$STORE/.stage.XXXXXX")"
-for f in agenthold-linux-arm64 runtime-linux-arm64.manifest.json base-arm64.manifest.json SHA256SUMS; do
-  cp -- "$out/$f" "$stage/$f"
-done
-# The compressed base is the cached one (verified against SHA256SUMS below): link, do not copy.
-if cmp -s -- "$out/base-arm64.ext4.zst" "$base_cache/base-arm64.ext4.zst" &&
-   ln -- "$base_cache/base-arm64.ext4.zst" "$stage/base-arm64.ext4.zst" 2>/dev/null; then
-  echo "==> base: linked from the cache"
-else
-  cp -- "$out/base-arm64.ext4.zst" "$stage/base-arm64.ext4.zst"
-fi
+cp -- "$rel/agenthold-linux-$ARCH" "$rel/runtime-linux-$ARCH.manifest.json" "$stage/"
+(cd "$stage" && sha256sum "agenthold-linux-$ARCH" "runtime-linux-$ARCH.manifest.json" > SHA256SUMS)
 chown -R root:root "$stage"
 chmod 0644 "$stage"/*
-chmod 0755 "$stage" "$stage/agenthold-linux-arm64"
-(cd "$stage" && sha256sum --check --quiet SHA256SUMS)
+chmod 0755 "$stage" "$stage/agenthold-linux-$ARCH"
 if [[ -e "$STORE/$version" ]]; then
-  # Only reached with --force: the old directory goes, the new one takes its name atomically enough
-  # (the channel still points at it, and the bytes of a rebuilt commit are verified by pull.sh).
+  # Only reached with --force: the old directory goes, the new one takes its name.
   rm -rf -- "$STORE/$version"
 fi
 mv -T -- "$stage" "$STORE/$version"
 stage=""
 sync -f "$STORE/$version/SHA256SUMS" 2>/dev/null || sync
 sha() { sha256sum "$1" | cut -d' ' -f1; }
-jq -n --arg commit "$commit" --arg version "$version" --arg built "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  --arg binary "$(sha "$STORE/$version/agenthold-linux-arm64")" --arg manifest "$(sha "$STORE/$version/runtime-linux-arm64.manifest.json")" \
+jq -n --arg commit "$commit" --arg version "$version" --arg built "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg arch "$ARCH" \
+  --arg binary "$(sha "$STORE/$version/agenthold-linux-$ARCH")" --arg manifest "$(sha "$STORE/$version/runtime-linux-$ARCH.manifest.json")" \
   --arg sums "$(sha "$STORE/$version/SHA256SUMS")" \
-  '{format: 2, arch: "arm64", commit: $commit, version: $version, built_at: $built,
-    binary: {path: ($version + "/agenthold-linux-arm64"), sha256: $binary},
-    runtime_manifest: {path: ($version + "/runtime-linux-arm64.manifest.json"), sha256: $manifest},
-    sums: {path: ($version + "/SHA256SUMS"), sha256: $sums}}' > "$STORE/.channel.json.tmp"
+  --arg kkey "$kernel_key" --arg ksha "$(sha "$store_assets/kernel-$kernel_key.json")" \
+  --arg bkey "$base_key" --arg bsha "$(sha "$store_assets/base-$base_key.json")" \
+  '{format: 3, arch: $arch, commit: $commit, version: $version, built_at: $built,
+    binary: {path: ($version + "/agenthold-linux-" + $arch), sha256: $binary},
+    runtime_manifest: {path: ($version + "/runtime-linux-" + $arch + ".manifest.json"), sha256: $manifest},
+    sums: {path: ($version + "/SHA256SUMS"), sha256: $sums},
+    kernel: {key: $kkey, manifest: {path: ("assets/" + $arch + "/kernel-" + $kkey + ".json"), sha256: $ksha}},
+    base: {key: $bkey, manifest: {path: ("assets/" + $arch + "/base-" + $bkey + ".json"), sha256: $bsha}}}' > "$STORE/.channel.json.tmp"
 chmod 0644 "$STORE/.channel.json.tmp"
 mv -f -- "$STORE/.channel.json.tmp" "$STORE/channel.json"
 # A commit that passed on a retry keeps its attempt logs (flaky tests show up there) until they age out.
 rm -f -- "$FAILED/$commit.log" "$FAILED/$commit.attempts"
+rm -rf -- "$rel"
 echo "==> published $version to $STORE"
 # One cached base, cleaned only after a successful publish: older keys stay reachable through the
 # store (hard links), which pull.sh prunes.

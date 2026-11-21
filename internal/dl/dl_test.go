@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -66,7 +67,7 @@ func newFixture(t *testing.T, mutate func(*Config)) *fixture {
 	}
 	f.rel = &runtimeassets.Release{
 		Version: "v1.2.3", Arch: runtime.GOARCH, Manifest: f.manifest,
-		BaseSHA256: strings.Repeat("b", 64), CompressedSHA256: hexSum(f.base), CompressedSize: int64(len(f.base)),
+		KernelKey: strings.Repeat("c", 32), BaseKey: strings.Repeat("d", 32),
 	}
 	exePath := filepath.Join(t.TempDir(), "agenthold")
 	if err := os.WriteFile(exePath, f.exe, 0o755); err != nil {
@@ -85,16 +86,33 @@ func newFixture(t *testing.T, mutate func(*Config)) *fixture {
 	return f
 }
 
+// baseAsset is the manifest of the fixture's base: it pins f.base as the compressed file.
+func (f *fixture) baseAsset() runtimeassets.Asset {
+	a, err := runtimeassets.ParseAsset([]byte(`{"format":1,"kind":"base","arch":"`+runtime.GOARCH+`","key":"`+f.rel.BaseKey+
+		`","sha256":"`+strings.Repeat("b", 64)+`","size":4096,"compressed":{"sha256":"`+hexSum(f.base)+`","size":`+fmt.Sprint(len(f.base))+`}}`), "", "", "")
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return a
+}
+
+// placeBase writes the base's asset manifest and data as its compressed file.
 func (f *fixture) placeBase(data []byte) {
 	f.t.Helper()
-	p := f.rel.CompressedBasePath(f.dataDir)
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		f.t.Fatal(err)
-	}
-	if err := os.WriteFile(p, data, 0o644); err != nil {
-		f.t.Fatal(err)
+	a := f.baseAsset()
+	m := runtimeassets.ManifestPath(f.dataDir, a.Arch, a.Kind, a.Key)
+	raw, _ := json.Marshal(a)
+	for p, b := range map[string][]byte{m: raw, a.CompressedPath(f.dataDir): data} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			f.t.Fatal(err)
+		}
+		if err := os.WriteFile(p, b, 0o644); err != nil {
+			f.t.Fatal(err)
+		}
 	}
 }
+
+func (f *fixture) basePath() string { return f.baseAsset().CompressedPath(f.dataDir) }
 
 func (f *fixture) operatorFile(name string, data []byte) {
 	f.t.Helper()
@@ -127,7 +145,8 @@ func (f *fixture) do(method, path string, hdr map[string]string) (*http.Response
 
 func (f *fixture) paths() (binary, manifest, base string) {
 	v := "/dl/" + f.rel.Version + "/"
-	return v + "agenthold-linux-" + runtime.GOARCH, v + "runtime-linux-" + runtime.GOARCH + ".manifest.json", v + "base-" + runtime.GOARCH + ".ext4.zst"
+	return v + "agenthold-linux-" + runtime.GOARCH, v + "runtime-linux-" + runtime.GOARCH + ".manifest.json",
+		"/dl/assets/" + runtime.GOARCH + "/base-" + f.rel.BaseKey + ".zst"
 }
 
 func TestIndex(t *testing.T) {
@@ -155,7 +174,7 @@ func TestIndex(t *testing.T) {
 	}
 	f.placeBase(f.base)
 	_, body = f.do("GET", "/dl/manifest.json", nil)
-	if err := json.Unmarshal(body, &got); err != nil || got.Arch[a]["base"] != "v1.2.3/base-"+a+".ext4.zst" {
+	if err := json.Unmarshal(body, &got); err != nil || got.Arch[a]["base"] != "assets/"+a+"/base-"+f.rel.BaseKey || got.Arch[a]["kernel"] != "" {
 		t.Fatalf("index with a base: %s %v", body, err)
 	}
 	if resp, _ := f.do("HEAD", "/dl/manifest.json", nil); resp.StatusCode != http.StatusOK || resp.Header.Get("ETag") == "" {
@@ -216,10 +235,10 @@ func TestBaseServedOnlyWhenItIsTheVerifiedFile(t *testing.T) {
 	f := newFixture(t, nil)
 	_, _, base := f.paths()
 	resp, body := f.do("GET", base, nil)
-	if resp.StatusCode != http.StatusNotFound || !strings.Contains(string(body), "no base image") {
+	if resp.StatusCode != http.StatusNotFound || !strings.Contains(string(body), "no base") {
 		t.Fatalf("missing base: %d %s", resp.StatusCode, body)
 	}
-	if !strings.Contains(f.logs.String(), "does not exist") {
+	if !strings.Contains(f.logs.String(), "no such file") {
 		t.Fatalf("the reason belongs in the log:\n%s", f.logs)
 	}
 	wrong := bytes.Repeat([]byte("x"), len(f.base)) // right size, wrong content
@@ -228,7 +247,7 @@ func TestBaseServedOnlyWhenItIsTheVerifiedFile(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound || !strings.Contains(f.logs.String(), "does not match the sha256") {
 		t.Fatalf("wrong base: %d %s\n%s", resp.StatusCode, body, f.logs)
 	}
-	for _, leak := range []string{f.dataDir, "sha256", "no such file", ".ext4.zst", f.rel.CompressedSHA256} {
+	for _, leak := range []string{f.dataDir, "sha256", "no such file", ".ext4.zst", f.baseAsset().CompressedSHA256()} {
 		if strings.Contains(string(body), leak) {
 			t.Fatalf("response discloses %q: %s", leak, body)
 		}
@@ -241,21 +260,21 @@ func TestBaseServedOnlyWhenItIsTheVerifiedFile(t *testing.T) {
 	f.placeBase(f.base)
 	// The file was rewritten with the right content; the cached verdict follows (size, mtime).
 	future := time.Now().Add(time.Hour)
-	if err := os.Chtimes(f.rel.CompressedBasePath(f.dataDir), future, future); err != nil {
+	if err := os.Chtimes(f.basePath(), future, future); err != nil {
 		t.Fatal(err)
 	}
 	resp, body = f.do("GET", base, nil)
-	if resp.StatusCode != http.StatusOK || !bytes.Equal(body, f.base) || resp.Header.Get("ETag") != `"`+f.rel.CompressedSHA256+`"` {
+	if resp.StatusCode != http.StatusOK || !bytes.Equal(body, f.base) || resp.Header.Get("ETag") != `"`+f.baseAsset().CompressedSHA256()+`"` {
 		t.Fatalf("base: %d etag=%s", resp.StatusCode, resp.Header.Get("ETag"))
 	}
-	resp, body = f.do("GET", base, map[string]string{"Range": "bytes=1000-1999", "If-Range": `"` + f.rel.CompressedSHA256 + `"`})
+	resp, body = f.do("GET", base, map[string]string{"Range": "bytes=1000-1999", "If-Range": `"` + f.baseAsset().CompressedSHA256() + `"`})
 	if resp.StatusCode != http.StatusPartialContent || !bytes.Equal(body, f.base[1000:2000]) {
 		t.Fatalf("base range: %d", resp.StatusCode)
 	}
 	// Replaced by something else behind our back: not served any more.
 	f.placeBase(wrong)
 	later := future.Add(time.Hour)
-	if err := os.Chtimes(f.rel.CompressedBasePath(f.dataDir), later, later); err != nil {
+	if err := os.Chtimes(f.basePath(), later, later); err != nil {
 		t.Fatal(err)
 	}
 	if resp, _ = f.do("GET", base, nil); resp.StatusCode != http.StatusNotFound {

@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"net/http"
@@ -36,9 +35,9 @@ func digest(b []byte) artifact {
 	return artifact{SHA256: hex.EncodeToString(h[:]), Size: int64(len(b))}
 }
 
-func fixture(t *testing.T) (manifest, fstest.MapFS, []byte, []byte) {
+func fixture(t *testing.T) (fixtureManifest, fstest.MapFS, []byte, []byte) {
 	t.Helper()
-	m := manifest{Format: 1, Version: "v1.2.3", Arch: runtime.GOARCH, Files: map[string]artifact{}}
+	m := fixtureManifest{manifest: manifest{Format: 2, Version: "v1.2.3", Arch: runtime.GOARCH, Files: map[string]artifact{}}}
 	files := fstest.MapFS{}
 	for _, name := range bundledNames {
 		data := []byte("verified " + name)
@@ -52,18 +51,9 @@ func fixture(t *testing.T) (manifest, fstest.MapFS, []byte, []byte) {
 	}
 	compressed := encoder.EncodeAll(raw, nil)
 	_ = encoder.Close()
-	m.Base = baseArtifact{artifact: digest(raw), URL: "https://example.invalid/base.ext4.zst", Compressed: digest(compressed)}
+	m.Base = fixtureBase{baseArtifact: baseArtifact{artifact: digest(raw), Compressed: digest(compressed)}, URL: "https://example.invalid/base.ext4.zst"}
 	setManifest(t, files, m)
 	return m, files, raw, compressed
-}
-
-func setManifest(t *testing.T, files fstest.MapFS, m manifest) {
-	t.Helper()
-	data, err := json.Marshal(m)
-	if err != nil {
-		t.Fatal(err)
-	}
-	files["manifest.json"] = &fstest.MapFile{Data: data}
 }
 
 func assertNoTemps(t *testing.T, dir string) {
@@ -90,7 +80,7 @@ func TestPrepareDownloadCacheRepairAndOffline(t *testing.T) {
 	m.Base.URL = srv.URL + "/pinned.ext4.zst"
 	setManifest(t, files, m)
 	dir := privateDir(t)
-	paths, err := prepare(t.Context(), dir, files, srv.Client(), Options{})
+	paths, err := prepareT(t.Context(), dir, files, srv.Client(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +108,7 @@ func TestPrepareDownloadCacheRepairAndOffline(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv.Close() // A verified pre-placed base is sufficient for a fully offline startup.
-	if _, err := prepare(t.Context(), dir, files, srv.Client(), Options{}); err != nil {
+	if _, err := prepareT(t.Context(), dir, files, srv.Client(), Options{}); err != nil {
 		t.Fatal(err)
 	}
 	got, err = os.ReadFile(paths.Firecracker)
@@ -137,7 +127,7 @@ func TestPreparePreplacedBase(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "base", m.Base.SHA256+".ext4"), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepare(t.Context(), dir, files, &http.Client{Timeout: time.Millisecond}, Options{}); err != nil {
+	if _, err := prepareT(t.Context(), dir, files, &http.Client{Timeout: time.Millisecond}, Options{}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -173,7 +163,7 @@ func TestPrepareCorruption(t *testing.T) {
 			defer srv.Close()
 			m.Base.URL = srv.URL
 			setManifest(t, files, m)
-			if _, err := prepare(t.Context(), dir, files, srv.Client(), Options{}); err == nil {
+			if _, err := prepareT(t.Context(), dir, files, srv.Client(), Options{}); err == nil {
 				t.Fatal("corrupt artifact accepted")
 			}
 			if kind == "preplaced" && requests.Load() != 0 {
@@ -205,7 +195,7 @@ func TestPrepareCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { _, err := prepare(ctx, dir, files, srv.Client(), Options{}); done <- err }()
+	go func() { _, err := prepareT(ctx, dir, files, srv.Client(), Options{}); done <- err }()
 	select {
 	case <-started:
 		canonical, err := filepath.EvalSymlinks(dir)
@@ -271,7 +261,7 @@ func TestManifestAndUnsafePaths(t *testing.T) {
 				}
 			}
 			setManifest(t, files, m)
-			if _, err := prepare(t.Context(), dir, files, &http.Client{Timeout: time.Millisecond}, Options{}); err == nil {
+			if _, err := prepareT(t.Context(), dir, files, &http.Client{Timeout: time.Millisecond}, Options{}); err == nil {
 				t.Fatal("unsafe manifest or directory accepted")
 			}
 		})

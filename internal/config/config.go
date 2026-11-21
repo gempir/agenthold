@@ -249,11 +249,13 @@ type Firecracker struct {
 	Jailer    string `yaml:"jailer"`
 	Kernel    string `yaml:"kernel"`
 	BaseImage string `yaml:"base_image"`
-	// BaseURL is where a release build fetches its base image from when it is not on disk yet:
-	// the /dl/ root of another agenthold (https://demo.agenthold.dev/dl/, ending in "/") or the
-	// URL of the compressed image itself. The image is checked against checksums embedded in the
-	// binary, so the source needs no trust. Default: the controller an edge node joined, else
-	// the URL in the release. AGENTHOLD_FIRECRACKER_BASE_URL overrides it.
+	// AssetsURL is where a release build fetches its guest kernel and base image from when they
+	// are not on disk yet: the /dl/ root (ending in "/") of a host that serves this architecture's
+	// assets, for example https://agents.example.com/dl/. The files are checked against the asset
+	// manifests that source publishes, so it must be one you trust. Default: the controller an edge
+	// node joined. AGENTHOLD_FIRECRACKER_ASSETS_URL overrides it.
+	AssetsURL string `yaml:"assets_url"`
+	// BaseURL is the former name of AssetsURL (a /dl/ root), used when AssetsURL is empty.
 	BaseURL   string `yaml:"base_url"`
 	OverlayGB int64  `yaml:"overlay_gb"`
 	HomeGB    int64  `yaml:"home_gb"`
@@ -493,6 +495,7 @@ func applyEnv(cfg *Config) {
 	set(&cfg.DevProxy, "AGENTHOLD_DEV_PROXY")
 	set(&cfg.Preview.HostSuffix, "AGENTHOLD_PREVIEW_HOST_SUFFIX")
 	set(&cfg.Sandbox.Firecracker.BaseURL, "AGENTHOLD_FIRECRACKER_BASE_URL")
+	set(&cfg.Sandbox.Firecracker.AssetsURL, "AGENTHOLD_FIRECRACKER_ASSETS_URL")
 	if cfg.DevProxy == "off" { // serve the embedded build even if the file sets a dev proxy
 		cfg.DevProxy = ""
 	}
@@ -738,9 +741,10 @@ func (c *Config) Validate() error {
 	if c.Sandbox.Firecracker.SnapshotMaxGB < 0 || c.Sandbox.Firecracker.SnapshotReserveGB < 0 {
 		errs = append(errs, errors.New("sandbox.firecracker: snapshot_max_gb and snapshot_reserve_gb must not be negative"))
 	}
-	if u := c.Sandbox.Firecracker.BaseURL; u != "" {
-		if p, err := url.Parse(u); err != nil || p.Host == "" || p.User != nil || p.Fragment != "" || (p.Scheme != "https" && p.Scheme != "http") {
-			errs = append(errs, fmt.Errorf("sandbox.firecracker.base_url: want an absolute HTTP(S) URL without credentials, got %q", u))
+	for name, u := range map[string]string{"assets_url": c.Sandbox.Firecracker.AssetsURL, "base_url": c.Sandbox.Firecracker.BaseURL} {
+		if p, err := url.Parse(u); u != "" && (err != nil || p.Host == "" || p.User != nil || p.Fragment != "" || p.RawQuery != "" ||
+			(p.Scheme != "https" && p.Scheme != "http") || !strings.HasSuffix(p.Path, "/")) {
+			errs = append(errs, fmt.Errorf("sandbox.firecracker.%s: want the /dl/ root of an asset source, an absolute HTTP(S) URL without credentials ending in \"/\", got %q", name, u))
 		}
 	}
 	seen := map[string]bool{}

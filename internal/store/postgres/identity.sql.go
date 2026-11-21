@@ -204,7 +204,7 @@ func (q *Queries) GetIdentity(ctx context.Context, arg GetIdentityParams) (Ident
 }
 
 const getSessionUser = `-- name: GetSessionUser :one
-SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, users.role, users.role_override, sessions.expires_at, sessions.created_at
+SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, users.role, users.role_override, users.thread_auto_settle_days, sessions.expires_at, sessions.created_at
 FROM sessions JOIN users ON users.id = sessions.user_id
 WHERE sessions.token_hash = $1 AND sessions.expires_at > $2
 `
@@ -233,6 +233,7 @@ func (q *Queries) GetSessionUser(ctx context.Context, arg GetSessionUserParams) 
 		&i.User.UpdatedAt,
 		&i.User.Role,
 		&i.User.RoleOverride,
+		&i.User.ThreadAutoSettleDays,
 		&i.ExpiresAt,
 		&i.CreatedAt,
 	)
@@ -240,7 +241,7 @@ func (q *Queries) GetSessionUser(ctx context.Context, arg GetSessionUserParams) 
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, email, email_verified, name, avatar_url, created_at, updated_at, role, role_override FROM users WHERE id = $1
+SELECT id, email, email_verified, name, avatar_url, created_at, updated_at, role, role_override, thread_auto_settle_days FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUser(ctx context.Context, id string) (User, error) {
@@ -256,6 +257,7 @@ func (q *Queries) GetUser(ctx context.Context, id string) (User, error) {
 		&i.UpdatedAt,
 		&i.Role,
 		&i.RoleOverride,
+		&i.ThreadAutoSettleDays,
 	)
 	return i, err
 }
@@ -318,7 +320,7 @@ func (q *Queries) ListIdentities(ctx context.Context) ([]ListIdentitiesRow, erro
 }
 
 const listUsersByVerifiedEmail = `-- name: ListUsersByVerifiedEmail :many
-SELECT id, email, email_verified, name, avatar_url, created_at, updated_at, role, role_override FROM users WHERE LOWER(email) = LOWER($1) AND email_verified = 1 ORDER BY created_at
+SELECT id, email, email_verified, name, avatar_url, created_at, updated_at, role, role_override, thread_auto_settle_days FROM users WHERE LOWER(email) = LOWER($1) AND email_verified = 1 ORDER BY created_at
 `
 
 // Users with this verified email, for sharing. Emails are compared case-insensitively.
@@ -341,6 +343,7 @@ func (q *Queries) ListUsersByVerifiedEmail(ctx context.Context, lower string) ([
 			&i.UpdatedAt,
 			&i.Role,
 			&i.RoleOverride,
+			&i.ThreadAutoSettleDays,
 		); err != nil {
 			return nil, err
 		}
@@ -356,7 +359,7 @@ func (q *Queries) ListUsersByVerifiedEmail(ctx context.Context, lower string) ([
 }
 
 const listUsersWithIdentity = `-- name: ListUsersWithIdentity :many
-SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, users.role, users.role_override,
+SELECT users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, users.role, users.role_override, users.thread_auto_settle_days,
     CAST(COALESCE((SELECT i.provider FROM identities i WHERE i.user_id = users.id ORDER BY i.created_at LIMIT 1), '') AS TEXT) AS provider,
     CAST(COALESCE((SELECT i.username FROM identities i WHERE i.user_id = users.id ORDER BY i.created_at LIMIT 1), '') AS TEXT) AS username,
     CAST(COALESCE((SELECT MAX(i.last_login_at) FROM identities i WHERE i.user_id = users.id), 0) AS BIGINT) AS last_login_at,
@@ -365,19 +368,20 @@ FROM users ORDER BY users.created_at
 `
 
 type ListUsersWithIdentityRow struct {
-	ID            string
-	Email         string
-	EmailVerified int64
-	Name          string
-	AvatarUrl     string
-	CreatedAt     int64
-	UpdatedAt     int64
-	Role          string
-	RoleOverride  string
-	Provider      string
-	Username      string
-	LastLoginAt   int64
-	Agents        int64
+	ID                   string
+	Email                string
+	EmailVerified        int64
+	Name                 string
+	AvatarUrl            string
+	CreatedAt            int64
+	UpdatedAt            int64
+	Role                 string
+	RoleOverride         string
+	ThreadAutoSettleDays int64
+	Provider             string
+	Username             string
+	LastLoginAt          int64
+	Agents               int64
 }
 
 // The admin users list: every user, the provider and username they signed
@@ -401,6 +405,7 @@ func (q *Queries) ListUsersWithIdentity(ctx context.Context) ([]ListUsersWithIde
 			&i.UpdatedAt,
 			&i.Role,
 			&i.RoleOverride,
+			&i.ThreadAutoSettleDays,
 			&i.Provider,
 			&i.Username,
 			&i.LastLoginAt,
@@ -478,6 +483,21 @@ type SetUserRoleOverrideParams struct {
 
 func (q *Queries) SetUserRoleOverride(ctx context.Context, arg SetUserRoleOverrideParams) error {
 	_, err := q.db.ExecContext(ctx, setUserRoleOverride, arg.RoleOverride, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const setUserThreadAutoSettleDays = `-- name: SetUserThreadAutoSettleDays :exec
+UPDATE users SET thread_auto_settle_days = $1, updated_at = $2 WHERE id = $3
+`
+
+type SetUserThreadAutoSettleDaysParams struct {
+	ThreadAutoSettleDays int64
+	UpdatedAt            int64
+	ID                   string
+}
+
+func (q *Queries) SetUserThreadAutoSettleDays(ctx context.Context, arg SetUserThreadAutoSettleDaysParams) error {
+	_, err := q.db.ExecContext(ctx, setUserThreadAutoSettleDays, arg.ThreadAutoSettleDays, arg.UpdatedAt, arg.ID)
 	return err
 }
 

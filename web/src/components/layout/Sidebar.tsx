@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Link,
@@ -9,6 +9,7 @@ import {
 import {
   AppWindow,
   Bot,
+  Check,
   ChevronRight,
   Layers,
   LayoutDashboard,
@@ -21,6 +22,7 @@ import {
   Settings,
   SquarePen,
   Sun,
+  Undo2,
   Users,
   X,
 } from 'lucide-react';
@@ -28,17 +30,28 @@ import { api, unwrap } from '@/api/client';
 import { appsQuery, meQuery } from '@/api/queries';
 import { ROLE_LABEL } from '@/lib/roles';
 import { AgentStateDot } from '@/components/AgentStateBadge';
+import { AgentBadge } from '@/components/AgentBadge';
 import { Avatar } from '@/components/Avatar';
 import { ErrorText } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
-import { useShell } from '@/components/layout/shell';
+import { readPref, useShell, writePref } from '@/components/layout/shell';
 import { useChatIndex, type ChatEntry } from '@/hooks/useChatIndex';
+import { useJustFinished } from '@/hooks/useJustFinished';
+import { useSettle } from '@/hooks/useSettle';
 import { getTheme, setTheme, type Theme } from '@/lib/theme';
 import { relTime, useNow } from '@/lib/time';
 import { cn } from '@/lib/utils';
 
-const CHATS_PAGE = 40;
+const THREADS_PAGE = 40;
+const SETTLED_PREVIEW = 10;
+const SETTLED_PAGE = 50;
 const AGENTS_PREVIEW = 6;
+/** localStorage key (agenthold.<key>) of the Settled section's fold. */
+export const SETTLED_OPEN_PREF = 'sidebar.settledOpen';
+
+/** Who may settle: whoever may send prompts to the agent. */
+const canUse = (c: ChatEntry) =>
+  c.agent.role === 'owner' || c.agent.role === 'shared';
 
 export function Sidebar({ onClose }: { onClose?: () => void }) {
   const shell = useShell();
@@ -48,11 +61,25 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const search = useSearch({ strict: false }) as { s?: string };
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
-  const [chatLimit, setChatLimit] = useState(CHATS_PAGE);
+  const [threadLimit, setThreadLimit] = useState(THREADS_PAGE);
+  const [settledLimit, setSettledLimit] = useState(SETTLED_PREVIEW);
+  const [settledOpen, setSettledOpenState] = useState(
+    () => readPref(SETTLED_OPEN_PREF, '') === '1',
+  );
   const [agentsOpen, setAgentsOpen] = useState(true);
   const [allAgents, setAllAgents] = useState(false);
-  const [workingOpen, setWorkingOpen] = useState(true);
+  const settle = useSettle();
+  const settledListId = useId();
   const now = useNow(30_000);
+  const done = useJustFinished(
+    index.active.map((c) => c.session),
+    search.s,
+  );
+
+  const setSettledOpen = (o: boolean) => {
+    setSettledOpenState(o);
+    writePref(SETTLED_OPEN_PREF, o ? '1' : '');
+  };
 
   const q = query.trim().toLowerCase();
   const matches = (...xs: string[]) =>
@@ -61,16 +88,21 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const agents = index.agents.filter(({ agent }) =>
     matches(agent.name, agent.owner.name),
   );
-  const chats = index.chats.filter(({ session, agent }) =>
-    matches(session.title, agent.name),
-  );
-  const working = chats.filter((c) => c.session.running);
+  const threadMatches = ({ session, agent }: ChatEntry) =>
+    matches(session.title, agent.name);
+  const active = index.active.filter(threadMatches);
+  const settled = index.settled.filter(threadMatches);
+  // A search looks into settled threads too.
+  const showSettled = settledOpen || (!!q && settled.length > 0);
   const shownAgents = allAgents || q ? agents : agents.slice(0, AGENTS_PREVIEW);
 
   const latestSession = (agentId: string) =>
-    index.chats.find((c) => c.agent.id === agentId)?.session.id;
+    (
+      index.active.find((c) => c.agent.id === agentId) ??
+      index.chats.find((c) => c.agent.id === agentId)
+    )?.session.id;
 
-  const newChat = () =>
+  const newThread = () =>
     params.agentId
       ? navigate({ to: '/a/$agentId', params: { agentId: params.agentId } })
       : navigate({ to: '/new' });
@@ -123,7 +155,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             <Search className="size-4 shrink-0" aria-hidden />
             <input
               type="search"
-              aria-label="Search chats and agents"
+              aria-label="Search threads and agents"
               placeholder="Search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -144,9 +176,9 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             variant="ghost"
             size="icon-sm"
             className="text-muted-foreground"
-            aria-label="New chat"
-            title="New chat"
-            onClick={() => void newChat()}
+            aria-label="New thread"
+            title="New thread"
+            onClick={() => void newThread()}
           >
             <SquarePen className="size-4" />
           </Button>
@@ -166,7 +198,55 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-        <ErrorText error={index.error} />
+        <ErrorText error={index.error ?? settle.error} />
+
+        <SectionHeader
+          count={index.loading ? undefined : active.length || undefined}
+        >
+          Threads
+        </SectionHeader>
+        <ul aria-label="Threads" className="mb-3 grid grid-cols-1 gap-1">
+          {index.loading && active.length === 0 && <SkeletonRows n={4} tall />}
+          {!index.loading && active.length === 0 && (
+            <li className="px-2 py-1.5 text-muted-foreground">
+              {q
+                ? 'No matching active threads.'
+                : index.settled.length > 0
+                  ? 'No active threads. Settled ones are below.'
+                  : 'No threads yet.'}
+            </li>
+          )}
+          {active.slice(0, threadLimit).map((c) => (
+            <ThreadCard
+              key={c.session.id}
+              chat={c}
+              now={now}
+              active={search.s === c.session.id}
+              done={done.has(c.session.id)}
+              me={me.data?.user.id}
+              onSettle={
+                canUse(c)
+                  ? () => settle.mutate({ session: c.session, settle: true })
+                  : undefined
+              }
+              settling={
+                settle.isPending &&
+                settle.variables?.session.id === c.session.id
+              }
+            />
+          ))}
+          {active.length > threadLimit && (
+            <li>
+              <button
+                type="button"
+                onClick={() => setThreadLimit((l) => l + THREADS_PAGE)}
+                className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                Show more
+              </button>
+            </li>
+          )}
+        </ul>
 
         <SectionHeader
           open={agentsOpen}
@@ -184,17 +264,17 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               </li>
             )}
             {shownAgents.map(({ agent }) => {
-              const active = params.agentId === agent.id;
+              const current = params.agentId === agent.id;
               return (
                 <li key={agent.id} className="group relative">
                   <Link
                     to="/a/$agentId"
                     params={{ agentId: agent.id }}
                     search={{ s: latestSession(agent.id) }}
-                    aria-current={active ? 'page' : undefined}
+                    aria-current={current ? 'page' : undefined}
                     className={cn(
                       'flex h-8 items-center gap-2 rounded-lg pr-9 pl-2 hover:bg-accent/50',
-                      active && 'bg-accent/70',
+                      current && 'bg-accent/70',
                     )}
                   >
                     <AgentStateDot state={agent.state} />
@@ -211,9 +291,9 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                   <Link
                     to="/a/$agentId"
                     params={{ agentId: agent.id }}
-                    aria-label={`New chat with ${agent.name}`}
-                    title="New chat"
-                    className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100"
+                    aria-label={`New thread with ${agent.name}`}
+                    title="New thread"
+                    className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
                   >
                     <Plus className="size-3.5" />
                   </Link>
@@ -237,76 +317,66 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
         )}
 
         <AppsSection query={q} />
-
-        <SectionHeader>Chats</SectionHeader>
-        <ul aria-label="Chats" className="grid grid-cols-1 gap-px">
-          {index.loading && chats.length === 0 && <SkeletonRows n={4} tall />}
-          {!index.loading && chats.length === 0 && (
-            <li className="px-2 py-1.5 text-muted-foreground">
-              {q ? 'No matching chats.' : 'No chats yet.'}
-            </li>
-          )}
-          {chats.slice(0, chatLimit).map((c) => (
-            <ChatRow
-              key={c.session.id}
-              chat={c}
-              now={now}
-              active={search.s === c.session.id}
-              me={me.data?.user.id}
-            />
-          ))}
-          {chats.length > chatLimit && (
-            <li>
-              <button
-                type="button"
-                onClick={() => setChatLimit((l) => l + CHATS_PAGE)}
-                className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
-              >
-                Show more
-              </button>
-            </li>
-          )}
-        </ul>
       </div>
 
-      {working.length > 0 && (
-        <div className="shrink-0 border-t px-3 pt-2 pb-1">
-          <SectionHeader
-            open={workingOpen}
-            onToggle={() => setWorkingOpen((o) => !o)}
-            count={working.length}
+      {index.settled.length > 0 && (
+        <div className="shrink-0 border-t px-3 pt-1 pb-1">
+          <button
+            type="button"
+            aria-expanded={showSettled}
+            aria-controls={settledListId}
+            onClick={() => setSettledOpen(!showSettled)}
+            className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
-            Working
-          </SectionHeader>
-          {workingOpen && (
+            <span className="flex-1 text-left">Settled</span>
+            <span className="tabular-nums">
+              {q ? settled.length : index.settled.length}
+            </span>
+            <ChevronRight
+              aria-hidden
+              className={cn(
+                'size-3.5 transition-transform',
+                showSettled && 'rotate-90',
+              )}
+            />
+          </button>
+          {showSettled && (
             <ul
-              aria-label="Working"
-              className="grid max-h-48 grid-cols-1 gap-1 overflow-y-auto"
+              id={settledListId}
+              aria-label="Settled threads"
+              className="grid max-h-[40vh] grid-cols-1 gap-px overflow-y-auto pb-1"
             >
-              {working.map((c) => (
-                <li key={c.session.id}>
-                  <Link
-                    to="/a/$agentId"
-                    params={{ agentId: c.agent.id }}
-                    search={{ s: c.session.id }}
-                    className={cn(
-                      'flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-accent/50',
-                      search.s === c.session.id && 'bg-accent/70',
-                    )}
-                  >
-                    <Loader2
-                      className="size-3.5 shrink-0 animate-spin text-sky-400"
-                      aria-hidden
-                    />
-                    <span className="min-w-0 flex-1 truncate">
-                      {c.session.title}
-                    </span>
-                    <span className="max-w-[40%] truncate text-xs text-muted-foreground">
-                      {c.agent.name}
-                    </span>
-                  </Link>
+              {settled.length === 0 && (
+                <li className="px-2 py-1.5 text-muted-foreground">
+                  No matching settled threads.
                 </li>
+              )}
+              {settled.slice(0, settledLimit).map((c) => (
+                <SettledRow
+                  key={c.session.id}
+                  chat={c}
+                  now={now}
+                  active={search.s === c.session.id}
+                  onUnsettle={
+                    canUse(c)
+                      ? () =>
+                          settle.mutate({ session: c.session, settle: false })
+                      : undefined
+                  }
+                />
               ))}
+              {settled.length > settledLimit && (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => setSettledLimit((l) => l + SETTLED_PAGE)}
+                    className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Show {Math.min(settled.length - settledLimit, SETTLED_PAGE)}{' '}
+                    more
+                  </button>
+                </li>
+              )}
             </ul>
           )}
         </div>
@@ -356,17 +426,25 @@ function SectionHeader({
   );
 }
 
-function ChatRow({
+/** An active thread: agent, title, and how it stands; Settle on hover. */
+function ThreadCard({
   chat: { session, agent },
   now,
   active,
+  done,
   me,
+  onSettle,
+  settling,
 }: {
   chat: ChatEntry;
   now: number;
   active: boolean;
+  done: boolean;
   me?: string;
+  onSettle?: () => void;
+  settling: boolean;
 }) {
+  const title = session.title || 'New thread';
   const by =
     session.origin != null
       ? `from ${session.origin.agentName}`
@@ -374,42 +452,126 @@ function ChatRow({
         ? `by ${session.createdBy.name}`
         : null;
   return (
-    <li>
+    <li className="group relative">
       <Link
         to="/a/$agentId"
         params={{ agentId: agent.id }}
         search={{ s: session.id }}
         aria-current={active ? 'page' : undefined}
         className={cn(
-          'grid grid-cols-1 gap-0.5 rounded-lg px-2 py-2 hover:bg-accent/50',
-          active && 'bg-accent/70 hover:bg-accent/70',
+          'grid grid-cols-1 gap-0.5 rounded-xl border border-transparent px-2.5 py-2 hover:border-border hover:bg-accent/40',
+          active && 'border-border bg-accent/70 hover:bg-accent/70',
         )}
       >
-        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="min-w-0 flex-1 truncate">{agent.name}</span>
-          <span className="shrink-0 tabular-nums">
-            {relTime(session.updatedAt, now)}
-          </span>
-        </span>
-        <span className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 truncate text-[13.5px] text-foreground">
-            {session.title || 'New session'}
-          </span>
-          {session.running && (
-            <Loader2
-              role="img"
-              aria-label="running"
-              className="size-3.5 shrink-0 animate-spin text-sky-400"
+        <span className="flex items-center gap-1.5 pr-16 text-xs text-muted-foreground">
+          <AgentBadge name={agent.name} />
+          <span className="min-w-0 truncate">{agent.name}</span>
+          {agent.role === 'shared' && (
+            <Users
+              className="size-3 shrink-0"
+              aria-label={`shared by ${agent.owner.name}`}
             />
           )}
         </span>
-        {by && (
-          <span className="flex items-center gap-1 truncate text-xs text-muted-foreground">
-            {session.origin && <Bot className="size-3" aria-hidden />}
-            {by}
+        <span className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-foreground">
+            {title}
           </span>
-        )}
+          {session.running ? (
+            <Loader2
+              role="img"
+              aria-label="running"
+              className="size-3.5 shrink-0 animate-spin text-sky-500 dark:text-sky-400"
+            />
+          ) : (
+            done && (
+              <span className="flex shrink-0 items-center gap-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                <Check className="size-3" aria-hidden />
+                Done
+              </span>
+            )
+          )}
+        </span>
+        <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+          {session.origin && <Bot className="size-3 shrink-0" aria-hidden />}
+          <span className="truncate">
+            {[
+              session.running ? 'Working…' : relTime(session.updatedAt, now),
+              by,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+        </span>
       </Link>
+      {onSettle && (
+        <button
+          type="button"
+          onClick={onSettle}
+          disabled={settling}
+          aria-label={`Settle thread ${title}`}
+          title="Settle thread"
+          className="absolute top-1.5 right-1.5 flex h-6 items-center gap-1 rounded-md border bg-background px-1.5 text-xs font-medium text-muted-foreground opacity-0 shadow-xs group-focus-within:opacity-100 group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100 disabled:opacity-50 [@media(hover:none)]:opacity-100"
+        >
+          <Check className="size-3" aria-hidden />
+          Settle
+        </button>
+      )}
+    </li>
+  );
+}
+
+/** A settled thread: compact, with Unsettle on hover. */
+function SettledRow({
+  chat: { session, agent },
+  now,
+  active,
+  onUnsettle,
+}: {
+  chat: ChatEntry;
+  now: number;
+  active: boolean;
+  onUnsettle?: () => void;
+}) {
+  const title = session.title || 'New thread';
+  return (
+    <li className="group relative">
+      <Link
+        to="/a/$agentId"
+        params={{ agentId: agent.id }}
+        search={{ s: session.id }}
+        aria-current={active ? 'page' : undefined}
+        title={`${title} · ${agent.name}`}
+        className={cn(
+          'flex h-8 items-center gap-2 rounded-lg px-2 hover:bg-accent/50',
+          active && 'bg-accent/70',
+        )}
+      >
+        <AgentBadge name={agent.name} />
+        <span className="min-w-0 flex-1 truncate text-muted-foreground group-hover:text-foreground">
+          {title}
+        </span>
+        <span
+          className={cn(
+            'shrink-0 text-xs text-muted-foreground tabular-nums',
+            onUnsettle &&
+              'group-focus-within:invisible group-hover:invisible [@media(hover:none)]:invisible',
+          )}
+        >
+          {relTime(session.updatedAt, now)}
+        </span>
+      </Link>
+      {onUnsettle && (
+        <button
+          type="button"
+          onClick={onUnsettle}
+          aria-label={`Unsettle thread ${title}`}
+          title="Unsettle thread"
+          className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+        >
+          <Undo2 className="size-3.5" />
+        </button>
+      )}
     </li>
   );
 }

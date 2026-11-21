@@ -90,6 +90,10 @@ func (a *API) apiSession(ctx context.Context, s db.AgentSession) (gen.Session, e
 		Id: s.ID, AgentId: s.AgentID, Title: s.Title, Running: a.Sessions.Running(s.ID),
 		CreatedBy: apiUser(u), CreatedAt: ts(s.CreatedAt), UpdatedAt: ts(s.UpdatedAt),
 	}
+	if s.SettledAt.Valid {
+		at, by := ts(s.SettledAt.Int64), settledBy(s.SettledBy)
+		out.SettledAt, out.SettledBy = &at, &by
+	}
 	if c := session.OwnChoice(s); !c.Empty() {
 		m := apiChoice(c)
 		out.Model = &m

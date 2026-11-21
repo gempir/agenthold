@@ -86,3 +86,6 @@ DELETE FROM sessions WHERE user_id = $1;
 -- row lock until the transaction ends; SQLite transactions are already
 -- serialized).
 SELECT id FROM users WHERE id = $1 FOR UPDATE;
+
+-- name: SetUserThreadAutoSettleDays :exec
+UPDATE users SET thread_auto_settle_days = $1, updated_at = $2 WHERE id = $3;

@@ -3,9 +3,9 @@ title: "Slack"
 description: "Chat with your agents from Slack: DMs, channel threads and a slash command, as your linked agenthold account."
 ---
 
-The Slack app does in Slack what the chat does in the web UI: start chats with any agent you can use, see the
-answer stream in (tool calls, plan, notices, errors), stop a turn, answer permission requests, choose a chat's
-model, effort and fast mode, and list, continue, rename and delete chats. Creating and configuring agents stays in
+The Slack app does in Slack what threads do in the web UI: start threads with any agent you can use, see the
+answer stream in (tool calls, plan, notices, errors), stop a turn, answer permission requests, choose a thread's
+model, effort and fast mode, and list, continue, rename and delete threads. Creating and configuring agents stays in
 the web UI.
 
 The app uses [Socket Mode](https://docs.slack.dev/apis/events-api/using-socket-mode): agenthold opens an outbound
@@ -45,20 +45,20 @@ the admin's workspace connection.
 
 ## Chatting
 
-- **DMs.** A message to the bot starts a new chat, in a thread on your message. Replies in the thread continue it.
-- **Channels.** Mention the bot (`@agenthold fix the build`) to start a chat in a thread on that message. Invite
-  the bot first. Replies in that thread go to the chat without a mention, from anyone linked who can use the
+- **DMs.** A message to the bot starts a new thread, in a Slack thread on your message. Replies in the thread continue it.
+- **Channels.** Mention the bot (`@agenthold fix the build`) to start a thread on that message. Invite
+  the bot first. Replies in that Slack thread go to the agenthold thread without a mention, from anyone linked who can use the
   agent; each message is sent as its author. Messages elsewhere, edits and other bots are ignored. A mention
-  inside some other thread binds that thread to a new chat.
+  inside some other Slack thread binds it to a new agenthold thread.
 - **Which agent.** The channel's (or DM's) default agent; otherwise, if you can use exactly one agent, that one;
   otherwise the bot asks you to choose, and sends your message once you did (optionally making the choice the
   default). `/agenthold use <agent>` sets the default; agents are found by name or id, case-insensitively.
 - **Busy.** A message written while a turn runs waits (it gets :hourglass_flowing_sand:) and is sent when the
   turn ends, in order. The web UI does not queue.
 
-Every thread starts with a header: the agent, its state, the chat's model and effort, the agent that started
-the chat if any, and buttons: **Model** (a dialog with the same choices and rules as the web picker: users the
-agent is shared with choose among the models the harness reported), **Rename** and **Delete chat** (under ⋯),
+Every thread starts with a header: the agent, its state, the thread's model and effort, the agent that started
+the thread if any, and buttons: **Model** (a dialog with the same choices and rules as the web picker: users the
+agent is shared with choose among the models the harness reported), **Rename** and **Delete thread** (under ⋯),
 and **Open in web**.
 
 A turn is one bot message, updated as it streams (at most once a second): what the agent is doing (waking,
@@ -73,20 +73,20 @@ as small notes.
 | Command | Does |
 | --- | --- |
 | `/agenthold help` | lists the commands |
-| `/agenthold agents` | your agents and their state, with **Start chat** and **Use here** |
+| `/agenthold agents` | your agents and their state, with **Start thread** and **Use here** |
 | `/agenthold use <agent>` | makes the agent the default here |
-| `/agenthold new [agent] [message]` | starts a chat (in a new thread), optionally with a first message |
-| `/agenthold chats [agent]` | recent chats: **Continue in Slack** posts a new thread bound to the chat, with its last answer; **Open in web** |
+| `/agenthold new [agent] [message]` | starts a thread (in a new Slack thread), optionally with a first message |
+| `/agenthold threads [agent]` | recent threads (settled ones are marked): **Continue in Slack** posts a new Slack thread bound to it, with its last answer; **Open in web**. `chats` still works. |
 | `/agenthold link` / `unlink` | connects or disconnects your agenthold account |
 
-The **Home** tab of the app lists your agents and recent chats the same way.
+The **Home** tab of the app lists your agents and recent threads the same way.
 
 ## What is mirrored
 
-A thread shows its chat's whole activity from when it was bound, whatever started it: a prompt from the web UI,
+A Slack thread shows its agenthold thread's whole activity from when it was bound, whatever started it: a prompt from the web UI,
 another Slack thread, a schedule, a webhook or another agent appears with its author ("*Alice* (web): …"),
 followed by the answer. The rendering follows the session's event log, so nothing depends on where the prompt
-came from. Deleting a chat (in Slack or the web UI) unbinds its threads; deleting an agent or a user removes its
+came from. Deleting a thread (in Slack or the web UI) unbinds its Slack threads; deleting an agent or a user removes its
 bindings.
 
 ## Security
@@ -95,5 +95,5 @@ bindings.
 - Slack user ids are mapped to agenthold users only through the one-time link a signed-in user confirms. Link
   codes are random, stored as SHA-256 hashes and compared in constant time.
 - Access is checked on every action, as the acting user: losing access to an agent stops its Slack threads for
-  that user too. In a channel, a chat's answers are visible to everyone in the channel, like the thread itself;
+  that user too. In a channel, a thread's answers are visible to everyone in the channel, like the thread itself;
   use DMs or private channels for private work.

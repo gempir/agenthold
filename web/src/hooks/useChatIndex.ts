@@ -16,8 +16,9 @@ export interface ChatEntry {
 const SIDEBAR_POLL_MS = 15_000;
 
 /**
- * Everything the user can chat with: their agents, agents shared with them,
- * and every agent's sessions, newest activity first.
+ * Everything the user can talk to: their agents, agents shared with them,
+ * and every agent's threads (sessions in the API), newest activity first:
+ * all of them (chats), and split into active and settled ones.
  *
  * The API has no "sessions across agents" endpoint, so this fans out to one
  * sessions request per agent. Each query shares its cache key with the
@@ -59,5 +60,8 @@ export function useChatIndex() {
   const error =
     agentList.error ?? sessionQs.find((q) => q.error)?.error ?? null;
 
-  return { agents, chats, loading, error };
+  const active = chats.filter((c) => !c.session.settledAt);
+  const settled = chats.filter((c) => c.session.settledAt);
+
+  return { agents, chats, active, settled, loading, error };
 }

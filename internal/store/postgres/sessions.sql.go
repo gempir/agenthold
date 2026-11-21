@@ -7,7 +7,29 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 )
+
+const autoSettleSession = `-- name: AutoSettleSession :execrows
+UPDATE agent_sessions SET settled_at = $1, settled_by = 'auto'
+WHERE id = $2 AND settled_at IS NULL AND status = 'idle'
+  AND GREATEST(updated_at, COALESCE(unsettled_at, 0)) < CAST($3 AS BIGINT)
+`
+
+type AutoSettleSessionParams struct {
+	SettledAt sql.NullInt64
+	ID        string
+	Cutoff    int64
+}
+
+// Settles a candidate unless it saw activity since it was listed.
+func (q *Queries) AutoSettleSession(ctx context.Context, arg AutoSettleSessionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, autoSettleSession, arg.SettledAt, arg.ID, arg.Cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
 
 const createAgentSession = `-- name: CreateAgentSession :exec
 INSERT INTO agent_sessions (id, agent_id, title, created_by, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)
@@ -44,7 +66,7 @@ func (q *Queries) DeleteAgentSession(ctx context.Context, id string) error {
 }
 
 const getAgentSession = `-- name: GetAgentSession :one
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options FROM agent_sessions WHERE id = $1
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, settled_at, settled_by, unsettled_at FROM agent_sessions WHERE id = $1
 `
 
 func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession, error) {
@@ -63,6 +85,9 @@ func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession,
 		&i.OriginSessionID,
 		&i.Model,
 		&i.ModelOptions,
+		&i.SettledAt,
+		&i.SettledBy,
+		&i.UnsettledAt,
 	)
 	return i, err
 }
@@ -109,7 +134,7 @@ func (q *Queries) InsertSessionEvent(ctx context.Context, arg InsertSessionEvent
 }
 
 const linkedSessions = `-- name: LinkedSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options FROM agent_sessions WHERE agent_id = $1 AND origin_agent_id = $2 ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, settled_at, settled_by, unsettled_at FROM agent_sessions WHERE agent_id = $1 AND origin_agent_id = $2 ORDER BY updated_at DESC
 `
 
 type LinkedSessionsParams struct {
@@ -140,6 +165,9 @@ func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) 
 			&i.OriginSessionID,
 			&i.Model,
 			&i.ModelOptions,
+			&i.SettledAt,
+			&i.SettledBy,
+			&i.UnsettledAt,
 		); err != nil {
 			return nil, err
 		}
@@ -155,7 +183,7 @@ func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) 
 }
 
 const listAgentSessions = `-- name: ListAgentSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options FROM agent_sessions WHERE agent_id = $1 ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, settled_at, settled_by, unsettled_at FROM agent_sessions WHERE agent_id = $1 ORDER BY updated_at DESC
 `
 
 func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]AgentSession, error) {
@@ -180,6 +208,56 @@ func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]Agen
 			&i.OriginSessionID,
 			&i.Model,
 			&i.ModelOptions,
+			&i.SettledAt,
+			&i.SettledBy,
+			&i.UnsettledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAutoSettleCandidates = `-- name: ListAutoSettleCandidates :many
+SELECT s.id, s.agent_id, s.title, a.owner_id, u.thread_auto_settle_days
+FROM agent_sessions s JOIN agents a ON a.id = s.agent_id JOIN users u ON u.id = a.owner_id
+WHERE s.settled_at IS NULL AND s.status = 'idle' AND u.thread_auto_settle_days > 0
+  AND GREATEST(s.updated_at, COALESCE(s.unsettled_at, 0)) < CAST($1 AS BIGINT) - u.thread_auto_settle_days * 86400
+ORDER BY s.id
+`
+
+type ListAutoSettleCandidatesRow struct {
+	ID                   string
+	AgentID              string
+	Title                string
+	OwnerID              string
+	ThreadAutoSettleDays int64
+}
+
+// Active, idle sessions whose agent owner's auto-settle period has passed
+// since their last activity or their last unsettle by hand.
+func (q *Queries) ListAutoSettleCandidates(ctx context.Context, now int64) ([]ListAutoSettleCandidatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAutoSettleCandidates, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAutoSettleCandidatesRow{}
+	for rows.Next() {
+		var i ListAutoSettleCandidatesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AgentID,
+			&i.Title,
+			&i.OwnerID,
+			&i.ThreadAutoSettleDays,
 		); err != nil {
 			return nil, err
 		}
@@ -271,6 +349,21 @@ UPDATE agents SET credentials_in_sandbox = 1 WHERE id = $1
 
 func (q *Queries) MarkCredentialsInSandbox(ctx context.Context, id string) error {
 	_, err := q.db.ExecContext(ctx, markCredentialsInSandbox, id)
+	return err
+}
+
+const markSessionRunning = `-- name: MarkSessionRunning :exec
+UPDATE agent_sessions SET status = 'running', updated_at = $1, settled_at = NULL, settled_by = '' WHERE id = $2
+`
+
+type MarkSessionRunningParams struct {
+	UpdatedAt int64
+	ID        string
+}
+
+// A new turn is activity: it also unsettles the session.
+func (q *Queries) MarkSessionRunning(ctx context.Context, arg MarkSessionRunningParams) error {
+	_, err := q.db.ExecContext(ctx, markSessionRunning, arg.UpdatedAt, arg.ID)
 	return err
 }
 
@@ -436,6 +529,43 @@ type SetSessionStatusParams struct {
 func (q *Queries) SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error {
 	_, err := q.db.ExecContext(ctx, setSessionStatus, arg.Status, arg.UpdatedAt, arg.ID)
 	return err
+}
+
+const settleSession = `-- name: SettleSession :execrows
+UPDATE agent_sessions SET settled_at = $1, settled_by = $2 WHERE id = $3 AND settled_at IS NULL
+`
+
+type SettleSessionParams struct {
+	SettledAt sql.NullInt64
+	SettledBy string
+	ID        string
+}
+
+// Settles an active session; no row when it is settled already.
+func (q *Queries) SettleSession(ctx context.Context, arg SettleSessionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, settleSession, arg.SettledAt, arg.SettledBy, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const unsettleSession = `-- name: UnsettleSession :execrows
+UPDATE agent_sessions SET settled_at = NULL, settled_by = '', unsettled_at = $1 WHERE id = $2 AND settled_at IS NOT NULL
+`
+
+type UnsettleSessionParams struct {
+	UnsettledAt sql.NullInt64
+	ID          string
+}
+
+// Unsettles a settled session; no row when it is active already.
+func (q *Queries) UnsettleSession(ctx context.Context, arg UnsettleSessionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, unsettleSession, arg.UnsettledAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const upsertModelCatalog = `-- name: UpsertModelCatalog :exec

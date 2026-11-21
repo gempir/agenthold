@@ -8,6 +8,7 @@ type Querier interface {
 	AttachMCPServer(ctx context.Context, arg AttachMCPServerParams) error
 	AttachSecret(ctx context.Context, arg AttachSecretParams) error
 	AttachSkill(ctx context.Context, arg AttachSkillParams) error
+	AutoSettleSession(ctx context.Context, arg AutoSettleSessionParams) (int64, error)
 	ClaimExposureName(ctx context.Context, name string) error
 	ConsumeNodeJoinToken(ctx context.Context, arg ConsumeNodeJoinTokenParams) (string, error)
 	CopyServices(ctx context.Context, arg CopyServicesParams) error
@@ -127,6 +128,7 @@ type Querier interface {
 	ListAgentWebhooks(ctx context.Context, agentID string) ([]Webhook, error)
 	ListAgentsByLoginUser(ctx context.Context, loginUserID string) ([]Agent, error)
 	ListAllMachines(ctx context.Context) ([]ListAllMachinesRow, error)
+	ListAutoSettleCandidates(ctx context.Context, now int64) ([]ListAutoSettleCandidatesRow, error)
 	ListExposures(ctx context.Context, agentID string) ([]Exposure, error)
 	ListIdentities(ctx context.Context) ([]ListIdentitiesRow, error)
 	ListNodeSandboxes(ctx context.Context, nodeID string) ([]Sandbox, error)
@@ -152,6 +154,7 @@ type Querier interface {
 	LockUser(ctx context.Context, id string) error
 	MakeAppClone(ctx context.Context, id string) error
 	MarkCredentialsInSandbox(ctx context.Context, id string) error
+	MarkSessionRunning(ctx context.Context, arg MarkSessionRunningParams) error
 	MaxSessionSeq(ctx context.Context, sessionID string) (int64, error)
 	PutSlackChannelAgent(ctx context.Context, arg PutSlackChannelAgentParams) error
 	PutSlackInstallation(ctx context.Context, arg PutSlackInstallationParams) error
@@ -189,6 +192,8 @@ type Querier interface {
 	SetSlackThreadHeader(ctx context.Context, arg SetSlackThreadHeaderParams) error
 	SetUserRole(ctx context.Context, arg SetUserRoleParams) error
 	SetUserRoleOverride(ctx context.Context, arg SetUserRoleOverrideParams) error
+	SetUserThreadAutoSettleDays(ctx context.Context, arg SetUserThreadAutoSettleDaysParams) error
+	SettleSession(ctx context.Context, arg SettleSessionParams) (int64, error)
 	ShareAgent(ctx context.Context, arg ShareAgentParams) error
 	StoreRefreshedLogin(ctx context.Context, arg StoreRefreshedLoginParams) (int64, error)
 	TakeLoginState(ctx context.Context, arg TakeLoginStateParams) (LoginState, error)
@@ -199,6 +204,7 @@ type Querier interface {
 	TouchProviderLogin(ctx context.Context, arg TouchProviderLoginParams) error
 	TransitionSandbox(ctx context.Context, arg TransitionSandboxParams) (int64, error)
 	TrimPreviewSessions(ctx context.Context, arg TrimPreviewSessionsParams) error
+	UnsettleSession(ctx context.Context, arg UnsettleSessionParams) (int64, error)
 	UnshareAgent(ctx context.Context, arg UnshareAgentParams) (int64, error)
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
 	UpdateExposure(ctx context.Context, arg UpdateExposureParams) error

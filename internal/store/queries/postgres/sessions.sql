@@ -71,3 +71,30 @@ SELECT * FROM agent_model_catalogs WHERE agent_id = $1;
 -- name: UpsertModelCatalog :exec
 INSERT INTO agent_model_catalogs (agent_id, harness, data, seen_at) VALUES ($1, $2, $3, $4)
 ON CONFLICT (agent_id) DO UPDATE SET harness = excluded.harness, data = excluded.data, seen_at = excluded.seen_at;
+
+-- name: MarkSessionRunning :exec
+-- A new turn is activity: it also unsettles the session.
+UPDATE agent_sessions SET status = 'running', updated_at = $1, settled_at = NULL, settled_by = '' WHERE id = $2;
+
+-- name: SettleSession :execrows
+-- Settles an active session; no row when it is settled already.
+UPDATE agent_sessions SET settled_at = $1, settled_by = $2 WHERE id = $3 AND settled_at IS NULL;
+
+-- name: UnsettleSession :execrows
+-- Unsettles a settled session; no row when it is active already.
+UPDATE agent_sessions SET settled_at = NULL, settled_by = '', unsettled_at = $1 WHERE id = $2 AND settled_at IS NOT NULL;
+
+-- name: ListAutoSettleCandidates :many
+-- Active, idle sessions whose agent owner's auto-settle period has passed
+-- since their last activity or their last unsettle by hand.
+SELECT s.id, s.agent_id, s.title, a.owner_id, u.thread_auto_settle_days
+FROM agent_sessions s JOIN agents a ON a.id = s.agent_id JOIN users u ON u.id = a.owner_id
+WHERE s.settled_at IS NULL AND s.status = 'idle' AND u.thread_auto_settle_days > 0
+  AND GREATEST(s.updated_at, COALESCE(s.unsettled_at, 0)) < CAST(sqlc.arg(now) AS BIGINT) - u.thread_auto_settle_days * 86400
+ORDER BY s.id;
+
+-- name: AutoSettleSession :execrows
+-- Settles a candidate unless it saw activity since it was listed.
+UPDATE agent_sessions SET settled_at = sqlc.arg(settled_at), settled_by = 'auto'
+WHERE id = sqlc.arg(id) AND settled_at IS NULL AND status = 'idle'
+  AND GREATEST(updated_at, COALESCE(unsettled_at, 0)) < CAST(sqlc.arg(cutoff) AS BIGINT);

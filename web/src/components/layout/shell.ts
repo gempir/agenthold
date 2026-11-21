@@ -4,7 +4,7 @@ export interface ShellState {
   /** Mobile: the sidebar drawer is showing. */
   drawerOpen: boolean;
   setDrawerOpen: (o: boolean) => void;
-  /** Desktop: the sidebar is hidden to give the chat the full width. */
+  /** Desktop: the sidebar is hidden to give the thread the full width. */
   collapsed: boolean;
   setCollapsed: (c: boolean) => void;
   openNewAgent: () => void;

@@ -4,8 +4,10 @@ const ACTIONS: Record<string, string> = {
   'session.prompt': 'Prompted',
   'session.cancel': 'Cancelled a turn',
   'session.permission': 'Answered a permission request',
-  'session.create': 'Created a session',
-  'session.delete': 'Deleted a session',
+  'session.create': 'Started a thread',
+  'session.delete': 'Deleted a thread',
+  'session.settle': 'Settled a thread',
+  'session.unsettle': 'Unsettled a thread',
   'terminal.open': 'Opened a terminal',
   'harness.login': 'Logged in the harness',
   'file.write': 'Uploaded a file',
@@ -40,6 +42,17 @@ export function describeDetails(e: Pick<AuditEntry, 'action' | 'details'>) {
     const t = s(d.text);
     return t.length > MAX_TEXT ? `${t.slice(0, MAX_TEXT)}…` : t;
   }
+  if (e.action === 'session.settle' || e.action === 'session.unsettle') {
+    const why =
+      d.reason === 'auto'
+        ? `automatically, after ${String(d.afterDays)} idle days`
+        : d.reason === 'activity'
+          ? 'by a new message'
+          : s(d.fromAgent)
+            ? `by the agent ${s(d.fromAgent)}`
+            : '';
+    return [s(d.session), why].filter(Boolean).join(', ');
+  }
   if (e.action.startsWith('share.')) return s(d.email) || s(d.userId);
   if (e.action.startsWith('exposure.'))
     return [s(d.name), typeof d.port === 'number' ? `port ${d.port}` : '']
@@ -50,4 +63,4 @@ export function describeDetails(e: Pick<AuditEntry, 'action' | 'details'>) {
 }
 
 export const SHARED_HELP =
-  'People you share with can chat with the agent, answer its permission requests, use its terminal and files, and start or stop it. Only you can change its settings, tools, secrets and sharing, or delete it.';
+  'People you share with can start threads with the agent, answer its permission requests, use its terminal and files, and start or stop it. Only you can change its settings, tools, secrets and sharing, or delete it.';

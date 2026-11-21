@@ -1118,6 +1118,42 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /sessions/{sessionId}/settle:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      operationId: settleSession
+      tags: [sessions]
+      description: |
+        Settle the thread: mark it done and move it out of the active list. It stays readable and usable; a new
+        message unsettles it. Needs the right to send prompts to the agent. Settling a settled thread changes nothing.
+      responses:
+        "200":
+          description: Settled.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/unsettle:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      operationId: unsettleSession
+      tags: [sessions]
+      description: |
+        Move a settled thread back into the active list. The auto-settle period starts over. Needs the right to send
+        prompts to the agent.
+      responses:
+        "200":
+          description: Active again.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
   /sessions/{sessionId}/cancel:
     parameters:
       - $ref: "#/components/parameters/SessionId"
@@ -1771,6 +1807,33 @@ paths:
         "204": { description: Detached; removed from the sandbox in the next session. }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+
+  /me/settings:
+    get:
+      operationId: getMySettings
+      tags: [auth]
+      responses:
+        "200":
+          description: Your settings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserSettings" }
+    put:
+      operationId: updateMySettings
+      tags: [auth]
+      description: Change your settings. Fields left out keep their value.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserSettingsUpdate" }
+      responses:
+        "200":
+          description: Your settings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserSettings" }
+        "400": { $ref: "#/components/responses/Error" }
 
   /me/tokens:
     get:
@@ -2808,6 +2871,33 @@ components:
         createdBy: { $ref: "#/components/schemas/User" }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+        settledAt:
+          type: string
+          format: date-time
+          description: When the thread was settled (done, out of the active list); absent while it is active.
+        settledBy:
+          type: string
+          enum: [user, agent, auto]
+          description: >-
+            Who settled it: a user, the agent itself (platform tools), or the auto-settle job after the agent
+            owner's period without activity. Absent while it is active.
+
+    UserSettings:
+      type: object
+      required: [threadAutoSettleDays]
+      properties:
+        threadAutoSettleDays:
+          type: integer
+          minimum: 0
+          maximum: 365
+          description: >-
+            Threads of your agents settle themselves after this many days without activity; 0 = never. It applies
+            to every thread of the agents you own, also those that people you share with started.
+
+    UserSettingsUpdate:
+      type: object
+      properties:
+        threadAutoSettleDays: { type: integer, minimum: 0, maximum: 365 }
 
     SessionEvent:
       type: object

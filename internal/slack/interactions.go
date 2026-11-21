@@ -113,7 +113,7 @@ func (s *Service) action(ctx, uctx context.Context, userID, team string, cb slac
 		what, sessionID, _ := strings.Cut(act.SelectedOption.Value, ":")
 		res, err := s.o.API.GetSession(uctx, gen.GetSessionRequestObject{SessionId: sessionID})
 		if err != nil {
-			s.fail(ctx, r, "Could not open the chat", err)
+			s.fail(ctx, r, "Could not open the thread", err)
 			return
 		}
 		sess := gen.Session(res.(gen.GetSession200JSONResponse))
@@ -128,7 +128,7 @@ func (s *Service) action(ctx, uctx context.Context, userID, team string, cb slac
 	case act.ActionID == "start_chat":
 		res, err := s.o.API.GetAgent(uctx, gen.GetAgentRequestObject{AgentId: act.Value})
 		if err != nil {
-			s.fail(ctx, r, "Could not start a chat", err)
+			s.fail(ctx, r, "Could not start a thread", err)
 			return
 		}
 		channel := r.channel
@@ -152,7 +152,7 @@ func (s *Service) action(ctx, uctx context.Context, userID, team string, cb slac
 			s.fail(ctx, r, "Could not use the agent", err)
 			return
 		}
-		s.say(ctx, r, "*"+escape(a.Name)+"* now answers new chats here.")
+		s.say(ctx, r, "*"+escape(a.Name)+"* now answers new threads here.")
 	case act.ActionID == "continue":
 		channel := r.channel
 		if channel == "" {
@@ -252,8 +252,8 @@ func (s *Service) submit(ctx, uctx context.Context, userID string, cb slackgo.In
 		rows, _ := s.o.Store.ListSlackThreadsOfSession(ctx, meta.Session)
 		if _, err := s.o.API.DeleteSession(uctx, gen.DeleteSessionRequestObject{SessionId: meta.Session}); err != nil {
 			v := slackgo.ModalViewRequest{
-				Type: slackgo.VTModal, Title: plain("Delete chat"), Close: plain("Close"),
-				Blocks: slackgo.Blocks{BlockSet: []slackgo.Block{sectionBlock(":warning: The chat was not deleted: " + escape(s.errorText(err)) + ".")}},
+				Type: slackgo.VTModal, Title: plain("Delete thread"), Close: plain("Close"),
+				Blocks: slackgo.Blocks{BlockSet: []slackgo.Block{sectionBlock(":warning: The thread was not deleted: " + escape(s.errorText(err)) + ".")}},
 			}
 			return slackgo.NewUpdateViewSubmissionResponse(&v)
 		}
@@ -277,12 +277,12 @@ func (s *Service) submit(ctx, uctx context.Context, userID string, cb slackgo.In
 
 // markDeleted replaces a thread's header after its chat was deleted.
 func (s *Service) markDeleted(ctx context.Context, row db.SlackThread, by string) {
-	text := ":wastebasket: This chat was deleted by *" + escape(by) + "*. Mention me to start a new one."
+	text := ":wastebasket: This thread was deleted by *" + escape(by) + "*. Mention me to start a new one."
 	if row.HeaderTs != "" {
-		_ = s.update(ctx, row.ChannelID, row.HeaderTs, "Chat deleted", []slackgo.Block{sectionBlock(text)})
+		_ = s.update(ctx, row.ChannelID, row.HeaderTs, "Thread deleted", []slackgo.Block{sectionBlock(text)})
 		return
 	}
-	_, _ = s.post(ctx, row.ChannelID, row.ThreadTs, "Chat deleted", []slackgo.Block{contextBlock(text)})
+	_, _ = s.post(ctx, row.ChannelID, row.ThreadTs, "Thread deleted", []slackgo.Block{contextBlock(text)})
 }
 
 // modelMeta is the private metadata of the modals.
@@ -303,7 +303,7 @@ func renameView(sess gen.Session) slackgo.ModalViewRequest {
 	in.MaxLength = 200
 	return slackgo.ModalViewRequest{
 		Type: slackgo.VTModal, CallbackID: "rename", PrivateMetadata: meta(sess.Id),
-		Title: plain("Rename chat"), Submit: plain("Rename"), Close: plain("Cancel"),
+		Title: plain("Rename thread"), Submit: plain("Rename"), Close: plain("Cancel"),
 		Blocks: slackgo.Blocks{BlockSet: []slackgo.Block{slackgo.NewInputBlock("title", plain("Title"), nil, in)}},
 	}
 }
@@ -311,7 +311,7 @@ func renameView(sess gen.Session) slackgo.ModalViewRequest {
 func deleteView(sess gen.Session) slackgo.ModalViewRequest {
 	return slackgo.ModalViewRequest{
 		Type: slackgo.VTModal, CallbackID: "delete", PrivateMetadata: meta(sess.Id),
-		Title: plain("Delete chat"), Submit: plain("Delete"), Close: plain("Cancel"),
+		Title: plain("Delete thread"), Submit: plain("Delete"), Close: plain("Cancel"),
 		Blocks: slackgo.Blocks{BlockSet: []slackgo.Block{
 			slackgo.NewSectionBlock(mrkdwn("Delete *"+escape(truncate(sess.Title, 200))+"*? Its conversation is deleted for everyone, in the web UI too. This cannot be undone."), nil, nil, slackgo.SectionBlockOptionBlockID("confirm")),
 		}},
@@ -359,11 +359,11 @@ func (s *Service) modelView(uctx context.Context, sessionID string, selected *st
 		view.Blocks = slackgo.Blocks{BlockSet: blocks}
 		return view, nil
 	case !cat.Switchable:
-		blocks = append(blocks, sectionBlock("This harness picks its model when it starts; a chat cannot choose its own."))
+		blocks = append(blocks, sectionBlock("This harness picks its model when it starts; a thread cannot choose its own."))
 		view.Blocks = slackgo.Blocks{BlockSet: blocks}
 		return view, nil
 	case agent.Role != gen.Owner && cat.Source != gen.Harness:
-		blocks = append(blocks, sectionBlock("The agent's owner chooses the model until the harness has reported its models (after the agent's first chat). This chat uses "+escape(modelLabel(cat, sess, agent))+"."))
+		blocks = append(blocks, sectionBlock("The agent's owner chooses the model until the harness has reported its models (after the agent's first thread). This thread uses "+escape(modelLabel(cat, sess, agent))+"."))
 		view.Blocks = slackgo.Blocks{BlockSet: blocks}
 		return view, nil
 	}
@@ -441,7 +441,7 @@ func (s *Service) modelView(uctx context.Context, sessionID string, selected *st
 		}
 	}
 	if cat.Source == gen.Fallback {
-		blocks = append(blocks, contextBlock("The list is agenthold's until the harness reports its own (after the agent's first chat)."))
+		blocks = append(blocks, contextBlock("The list is agenthold's until the harness reports its own (after the agent's first thread)."))
 	}
 	view.Submit = plain("Save")
 	view.Blocks = slackgo.Blocks{BlockSet: blocks}

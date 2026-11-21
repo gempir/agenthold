@@ -61,7 +61,7 @@ export function NewChatPage() {
   else if (!chosen)
     body = (
       <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
-        You can view these agents but not start chats with them.
+        You can view these agents but not start threads with them.
       </div>
     );
   else
@@ -137,7 +137,7 @@ export function NewChatPage() {
   return (
     <>
       <TopBar>
-        <Crumb current>New chat</Crumb>
+        <Crumb current>New thread</Crumb>
       </TopBar>
       {body}
     </>

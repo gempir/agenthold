@@ -1,10 +1,17 @@
 import { lazy, Suspense, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Bot, PanelRight, Settings2, SquarePen } from 'lucide-react';
+import {
+  Bot,
+  Check,
+  PanelRight,
+  Settings2,
+  SquarePen,
+  Undo2,
+} from 'lucide-react';
 import { agentQuery, sessionsQuery, type Agent } from '@/api/queries';
 import { AgentStateDot } from '@/components/AgentStateBadge';
-import { Loading } from '@/components/Spinner';
+import { ErrorText, Loading } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
 import { AgentLoadError } from '@/components/agent/AgentLoadError';
 import { AgentNotice } from '@/components/agent/AgentNotice';
@@ -17,6 +24,7 @@ import { HarnessMeta } from '@/components/agent/HarnessMeta';
 import { DraftChat } from '@/components/chat/DraftChat';
 import { Crumb, CrumbSep, TopBar } from '@/components/layout/TopBar';
 import { readPref, writePref } from '@/components/layout/shell';
+import { useSettle } from '@/hooks/useSettle';
 import { useStartChat } from '@/hooks/useStartChat';
 import type { Choice } from '@/lib/models';
 
@@ -28,7 +36,8 @@ export const accessOf = (a: Agent) => ({
   isOwner: a.role === 'owner',
 });
 
-/** The chat with one agent: a session, or a fresh draft when none is open. */
+/** A thread with one agent (a session in the API), or a fresh draft when
+ * none is open. */
 export function AgentPage({
   agentId,
   sessionId,
@@ -46,6 +55,7 @@ export function AgentPage({
     () => readPref('panelWide', '') === '1',
   );
   const start = useStartChat();
+  const settle = useSettle();
   const [draftModel, setDraftModel] = useState<Choice>({
     model: '',
     options: {},
@@ -77,6 +87,32 @@ export function AgentPage({
         <TopBar
           actions={
             <>
+              {access.canUse && selected && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground"
+                  disabled={settle.isPending}
+                  title={
+                    selected.settledAt ? 'Unsettle thread' : 'Settle thread'
+                  }
+                  onClick={() =>
+                    settle.mutate({
+                      session: selected,
+                      settle: !selected.settledAt,
+                    })
+                  }
+                >
+                  {selected.settledAt ? (
+                    <Undo2 className="size-3.5" aria-hidden />
+                  ) : (
+                    <Check className="size-3.5" aria-hidden />
+                  )}
+                  <span className="max-sm:sr-only">
+                    {selected.settledAt ? 'Unsettle' : 'Settle'}
+                  </span>
+                </Button>
+              )}
               {access.canUse && sessionId && (
                 <Button
                   asChild
@@ -88,8 +124,8 @@ export function AgentPage({
                     to="/a/$agentId"
                     params={{ agentId }}
                     search={{ panel }}
-                    aria-label="New chat"
-                    title="New chat"
+                    aria-label="New thread"
+                    title="New thread"
                   >
                     <SquarePen className="size-4" />
                   </Link>
@@ -141,13 +177,19 @@ export function AgentPage({
               <CrumbSep />
               <Crumb current className="min-w-0">
                 <span className="truncate">
-                  {selected.title || 'New session'}
+                  {selected.title || 'New thread'}
                 </span>
+                {selected.settledAt && (
+                  <span className="shrink-0 rounded-full border px-1.5 text-[11px] font-normal text-muted-foreground">
+                    Settled
+                  </span>
+                )}
               </Crumb>
             </>
           )}
         </TopBar>
 
+        <ErrorText error={settle.error} />
         {selected?.origin && (
           <p
             role="note"
@@ -164,7 +206,7 @@ export function AgentPage({
               search={{ s: selected.origin.sessionId }}
               className="underline underline-offset-2 hover:text-foreground"
             >
-              Open its session
+              Open its thread
             </Link>
           </p>
         )}
@@ -194,14 +236,14 @@ export function AgentPage({
           <DraftChat
             heading={
               <>
-                Start a chat with{' '}
+                Start a thread with{' '}
                 <span className="text-muted-foreground">{a.name}</span>
               </>
             }
             sub={
               sessions.data && sessions.data.length > 0
-                ? `${sessions.data.length} earlier ${sessions.data.length === 1 ? 'chat' : 'chats'} in the sidebar and the agent panel.`
-                : 'Each chat is its own session with the agent; files persist across them.'
+                ? `${sessions.data.length} earlier ${sessions.data.length === 1 ? 'thread' : 'threads'} in the sidebar and the agent panel.`
+                : 'Each thread is its own conversation with the agent; files persist across them.'
             }
             meta={
               <HarnessMeta

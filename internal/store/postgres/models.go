@@ -62,6 +62,9 @@ type AgentSession struct {
 	OriginSessionID string
 	Model           string
 	ModelOptions    string
+	SettledAt       sql.NullInt64
+	SettledBy       string
+	UnsettledAt     sql.NullInt64
 }
 
 type AgentSessionEvent struct {
@@ -348,15 +351,16 @@ type SlackUser struct {
 }
 
 type User struct {
-	ID            string
-	Email         string
-	EmailVerified int64
-	Name          string
-	AvatarUrl     string
-	CreatedAt     int64
-	UpdatedAt     int64
-	Role          string
-	RoleOverride  string
+	ID                   string
+	Email                string
+	EmailVerified        int64
+	Name                 string
+	AvatarUrl            string
+	CreatedAt            int64
+	UpdatedAt            int64
+	Role                 string
+	RoleOverride         string
+	ThreadAutoSettleDays int64
 }
 
 type Webhook struct {

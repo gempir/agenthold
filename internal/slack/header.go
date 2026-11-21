@@ -8,6 +8,7 @@ import (
 	slackgo "github.com/slack-go/slack"
 
 	"github.com/gempir/agenthold/internal/api/gen"
+	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store/db"
 )
 
@@ -112,17 +113,17 @@ func modelLabel(cat *gen.ModelCatalog, sess gen.Session, agent gen.Agent) string
 func (s *Service) headerBlocks(uctx context.Context, sess gen.Session, agent gen.Agent) ([]slackgo.Block, string) {
 	cat := s.catalogOf(uctx, agent.Id)
 	head := ":robot_face: *" + escape(agent.Name) + "*  " + stateEmoji(agent.State) + " " + string(agent.State)
-	if sess.Title != "" && sess.Title != "New session" {
+	if sess.Title != "" && !session.IsPlaceholderTitle(sess.Title) {
 		head += "\n" + escape(truncate(sess.Title, 200))
 	}
 	ctxLines := []string{":brain: " + escape(modelLabel(cat, sess, agent))}
 	if sess.Origin != nil {
 		ctxLines = append(ctxLines, "Started by agent *"+escape(sess.Origin.AgentName)+"*")
 	}
-	ctxLines = append(ctxLines, "Chat of "+escape(sess.CreatedBy.Name)+" · replies in this thread go to the agent")
+	ctxLines = append(ctxLines, "Thread of "+escape(sess.CreatedBy.Name)+" · replies here go to the agent")
 	more := slackgo.NewOverflowBlockElement("more",
 		slackgo.NewOptionBlockObject("rename:"+sess.Id, plain("Rename"), nil),
-		slackgo.NewOptionBlockObject("delete:"+sess.Id, plain("Delete chat"), nil),
+		slackgo.NewOptionBlockObject("delete:"+sess.Id, plain("Delete thread"), nil),
 	)
 	blocks := []slackgo.Block{
 		sectionBlock(head),

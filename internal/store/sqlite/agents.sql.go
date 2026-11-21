@@ -233,7 +233,7 @@ func (q *Queries) GetSandbox(ctx context.Context, agentID string) (Sandbox, erro
 }
 
 const listAllMachines = `-- name: ListAllMachines :many
-SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, agents.is_template, agents.cloned_from, agents.kind, agents.created_by_agent_id, agents.model_options, sandboxes.agent_id, sandboxes.node_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet, sandboxes.resume, users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, users.role, users.role_override
+SELECT agents.id, agents.owner_id, agents.name, agents.image, agents.harness, agents.model, agents.cpus, agents.memory_mb, agents.idle_minutes, agents.permission_policy, agents.credentials_in_sandbox, agents.login_user_id, agents.created_at, agents.updated_at, agents.is_template, agents.cloned_from, agents.kind, agents.created_by_agent_id, agents.model_options, sandboxes.agent_id, sandboxes.node_id, sandboxes.driver, sandboxes.driver_id, sandboxes.state, sandboxes.error, sandboxes.applied_spec, sandboxes.state_changed_at, sandboxes.boot_token_hash, sandboxes.subnet, sandboxes.resume, users.id, users.email, users.email_verified, users.name, users.avatar_url, users.created_at, users.updated_at, users.role, users.role_override, users.thread_auto_settle_days
 FROM agents
 JOIN sandboxes ON sandboxes.agent_id = agents.id
 JOIN users ON users.id = agents.owner_id
@@ -296,6 +296,7 @@ func (q *Queries) ListAllMachines(ctx context.Context) ([]ListAllMachinesRow, er
 			&i.User.UpdatedAt,
 			&i.User.Role,
 			&i.User.RoleOverride,
+			&i.User.ThreadAutoSettleDays,
 		); err != nil {
 			return nil, err
 		}

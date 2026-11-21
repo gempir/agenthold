@@ -107,7 +107,7 @@ func (s *Service) incoming(ctx context.Context, in incoming) {
 		// A mention (or DM) in a thread that is not bound: bind it.
 	}
 	if text == "" {
-		s.say(ctx, r, "Hi! Tell me what to work on, and I'll start a chat with your agent in a thread.")
+		s.say(ctx, r, "Hi! Tell me what to work on, and I'll start a thread with your agent.")
 		return
 	}
 	agent, agents, err := s.resolveAgent(uctx, in.team, in.channel)
@@ -268,7 +268,7 @@ func (s *Service) startChat(ctx context.Context, c chatStart) {
 	r := reply{channel: c.channel, threadTS: c.threadTS, user: c.slackUser}
 	res, err := s.o.API.CreateSession(uctx, gen.CreateSessionRequestObject{AgentId: c.agent.Id, Body: &gen.CreateSessionJSONRequestBody{}})
 	if err != nil {
-		s.say(ctx, r, ":warning: Could not start a chat with *"+escape(c.agent.Name)+"*: "+escape(s.errorText(err))+".")
+		s.say(ctx, r, ":warning: Could not start a thread with *"+escape(c.agent.Name)+"*: "+escape(s.errorText(err))+".")
 		return
 	}
 	sess := gen.Session(res.(gen.CreateSession201JSONResponse))

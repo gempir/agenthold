@@ -3,10 +3,11 @@ title: "Guest artifacts"
 description: "Build the pinned base ext4 and guest kernel, and verify sandboxd as PID 1 in a real Firecracker microVM."
 ---
 
-The guest artifacts are a read-only ext4 base, a Linux kernel and `sandboxd`. The base is the
-operating system only: `sandboxd` is not in it. The node delivers its own `sandboxd` at every boot as
-a tiny initramfs (see [Boot contract](#boot-contract)), so a machine always runs the sandboxd of the
-release that booted it, on whatever base its system disk sits on. The hand-started boot test uses the real authenticated tunnel protocol and a small host
+The guest artifacts are a read-only ext4 base, a Linux kernel and `sandboxd`. `sandboxd` is not a
+separate program: it is the `agenthold` binary itself, which decides its role when it starts (see
+[One binary](#one-binary)). The base is the operating system only: `sandboxd` is not in it. The node
+delivers its own executable at every boot as the initramfs (see [Boot contract](#boot-contract)), so a
+machine always runs the sandboxd of the release that booted it, on whatever base its system disk sits on. The hand-started boot test uses the real authenticated tunnel protocol and a small host
 listener. Release embedding, downloads and the production Firecracker driver are separate milestones.
 
 ## Build
@@ -65,13 +66,32 @@ sha256. Keep the Go compiler, GCC, e2fsprogs and mmdebstrap versions fixed when 
 bytes; the kernel manifest records GCC. These pins do not imply that different build toolchains
 produce byte-identical artifacts.
 
+## One binary
+
+There is one Go program, `cmd/agenthold`. It is the server, the edge node (`agenthold node`) and the
+daemon inside every machine. It is built static (`CGO_ENABLED=0`), so the same file runs as a host
+service and as a guest's PID 1 without a C library. The role is fixed once at startup, from how the
+process was started and never from configuration or the environment:
+
+| Started as | Role |
+| --- | --- |
+| PID 1, as `/init` (the initramfs) or as `sandboxd` | guest init: assembles the machine, then runs the daemon as its child |
+| `sandboxd ...` (`/opt/agenthold/sandboxd`, the daemon child, `sandboxd mcp`, `sandboxd net-setup`) | the in-guest daemon and its helpers |
+| `agenthold sandboxd ...` | the daemon, explicitly (tests and the fake driver) |
+| anything else, including `agenthold` as PID 1 of a container | the server, node or a host subcommand |
+
+The guest therefore receives the whole host binary, but nothing secret: the binary holds code and the
+embedded runtime (Firecracker, jailer, kernel and the web UI), while configuration, keys, the database and
+secrets live in the host's `data_dir` and `/etc/agenthold`, which never enter a guest. A guest that started the
+binary in the server role would only get a server without any of them.
+
 ## Boot contract
 
-Boot the kernel with an initramfs that contains only `sandboxd` as `/init` (plus `/dev`, `/proc`,
+Boot the kernel with an initramfs that contains only the `agenthold` binary as `/init` (plus `/dev`, `/proc`,
 `/sys`, `/run` and `/dev/console`): an uncompressed newc cpio that `sandboxd.WriteInitramfs` writes
 in pure Go, so no external tool and no decompressor in the kernel is needed (the kernel only needs
 `CONFIG_BLK_DEV_INITRD`, which the pinned configuration has). The Firecracker driver builds it once
-per node start as `<data_dir>/initrd/<sha256>.cpio` from the release's embedded sandboxd and passes it
+per node start as `<data_dir>/initrd/<sha256>.cpio` from the node's own executable and passes it
 as `initrd_path`; `testhost -write-initrd` builds the same file for the boot test. No drive is the root
 device.
 
@@ -133,9 +153,9 @@ On 2026-11-15, the arm64 artifacts were exercised on an M4 through Lima 2.3.0, U
 nested KVM. The custom kernel is `6.1.188-agenthold`, built with GCC `13.3.0` (18,868,736 bytes).
 
 ```sh
-go test -race ./cmd/sandboxd ./internal/sandboxd ./internal/tunnel ./scripts/guest/testhost
-golangci-lint run ./cmd/sandboxd/... ./internal/sandboxd/... ./internal/tunnel/... ./scripts/guest/testhost/...
-GOOS=linux GOARCH=arm64 CGO_ENABLED=0 golangci-lint run ./cmd/sandboxd/... ./internal/sandboxd/... ./internal/tunnel/... ./scripts/guest/testhost/...
+go test -race ./cmd/agenthold ./internal/sandboxd ./internal/tunnel ./scripts/guest/testhost
+golangci-lint run ./cmd/agenthold/... ./internal/sandboxd/... ./internal/tunnel/... ./scripts/guest/testhost/...
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 golangci-lint run ./cmd/agenthold/... ./internal/sandboxd/... ./internal/tunnel/... ./scripts/guest/testhost/...
 limactl shell agenthold -- bash scripts/guest/boot-test.sh --docker
 ```
 
@@ -165,6 +185,14 @@ the base (`init=`) and at 0.90–0.92 s from the initramfs (about 45 ms for unpa
 tunnel connected after 2.04 s and 2.14 s on average, within the run-to-run spread. The Docker boot (`--docker`)
 failed with both boot paths: dockerd gave up waiting for its managed containerd (see [Docker in a
 machine](/sandboxes/#docker-in-a-machine); fixed since).
+
+G2 (2026-11-21, korriban: Ryzen 7 9800X3D, bare-metal KVM, amd64): the initramfs is the whole agenthold binary.
+A development build (no embedded runtime) is 31.8 MB, a release build 83.8 MB (it embeds the 40 MB x86 `vmlinux`,
+Firecracker and the jailer), against 7.8 MB for the former separate sandboxd. `TestJailedLifecycle` (several boots
+and restarts of one machine) took 6.04–6.21 s with the old sandboxd, 6.28–6.36 s with the development build and
+6.46–6.54 s with the release build, three runs each: about 0.3 s more per run for the release build, spread over the run's boots. The guest keeps the binary in its
+initramfs memory for its lifetime (it is bind-mounted at `/opt/agenthold/sandboxd`), so each running machine holds
+that much more RAM.
 
 The amd64 build path and pins are present; amd64 is not built or KVM-tested by the project (the demo host is arm64), so amd64 users build from source.
 

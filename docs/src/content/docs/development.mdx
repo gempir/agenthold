@@ -15,9 +15,9 @@ make dev                            # build web, run native server with live rel
 
 The first guest builds can take substantial time and disk space. `make dev` serves the built web app at
 http://localhost:8080 and restarts the Go server when its source changes. Run `make web` again for UI changes;
-rebuild the base with `make guest-base` when changing guest contents (`images/base`). sandboxd is not in the base:
-the driver delivers the configured `sandbox.sandboxd_path` binary at every boot, so a restarted machine runs a
-rebuilt sandboxd. The development-only local
+rebuild the base with `make guest-base` when changing guest contents (`images/base`). sandboxd is not in the base, and it
+is not a separate program: the driver delivers the server's own (static Linux) binary at every boot, so a
+restarted machine runs the rebuilt one. `sandbox.sandboxd_path` can name another agenthold build. The development-only local
 administrator is `admin` / `admin` in `deploy/dev/agenthold.yaml`; do not use those credentials elsewhere.
 
 The VM mounts only the checkout it was created from (`make dev-vm` creates it, and it keeps that path). Guest
@@ -45,8 +45,8 @@ node in its own network namespace inside the Lima VM, and drives chat, terminal,
 outage and secret injection through the API (it needs internet access for an HTTPS echo service).
 
 The fake driver runs sandbox processes on the host and is for tests and UI development only. For browser
-smoke tests configure `sandbox.driver: fake` on a development-only server, build `sandboxd` and `fakeagent`
-next to each other, set `sandbox.sandboxd_path` to the sandboxd binary, and enable `test_harness`. Then run
+smoke tests configure `sandbox.driver: fake` on a development-only server, build `agenthold` and `fakeagent`
+next to each other (the server's directory is where the fake harness is looked for), and enable `test_harness`. Then run
 `cd web && pnpm e2e`; `E2E_USER`, `E2E_PASSWORD` and `BASE_URL` override the local defaults. Never use the
 fake driver to isolate untrusted agents.
 

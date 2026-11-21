@@ -109,7 +109,8 @@ type clock struct {
 func (c *clock) Now() time.Time          { c.mu.Lock(); defer c.mu.Unlock(); return c.t }
 func (c *clock) Advance(d time.Duration) { c.mu.Lock(); c.t = c.t.Add(d); c.mu.Unlock() }
 
-// sandboxdBin runs the platform MCP server ("sandboxd mcp") for fake sandboxes.
+// sandboxdBin runs the platform MCP server ("sandboxd mcp") for fake sandboxes: the agenthold
+// binary, named sandboxd so that it starts in that role.
 var sandboxdBin string
 
 func TestMain(m *testing.M) {
@@ -124,7 +125,7 @@ func TestMain(m *testing.M) {
 	}
 	fakeharness.SetCommand(bin)
 	sandboxdBin = filepath.Join(dir, "sandboxd")
-	if out, err := exec.Command("go", "build", "-o", sandboxdBin, "github.com/gempir/agenthold/cmd/sandboxd").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-o", sandboxdBin, "github.com/gempir/agenthold/cmd/agenthold").CombinedOutput(); err != nil {
 		panic(string(out))
 	}
 	code := m.Run()

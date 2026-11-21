@@ -29,8 +29,9 @@ type Paths struct {
 	Firecracker string
 	Jailer      string
 	Kernel      string
-	Sandboxd    string
-	BaseImage   string
+	// Sandboxd is the running executable: the agenthold binary is also every guest's sandboxd.
+	Sandboxd  string
+	BaseImage string
 }
 
 type artifact struct {
@@ -53,6 +54,19 @@ type manifest struct {
 }
 
 var prepareGate = make(chan struct{}, 1)
+
+// bundledNames are the files a release binary embeds besides itself. There is no separate
+// sandboxd: the binary is its own (see cmd/agenthold/sandboxd.go).
+var bundledNames = []string{"firecracker", "jailer", "kernel"}
+
+// executable is the running binary, symlinks resolved (a test may replace it).
+var executable = func() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(exe)
+}
 
 // Options say where a missing base image may be fetched from. The source is never trusted: the
 // sha256 of the compressed and of the uncompressed image come from the manifest embedded in the
@@ -136,7 +150,7 @@ func prepare(ctx context.Context, dataDir string, assets fs.FS, client *http.Cli
 			return paths, err
 		}
 	}
-	for _, name := range []string{"firecracker", "jailer", "kernel", "sandboxd"} {
+	for _, name := range bundledNames {
 		path := filepath.Join(versionDir, name)
 		want := m.Files[name]
 		ok, err := verifyFile(ctx, path, want)
@@ -175,10 +189,14 @@ func prepare(ctx context.Context, dataDir string, assets fs.FS, client *http.Cli
 	} else if err := os.Chmod(base, 0o644); err != nil {
 		return paths, err
 	}
+	self, err := executable()
+	if err != nil {
+		return paths, fmt.Errorf("sandboxd (this executable): %w", err)
+	}
 	return Paths{
 		Bundled: true, Version: m.Version,
 		Firecracker: filepath.Join(versionDir, "firecracker"), Jailer: filepath.Join(versionDir, "jailer"),
-		Kernel: filepath.Join(versionDir, "kernel"), Sandboxd: filepath.Join(versionDir, "sandboxd"), BaseImage: base,
+		Kernel: filepath.Join(versionDir, "kernel"), Sandboxd: self, BaseImage: base,
 	}, nil
 }
 
@@ -197,10 +215,10 @@ func readManifest(assets fs.FS) (manifest, error) {
 	if err := d.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return m, errors.New("runtime manifest has trailing data")
 	}
-	if m.Format != 1 || m.Arch != runtime.GOARCH || !safeVersion(m.Version) || len(m.Files) != 4 {
+	if m.Format != 1 || m.Arch != runtime.GOARCH || !safeVersion(m.Version) || len(m.Files) != len(bundledNames) {
 		return m, errors.New("runtime manifest has invalid format, architecture, release or file list")
 	}
-	for _, name := range []string{"firecracker", "jailer", "kernel", "sandboxd"} {
+	for _, name := range bundledNames {
 		if err := validateArtifact(m.Files[name], 256<<20); err != nil {
 			return m, fmt.Errorf("runtime manifest %s: %w", name, err)
 		}

@@ -73,11 +73,9 @@ KERNEL="$ART/$KERNEL_FILE"
 echo "$(jq -er .sha256 "$ART/kernel.manifest.json")  $KERNEL" | sha256sum --check --status
 COMMIT="$(git -C "$REPO_ROOT" rev-parse --short=12 HEAD)"
 LDFLAGS="-s -w -X github.com/gempir/agenthold/internal/version.Version=$VERSION -X github.com/gempir/agenthold/internal/version.Commit=$COMMIT"
-(cd "$REPO_ROOT" && CGO_ENABLED=0 go build -trimpath -ldflags "$LDFLAGS" -o "$STAGE/sandboxd" ./cmd/sandboxd)
-SANDBOXD_SHA="$(sha256sum "$STAGE/sandboxd" | cut -d' ' -f1)"
 BASE_MANIFEST="$ART/base-$ARCH.manifest.json"
 BASE="$ART/base-$ARCH.ext4"
-# The base holds no sandboxd (the binary delivers it to every guest at boot): it is rebuilt only
+# The base holds no sandboxd (the binary delivers itself to every guest at boot): it is rebuilt only
 # when its own inputs change, so a Go-only release keeps the previous base byte for byte.
 BASE_KEY="$(bash "$REPO_ROOT/scripts/guest/base-key.sh")"
 HAVE="$(jq -r '.inputs.baseKey // empty' "$BASE_MANIFEST" 2>/dev/null || true)"
@@ -103,10 +101,9 @@ jq -n --arg version "$VERSION" --arg arch "$ARCH" --arg url "$BASE_URL" --slurpf
   --arg fc "$(sha256sum "$STAGE/firecracker" | cut -d' ' -f1)" --argjson fcsize "$(stat -c %s "$STAGE/firecracker")" \
   --arg jailer "$(sha256sum "$STAGE/jailer" | cut -d' ' -f1)" --argjson jailersize "$(stat -c %s "$STAGE/jailer")" \
   --arg kernel "$(sha256sum "$STAGE/kernel" | cut -d' ' -f1)" --argjson kernelsize "$(stat -c %s "$STAGE/kernel")" \
-  --arg sandboxd "$SANDBOXD_SHA" --argjson sandboxdsize "$(stat -c %s "$STAGE/sandboxd")" \
   '{format: 1, version: $version, arch: $arch,
     files: {firecracker: {sha256: $fc, size: $fcsize}, jailer: {sha256: $jailer, size: $jailersize},
-      kernel: {sha256: $kernel, size: $kernelsize}, sandboxd: {sha256: $sandboxd, size: $sandboxdsize}},
+      kernel: {sha256: $kernel, size: $kernelsize}},
     base: {url: $url, sha256: $base[0].sha256, size: $base[0].size,
       compressed: {sha256: $base[0].zstd.sha256, size: $base[0].zstd.size}}}' > "$STAGE/manifest.json"
 (cd "$REPO_ROOT" && CGO_ENABLED=0 go build -trimpath -tags bundled -ldflags "$LDFLAGS" -o "$OUT/agenthold-linux-$ARCH" ./cmd/agenthold)

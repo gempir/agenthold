@@ -24,6 +24,12 @@ func CheckHost(context.Context) error { return ErrUnsupported }
 // KVMPresent is always false off Linux.
 func KVMPresent() bool { return false }
 
+// EnableHugePages reports that Firecracker is unavailable on this host.
+func EnableHugePages() (string, error) { return "", ErrUnsupported }
+
+// NestedVirtualization is always "" off Linux.
+func NestedVirtualization() string { return "" }
+
 // New reports that Firecracker is unavailable on this host.
 func New(context.Context, Config) (*Driver, error) { return nil, ErrUnsupported }
 

@@ -477,6 +477,18 @@ func TestSnapshotResumeKVM(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
+		{"host kernel changed", "host kernel changed since the snapshot", func() {
+			var m map[string]any
+			data, _ := os.ReadFile(snapFile(snapshotManifest))
+			if err := json.Unmarshal(data, &m); err != nil {
+				t.Fatal(err)
+			}
+			m["hostKernel"] = "6.8.0-1-older"
+			data, _ = json.Marshal(m)
+			if err := os.WriteFile(snapFile(snapshotManifest), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
 		{"memory file missing", "snapshot file memory", func() {
 			if err := os.Remove(snapFile("memory")); err != nil {
 				t.Fatal(err)
@@ -494,4 +506,23 @@ func TestSnapshotResumeKVM(t *testing.T) {
 		coldCheck(c.what, s)
 		t.Logf("fallback %q: cold boot in %s", c.what, wake.Round(time.Millisecond))
 	}
+
+	// The controller gave up waiting for the tunnel of a start (a slow cold
+	// boot) and revoked its token: the guest keeps running and redialing with
+	// it. The retry's Start finds the VM running and must hand it the new
+	// token (here the processes survive: no reboot).
+	hub.Disconnect(spec.AgentID)
+	tokenMu.Lock()
+	token = "kvm-snap-token-revoked"
+	tokenMu.Unlock()
+	time.Sleep(time.Second) // the guest redials and is refused
+	if _, ok := hub.Session(spec.AgentID); ok {
+		t.Fatal("the guest reconnected with a revoked token")
+	}
+	s, retry := start()
+	wokeBy("start of a running machine", "cold boot")
+	if got := execIn(s, "cat /dev/shm/marker 2>/dev/null || echo none"); got != "kept" {
+		t.Fatalf("start of a running machine rebooted it: /dev/shm marker %q", got)
+	}
+	t.Logf("start of a running machine with a revoked token: connected in %s", retry.Round(time.Millisecond))
 }

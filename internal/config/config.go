@@ -255,9 +255,17 @@ type Firecracker struct {
 	OverlayGB int64  `yaml:"overlay_gb"`
 	HomeGB    int64  `yaml:"home_gb"`
 	// Snapshots: sleep keeps a machine's memory (a Firecracker snapshot next
-	// to its disks) and wake resumes its processes. Default true; false makes
-	// sleep a shutdown and wake a boot.
+	// to its disks) and wake resumes its processes; false makes sleep a
+	// shutdown and wake a boot. Default: on, except on a host that is itself a
+	// virtual machine. There a resumed guest faults its memory back in 4 KiB
+	// pages from the snapshot file, each fault a nested exit, and runs 20 to
+	// 400 times slower for minutes (a harness took 111 s to start), while a
+	// cold boot takes half a second.
 	Snapshots *bool `yaml:"snapshots"`
+	// TransparentHugepages is what the node does with the host's transparent
+	// huge pages at start: "always" (default) switches them to always, so
+	// guest memory is faulted in 2 MiB pages; "keep" leaves the host setting.
+	TransparentHugepages string `yaml:"transparent_hugepages"`
 	// SnapshotMaxGB caps the disk space all snapshots of this node take
 	// (default 0: no cap). Beyond it a machine sleeps without its memory.
 	SnapshotMaxGB int64 `yaml:"snapshot_max_gb"`
@@ -269,8 +277,14 @@ type Firecracker struct {
 	Balloon *bool `yaml:"balloon"`
 }
 
-// SnapshotsEnabled reports whether sleep keeps memory.
-func (f Firecracker) SnapshotsEnabled() bool { return f.Snapshots == nil || *f.Snapshots }
+// SnapshotsEnabled reports whether sleep keeps memory. nested names the
+// hypervisor the host runs under ("" on bare metal); it decides the default.
+func (f Firecracker) SnapshotsEnabled(nested string) bool {
+	if f.Snapshots != nil {
+		return *f.Snapshots
+	}
+	return nested == ""
+}
 
 // BalloonEnabled reports whether VMs get a balloon for snapshots.
 func (f Firecracker) BalloonEnabled() bool { return f.Balloon == nil || *f.Balloon }
@@ -620,6 +634,11 @@ func (c *Config) Validate() error {
 	}
 	if c.Sandbox.Firecracker.OverlayGB < 1 || c.Sandbox.Firecracker.HomeGB < 1 {
 		errs = append(errs, errors.New("sandbox.firecracker: overlay_gb and home_gb must be positive"))
+	}
+	switch c.Sandbox.Firecracker.TransparentHugepages {
+	case "", "always", "keep":
+	default:
+		errs = append(errs, errors.New(`sandbox.firecracker.transparent_hugepages must be "always" or "keep"`))
 	}
 	if c.Sandbox.Firecracker.SnapshotMaxGB < 0 || c.Sandbox.Firecracker.SnapshotReserveGB < 0 {
 		errs = append(errs, errors.New("sandbox.firecracker: snapshot_max_gb and snapshot_reserve_gb must not be negative"))

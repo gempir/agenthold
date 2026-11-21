@@ -10,8 +10,9 @@ The demo (https://demo.agenthold.dev) runs on the Mac mini: `ssh scarif.local`, 
 GitHub Actions cannot reach it. The VM's `agenthold-build.timer` tests each new main commit, builds the arm64
 guest kernel and base image (assets) natively and publishes the release into `/srv/agenthold/releases`;
 `agenthold-pull.timer` switches to it (see the docs deploy page). Release binaries for amd64 and arm64 come from
-GitHub releases (`release.yml`; until that workflow is in the repo, both builders run with
-`AGENTHOLD_BUILD_RELEASES=local` and build the binary themselves); kernels and base images are never on GitHub. The controller advertises its node
+GitHub releases: `release.yml` publishes a pre-release `sha-<commit>` for every main commit whose CI passed, and
+both builders (the demo VM and korriban's build container) download the binary from there; kernels and base images
+are never on GitHub. The controller advertises its node
 port as `192.168.178.100:8091` (Lima forwards 8091 to the LAN).
 
 # korriban (amd64 edge node)

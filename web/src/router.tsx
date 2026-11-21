@@ -20,6 +20,7 @@ import { GitSettingsPage } from '@/pages/GitSettingsPage';
 import { AgentSettingsPage } from '@/pages/AgentSettingsPage';
 import { AppPage, isAppSection, type AppSection } from '@/pages/AppPage';
 import { HomePage } from '@/pages/HomePage';
+import { ImagesPage } from '@/pages/ImagesPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NewChatPage } from '@/pages/NewChatPage';
 import { NodesPage } from '@/pages/NodesPage';
@@ -176,6 +177,12 @@ const nodesRoute = createRoute({
   component: NodesPage,
 });
 
+const imagesRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/images',
+  component: ImagesPage,
+});
+
 const providersRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: '/providers',
@@ -231,6 +238,7 @@ const routeTree = rootRoute.addChildren([
       slackRoute,
       gitRoute,
       providersRoute,
+      imagesRoute,
       nodesRoute,
     ]),
   ]),

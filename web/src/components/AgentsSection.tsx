@@ -6,6 +6,7 @@ import { api, unwrap } from '@/api/client';
 import {
   agentsQuery,
   harnessesQuery,
+  imagesQuery,
   isOwner,
   meQuery,
   nodesQuery,
@@ -166,6 +167,12 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
   const nodeProblem = chosen ? nodeChoice(chosen, memN) : undefined;
   // With one node there is nothing to choose.
   const pickNode = !template && nodes.length > 1;
+  const imageCatalog = useQuery(imagesQuery).data;
+  const readyImages = (imageCatalog?.images ?? []).filter(
+    (img) => img.latestRevision > 0 && img.readyArches.length > 0,
+  );
+  const defaultImage = readyImages.find((img) => img.isDefault);
+  const [imageId, setImageId] = useState('');
 
   const create = useMutation({
     mutationFn: () =>
@@ -185,6 +192,7 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
                 idleMinutes: Number(idle),
                 ...(harness && { harness }),
                 ...(model.trim() && { model: model.trim() }),
+                ...(imageId && { imageId }),
                 ...(pickNode && chosen && { nodeId: chosen.id }),
               },
             }),
@@ -304,6 +312,34 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
                   />
                 </label>
               </div>
+              {readyImages.length > 0 && (
+                <label className="grid gap-1 text-sm">
+                  Image
+                  <Select
+                    value={imageId}
+                    onChange={(e) => setImageId(e.target.value)}
+                  >
+                    <option value="">
+                      Default (
+                      {defaultImage
+                        ? `${defaultImage.name} · rev ${defaultImage.latestRevision}`
+                        : (imageCatalog?.base.name ?? 'agenthold Base')}
+                      )
+                    </option>
+                    {defaultImage && (
+                      <option value="base">
+                        {imageCatalog?.base.name ?? 'agenthold Base'}
+                      </option>
+                    )}
+                    {readyImages.map((img) => (
+                      <option key={img.id} value={img.id}>
+                        {img.name} (rev {img.latestRevision} ·{' '}
+                        {img.readyArches.join(', ')})
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+              )}
               {pickNode && (
                 <label className="grid gap-1 text-sm">
                   Node

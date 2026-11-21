@@ -2,9 +2,15 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, Copy, RefreshCw } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
-import { agentsQuery, sandboxLimitsQuery, type Agent } from '@/api/queries';
+import {
+  agentsQuery,
+  imagesQuery,
+  sandboxLimitsQuery,
+  type Agent,
+} from '@/api/queries';
 import { AgentStateBadge } from '@/components/AgentStateBadge';
 import { ErrorText } from '@/components/Spinner';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -15,6 +21,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { useAgentActions } from '@/hooks/useAgentActions';
 import { cn } from '@/lib/utils';
 
@@ -29,6 +36,20 @@ export function AgentControls({
   compact?: boolean;
 }) {
   const { action, busy } = useAgentActions(a);
+  const qc = useQueryClient();
+  const upgrade = useMutation({
+    mutationFn: () =>
+      unwrap(
+        api.PATCH('/agents/{agentId}', {
+          params: { path: { agentId: a.id } },
+          body: { imageId: a.imageId || 'base' },
+        }),
+      ),
+    onSuccess: async (updated) => {
+      qc.setQueryData(['agents', a.id], updated);
+      await qc.invalidateQueries({ queryKey: agentsQuery.queryKey });
+    },
+  });
   const limits = useQuery(sandboxLimitsQuery).data;
   const tooSmall = !!limits && a.memoryMb < limits.minMemoryMb;
   return (
@@ -64,8 +85,23 @@ export function AgentControls({
       {a.needsRebuild && (
         <p className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
           <RefreshCw className="size-3.5" aria-hidden />
-          Reset the system to apply resource or environment changes
+          Reset the system to apply image, resource or environment changes
         </p>
+      )}
+      {a.imageUpdateAvailable && a.role === 'owner' && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-2.5 text-sm">
+          <span>
+            A newer revision of <strong>{a.imageName}</strong> is available.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || upgrade.isPending}
+            onClick={() => upgrade.mutate()}
+          >
+            Stage latest revision
+          </Button>
+        </div>
       )}
       {a.isTemplate && (
         <p className="flex items-start gap-2 rounded-lg border bg-muted/40 p-2.5 text-sm text-muted-foreground">
@@ -121,7 +157,7 @@ export function AgentControls({
           files.
         </p>
       )}
-      <ErrorText error={action.error} />
+      <ErrorText error={action.error ?? upgrade.error} />
     </div>
   );
 }
@@ -140,6 +176,21 @@ export function AgentDetails({
         className,
       )}
     >
+      <dt className="text-muted-foreground">Image</dt>
+      <dd className="flex flex-wrap items-center gap-1.5">
+        <span>
+          {a.imageName || 'agenthold Base'}
+          {a.imageRevision ? ` (rev ${a.imageRevision})` : ''}
+        </span>
+        {a.imageUpdateAvailable && (
+          <Badge
+            variant="outline"
+            className="text-amber-600 dark:text-amber-400"
+          >
+            Update available
+          </Badge>
+        )}
+      </dd>
       {a.nodeId && (
         <>
           <dt className="text-muted-foreground">Node</dt>
@@ -169,10 +220,16 @@ export function AgentSettingsForm({
 }) {
   const qc = useQueryClient();
   const limits = useQuery(sandboxLimitsQuery).data;
+  const imageCatalog = useQuery(imagesQuery).data;
+  const readyImages = (imageCatalog?.images ?? []).filter(
+    (img) => img.latestRevision > 0 && img.readyArches.length > 0,
+  );
+  const currentImageKey = agent.imageId || 'base';
   const [name, setName] = useState(agent.name);
   const [cpus, setCpus] = useState(String(agent.cpus));
   const [mem, setMem] = useState(String(agent.memoryMb));
   const [idle, setIdle] = useState(String(agent.idleMinutes));
+  const [imageId, setImageId] = useState(currentImageKey);
 
   const save = useMutation({
     mutationFn: () =>
@@ -184,6 +241,7 @@ export function AgentSettingsForm({
             cpus: Number(cpus),
             memoryMb: Number(mem),
             idleMinutes: Number(idle),
+            ...(imageId !== currentImageKey && { imageId }),
           },
         }),
       ),
@@ -241,6 +299,24 @@ export function AgentSettingsForm({
           />
         </label>
       </div>
+      {(readyImages.length > 0 || agent.imageId) && (
+        <label className="grid gap-1 text-sm">
+          Image
+          <Select value={imageId} onChange={(e) => setImageId(e.target.value)}>
+            <option value="base">
+              {imageCatalog?.base.name ?? 'agenthold Base'}
+            </option>
+            {readyImages.map((img) => (
+              <option key={img.id} value={img.id}>
+                {img.name} (rev {img.latestRevision})
+              </option>
+            ))}
+          </Select>
+          <span className="text-xs text-muted-foreground">
+            Changing the image requires Reset system (home files are kept).
+          </span>
+        </label>
+      )}
       <ErrorText error={save.error} />
       <div>
         <Button

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gempir/agenthold/internal/api/gen"
 )
@@ -306,6 +307,9 @@ func TestSwitchingHarnessResetsConversationModels(t *testing.T) {
 	expect(t, "cancel", alice.do("POST", "/sessions/"+sess.Id+"/cancel", nil, nil), 202)
 	st := e.stream(alice, sess.Id, 0)
 	st.until(isType("turn_end"))
+	// turn_end is streamed just before the session manager lets go of the
+	// agent; switching waits for that (a slow database widens the gap).
+	waitUntil(t, "agent idle", 5*time.Second, func() bool { return !e.sessions.AgentBusy(ag.Id) })
 
 	var got gen.Agent
 	expect(t, "switch", alice.do("PATCH", "/agents/"+ag.Id, gen.AgentPatch{Harness: ptr("codex"), Model: ptr("gpt-5")}, &got), 200)

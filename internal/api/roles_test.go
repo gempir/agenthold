@@ -151,6 +151,17 @@ func TestOIDCRoleAttributeStrict(t *testing.T) {
 	if _, ok := e.oidcLogin(authtest.User{Subject: "x", Name: "X"}); ok {
 		t.Fatal("strict let a user without a role in")
 	}
+	// A user the IdP takes the role away from is refused at the next
+	// sign-in, and the sessions it still has lose access with it.
+	old, _ := e.oidcLogin(authtest.User{Subject: "z", Name: "Z", Claims: map[string]any{"roles": []string{"agenthold"}}})
+	expect(t, "before", old.do("GET", "/agents", nil, nil), 200)
+	if _, ok := e.oidcLogin(authtest.User{Subject: "z", Name: "Z"}); ok {
+		t.Fatal("strict let z in without the role")
+	}
+	expect(t, "old session after the refusal", old.do("GET", "/agents", nil, nil), 403)
+	if _, err := e.store.DB.Exec("DELETE FROM users WHERE name = 'Z'"); err != nil {
+		t.Fatal(err)
+	}
 	var n int
 	if err := e.store.DB.QueryRow("SELECT COUNT(*) FROM users").Scan(&n); err != nil || n != 0 {
 		t.Fatalf("a refused sign-in created a user (%d, %v)", n, err)

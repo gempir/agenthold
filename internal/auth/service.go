@@ -188,6 +188,7 @@ func contains(values []string, value string) bool {
 func (s *Service) upsertUser(ctx context.Context, providerID string, c *Claims, role config.Role, allowed bool) (string, error) {
 	now := s.now().Unix()
 	var userID string
+	refused := false
 	err := s.store.Tx(ctx, func(q *db.Queries) error {
 		ident, err := q.GetIdentity(ctx, db.GetIdentityParams{Provider: providerID, Subject: c.Subject})
 		switch {
@@ -199,7 +200,9 @@ func (s *Service) upsertUser(ctx context.Context, providerID string, c *Claims, 
 					return err
 				}
 				if u.RoleOverride == "" {
-					return ErrNotAllowed
+					// Refused now: the user's other sessions lose access, too.
+					refused = true
+					return q.SetUserRole(ctx, db.SetUserRoleParams{Role: string(config.RoleDisabled), ID: userID})
 				}
 			}
 			if err := q.SetIdentityProviderRole(ctx, db.SetIdentityProviderRoleParams{ProviderRole: string(c.ProviderRole), Provider: providerID, Subject: c.Subject}); err != nil {
@@ -240,6 +243,9 @@ func (s *Service) upsertUser(ctx context.Context, providerID string, c *Claims, 
 			return err
 		}
 	})
+	if err == nil && refused {
+		return "", ErrNotAllowed
+	}
 	return userID, err
 }
 

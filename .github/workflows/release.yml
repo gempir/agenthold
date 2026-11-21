@@ -1,0 +1,132 @@
+name: release
+
+# Every main commit whose CI passed becomes a GitHub pre-release "sha-<commit>" with the agenthold
+# binary for linux/amd64 and linux/arm64 (static, embedding Firecracker and the jailer; it is also
+# the guests' sandboxd). Guest kernels and base images are not published here: hosts of each
+# architecture build them and serve them under /dl/assets/ (see the deployment docs). A tag v*
+# becomes a full release the same way. Only the newest 30 sha- pre-releases are kept.
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: commit on main to release
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.workflow_run.head_sha || github.ref || inputs.ref }}
+
+jobs:
+  meta:
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.m.outputs.sha }}
+      version: ${{ steps.m.outputs.version }}
+      prerelease: ${{ steps.m.outputs.prerelease }}
+    steps:
+      - id: m
+        env:
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_REF: ${{ inputs.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            sha="$GITHUB_SHA"; version="${GITHUB_REF_NAME}"; pre=false
+          else
+            sha="${RUN_SHA:-$INPUT_REF}"
+            sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha" --jq .sha)"
+            version="sha-$sha"; pre=true
+          fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ && "$version" =~ ^[A-Za-z0-9._-]+$ ]]
+          { echo "sha=$sha"; echo "version=$version"; echo "prerelease=$pre"; } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: meta
+    name: Release binary (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: make web
+      - run: VERSION=${{ needs.meta.outputs.version }} scripts/release/build.sh --out out
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          out/agenthold-linux-${{ matrix.arch }} --version | grep -qx "agenthold ${{ needs.meta.outputs.version }} (.*)"
+          cp out/agenthold-linux-${{ matrix.arch }} /tmp/sandboxd
+          /tmp/sandboxd --version | grep -q '^sandboxd ${{ needs.meta.outputs.version }} '
+          file out/agenthold-linux-${{ matrix.arch }} | grep -q 'statically linked'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.arch }}
+          path: out/
+          if-no-files-found: error
+
+  publish:
+    needs: [meta, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.meta.outputs.version }}
+          SHA: ${{ needs.meta.outputs.sha }}
+          PRE: ${{ needs.meta.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          mkdir files
+          for a in amd64 arm64; do
+            (cd "dist/release-$a" && sha256sum --check --quiet SHA256SUMS)
+            cp "dist/release-$a/agenthold-linux-$a" "dist/release-$a/runtime-linux-$a.manifest.json" files/
+          done
+          (cd files && sha256sum agenthold-linux-amd64 agenthold-linux-arm64 runtime-linux-amd64.manifest.json runtime-linux-arm64.manifest.json > SHA256SUMS)
+          flags=(--repo "$GITHUB_REPOSITORY" --target "$SHA" --title "$VERSION"
+            --notes "Binaries of $SHA (linux/amd64, linux/arm64). Guest kernels and base images are served by the hosts that build them; see https://agenthold.dev/install/.")
+          [[ "$PRE" == true ]] && flags+=(--prerelease --latest=false)
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$VERSION" files/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$VERSION" "${flags[@]}" files/*
+          fi
+      - name: Keep the newest 30 commit pre-releases
+        if: needs.meta.outputs.prerelease == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName,isPrerelease,createdAt \
+            --jq '[.[] | select(.isPrerelease and (.tagName | startswith("sha-")))] | sort_by(.createdAt) | reverse | .[30:] | .[].tagName' |
+          while read -r tag; do gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes; done

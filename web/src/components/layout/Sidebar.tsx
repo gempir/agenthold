@@ -11,6 +11,8 @@ import {
   Bot,
   Check,
   ChevronRight,
+  FolderGit2,
+  GitBranch,
   Layers,
   LayoutDashboard,
   Loader2,
@@ -27,7 +29,7 @@ import {
   X,
 } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
-import { appsQuery, meQuery } from '@/api/queries';
+import { appsQuery, meQuery, type SessionGit } from '@/api/queries';
 import { ROLE_LABEL } from '@/lib/roles';
 import { AgentStateDot } from '@/components/AgentStateBadge';
 import { AgentBadge } from '@/components/AgentBadge';
@@ -89,7 +91,12 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     matches(agent.name, agent.owner.name),
   );
   const threadMatches = ({ session, agent }: ChatEntry) =>
-    matches(session.title, agent.name);
+    matches(
+      session.title,
+      agent.name,
+      session.git?.project ?? '',
+      session.git?.branch ?? '',
+    );
   const active = index.active.filter(threadMatches);
   const settled = index.settled.filter(threadMatches);
   // A search looks into settled threads too.
@@ -492,6 +499,7 @@ function ThreadCard({
             )
           )}
         </span>
+        {hasGit(session.git) && <GitLine git={session.git} />}
         <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
           {session.origin && <Bot className="size-3 shrink-0" aria-hidden />}
           <span className="truncate">
@@ -541,7 +549,9 @@ function SettledRow({
         params={{ agentId: agent.id }}
         search={{ s: session.id }}
         aria-current={active ? 'page' : undefined}
-        title={`${title} · ${agent.name}`}
+        title={[title, agent.name, session.git?.project, session.git?.branch]
+          .filter(Boolean)
+          .join(' · ')}
         className={cn(
           'flex h-8 items-center gap-2 rounded-lg px-2 hover:bg-accent/50',
           active && 'bg-accent/70',
@@ -573,6 +583,33 @@ function SettledRow({
         </button>
       )}
     </li>
+  );
+}
+
+const hasGit = (g?: SessionGit): g is SessionGit =>
+  !!g && !!(g.project || g.branch);
+
+/** The project and branch a thread is on, one compact truncating line. */
+function GitLine({ git }: { git: SessionGit }) {
+  return (
+    <span
+      data-testid="chat-git"
+      title={[git.project, git.branch].filter(Boolean).join(' · ')}
+      className="flex min-w-0 items-center gap-2 truncate text-xs text-muted-foreground"
+    >
+      {git.project && (
+        <span className="flex min-w-0 items-center gap-1">
+          <FolderGit2 className="size-3 shrink-0" aria-hidden />
+          <span className="truncate">{git.project}</span>
+        </span>
+      )}
+      {git.branch && (
+        <span className="flex min-w-0 items-center gap-1 font-mono text-[11px]">
+          <GitBranch className="size-3 shrink-0" aria-hidden />
+          <span className="truncate">{git.branch}</span>
+        </span>
+      )}
+    </span>
   );
 }
 

@@ -18,9 +18,32 @@ individual writable system overlay and a persistent home disk mounted at `/home/
 | `destroying` | The sandbox and its disks are removed, then the agent. |
 | `error` | The last operation failed. The message says why; start or reset the system to retry. |
 
-A reset discards system changes in the writable overlay and recreates it from the shared base. Home files
-and conversations survive. Resource or environment changes mark the agent as `needsRebuild` in the API;
-select **Reset system** to apply them.
+A reset discards system changes in the writable overlay and recreates it from the shared base (and any attached
+custom image layer). Home files and conversations survive. Image, resource or environment changes mark the agent as
+`needsRebuild` in the API; select **Reset system** to apply them.
+
+## Custom images
+
+Every machine boots on **agenthold Base** by default. Admins can define **Custom images** in **Settings → Images**
+(or via `/api/v1/images`) to preinstall APT packages, run a bash setup script, set environment variables, and ship
+default dotfiles across their organization:
+
+- **Layered rootfs:** Each custom image builds inside an ephemeral jailed Firecracker builder microVM on top of
+  `agenthold Base`. When the build finishes, the builder's overlay disk is stripped of caches and per-boot files,
+  shrunk into a minimal read-only ext4 layer, compressed with zstd, and content-addressed by SHA-256. At runtime,
+  overlayfs stacks the custom layer between `agenthold Base` and each machine's writable overlay.
+- **Environment & dotfiles:** Image environment variables are written to `/etc/agenthold/image.env.d/10-custom.env`
+  (`PATH` supports `$PATH` / `${PATH}` expansion for both non-login harnesses and login shells). Install tools under
+  `/opt` or `/usr/local`, and place default dotfiles under `/etc/skel` (fresh home disks are seeded from `/etc/skel`
+  on first boot).
+- **Build-time secrets:** Admins can attach secrets to an image recipe for private registries or artifact feeds. They
+  are injected on the wire by the egress proxy only during builds and are never stored inside the resulting layer.
+- **Multi-architecture & private sync:** Triggering a build builds one layer per connected node architecture
+  (`arm64`, `amd64`). Built layers stay private and sync over the existing mTLS node connection (`HasLayer` /
+  `PutLayer`) when a machine is created or reset — they are never exposed on public `/dl/`.
+- **Default & upgrades:** An admin can mark one custom image as the installation default for new agents and apps
+  (users can still pick `agenthold Base` explicitly). Existing machines stay pinned to their revision until the owner
+  stages an upgrade and clicks **Reset system**.
 
 State is stored in the [configured database](/database/). Each operation first moves the state with a
 guarded update, so concurrent requests cannot both act, and then runs in the background. On startup the controller reconciles stored

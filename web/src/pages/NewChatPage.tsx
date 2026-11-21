@@ -7,6 +7,12 @@ import { ErrorText, Loading } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
 import { Menu, MenuItem, MenuSeparator } from '@/components/ui/menu';
 import { AgentNotice } from '@/components/agent/AgentNotice';
+import {
+  EMPTY_GIT_DRAFT,
+  GitMeta,
+  gitStartArgs,
+  useGitDraft,
+} from '@/components/agent/GitMeta';
 import { HarnessMeta } from '@/components/agent/HarnessMeta';
 import { DraftChat } from '@/components/chat/DraftChat';
 import { Crumb, TopBar } from '@/components/layout/TopBar';
@@ -30,6 +36,7 @@ export function NewChatPage() {
   const index = useChatIndex();
   const start = useStartChat();
   const [picked, setPicked] = useState<string>();
+  const [gitDraft, setGitDraft] = useGitDraft();
 
   const candidates = index.agents.filter((x) => accessOf(x.agent).canUse);
   const chosen = candidates.find((x) => x.agent.id === picked) ?? candidates[0];
@@ -73,7 +80,13 @@ export function NewChatPage() {
         placeholder={`Message ${chosen.agent.name}`}
         pending={start.isPending}
         error={start.error}
-        onSend={(text) => start.mutate({ agentId: chosen.agent.id, text })}
+        onSend={(text) =>
+          start.mutate({
+            agentId: chosen.agent.id,
+            text,
+            ...gitStartArgs(gitDraft),
+          })
+        }
         meta={
           <>
             <Menu
@@ -101,6 +114,7 @@ export function NewChatPage() {
                       active={agent.id === chosen.agent.id}
                       onClick={() => {
                         setPicked(agent.id);
+                        setGitDraft(EMPTY_GIT_DRAFT);
                         close();
                       }}
                     >
@@ -129,6 +143,11 @@ export function NewChatPage() {
               )}
             </Menu>
             <HarnessMeta agent={chosen.agent} />
+            <GitMeta
+              agent={chosen.agent}
+              draft={gitDraft}
+              onDraft={setGitDraft}
+            />
           </>
         }
       />

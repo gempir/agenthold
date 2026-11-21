@@ -22,6 +22,10 @@ type Directory struct {
 	Log   *slog.Logger
 	// Logins adds the injections of the account login an agent uses.
 	Logins AccountLogins
+	// Git adds the injections of the agent owner's git credentials. Secrets
+	// attached to the agent win: a git credential for a host one of them
+	// already covers is left out.
+	Git GitCredentials
 	// OnInvalidate schedules a push of the updated controller configuration.
 	OnInvalidate func()
 
@@ -41,6 +45,11 @@ const directoryTTL = 5 * time.Second
 // AccountLogins resolves what the proxy does for an agent's account login.
 type AccountLogins interface {
 	Egress(ctx context.Context, a db.Agent) ([]secrets.Injection, []Responder, error)
+}
+
+// GitCredentials resolves the account-level git credentials of an agent's owner.
+type GitCredentials interface {
+	Egress(ctx context.Context, a db.Agent) ([]secrets.Injection, error)
 }
 
 // AgentForSource implements Agents.
@@ -126,6 +135,18 @@ func (d *Directory) Agent(ctx context.Context, agentID string) (*Agent, error) {
 			}
 		}
 	}
+	if d.Git != nil {
+		injs, err := d.Git.Egress(ctx, a)
+		if err != nil {
+			d.logger().Error("egress: git credentials", "agent", agentID, "err", err)
+		}
+		explicit := out.Injections
+		for _, inj := range injs {
+			if !coveredHosts(explicit, inj.Rule.Hosts) {
+				out.Injections = append(out.Injections, inj)
+			}
+		}
+	}
 	if d.Logins != nil {
 		injs, resp, err := d.Logins.Egress(ctx, a)
 		if err != nil {
@@ -141,6 +162,22 @@ func (d *Directory) Agent(ctx context.Context, agentID string) (*Agent, error) {
 	d.agents[agentID] = cachedAgent{agent: out, at: time.Now()}
 	d.mu.Unlock()
 	return out, nil
+}
+
+// coveredHosts reports whether one of injs (header-adding secrets) already
+// applies to one of hosts.
+func coveredHosts(injs []secrets.Injection, hosts []string) bool {
+	for _, inj := range injs {
+		if inj.HeaderOnly {
+			continue
+		}
+		for _, h := range hosts {
+			if inj.Rule.MatchHost(h) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (d *Directory) injection(s db.Secret) (secrets.Injection, error) {

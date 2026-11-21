@@ -30,11 +30,13 @@ import (
 	"github.com/gempir/agenthold/internal/auth/authtest"
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/egress"
+	"github.com/gempir/agenthold/internal/git"
 	_ "github.com/gempir/agenthold/internal/harness/claude"
 	_ "github.com/gempir/agenthold/internal/harness/codex"
 	fakeharness "github.com/gempir/agenthold/internal/harness/fake"
 	_ "github.com/gempir/agenthold/internal/harness/opencode"
 	"github.com/gempir/agenthold/internal/idle"
+	"github.com/gempir/agenthold/internal/images"
 	"github.com/gempir/agenthold/internal/logins"
 	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/node/enrollment"
@@ -63,6 +65,7 @@ type env struct {
 	hub       *tunnel.Hub
 	directory *egress.Directory
 	logins    *logins.Service
+	git       *git.Service
 	store     *store.Store
 	sessions  *session.Manager
 	tracker   *idle.Tracker
@@ -76,6 +79,7 @@ type env struct {
 	identity *preview.Signer
 	platform *platform.Service
 	apps     *apps.Manager
+	images   *images.Manager
 
 	// api, auth and box are the in-process API and its services (the Slack
 	// integration calls the handlers directly).
@@ -181,7 +185,9 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	t.Cleanup(tunnelSrv.Close)
 	port, _ := strconv.Atoi(tunnelSrv.URL[strings.LastIndex(tunnelSrv.URL, ":")+1:])
 	localNode = node.NewLocal(e.driver, e.hub)
-	localNode.SetDataDir(t.TempDir())
+	nodeDataDir := t.TempDir()
+	localNode.SetDataDir(nodeDataDir)
+	localNode.SetLayerBuilder(images.FakeLayerBuilder(nodeDataDir))
 	box, _ := secrets.NewBox(bytes.Repeat([]byte{1}, secrets.KeySize))
 	ca, err := egress.LoadOrCreateCA(t.TempDir())
 	if err != nil {
@@ -191,22 +197,33 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	// the same fake node, joined over TLS and served over the node protocol.
 	var n node.Node = localNode
 	var nodes api.NodeAdmin
+	var imgNodes images.NodeProvider = images.SingleNodeProvider{Local: localNode}
 	if os.Getenv("AGENTHOLD_TEST_NODE") == "remote" {
 		e.edge = joinEdgeNode(t, st, localNode, ca)
-		n, nodes = e.edge.cluster, e.edge.cluster
+		n, nodes, imgNodes = e.edge.cluster, e.edge.cluster, e.edge.cluster
 	} else {
 		localNode.SetCA(ca)
 	}
+	e.images = images.NewManager(images.Config{
+		Store: st, DataDir: t.TempDir(), Nodes: imgNodes, Box: box, ExplicitProxyPort: 15002,
+	})
 	e.apps = &apps.Manager{Store: st, Node: n, Audit: &audit.Log{Store: st}, Limits: cfg.Apps}
+	e.directory = &egress.Directory{Store: st, Box: box}
+	e.git = &git.Service{Store: st, Box: box, Audit: &audit.Log{Store: st}, Invalidate: e.directory.Invalidate}
+	e.directory.Git = e.git
 	e.activity = activity.New()
 	activityLog := slog.New(activity.Tap(slog.DiscardHandler, e.activity))
-	e.sandboxes = sandbox.NewManagerWithNode(st, n, egress.SpecFunc(st, 15002), sandbox.Options{TunnelPort: port, ConnectTimeout: 10 * time.Second, BootFiles: e.apps.BootFiles, LastActivity: e.activity.Last}, activityLog)
+	e.sandboxes = sandbox.NewManagerWithNode(st, n, egress.SpecFunc(st, 15002), sandbox.Options{
+		TunnelPort: port, ConnectTimeout: 10 * time.Second, BootFiles: sandbox.MergeBootFiles(e.apps.BootFiles, e.git.BootFiles),
+		LastActivity: e.activity.Last, PrepareLayers: e.images.PrepareLayers,
+	}, activityLog)
 	e.apps.Sandboxes = e.sandboxes
 	t.Cleanup(func() {
 		// Finish the background operations first: one still starting a
 		// sandbox would otherwise start its in-process sandboxd after the
 		// stop below, and that keeps writing into the temp directories
 		// while they are removed.
+		e.images.Close()
 		e.sandboxes.Close()
 		// Stop in-process sandboxd goroutines.
 		rows, _ := st.ListSandboxes(context.Background())
@@ -214,7 +231,6 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 			_ = e.driver.Stop(context.Background(), sandbox.ID(r.DriverID))
 		}
 	})
-	e.directory = &egress.Directory{Store: st, Box: box}
 	e.logins = &logins.Service{Store: st, Box: box, Audit: &audit.Log{Store: st}, Invalidate: e.directory.Invalidate}
 	e.directory.Logins = e.logins
 	e.store = st
@@ -257,8 +273,8 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		},
 		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Node: n, Nodes: nodes, Limits: cfg.Sandbox,
 		Box: box, Egress: e.directory, Sessions: e.sessions, Idle: e.sleeper, Audit: &audit.Log{Store: st}, ShowTestHarness: true,
-		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins,
-		Preview: e.preview, Identity: e.identity, Apps: e.apps, Activity: e.activity, UserMaxAgents: cfg.Auth.UserMaxAgents,
+		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins, Git: e.git,
+		Preview: e.preview, Identity: e.identity, Apps: e.apps, Images: e.images, Activity: e.activity, UserMaxAgents: cfg.Auth.UserMaxAgents,
 	})
 	e.api, e.auth, e.box = a, authSvc, box
 	e.sessions.SetWaker(a.Wake)

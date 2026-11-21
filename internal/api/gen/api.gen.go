@@ -182,6 +182,54 @@ func (e AuthProviderType) Valid() bool {
 	}
 }
 
+// Defines values for CustomImageLatestBuildStatus.
+const (
+	CustomImageLatestBuildStatusBuilding CustomImageLatestBuildStatus = "building"
+	CustomImageLatestBuildStatusFailed   CustomImageLatestBuildStatus = "failed"
+	CustomImageLatestBuildStatusQueued   CustomImageLatestBuildStatus = "queued"
+	CustomImageLatestBuildStatusReady    CustomImageLatestBuildStatus = "ready"
+)
+
+// Valid indicates whether the value is a known member of the CustomImageLatestBuildStatus enum.
+func (e CustomImageLatestBuildStatus) Valid() bool {
+	switch e {
+	case CustomImageLatestBuildStatusBuilding:
+		return true
+	case CustomImageLatestBuildStatusFailed:
+		return true
+	case CustomImageLatestBuildStatusQueued:
+		return true
+	case CustomImageLatestBuildStatusReady:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CustomImageDetailLatestBuildStatus.
+const (
+	CustomImageDetailLatestBuildStatusBuilding CustomImageDetailLatestBuildStatus = "building"
+	CustomImageDetailLatestBuildStatusFailed   CustomImageDetailLatestBuildStatus = "failed"
+	CustomImageDetailLatestBuildStatusQueued   CustomImageDetailLatestBuildStatus = "queued"
+	CustomImageDetailLatestBuildStatusReady    CustomImageDetailLatestBuildStatus = "ready"
+)
+
+// Valid indicates whether the value is a known member of the CustomImageDetailLatestBuildStatus enum.
+func (e CustomImageDetailLatestBuildStatus) Valid() bool {
+	switch e {
+	case CustomImageDetailLatestBuildStatusBuilding:
+		return true
+	case CustomImageDetailLatestBuildStatusFailed:
+		return true
+	case CustomImageDetailLatestBuildStatusQueued:
+		return true
+	case CustomImageDetailLatestBuildStatusReady:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ExposureAccess.
 const (
 	Authenticated ExposureAccess = "authenticated"
@@ -197,6 +245,54 @@ func (e ExposureAccess) Valid() bool {
 	case Private:
 		return true
 	case Public:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ImageBuildStatus.
+const (
+	ImageBuildStatusBuilding ImageBuildStatus = "building"
+	ImageBuildStatusFailed   ImageBuildStatus = "failed"
+	ImageBuildStatusQueued   ImageBuildStatus = "queued"
+	ImageBuildStatusReady    ImageBuildStatus = "ready"
+)
+
+// Valid indicates whether the value is a known member of the ImageBuildStatus enum.
+func (e ImageBuildStatus) Valid() bool {
+	switch e {
+	case ImageBuildStatusBuilding:
+		return true
+	case ImageBuildStatusFailed:
+		return true
+	case ImageBuildStatusQueued:
+		return true
+	case ImageBuildStatusReady:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ImageBuildDetailStatus.
+const (
+	ImageBuildDetailStatusBuilding ImageBuildDetailStatus = "building"
+	ImageBuildDetailStatusFailed   ImageBuildDetailStatus = "failed"
+	ImageBuildDetailStatusQueued   ImageBuildDetailStatus = "queued"
+	ImageBuildDetailStatusReady    ImageBuildDetailStatus = "ready"
+)
+
+// Valid indicates whether the value is a known member of the ImageBuildDetailStatus enum.
+func (e ImageBuildDetailStatus) Valid() bool {
+	switch e {
+	case ImageBuildDetailStatusBuilding:
+		return true
+	case ImageBuildDetailStatusFailed:
+		return true
+	case ImageBuildDetailStatusQueued:
+		return true
+	case ImageBuildDetailStatusReady:
 		return true
 	default:
 		return false
@@ -613,6 +709,18 @@ type Agent struct {
 	Id                   string `json:"id"`
 	IdleMinutes          int    `json:"idleMinutes"`
 
+	// ImageId Custom image ID, or empty string for the built-in agenthold Base image.
+	ImageId *string `json:"imageId,omitempty"`
+
+	// ImageName Display name of the machine's image.
+	ImageName *string `json:"imageName,omitempty"`
+
+	// ImageRevision Pinned custom image revision (0 for built-in base).
+	ImageRevision *int64 `json:"imageRevision,omitempty"`
+
+	// ImageUpdateAvailable True when the machine's custom image has a newer ready revision.
+	ImageUpdateAvailable *bool `json:"imageUpdateAvailable,omitempty"`
+
 	// IsTemplate The machine is a template. It cannot be started, chatted with or scheduled; clone it for a new machine.
 	IsTemplate bool `json:"isTemplate"`
 
@@ -662,9 +770,12 @@ type AgentInput struct {
 	// Harness Harness id (see /harnesses). Default claude-code.
 	Harness     *string `json:"harness,omitempty"`
 	IdleMinutes *int    `json:"idleMinutes,omitempty"`
-	MemoryMb    *int64  `json:"memoryMb,omitempty"`
-	Model       *string `json:"model,omitempty"`
-	Name        string  `json:"name"`
+
+	// ImageId Custom image ID to build the machine from, "base" for the built-in base image, or omit to use the installation's default image.
+	ImageId  *string `json:"imageId,omitempty"`
+	MemoryMb *int64  `json:"memoryMb,omitempty"`
+	Model    *string `json:"model,omitempty"`
+	Name     string  `json:"name"`
 
 	// NodeId Place the agent on this node (an `id` from `GET /nodes`). Omit it for automatic placement. Admins only (403 otherwise). 400 if the node does not exist; 409 if it is offline, cannot report its capacity or has less available memory than `memoryMb`. The agent stays on the node for its whole life.
 	NodeId           *string                     `json:"nodeId,omitempty"`
@@ -709,6 +820,12 @@ type AgentPatch struct {
 	// Harness Harness id (see /harnesses). Default claude-code.
 	Harness     *string `json:"harness,omitempty"`
 	IdleMinutes *int    `json:"idleMinutes,omitempty"`
+
+	// ImageId Switch to another custom image ID (pinned to its latest ready revision), or "base" for the built-in base image. Takes effect after Reset system (needsRebuild).
+	ImageId *string `json:"imageId,omitempty"`
+
+	// ImageRevision Upgrade or pin a specific ready revision of the machine's current custom image. Takes effect after Reset system (needsRebuild).
+	ImageRevision *int64 `json:"imageRevision,omitempty"`
 
 	// IsTemplate Convert the machine to a template or back to a normal machine. It is stopped first (409 while it
 	// works on a prompt). Converting to a template disables its schedules and webhooks; they stay
@@ -758,6 +875,18 @@ type App struct {
 	// IdleMinutes 0 means always on (never sleeps for idleness).
 	IdleMinutes int `json:"idleMinutes"`
 
+	// ImageId Custom image ID, or empty string for the built-in agenthold Base image.
+	ImageId *string `json:"imageId,omitempty"`
+
+	// ImageName Display name of the app's image.
+	ImageName *string `json:"imageName,omitempty"`
+
+	// ImageRevision Pinned custom image revision (0 for built-in base).
+	ImageRevision *int64 `json:"imageRevision,omitempty"`
+
+	// ImageUpdateAvailable True when the app's custom image has a newer ready revision.
+	ImageUpdateAvailable *bool `json:"imageUpdateAvailable,omitempty"`
+
 	// IsTemplate The app is a template: it is never started; clone it (POST /agents/{id}/clone).
 	IsTemplate     bool       `json:"isTemplate"`
 	LastActivityAt *time.Time `json:"lastActivityAt,omitempty"`
@@ -796,8 +925,11 @@ type AppInput struct {
 	Cpus *float32 `json:"cpus,omitempty"`
 
 	// IdleMinutes Default 0 (always on).
-	IdleMinutes *int   `json:"idleMinutes,omitempty"`
-	MemoryMb    *int64 `json:"memoryMb,omitempty"`
+	IdleMinutes *int `json:"idleMinutes,omitempty"`
+
+	// ImageId Custom image ID, "base" for built-in base, or omit for the installation default.
+	ImageId  *string `json:"imageId,omitempty"`
+	MemoryMb *int64  `json:"memoryMb,omitempty"`
 
 	// Name A DNS label: lowercase letters, digits and hyphens, unique among your apps.
 	Name string `json:"name"`
@@ -807,6 +939,12 @@ type AppInput struct {
 type AppPatch struct {
 	Cpus        *float32 `json:"cpus,omitempty"`
 	IdleMinutes *int     `json:"idleMinutes,omitempty"`
+
+	// ImageId Switch image (takes effect after Reset system).
+	ImageId *string `json:"imageId,omitempty"`
+
+	// ImageRevision Switch to a specific ready revision (takes effect after Reset system).
+	ImageRevision *int64 `json:"imageRevision,omitempty"`
 
 	// IsTemplate Convert to a template (it is stopped first) or back
 	IsTemplate *bool   `json:"isTemplate,omitempty"`
@@ -851,6 +989,14 @@ type AuthProvider struct {
 
 // AuthProviderType local: sign in with username and password (POST /auth/local).
 type AuthProviderType string
+
+// BuiltinBaseImage defines model for BuiltinBaseImage.
+type BuiltinBaseImage struct {
+	Description string `json:"description"`
+	Id          string `json:"id"`
+	IsDefault   bool   `json:"isDefault"`
+	Name        string `json:"name"`
+}
 
 // CatalogModel defines model for CatalogModel.
 type CatalogModel struct {
@@ -910,6 +1056,51 @@ type CreatedWebhook struct {
 	// Url The secret delivery URL. Shown once.
 	Url string `json:"url"`
 }
+
+// CustomImage defines model for CustomImage.
+type CustomImage struct {
+	AgentCount        int64                         `json:"agentCount"`
+	AptPackages       []string                      `json:"aptPackages"`
+	Building          bool                          `json:"building"`
+	CreatedAt         time.Time                     `json:"createdAt"`
+	Description       string                        `json:"description"`
+	Env               map[string]string             `json:"env"`
+	Id                string                        `json:"id"`
+	IsDefault         bool                          `json:"isDefault"`
+	LatestBuildStatus *CustomImageLatestBuildStatus `json:"latestBuildStatus,omitempty"`
+	LatestRevision    int64                         `json:"latestRevision"`
+	Name              string                        `json:"name"`
+	ReadyArches       []string                      `json:"readyArches"`
+	SecretIds         []string                      `json:"secretIds"`
+	SetupScript       string                        `json:"setupScript"`
+	UpdatedAt         time.Time                     `json:"updatedAt"`
+}
+
+// CustomImageLatestBuildStatus defines model for CustomImage.LatestBuildStatus.
+type CustomImageLatestBuildStatus string
+
+// CustomImageDetail defines model for CustomImageDetail.
+type CustomImageDetail struct {
+	AgentCount        int64                               `json:"agentCount"`
+	AptPackages       []string                            `json:"aptPackages"`
+	Building          bool                                `json:"building"`
+	Builds            []ImageBuild                        `json:"builds"`
+	CreatedAt         time.Time                           `json:"createdAt"`
+	Description       string                              `json:"description"`
+	Env               map[string]string                   `json:"env"`
+	Id                string                              `json:"id"`
+	IsDefault         bool                                `json:"isDefault"`
+	LatestBuildStatus *CustomImageDetailLatestBuildStatus `json:"latestBuildStatus,omitempty"`
+	LatestRevision    int64                               `json:"latestRevision"`
+	Name              string                              `json:"name"`
+	ReadyArches       []string                            `json:"readyArches"`
+	SecretIds         []string                            `json:"secretIds"`
+	SetupScript       string                              `json:"setupScript"`
+	UpdatedAt         time.Time                           `json:"updatedAt"`
+}
+
+// CustomImageDetailLatestBuildStatus defines model for CustomImageDetail.LatestBuildStatus.
+type CustomImageDetailLatestBuildStatus string
 
 // DeployInput defines model for DeployInput.
 type DeployInput struct {
@@ -1033,6 +1224,62 @@ type FileEntry struct {
 	Size    int64     `json:"size"`
 }
 
+// GitCredential defines model for GitCredential.
+type GitCredential struct {
+	CreatedAt time.Time `json:"createdAt"`
+	Host      string    `json:"host"`
+	Id        string    `json:"id"`
+	Label     string    `json:"label"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	Username  string    `json:"username"`
+}
+
+// GitCredentialInput defines model for GitCredentialInput.
+type GitCredentialInput struct {
+	// Host Hostname, e.g. github.com or gitlab.com.
+	Host  string  `json:"host"`
+	Label *string `json:"label,omitempty"`
+	Token string  `json:"token"`
+
+	// Username Optional HTTP Basic username (defaults to x-access-token for github.com, oauth2 for gitlab.com, git otherwise).
+	Username *string `json:"username,omitempty"`
+}
+
+// GitRepo defines model for GitRepo.
+type GitRepo struct {
+	Ahead      int     `json:"ahead"`
+	Behind     int     `json:"behind"`
+	Branch     string  `json:"branch"`
+	Detached   bool    `json:"detached"`
+	Dirty      bool    `json:"dirty"`
+	IsWorktree bool    `json:"isWorktree"`
+	MainPath   *string `json:"mainPath,omitempty"`
+	Path       string  `json:"path"`
+	Project    string  `json:"project"`
+	RemoteUrl  *string `json:"remoteUrl,omitempty"`
+}
+
+// GitRepoList defines model for GitRepoList.
+type GitRepoList struct {
+	Connected bool      `json:"connected"`
+	Repos     []GitRepo `json:"repos"`
+}
+
+// GitRepoStatus defines model for GitRepoStatus.
+type GitRepoStatus struct {
+	Branches []string `json:"branches"`
+	Repo     *GitRepo `json:"repo,omitempty"`
+}
+
+// GitSettings defines model for GitSettings.
+type GitSettings struct {
+	AuthorEmail        string          `json:"authorEmail"`
+	AuthorName         string          `json:"authorName"`
+	Credentials        []GitCredential `json:"credentials"`
+	DefaultAuthorEmail string          `json:"defaultAuthorEmail"`
+	DefaultAuthorName  string          `json:"defaultAuthorName"`
+}
+
 // HarnessState defines model for HarnessState.
 type HarnessState struct {
 	AgentName    string           `json:"agentName"`
@@ -1053,6 +1300,74 @@ type HarnessType struct {
 	Id            string   `json:"id"`
 	Name          string   `json:"name"`
 	SecretPresets []string `json:"secretPresets"`
+}
+
+// ImageBuild defines model for ImageBuild.
+type ImageBuild struct {
+	Arch        string           `json:"arch"`
+	BaseKey     *string          `json:"baseKey,omitempty"`
+	CreatedAt   time.Time        `json:"createdAt"`
+	Error       string           `json:"error"`
+	FinishedAt  *time.Time       `json:"finishedAt,omitempty"`
+	Id          string           `json:"id"`
+	ImageId     string           `json:"imageId"`
+	LayerSha256 string           `json:"layerSha256"`
+	LayerSize   int64            `json:"layerSize"`
+	NodeId      string           `json:"nodeId"`
+	Revision    int64            `json:"revision"`
+	StartedAt   *time.Time       `json:"startedAt,omitempty"`
+	Status      ImageBuildStatus `json:"status"`
+	ZstdSize    int64            `json:"zstdSize"`
+}
+
+// ImageBuildStatus defines model for ImageBuild.Status.
+type ImageBuildStatus string
+
+// ImageBuildDetail defines model for ImageBuildDetail.
+type ImageBuildDetail struct {
+	Arch        string                 `json:"arch"`
+	BaseKey     *string                `json:"baseKey,omitempty"`
+	CreatedAt   time.Time              `json:"createdAt"`
+	Error       string                 `json:"error"`
+	FinishedAt  *time.Time             `json:"finishedAt,omitempty"`
+	Id          string                 `json:"id"`
+	ImageId     string                 `json:"imageId"`
+	LayerSha256 string                 `json:"layerSha256"`
+	LayerSize   int64                  `json:"layerSize"`
+	Log         string                 `json:"log"`
+	NodeId      string                 `json:"nodeId"`
+	Revision    int64                  `json:"revision"`
+	StartedAt   *time.Time             `json:"startedAt,omitempty"`
+	Status      ImageBuildDetailStatus `json:"status"`
+	ZstdSize    int64                  `json:"zstdSize"`
+}
+
+// ImageBuildDetailStatus defines model for ImageBuildDetail.Status.
+type ImageBuildDetailStatus string
+
+// ImageInput defines model for ImageInput.
+type ImageInput struct {
+	AptPackages *[]string `json:"aptPackages,omitempty"`
+	Description *string   `json:"description,omitempty"`
+
+	// Env Environment variables written to /etc/agenthold/image.env.d/10-custom.env. PATH supports $PATH/${PATH}.
+	Env *map[string]string `json:"env,omitempty"`
+
+	// IsDefault Make this custom image the installation default for new agents and apps.
+	IsDefault *bool  `json:"isDefault,omitempty"`
+	Name      string `json:"name"`
+
+	// SecretIds Secret IDs injected via the egress proxy during image builds only (never baked into the image).
+	SecretIds *[]string `json:"secretIds,omitempty"`
+
+	// SetupScript Bash script executed as root inside an isolated builder microVM.
+	SetupScript *string `json:"setupScript,omitempty"`
+}
+
+// ImageList defines model for ImageList.
+type ImageList struct {
+	Base   BuiltinBaseImage `json:"base"`
+	Images []CustomImage    `json:"images"`
 }
 
 // LoginAgent defines model for LoginAgent.
@@ -1199,6 +1514,9 @@ type ModelOptionValue struct {
 type NodeInfo struct {
 	// Agents Agents placed on this node.
 	Agents int `json:"agents"`
+
+	// Arch CPU architecture of the node (arm64 or amd64), when known.
+	Arch *string `json:"arch,omitempty"`
 
 	// AvailableMemoryBytes Available memory at the last report.
 	AvailableMemoryBytes *int64 `json:"availableMemoryBytes,omitempty"`
@@ -1556,11 +1874,15 @@ type ServiceStatusState string
 
 // Session defines model for Session.
 type Session struct {
-	AgentId   string       `json:"agentId"`
-	CreatedAt time.Time    `json:"createdAt"`
-	CreatedBy User         `json:"createdBy"`
-	Id        string       `json:"id"`
-	Model     *ModelChoice `json:"model,omitempty"`
+	AgentId   string    `json:"agentId"`
+	CreatedAt time.Time `json:"createdAt"`
+	CreatedBy User      `json:"createdBy"`
+
+	// Cwd Working directory relative to the agent's home directory.
+	Cwd   *string      `json:"cwd,omitempty"`
+	Git   *SessionGit  `json:"git,omitempty"`
+	Id    string       `json:"id"`
+	Model *ModelChoice `json:"model,omitempty"`
 
 	// Origin Set when another agent started the session (send_message or ask).
 	Origin *struct {
@@ -1605,6 +1927,13 @@ type SessionEvent struct {
 // permission_resolved: {requestId, optionId, by}; turn_end:
 // {stopReason}; error/notice: {message}.
 type SessionEventType string
+
+// SessionGit defines model for SessionGit.
+type SessionGit struct {
+	Branch   string  `json:"branch"`
+	Project  string  `json:"project"`
+	RepoPath *string `json:"repoPath,omitempty"`
+}
 
 // Share defines model for Share.
 type Share struct {
@@ -1815,6 +2144,53 @@ type MakeDirectoryJSONBody struct {
 	Path string `json:"path"`
 }
 
+// CheckoutAgentGitBranchJSONBody defines parameters for CheckoutAgentGitBranch.
+type CheckoutAgentGitBranchJSONBody struct {
+	Branch  string  `json:"branch"`
+	Create  *bool   `json:"create,omitempty"`
+	FromRef *string `json:"fromRef,omitempty"`
+	Path    string  `json:"path"`
+}
+
+// CloneAgentGitRepoJSONBody defines parameters for CloneAgentGitRepo.
+type CloneAgentGitRepoJSONBody struct {
+	// Branch Optional branch to check out.
+	Branch *string `json:"branch,omitempty"`
+
+	// Path Optional target directory relative to home.
+	Path *string `json:"path,omitempty"`
+	Url  string  `json:"url"`
+}
+
+// PullAgentGitRepoJSONBody defines parameters for PullAgentGitRepo.
+type PullAgentGitRepoJSONBody struct {
+	FetchOnly *bool  `json:"fetchOnly,omitempty"`
+	Path      string `json:"path"`
+}
+
+// GetAgentGitStatusParams defines parameters for GetAgentGitStatus.
+type GetAgentGitStatusParams struct {
+	// Path Relative path inside the agent's home directory (empty for home).
+	Path *string `form:"path,omitempty" json:"path,omitempty"`
+}
+
+// CreateAgentGitWorktreeJSONBody defines parameters for CreateAgentGitWorktree.
+type CreateAgentGitWorktreeJSONBody struct {
+	Branch string `json:"branch"`
+
+	// Create Create a new branch for the worktree.
+	Create *bool `json:"create,omitempty"`
+
+	// FromRef Optional base ref when creating a new branch.
+	FromRef *string `json:"fromRef,omitempty"`
+
+	// Path Repository path relative to home.
+	Path string `json:"path"`
+
+	// WorktreePath Optional worktree path relative to home.
+	WorktreePath *string `json:"worktreePath,omitempty"`
+}
+
 // GetHarnessParams defines parameters for GetHarness.
 type GetHarnessParams struct {
 	Connect *bool `form:"connect,omitempty" json:"connect,omitempty"`
@@ -1839,7 +2215,24 @@ type GetServiceLogsParams struct {
 
 // CreateSessionJSONBody defines parameters for CreateSession.
 type CreateSessionJSONBody struct {
-	Title *string `json:"title,omitempty"`
+	// CreateBranch Create gitBranch if it does not exist.
+	CreateBranch *bool `json:"createBranch,omitempty"`
+
+	// CreateWorktree Create a new git worktree on gitBranch for this session.
+	CreateWorktree *bool `json:"createWorktree,omitempty"`
+
+	// Cwd Optional working directory relative to the agent's home directory.
+	Cwd *string `json:"cwd,omitempty"`
+
+	// GitBranch Optional branch to check out or create when starting in a git repository.
+	GitBranch *string `json:"gitBranch,omitempty"`
+	Title     *string `json:"title,omitempty"`
+}
+
+// UpdateGitSettingsJSONBody defines parameters for UpdateGitSettings.
+type UpdateGitSettingsJSONBody struct {
+	AuthorEmail string `json:"authorEmail"`
+	AuthorName  string `json:"authorName"`
 }
 
 // LinkSlackJSONBody defines parameters for LinkSlack.
@@ -1867,6 +2260,15 @@ type RenameSessionJSONBody struct {
 type ListSessionEventsParams struct {
 	After *int64 `form:"after,omitempty" json:"after,omitempty"`
 	Limit *int   `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// UpdateSessionGitJSONBody defines parameters for UpdateSessionGit.
+type UpdateSessionGitJSONBody struct {
+	// Cwd Working directory relative to home (empty clears).
+	Cwd *string `json:"cwd,omitempty"`
+
+	// Refresh Re-detect git project and branch from the running sandbox.
+	Refresh *bool `json:"refresh,omitempty"`
 }
 
 // AnswerPermissionJSONBody defines parameters for AnswerPermission.
@@ -1903,6 +2305,18 @@ type UpdateExposureJSONRequestBody = ExposurePatch
 // MakeDirectoryJSONRequestBody defines body for MakeDirectory for application/json ContentType.
 type MakeDirectoryJSONRequestBody MakeDirectoryJSONBody
 
+// CheckoutAgentGitBranchJSONRequestBody defines body for CheckoutAgentGitBranch for application/json ContentType.
+type CheckoutAgentGitBranchJSONRequestBody CheckoutAgentGitBranchJSONBody
+
+// CloneAgentGitRepoJSONRequestBody defines body for CloneAgentGitRepo for application/json ContentType.
+type CloneAgentGitRepoJSONRequestBody CloneAgentGitRepoJSONBody
+
+// PullAgentGitRepoJSONRequestBody defines body for PullAgentGitRepo for application/json ContentType.
+type PullAgentGitRepoJSONRequestBody PullAgentGitRepoJSONBody
+
+// CreateAgentGitWorktreeJSONRequestBody defines body for CreateAgentGitWorktree for application/json ContentType.
+type CreateAgentGitWorktreeJSONRequestBody CreateAgentGitWorktreeJSONBody
+
 // CreateAgentMCPServerJSONRequestBody defines body for CreateAgentMCPServer for application/json ContentType.
 type CreateAgentMCPServerJSONRequestBody = MCPServerInput
 
@@ -1933,11 +2347,23 @@ type UpdateAppJSONRequestBody = AppPatch
 // DeployAppJSONRequestBody defines body for DeployApp for application/json ContentType.
 type DeployAppJSONRequestBody = DeployInput
 
+// CreateImageJSONRequestBody defines body for CreateImage for application/json ContentType.
+type CreateImageJSONRequestBody = ImageInput
+
+// UpdateImageJSONRequestBody defines body for UpdateImage for application/json ContentType.
+type UpdateImageJSONRequestBody = ImageInput
+
 // CreateMCPServerJSONRequestBody defines body for CreateMCPServer for application/json ContentType.
 type CreateMCPServerJSONRequestBody = MCPServerInput
 
 // UpdateMCPServerJSONRequestBody defines body for UpdateMCPServer for application/json ContentType.
 type UpdateMCPServerJSONRequestBody = MCPServerInput
+
+// UpdateGitSettingsJSONRequestBody defines body for UpdateGitSettings for application/json ContentType.
+type UpdateGitSettingsJSONRequestBody UpdateGitSettingsJSONBody
+
+// UpsertGitCredentialJSONRequestBody defines body for UpsertGitCredential for application/json ContentType.
+type UpsertGitCredentialJSONRequestBody = GitCredentialInput
 
 // ConnectProviderLoginJSONRequestBody defines body for ConnectProviderLogin for application/json ContentType.
 type ConnectProviderLoginJSONRequestBody = ProviderLoginInput
@@ -1965,6 +2391,9 @@ type UpdateSecretJSONRequestBody = SecretPatch
 
 // RenameSessionJSONRequestBody defines body for RenameSession for application/json ContentType.
 type RenameSessionJSONRequestBody RenameSessionJSONBody
+
+// UpdateSessionGitJSONRequestBody defines body for UpdateSessionGit for application/json ContentType.
+type UpdateSessionGitJSONRequestBody UpdateSessionGitJSONBody
 
 // SetSessionModelJSONRequestBody defines body for SetSessionModel for application/json ContentType.
 type SetSessionModelJSONRequestBody = ModelChoice
@@ -2058,6 +2487,24 @@ type ServerInterface interface {
 
 	// (POST /agents/{agentId}/files/mkdir)
 	MakeDirectory(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (POST /agents/{agentId}/git/checkout)
+	CheckoutAgentGitBranch(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (POST /agents/{agentId}/git/clone)
+	CloneAgentGitRepo(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (POST /agents/{agentId}/git/pull)
+	PullAgentGitRepo(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (GET /agents/{agentId}/git/repos)
+	ListAgentGitRepos(w http.ResponseWriter, r *http.Request, agentId AgentId)
+
+	// (GET /agents/{agentId}/git/status)
+	GetAgentGitStatus(w http.ResponseWriter, r *http.Request, agentId AgentId, params GetAgentGitStatusParams)
+
+	// (POST /agents/{agentId}/git/worktrees)
+	CreateAgentGitWorktree(w http.ResponseWriter, r *http.Request, agentId AgentId)
 
 	// (GET /agents/{agentId}/harness)
 	GetHarness(w http.ResponseWriter, r *http.Request, agentId AgentId, params GetHarnessParams)
@@ -2200,6 +2647,30 @@ type ServerInterface interface {
 	// (GET /harnesses)
 	ListHarnesses(w http.ResponseWriter, r *http.Request)
 
+	// (GET /images)
+	ListImages(w http.ResponseWriter, r *http.Request)
+
+	// (POST /images)
+	CreateImage(w http.ResponseWriter, r *http.Request)
+
+	// (DELETE /images/{imageId})
+	DeleteImage(w http.ResponseWriter, r *http.Request, imageId string)
+
+	// (GET /images/{imageId})
+	GetImage(w http.ResponseWriter, r *http.Request, imageId string)
+
+	// (PATCH /images/{imageId})
+	UpdateImage(w http.ResponseWriter, r *http.Request, imageId string)
+
+	// (GET /images/{imageId}/builds)
+	ListImageBuilds(w http.ResponseWriter, r *http.Request, imageId string)
+
+	// (POST /images/{imageId}/builds)
+	StartImageBuild(w http.ResponseWriter, r *http.Request, imageId string)
+
+	// (GET /images/{imageId}/builds/{buildId})
+	GetImageBuild(w http.ResponseWriter, r *http.Request, imageId string, buildId string)
+
 	// (GET /mcp-servers)
 	ListMCPServers(w http.ResponseWriter, r *http.Request)
 
@@ -2214,6 +2685,18 @@ type ServerInterface interface {
 
 	// (GET /me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+
+	// (GET /me/git)
+	GetGitSettings(w http.ResponseWriter, r *http.Request)
+
+	// (PUT /me/git)
+	UpdateGitSettings(w http.ResponseWriter, r *http.Request)
+
+	// (POST /me/git/credentials)
+	UpsertGitCredential(w http.ResponseWriter, r *http.Request)
+
+	// (DELETE /me/git/credentials/{credentialId})
+	DeleteGitCredential(w http.ResponseWriter, r *http.Request, credentialId string)
 
 	// (GET /me/provider-logins)
 	ListProviderLogins(w http.ResponseWriter, r *http.Request)
@@ -2301,6 +2784,9 @@ type ServerInterface interface {
 
 	// (GET /sessions/{sessionId}/events)
 	ListSessionEvents(w http.ResponseWriter, r *http.Request, sessionId SessionId, params ListSessionEventsParams)
+
+	// (PATCH /sessions/{sessionId}/git)
+	UpdateSessionGit(w http.ResponseWriter, r *http.Request, sessionId SessionId)
 
 	// (PUT /sessions/{sessionId}/model)
 	SetSessionModel(w http.ResponseWriter, r *http.Request, sessionId SessionId)
@@ -2460,6 +2946,36 @@ func (_ Unimplemented) UploadFile(w http.ResponseWriter, r *http.Request, agentI
 
 // (POST /agents/{agentId}/files/mkdir)
 func (_ Unimplemented) MakeDirectory(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /agents/{agentId}/git/checkout)
+func (_ Unimplemented) CheckoutAgentGitBranch(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /agents/{agentId}/git/clone)
+func (_ Unimplemented) CloneAgentGitRepo(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /agents/{agentId}/git/pull)
+func (_ Unimplemented) PullAgentGitRepo(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /agents/{agentId}/git/repos)
+func (_ Unimplemented) ListAgentGitRepos(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /agents/{agentId}/git/status)
+func (_ Unimplemented) GetAgentGitStatus(w http.ResponseWriter, r *http.Request, agentId AgentId, params GetAgentGitStatusParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /agents/{agentId}/git/worktrees)
+func (_ Unimplemented) CreateAgentGitWorktree(w http.ResponseWriter, r *http.Request, agentId AgentId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2698,6 +3214,46 @@ func (_ Unimplemented) ListHarnesses(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (GET /images)
+func (_ Unimplemented) ListImages(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /images)
+func (_ Unimplemented) CreateImage(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /images/{imageId})
+func (_ Unimplemented) DeleteImage(w http.ResponseWriter, r *http.Request, imageId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /images/{imageId})
+func (_ Unimplemented) GetImage(w http.ResponseWriter, r *http.Request, imageId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PATCH /images/{imageId})
+func (_ Unimplemented) UpdateImage(w http.ResponseWriter, r *http.Request, imageId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /images/{imageId}/builds)
+func (_ Unimplemented) ListImageBuilds(w http.ResponseWriter, r *http.Request, imageId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /images/{imageId}/builds)
+func (_ Unimplemented) StartImageBuild(w http.ResponseWriter, r *http.Request, imageId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /images/{imageId}/builds/{buildId})
+func (_ Unimplemented) GetImageBuild(w http.ResponseWriter, r *http.Request, imageId string, buildId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (GET /mcp-servers)
 func (_ Unimplemented) ListMCPServers(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -2720,6 +3276,26 @@ func (_ Unimplemented) UpdateMCPServer(w http.ResponseWriter, r *http.Request, s
 
 // (GET /me)
 func (_ Unimplemented) GetMe(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /me/git)
+func (_ Unimplemented) GetGitSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /me/git)
+func (_ Unimplemented) UpdateGitSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /me/git/credentials)
+func (_ Unimplemented) UpsertGitCredential(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /me/git/credentials/{credentialId})
+func (_ Unimplemented) DeleteGitCredential(w http.ResponseWriter, r *http.Request, credentialId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2865,6 +3441,11 @@ func (_ Unimplemented) CancelSession(w http.ResponseWriter, r *http.Request, ses
 
 // (GET /sessions/{sessionId}/events)
 func (_ Unimplemented) ListSessionEvents(w http.ResponseWriter, r *http.Request, sessionId SessionId, params ListSessionEventsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PATCH /sessions/{sessionId}/git)
+func (_ Unimplemented) UpdateSessionGit(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3615,6 +4196,178 @@ func (siw *ServerInterfaceWrapper) MakeDirectory(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.MakeDirectory(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CheckoutAgentGitBranch operation middleware
+func (siw *ServerInterfaceWrapper) CheckoutAgentGitBranch(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CheckoutAgentGitBranch(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CloneAgentGitRepo operation middleware
+func (siw *ServerInterfaceWrapper) CloneAgentGitRepo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CloneAgentGitRepo(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PullAgentGitRepo operation middleware
+func (siw *ServerInterfaceWrapper) PullAgentGitRepo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PullAgentGitRepo(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAgentGitRepos operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentGitRepos(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAgentGitRepos(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAgentGitStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetAgentGitStatus(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetAgentGitStatusParams
+
+	// ------------- Optional query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAgentGitStatus(w, r, agentId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateAgentGitWorktree operation middleware
+func (siw *ServerInterfaceWrapper) CreateAgentGitWorktree(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId AgentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", chi.URLParam(r, "agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateAgentGitWorktree(w, r, agentId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4960,6 +5713,199 @@ func (siw *ServerInterfaceWrapper) ListHarnesses(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListImages operation middleware
+func (siw *ServerInterfaceWrapper) ListImages(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListImages(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateImage operation middleware
+func (siw *ServerInterfaceWrapper) CreateImage(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateImage(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteImage operation middleware
+func (siw *ServerInterfaceWrapper) DeleteImage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "imageId" -------------
+	var imageId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "imageId", chi.URLParam(r, "imageId"), &imageId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "imageId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteImage(w, r, imageId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetImage operation middleware
+func (siw *ServerInterfaceWrapper) GetImage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "imageId" -------------
+	var imageId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "imageId", chi.URLParam(r, "imageId"), &imageId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "imageId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetImage(w, r, imageId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateImage operation middleware
+func (siw *ServerInterfaceWrapper) UpdateImage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "imageId" -------------
+	var imageId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "imageId", chi.URLParam(r, "imageId"), &imageId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "imageId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateImage(w, r, imageId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListImageBuilds operation middleware
+func (siw *ServerInterfaceWrapper) ListImageBuilds(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "imageId" -------------
+	var imageId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "imageId", chi.URLParam(r, "imageId"), &imageId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "imageId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListImageBuilds(w, r, imageId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartImageBuild operation middleware
+func (siw *ServerInterfaceWrapper) StartImageBuild(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "imageId" -------------
+	var imageId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "imageId", chi.URLParam(r, "imageId"), &imageId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "imageId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartImageBuild(w, r, imageId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetImageBuild operation middleware
+func (siw *ServerInterfaceWrapper) GetImageBuild(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "imageId" -------------
+	var imageId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "imageId", chi.URLParam(r, "imageId"), &imageId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "imageId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "buildId" -------------
+	var buildId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "buildId", chi.URLParam(r, "buildId"), &buildId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "buildId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetImageBuild(w, r, imageId, buildId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListMCPServers operation middleware
 func (siw *ServerInterfaceWrapper) ListMCPServers(w http.ResponseWriter, r *http.Request) {
 
@@ -5045,6 +5991,74 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetGitSettings operation middleware
+func (siw *ServerInterfaceWrapper) GetGitSettings(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetGitSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateGitSettings operation middleware
+func (siw *ServerInterfaceWrapper) UpdateGitSettings(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateGitSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpsertGitCredential operation middleware
+func (siw *ServerInterfaceWrapper) UpsertGitCredential(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpsertGitCredential(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteGitCredential operation middleware
+func (siw *ServerInterfaceWrapper) DeleteGitCredential(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "credentialId" -------------
+	var credentialId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "credentialId", chi.URLParam(r, "credentialId"), &credentialId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "credentialId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteGitCredential(w, r, credentialId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5706,6 +6720,32 @@ func (siw *ServerInterfaceWrapper) ListSessionEvents(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// UpdateSessionGit operation middleware
+func (siw *ServerInterfaceWrapper) UpdateSessionGit(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", chi.URLParam(r, "sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateSessionGit(w, r, sessionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SetSessionModel operation middleware
 func (siw *ServerInterfaceWrapper) SetSessionModel(w http.ResponseWriter, r *http.Request) {
 
@@ -6147,6 +7187,30 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Delete(options.BaseURL+"/nodes/{nodeId}", wrapper.DeleteNode)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/images", wrapper.ListImages)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/images", wrapper.CreateImage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/images/{imageId}", wrapper.DeleteImage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/images/{imageId}", wrapper.GetImage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/images/{imageId}", wrapper.UpdateImage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/images/{imageId}/builds", wrapper.ListImageBuilds)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/images/{imageId}/builds", wrapper.StartImageBuild)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/images/{imageId}/builds/{buildId}", wrapper.GetImageBuild)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/agents", wrapper.ListAgents)
 	})
 	r.Group(func(r chi.Router) {
@@ -6454,6 +7518,39 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/webhooks/{webhookId}", wrapper.UpdateWebhook)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/me/git", wrapper.GetGitSettings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/me/git", wrapper.UpdateGitSettings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/me/git/credentials", wrapper.UpsertGitCredential)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/me/git/credentials/{credentialId}", wrapper.DeleteGitCredential)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/agents/{agentId}/git/repos", wrapper.ListAgentGitRepos)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/agents/{agentId}/git/status", wrapper.GetAgentGitStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/agents/{agentId}/git/clone", wrapper.CloneAgentGitRepo)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/agents/{agentId}/git/checkout", wrapper.CheckoutAgentGitBranch)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/agents/{agentId}/git/worktrees", wrapper.CreateAgentGitWorktree)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/agents/{agentId}/git/pull", wrapper.PullAgentGitRepo)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/sessions/{sessionId}/git", wrapper.UpdateSessionGit)
 	})
 
 	return r
@@ -7949,6 +9046,409 @@ func (response MakeDirectory409JSONResponse) VisitMakeDirectoryResponse(w http.R
 	return err
 }
 
+type CheckoutAgentGitBranchRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+	Body    *CheckoutAgentGitBranchJSONRequestBody
+}
+
+type CheckoutAgentGitBranchResponseObject interface {
+	VisitCheckoutAgentGitBranchResponse(w http.ResponseWriter) error
+}
+
+type CheckoutAgentGitBranch200JSONResponse GitRepo
+
+func (response CheckoutAgentGitBranch200JSONResponse) VisitCheckoutAgentGitBranchResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckoutAgentGitBranch400JSONResponse struct{ ErrorJSONResponse }
+
+func (response CheckoutAgentGitBranch400JSONResponse) VisitCheckoutAgentGitBranchResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckoutAgentGitBranch403JSONResponse Error
+
+func (response CheckoutAgentGitBranch403JSONResponse) VisitCheckoutAgentGitBranchResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckoutAgentGitBranch404JSONResponse Error
+
+func (response CheckoutAgentGitBranch404JSONResponse) VisitCheckoutAgentGitBranchResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckoutAgentGitBranch409JSONResponse Error
+
+func (response CheckoutAgentGitBranch409JSONResponse) VisitCheckoutAgentGitBranchResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloneAgentGitRepoRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+	Body    *CloneAgentGitRepoJSONRequestBody
+}
+
+type CloneAgentGitRepoResponseObject interface {
+	VisitCloneAgentGitRepoResponse(w http.ResponseWriter) error
+}
+
+type CloneAgentGitRepo201JSONResponse GitRepo
+
+func (response CloneAgentGitRepo201JSONResponse) VisitCloneAgentGitRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloneAgentGitRepo400JSONResponse struct{ ErrorJSONResponse }
+
+func (response CloneAgentGitRepo400JSONResponse) VisitCloneAgentGitRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloneAgentGitRepo403JSONResponse Error
+
+func (response CloneAgentGitRepo403JSONResponse) VisitCloneAgentGitRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloneAgentGitRepo404JSONResponse Error
+
+func (response CloneAgentGitRepo404JSONResponse) VisitCloneAgentGitRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloneAgentGitRepo409JSONResponse Error
+
+func (response CloneAgentGitRepo409JSONResponse) VisitCloneAgentGitRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PullAgentGitRepoRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+	Body    *PullAgentGitRepoJSONRequestBody
+}
+
+type PullAgentGitRepoResponseObject interface {
+	VisitPullAgentGitRepoResponse(w http.ResponseWriter) error
+}
+
+type PullAgentGitRepo200JSONResponse GitRepo
+
+func (response PullAgentGitRepo200JSONResponse) VisitPullAgentGitRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PullAgentGitRepo400JSONResponse struct{ ErrorJSONResponse }
+
+func (response PullAgentGitRepo400JSONResponse) VisitPullAgentGitRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PullAgentGitRepo403JSONResponse Error
+
+func (response PullAgentGitRepo403JSONResponse) VisitPullAgentGitRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PullAgentGitRepo404JSONResponse Error
+
+func (response PullAgentGitRepo404JSONResponse) VisitPullAgentGitRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PullAgentGitRepo409JSONResponse Error
+
+func (response PullAgentGitRepo409JSONResponse) VisitPullAgentGitRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentGitReposRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+}
+
+type ListAgentGitReposResponseObject interface {
+	VisitListAgentGitReposResponse(w http.ResponseWriter) error
+}
+
+type ListAgentGitRepos200JSONResponse GitRepoList
+
+func (response ListAgentGitRepos200JSONResponse) VisitListAgentGitReposResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentGitRepos404JSONResponse struct{ ErrorJSONResponse }
+
+func (response ListAgentGitRepos404JSONResponse) VisitListAgentGitReposResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentGitStatusRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+	Params  GetAgentGitStatusParams
+}
+
+type GetAgentGitStatusResponseObject interface {
+	VisitGetAgentGitStatusResponse(w http.ResponseWriter) error
+}
+
+type GetAgentGitStatus200JSONResponse GitRepoStatus
+
+func (response GetAgentGitStatus200JSONResponse) VisitGetAgentGitStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentGitStatus404JSONResponse struct{ ErrorJSONResponse }
+
+func (response GetAgentGitStatus404JSONResponse) VisitGetAgentGitStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentGitStatus409JSONResponse Error
+
+func (response GetAgentGitStatus409JSONResponse) VisitGetAgentGitStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAgentGitWorktreeRequestObject struct {
+	AgentId AgentId `json:"agentId"`
+	Body    *CreateAgentGitWorktreeJSONRequestBody
+}
+
+type CreateAgentGitWorktreeResponseObject interface {
+	VisitCreateAgentGitWorktreeResponse(w http.ResponseWriter) error
+}
+
+type CreateAgentGitWorktree201JSONResponse GitRepo
+
+func (response CreateAgentGitWorktree201JSONResponse) VisitCreateAgentGitWorktreeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAgentGitWorktree400JSONResponse struct{ ErrorJSONResponse }
+
+func (response CreateAgentGitWorktree400JSONResponse) VisitCreateAgentGitWorktreeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAgentGitWorktree403JSONResponse Error
+
+func (response CreateAgentGitWorktree403JSONResponse) VisitCreateAgentGitWorktreeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAgentGitWorktree404JSONResponse Error
+
+func (response CreateAgentGitWorktree404JSONResponse) VisitCreateAgentGitWorktreeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAgentGitWorktree409JSONResponse Error
+
+func (response CreateAgentGitWorktree409JSONResponse) VisitCreateAgentGitWorktreeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetHarnessRequestObject struct {
 	AgentId AgentId `json:"agentId"`
 	Params  GetHarnessParams
@@ -9183,7 +10683,21 @@ func (response CreateSession201JSONResponse) VisitCreateSessionResponse(w http.R
 	return err
 }
 
-type CreateSession403JSONResponse struct{ ErrorJSONResponse }
+type CreateSession400JSONResponse struct{ ErrorJSONResponse }
+
+func (response CreateSession400JSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSession403JSONResponse Error
 
 func (response CreateSession403JSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
 
@@ -9207,6 +10721,20 @@ func (response CreateSession404JSONResponse) VisitCreateSessionResponse(w http.R
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSession409JSONResponse Error
+
+func (response CreateSession409JSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -10346,6 +11874,429 @@ func (response ListHarnesses200JSONResponse) VisitListHarnessesResponse(w http.R
 	return err
 }
 
+type ListImagesRequestObject struct {
+}
+
+type ListImagesResponseObject interface {
+	VisitListImagesResponse(w http.ResponseWriter) error
+}
+
+type ListImages200JSONResponse ImageList
+
+func (response ListImages200JSONResponse) VisitListImagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateImageRequestObject struct {
+	Body *CreateImageJSONRequestBody
+}
+
+type CreateImageResponseObject interface {
+	VisitCreateImageResponse(w http.ResponseWriter) error
+}
+
+type CreateImage201JSONResponse CustomImage
+
+func (response CreateImage201JSONResponse) VisitCreateImageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateImage400JSONResponse struct{ ErrorJSONResponse }
+
+func (response CreateImage400JSONResponse) VisitCreateImageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateImage403JSONResponse Error
+
+func (response CreateImage403JSONResponse) VisitCreateImageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateImage409JSONResponse Error
+
+func (response CreateImage409JSONResponse) VisitCreateImageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteImageRequestObject struct {
+	ImageId string `json:"imageId"`
+}
+
+type DeleteImageResponseObject interface {
+	VisitDeleteImageResponse(w http.ResponseWriter) error
+}
+
+type DeleteImage204Response struct {
+}
+
+func (response DeleteImage204Response) VisitDeleteImageResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteImage403JSONResponse struct{ ErrorJSONResponse }
+
+func (response DeleteImage403JSONResponse) VisitDeleteImageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteImage404JSONResponse Error
+
+func (response DeleteImage404JSONResponse) VisitDeleteImageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteImage409JSONResponse Error
+
+func (response DeleteImage409JSONResponse) VisitDeleteImageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetImageRequestObject struct {
+	ImageId string `json:"imageId"`
+}
+
+type GetImageResponseObject interface {
+	VisitGetImageResponse(w http.ResponseWriter) error
+}
+
+type GetImage200JSONResponse CustomImageDetail
+
+func (response GetImage200JSONResponse) VisitGetImageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetImage404JSONResponse struct{ ErrorJSONResponse }
+
+func (response GetImage404JSONResponse) VisitGetImageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateImageRequestObject struct {
+	ImageId string `json:"imageId"`
+	Body    *UpdateImageJSONRequestBody
+}
+
+type UpdateImageResponseObject interface {
+	VisitUpdateImageResponse(w http.ResponseWriter) error
+}
+
+type UpdateImage200JSONResponse CustomImage
+
+func (response UpdateImage200JSONResponse) VisitUpdateImageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateImage400JSONResponse struct{ ErrorJSONResponse }
+
+func (response UpdateImage400JSONResponse) VisitUpdateImageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateImage403JSONResponse Error
+
+func (response UpdateImage403JSONResponse) VisitUpdateImageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateImage404JSONResponse Error
+
+func (response UpdateImage404JSONResponse) VisitUpdateImageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateImage409JSONResponse Error
+
+func (response UpdateImage409JSONResponse) VisitUpdateImageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListImageBuildsRequestObject struct {
+	ImageId string `json:"imageId"`
+}
+
+type ListImageBuildsResponseObject interface {
+	VisitListImageBuildsResponse(w http.ResponseWriter) error
+}
+
+type ListImageBuilds200JSONResponse []ImageBuild
+
+func (response ListImageBuilds200JSONResponse) VisitListImageBuildsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListImageBuilds403JSONResponse struct{ ErrorJSONResponse }
+
+func (response ListImageBuilds403JSONResponse) VisitListImageBuildsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListImageBuilds404JSONResponse Error
+
+func (response ListImageBuilds404JSONResponse) VisitListImageBuildsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartImageBuildRequestObject struct {
+	ImageId string `json:"imageId"`
+}
+
+type StartImageBuildResponseObject interface {
+	VisitStartImageBuildResponse(w http.ResponseWriter) error
+}
+
+type StartImageBuild202JSONResponse []ImageBuild
+
+func (response StartImageBuild202JSONResponse) VisitStartImageBuildResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartImageBuild403JSONResponse struct{ ErrorJSONResponse }
+
+func (response StartImageBuild403JSONResponse) VisitStartImageBuildResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartImageBuild404JSONResponse Error
+
+func (response StartImageBuild404JSONResponse) VisitStartImageBuildResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartImageBuild409JSONResponse Error
+
+func (response StartImageBuild409JSONResponse) VisitStartImageBuildResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetImageBuildRequestObject struct {
+	ImageId string `json:"imageId"`
+	BuildId string `json:"buildId"`
+}
+
+type GetImageBuildResponseObject interface {
+	VisitGetImageBuildResponse(w http.ResponseWriter) error
+}
+
+type GetImageBuild200JSONResponse ImageBuildDetail
+
+func (response GetImageBuild200JSONResponse) VisitGetImageBuildResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetImageBuild403JSONResponse struct{ ErrorJSONResponse }
+
+func (response GetImageBuild403JSONResponse) VisitGetImageBuildResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetImageBuild404JSONResponse Error
+
+func (response GetImageBuild404JSONResponse) VisitGetImageBuildResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListMCPServersRequestObject struct {
 }
 
@@ -10571,6 +12522,129 @@ func (response GetMe401JSONResponse) VisitGetMeResponse(w http.ResponseWriter) e
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGitSettingsRequestObject struct {
+}
+
+type GetGitSettingsResponseObject interface {
+	VisitGetGitSettingsResponse(w http.ResponseWriter) error
+}
+
+type GetGitSettings200JSONResponse GitSettings
+
+func (response GetGitSettings200JSONResponse) VisitGetGitSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateGitSettingsRequestObject struct {
+	Body *UpdateGitSettingsJSONRequestBody
+}
+
+type UpdateGitSettingsResponseObject interface {
+	VisitUpdateGitSettingsResponse(w http.ResponseWriter) error
+}
+
+type UpdateGitSettings200JSONResponse GitSettings
+
+func (response UpdateGitSettings200JSONResponse) VisitUpdateGitSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateGitSettings400JSONResponse struct{ ErrorJSONResponse }
+
+func (response UpdateGitSettings400JSONResponse) VisitUpdateGitSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpsertGitCredentialRequestObject struct {
+	Body *UpsertGitCredentialJSONRequestBody
+}
+
+type UpsertGitCredentialResponseObject interface {
+	VisitUpsertGitCredentialResponse(w http.ResponseWriter) error
+}
+
+type UpsertGitCredential200JSONResponse GitCredential
+
+func (response UpsertGitCredential200JSONResponse) VisitUpsertGitCredentialResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpsertGitCredential400JSONResponse struct{ ErrorJSONResponse }
+
+func (response UpsertGitCredential400JSONResponse) VisitUpsertGitCredentialResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteGitCredentialRequestObject struct {
+	CredentialId string `json:"credentialId"`
+}
+
+type DeleteGitCredentialResponseObject interface {
+	VisitDeleteGitCredentialResponse(w http.ResponseWriter) error
+}
+
+type DeleteGitCredential204Response struct {
+}
+
+func (response DeleteGitCredential204Response) VisitDeleteGitCredentialResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteGitCredential404JSONResponse struct{ ErrorJSONResponse }
+
+func (response DeleteGitCredential404JSONResponse) VisitDeleteGitCredentialResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -11830,6 +13904,85 @@ func (response ListSessionEvents404JSONResponse) VisitListSessionEventsResponse(
 	return err
 }
 
+type UpdateSessionGitRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+	Body      *UpdateSessionGitJSONRequestBody
+}
+
+type UpdateSessionGitResponseObject interface {
+	VisitUpdateSessionGitResponse(w http.ResponseWriter) error
+}
+
+type UpdateSessionGit200JSONResponse Session
+
+func (response UpdateSessionGit200JSONResponse) VisitUpdateSessionGitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSessionGit400JSONResponse struct{ ErrorJSONResponse }
+
+func (response UpdateSessionGit400JSONResponse) VisitUpdateSessionGitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSessionGit403JSONResponse Error
+
+func (response UpdateSessionGit403JSONResponse) VisitUpdateSessionGitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSessionGit404JSONResponse Error
+
+func (response UpdateSessionGit404JSONResponse) VisitUpdateSessionGitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSessionGit409JSONResponse Error
+
+func (response UpdateSessionGit409JSONResponse) VisitUpdateSessionGitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SetSessionModelRequestObject struct {
 	SessionId SessionId `json:"sessionId"`
 	Body      *SetSessionModelJSONRequestBody
@@ -12499,6 +14652,24 @@ type StrictServerInterface interface {
 	// (POST /agents/{agentId}/files/mkdir)
 	MakeDirectory(ctx context.Context, request MakeDirectoryRequestObject) (MakeDirectoryResponseObject, error)
 
+	// (POST /agents/{agentId}/git/checkout)
+	CheckoutAgentGitBranch(ctx context.Context, request CheckoutAgentGitBranchRequestObject) (CheckoutAgentGitBranchResponseObject, error)
+
+	// (POST /agents/{agentId}/git/clone)
+	CloneAgentGitRepo(ctx context.Context, request CloneAgentGitRepoRequestObject) (CloneAgentGitRepoResponseObject, error)
+
+	// (POST /agents/{agentId}/git/pull)
+	PullAgentGitRepo(ctx context.Context, request PullAgentGitRepoRequestObject) (PullAgentGitRepoResponseObject, error)
+
+	// (GET /agents/{agentId}/git/repos)
+	ListAgentGitRepos(ctx context.Context, request ListAgentGitReposRequestObject) (ListAgentGitReposResponseObject, error)
+
+	// (GET /agents/{agentId}/git/status)
+	GetAgentGitStatus(ctx context.Context, request GetAgentGitStatusRequestObject) (GetAgentGitStatusResponseObject, error)
+
+	// (POST /agents/{agentId}/git/worktrees)
+	CreateAgentGitWorktree(ctx context.Context, request CreateAgentGitWorktreeRequestObject) (CreateAgentGitWorktreeResponseObject, error)
+
 	// (GET /agents/{agentId}/harness)
 	GetHarness(ctx context.Context, request GetHarnessRequestObject) (GetHarnessResponseObject, error)
 
@@ -12640,6 +14811,30 @@ type StrictServerInterface interface {
 	// (GET /harnesses)
 	ListHarnesses(ctx context.Context, request ListHarnessesRequestObject) (ListHarnessesResponseObject, error)
 
+	// (GET /images)
+	ListImages(ctx context.Context, request ListImagesRequestObject) (ListImagesResponseObject, error)
+
+	// (POST /images)
+	CreateImage(ctx context.Context, request CreateImageRequestObject) (CreateImageResponseObject, error)
+
+	// (DELETE /images/{imageId})
+	DeleteImage(ctx context.Context, request DeleteImageRequestObject) (DeleteImageResponseObject, error)
+
+	// (GET /images/{imageId})
+	GetImage(ctx context.Context, request GetImageRequestObject) (GetImageResponseObject, error)
+
+	// (PATCH /images/{imageId})
+	UpdateImage(ctx context.Context, request UpdateImageRequestObject) (UpdateImageResponseObject, error)
+
+	// (GET /images/{imageId}/builds)
+	ListImageBuilds(ctx context.Context, request ListImageBuildsRequestObject) (ListImageBuildsResponseObject, error)
+
+	// (POST /images/{imageId}/builds)
+	StartImageBuild(ctx context.Context, request StartImageBuildRequestObject) (StartImageBuildResponseObject, error)
+
+	// (GET /images/{imageId}/builds/{buildId})
+	GetImageBuild(ctx context.Context, request GetImageBuildRequestObject) (GetImageBuildResponseObject, error)
+
 	// (GET /mcp-servers)
 	ListMCPServers(ctx context.Context, request ListMCPServersRequestObject) (ListMCPServersResponseObject, error)
 
@@ -12654,6 +14849,18 @@ type StrictServerInterface interface {
 
 	// (GET /me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
+
+	// (GET /me/git)
+	GetGitSettings(ctx context.Context, request GetGitSettingsRequestObject) (GetGitSettingsResponseObject, error)
+
+	// (PUT /me/git)
+	UpdateGitSettings(ctx context.Context, request UpdateGitSettingsRequestObject) (UpdateGitSettingsResponseObject, error)
+
+	// (POST /me/git/credentials)
+	UpsertGitCredential(ctx context.Context, request UpsertGitCredentialRequestObject) (UpsertGitCredentialResponseObject, error)
+
+	// (DELETE /me/git/credentials/{credentialId})
+	DeleteGitCredential(ctx context.Context, request DeleteGitCredentialRequestObject) (DeleteGitCredentialResponseObject, error)
 
 	// (GET /me/provider-logins)
 	ListProviderLogins(ctx context.Context, request ListProviderLoginsRequestObject) (ListProviderLoginsResponseObject, error)
@@ -12741,6 +14948,9 @@ type StrictServerInterface interface {
 
 	// (GET /sessions/{sessionId}/events)
 	ListSessionEvents(ctx context.Context, request ListSessionEventsRequestObject) (ListSessionEventsResponseObject, error)
+
+	// (PATCH /sessions/{sessionId}/git)
+	UpdateSessionGit(ctx context.Context, request UpdateSessionGitRequestObject) (UpdateSessionGitResponseObject, error)
 
 	// (PUT /sessions/{sessionId}/model)
 	SetSessionModel(ctx context.Context, request SetSessionModelRequestObject) (SetSessionModelResponseObject, error)
@@ -13487,6 +15697,191 @@ func (sh *strictHandler) MakeDirectory(w http.ResponseWriter, r *http.Request, a
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(MakeDirectoryResponseObject); ok {
 		if err := validResponse.VisitMakeDirectoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CheckoutAgentGitBranch operation middleware
+func (sh *strictHandler) CheckoutAgentGitBranch(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	var request CheckoutAgentGitBranchRequestObject
+
+	request.AgentId = agentId
+
+	var body CheckoutAgentGitBranchJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CheckoutAgentGitBranch(ctx, request.(CheckoutAgentGitBranchRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CheckoutAgentGitBranch")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CheckoutAgentGitBranchResponseObject); ok {
+		if err := validResponse.VisitCheckoutAgentGitBranchResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CloneAgentGitRepo operation middleware
+func (sh *strictHandler) CloneAgentGitRepo(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	var request CloneAgentGitRepoRequestObject
+
+	request.AgentId = agentId
+
+	var body CloneAgentGitRepoJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CloneAgentGitRepo(ctx, request.(CloneAgentGitRepoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CloneAgentGitRepo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CloneAgentGitRepoResponseObject); ok {
+		if err := validResponse.VisitCloneAgentGitRepoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PullAgentGitRepo operation middleware
+func (sh *strictHandler) PullAgentGitRepo(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	var request PullAgentGitRepoRequestObject
+
+	request.AgentId = agentId
+
+	var body PullAgentGitRepoJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PullAgentGitRepo(ctx, request.(PullAgentGitRepoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PullAgentGitRepo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PullAgentGitRepoResponseObject); ok {
+		if err := validResponse.VisitPullAgentGitRepoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListAgentGitRepos operation middleware
+func (sh *strictHandler) ListAgentGitRepos(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	var request ListAgentGitReposRequestObject
+
+	request.AgentId = agentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAgentGitRepos(ctx, request.(ListAgentGitReposRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAgentGitRepos")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAgentGitReposResponseObject); ok {
+		if err := validResponse.VisitListAgentGitReposResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAgentGitStatus operation middleware
+func (sh *strictHandler) GetAgentGitStatus(w http.ResponseWriter, r *http.Request, agentId AgentId, params GetAgentGitStatusParams) {
+	var request GetAgentGitStatusRequestObject
+
+	request.AgentId = agentId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAgentGitStatus(ctx, request.(GetAgentGitStatusRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAgentGitStatus")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAgentGitStatusResponseObject); ok {
+		if err := validResponse.VisitGetAgentGitStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateAgentGitWorktree operation middleware
+func (sh *strictHandler) CreateAgentGitWorktree(w http.ResponseWriter, r *http.Request, agentId AgentId) {
+	var request CreateAgentGitWorktreeRequestObject
+
+	request.AgentId = agentId
+
+	var body CreateAgentGitWorktreeJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateAgentGitWorktree(ctx, request.(CreateAgentGitWorktreeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateAgentGitWorktree")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateAgentGitWorktreeResponseObject); ok {
+		if err := validResponse.VisitCreateAgentGitWorktreeResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -14796,6 +17191,225 @@ func (sh *strictHandler) ListHarnesses(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ListImages operation middleware
+func (sh *strictHandler) ListImages(w http.ResponseWriter, r *http.Request) {
+	var request ListImagesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListImages(ctx, request.(ListImagesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListImages")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListImagesResponseObject); ok {
+		if err := validResponse.VisitListImagesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateImage operation middleware
+func (sh *strictHandler) CreateImage(w http.ResponseWriter, r *http.Request) {
+	var request CreateImageRequestObject
+
+	var body CreateImageJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateImage(ctx, request.(CreateImageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateImage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateImageResponseObject); ok {
+		if err := validResponse.VisitCreateImageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteImage operation middleware
+func (sh *strictHandler) DeleteImage(w http.ResponseWriter, r *http.Request, imageId string) {
+	var request DeleteImageRequestObject
+
+	request.ImageId = imageId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteImage(ctx, request.(DeleteImageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteImage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteImageResponseObject); ok {
+		if err := validResponse.VisitDeleteImageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetImage operation middleware
+func (sh *strictHandler) GetImage(w http.ResponseWriter, r *http.Request, imageId string) {
+	var request GetImageRequestObject
+
+	request.ImageId = imageId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetImage(ctx, request.(GetImageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetImage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetImageResponseObject); ok {
+		if err := validResponse.VisitGetImageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateImage operation middleware
+func (sh *strictHandler) UpdateImage(w http.ResponseWriter, r *http.Request, imageId string) {
+	var request UpdateImageRequestObject
+
+	request.ImageId = imageId
+
+	var body UpdateImageJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateImage(ctx, request.(UpdateImageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateImage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateImageResponseObject); ok {
+		if err := validResponse.VisitUpdateImageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListImageBuilds operation middleware
+func (sh *strictHandler) ListImageBuilds(w http.ResponseWriter, r *http.Request, imageId string) {
+	var request ListImageBuildsRequestObject
+
+	request.ImageId = imageId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListImageBuilds(ctx, request.(ListImageBuildsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListImageBuilds")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListImageBuildsResponseObject); ok {
+		if err := validResponse.VisitListImageBuildsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartImageBuild operation middleware
+func (sh *strictHandler) StartImageBuild(w http.ResponseWriter, r *http.Request, imageId string) {
+	var request StartImageBuildRequestObject
+
+	request.ImageId = imageId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartImageBuild(ctx, request.(StartImageBuildRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartImageBuild")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartImageBuildResponseObject); ok {
+		if err := validResponse.VisitStartImageBuildResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetImageBuild operation middleware
+func (sh *strictHandler) GetImageBuild(w http.ResponseWriter, r *http.Request, imageId string, buildId string) {
+	var request GetImageBuildRequestObject
+
+	request.ImageId = imageId
+	request.BuildId = buildId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetImageBuild(ctx, request.(GetImageBuildRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetImageBuild")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetImageBuildResponseObject); ok {
+		if err := validResponse.VisitGetImageBuildResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListMCPServers operation middleware
 func (sh *strictHandler) ListMCPServers(w http.ResponseWriter, r *http.Request) {
 	var request ListMCPServersRequestObject
@@ -14927,6 +17541,118 @@ func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMeResponseObject); ok {
 		if err := validResponse.VisitGetMeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetGitSettings operation middleware
+func (sh *strictHandler) GetGitSettings(w http.ResponseWriter, r *http.Request) {
+	var request GetGitSettingsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetGitSettings(ctx, request.(GetGitSettingsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetGitSettings")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetGitSettingsResponseObject); ok {
+		if err := validResponse.VisitGetGitSettingsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateGitSettings operation middleware
+func (sh *strictHandler) UpdateGitSettings(w http.ResponseWriter, r *http.Request) {
+	var request UpdateGitSettingsRequestObject
+
+	var body UpdateGitSettingsJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateGitSettings(ctx, request.(UpdateGitSettingsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateGitSettings")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateGitSettingsResponseObject); ok {
+		if err := validResponse.VisitUpdateGitSettingsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpsertGitCredential operation middleware
+func (sh *strictHandler) UpsertGitCredential(w http.ResponseWriter, r *http.Request) {
+	var request UpsertGitCredentialRequestObject
+
+	var body UpsertGitCredentialJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpsertGitCredential(ctx, request.(UpsertGitCredentialRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpsertGitCredential")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpsertGitCredentialResponseObject); ok {
+		if err := validResponse.VisitUpsertGitCredentialResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteGitCredential operation middleware
+func (sh *strictHandler) DeleteGitCredential(w http.ResponseWriter, r *http.Request, credentialId string) {
+	var request DeleteGitCredentialRequestObject
+
+	request.CredentialId = credentialId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteGitCredential(ctx, request.(DeleteGitCredentialRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteGitCredential")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteGitCredentialResponseObject); ok {
+		if err := validResponse.VisitDeleteGitCredentialResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -15728,6 +18454,39 @@ func (sh *strictHandler) ListSessionEvents(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+// UpdateSessionGit operation middleware
+func (sh *strictHandler) UpdateSessionGit(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
+	var request UpdateSessionGitRequestObject
+
+	request.SessionId = sessionId
+
+	var body UpdateSessionGitJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateSessionGit(ctx, request.(UpdateSessionGitRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateSessionGit")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateSessionGitResponseObject); ok {
+		if err := validResponse.VisitUpdateSessionGitResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // SetSessionModel operation middleware
 func (sh *strictHandler) SetSessionModel(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
 	var request SetSessionModelRequestObject
@@ -16082,301 +18841,350 @@ func (sh *strictHandler) UpdateWebhook(w http.ResponseWriter, r *http.Request, w
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"AAD//w==",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

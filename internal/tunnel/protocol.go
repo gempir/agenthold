@@ -45,6 +45,9 @@ const (
 	// OK. A sandboxd that answers with an error (older ones do not know the
 	// op) does not support resuming from a snapshot.
 	OpSuspend = "suspend"
+	// OpGit runs a git action (see GitRequest) as the agent account and
+	// answers with a GitReply.
+	OpGit = "git"
 )
 
 // Open is the first frame on every stream.
@@ -82,6 +85,9 @@ type Open struct {
 	// seconds (default 60); MaxBytes bounds the output kept.
 	Dir     string `json:"dir,omitempty"`
 	Timeout int    `json:"timeout,omitempty"`
+
+	// git
+	Git *GitRequest `json:"git,omitempty"`
 
 	// platform (opened by sandboxd): a platform tool call from an MCP client.
 	Tool    string          `json:"tool,omitempty"`
@@ -247,4 +253,54 @@ type ExecReply struct {
 	Truncated bool   `json:"truncated,omitempty"`
 	ExitCode  int    `json:"exitCode"`
 	TimedOut  bool   `json:"timedOut,omitempty"`
+}
+
+// Git actions.
+const (
+	GitList        = "list"         // repositories in the home
+	GitStatus      = "status"       // the repository Path is in (none: Repo is nil)
+	GitClone       = "clone"        // clone URL into Path (default projects/<name>)
+	GitCheckout    = "checkout"     // switch Path to Branch (Create: new from FromRef)
+	GitWorktreeAdd = "worktree_add" // add a worktree of Path for Branch at WorktreePath
+	GitPull        = "pull"         // fast-forward pull (FetchOnly: fetch --prune)
+	GitConfig      = "config"       // write the agent's commit identity
+)
+
+// GitRequest is the body of an OpGit stream. Paths are relative to the home
+// and must stay inside it.
+type GitRequest struct {
+	Action       string `json:"action"`
+	Path         string `json:"path,omitempty"`
+	URL          string `json:"url,omitempty"`
+	Branch       string `json:"branch,omitempty"`
+	Create       bool   `json:"create,omitempty"`
+	FromRef      string `json:"fromRef,omitempty"`
+	WorktreePath string `json:"worktreePath,omitempty"`
+	FetchOnly    bool   `json:"fetchOnly,omitempty"`
+	AuthorName   string `json:"authorName,omitempty"`
+	AuthorEmail  string `json:"authorEmail,omitempty"`
+}
+
+// GitRepo describes one repository (or worktree). Path and MainPath are
+// relative to the home; RemoteURL never carries credentials.
+type GitRepo struct {
+	Path       string `json:"path"`
+	Project    string `json:"project"`
+	RemoteURL  string `json:"remoteUrl,omitempty"`
+	Branch     string `json:"branch"`
+	Detached   bool   `json:"detached,omitempty"`
+	Dirty      bool   `json:"dirty,omitempty"`
+	Ahead      int    `json:"ahead,omitempty"`
+	Behind     int    `json:"behind,omitempty"`
+	IsWorktree bool   `json:"isWorktree,omitempty"`
+	MainPath   string `json:"mainPath,omitempty"`
+}
+
+// GitReply answers OpGit.
+type GitReply struct {
+	Home     string    `json:"home,omitempty"`
+	Repos    []GitRepo `json:"repos,omitempty"`
+	Repo     *GitRepo  `json:"repo,omitempty"`
+	Branches []string  `json:"branches,omitempty"`
+	Output   string    `json:"output,omitempty"`
 }

@@ -10,10 +10,14 @@ type Querier interface {
 	AttachSkill(ctx context.Context, arg AttachSkillParams) error
 	AutoSettleSession(ctx context.Context, arg AutoSettleSessionParams) (int64, error)
 	ClaimExposureName(ctx context.Context, name string) error
+	ClearDefaultImages(ctx context.Context) error
+	CompleteImageBuild(ctx context.Context, arg CompleteImageBuildParams) error
 	ConsumeNodeJoinToken(ctx context.Context, arg ConsumeNodeJoinTokenParams) (string, error)
 	CopyServices(ctx context.Context, arg CopyServicesParams) error
 	CountAgentApps(ctx context.Context, createdByAgentID string) (int64, error)
 	CountExposures(ctx context.Context, agentID string) (int64, error)
+	CountImageAgents(ctx context.Context, imageID string) (int64, error)
+	CountLayerSHAInBuilds(ctx context.Context, layerSha256 string) (int64, error)
 	CountNodeSandboxes(ctx context.Context, nodeID string) (int64, error)
 	CountOwnedAgents(ctx context.Context, ownerID string) (int64, error)
 	CountOwnerApps(ctx context.Context, ownerID string) (int64, error)
@@ -24,7 +28,10 @@ type Querier interface {
 	CreateApp(ctx context.Context, arg CreateAppParams) error
 	CreateClonedAgent(ctx context.Context, arg CreateClonedAgentParams) error
 	CreateExposure(ctx context.Context, arg CreateExposureParams) error
+	CreateGitCredential(ctx context.Context, arg CreateGitCredentialParams) error
 	CreateIdentity(ctx context.Context, arg CreateIdentityParams) error
+	CreateImage(ctx context.Context, arg CreateImageParams) error
+	CreateImageBuild(ctx context.Context, arg CreateImageBuildParams) error
 	CreateLoginState(ctx context.Context, arg CreateLoginStateParams) error
 	CreateMCPServer(ctx context.Context, arg CreateMCPServerParams) error
 	CreateNode(ctx context.Context, arg CreateNodeParams) error
@@ -51,6 +58,8 @@ type Querier interface {
 	DeleteExpiredSessions(ctx context.Context, expiresAt int64) error
 	DeleteExpiredSlackLinkCodes(ctx context.Context, expiresAt int64) error
 	DeleteExposure(ctx context.Context, id string) (int64, error)
+	DeleteGitCredential(ctx context.Context, arg DeleteGitCredentialParams) (int64, error)
+	DeleteImage(ctx context.Context, id string) error
 	DeleteMCPServer(ctx context.Context, id string) error
 	DeleteNode(ctx context.Context, id string) error
 	DeleteOldReleasedExposureNames(ctx context.Context, releasedAt int64) error
@@ -77,13 +86,21 @@ type Querier interface {
 	DisableAgentWebhooks(ctx context.Context, arg DisableAgentWebhooksParams) error
 	DueSchedules(ctx context.Context, nextRunAt int64) ([]Schedule, error)
 	ExtendSession(ctx context.Context, arg ExtendSessionParams) error
+	FailImageBuild(ctx context.Context, arg FailImageBuildParams) error
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	GetAgentSession(ctx context.Context, id string) (AgentSession, error)
 	GetAgentWithSandbox(ctx context.Context, id string) (GetAgentWithSandboxRow, error)
+	GetDefaultImage(ctx context.Context) (Image, error)
 	GetExposure(ctx context.Context, arg GetExposureParams) (Exposure, error)
 	GetExposureByName(ctx context.Context, name string) (Exposure, error)
 	GetExposureByPort(ctx context.Context, arg GetExposureByPortParams) (Exposure, error)
+	GetGitCredential(ctx context.Context, id string) (GitCredential, error)
+	GetGitCredentialByHost(ctx context.Context, arg GetGitCredentialByHostParams) (GitCredential, error)
 	GetIdentity(ctx context.Context, arg GetIdentityParams) (Identity, error)
+	GetImage(ctx context.Context, id string) (Image, error)
+	GetImageBuild(ctx context.Context, id string) (ImageBuild, error)
+	GetImageBuildByRevArch(ctx context.Context, arg GetImageBuildByRevArchParams) (ImageBuild, error)
+	GetImageByName(ctx context.Context, name string) (Image, error)
 	GetMCPServer(ctx context.Context, id string) (McpServer, error)
 	GetModelCatalog(ctx context.Context, agentID string) (AgentModelCatalog, error)
 	GetNode(ctx context.Context, id string) (Node, error)
@@ -108,6 +125,7 @@ type Querier interface {
 	GetSlackUser(ctx context.Context, arg GetSlackUserParams) (SlackUser, error)
 	GetTokenUser(ctx context.Context, arg GetTokenUserParams) (GetTokenUserRow, error)
 	GetUser(ctx context.Context, id string) (User, error)
+	GetUserGitConfig(ctx context.Context, userID string) (UserGitConfig, error)
 	GetWebhook(ctx context.Context, id string) (Webhook, error)
 	GetWebhookByToken(ctx context.Context, tokenHash string) (Webhook, error)
 	HasPreviewConsent(ctx context.Context, arg HasPreviewConsentParams) (int64, error)
@@ -127,10 +145,15 @@ type Querier interface {
 	ListAgentSkills(ctx context.Context, agentID string) ([]Skill, error)
 	ListAgentWebhooks(ctx context.Context, agentID string) ([]Webhook, error)
 	ListAgentsByLoginUser(ctx context.Context, loginUserID string) ([]Agent, error)
+	ListAllImageBuilds(ctx context.Context) ([]ImageBuild, error)
 	ListAllMachines(ctx context.Context) ([]ListAllMachinesRow, error)
 	ListAutoSettleCandidates(ctx context.Context, now int64) ([]ListAutoSettleCandidatesRow, error)
 	ListExposures(ctx context.Context, agentID string) ([]Exposure, error)
+	ListGitCredentials(ctx context.Context, userID string) ([]GitCredential, error)
 	ListIdentities(ctx context.Context) ([]ListIdentitiesRow, error)
+	ListImageBuilds(ctx context.Context, imageID string) ([]ImageBuild, error)
+	ListImageBuildsByRev(ctx context.Context, arg ListImageBuildsByRevParams) ([]ImageBuild, error)
+	ListImages(ctx context.Context) ([]Image, error)
 	ListNodeSandboxes(ctx context.Context, nodeID string) ([]Sandbox, error)
 	ListNodes(ctx context.Context) ([]Node, error)
 	ListProviderLogins(ctx context.Context) ([]ProviderLogin, error)
@@ -155,6 +178,8 @@ type Querier interface {
 	MakeAppClone(ctx context.Context, id string) error
 	MarkCredentialsInSandbox(ctx context.Context, id string) error
 	MarkSessionRunning(ctx context.Context, arg MarkSessionRunningParams) error
+	MarkStaleImageBuildsFailed(ctx context.Context, now int64) error
+	MaxImageRevision(ctx context.Context, imageID string) (int64, error)
 	MaxSessionSeq(ctx context.Context, sessionID string) (int64, error)
 	PutSlackChannelAgent(ctx context.Context, arg PutSlackChannelAgentParams) error
 	PutSlackInstallation(ctx context.Context, arg PutSlackInstallationParams) error
@@ -167,12 +192,16 @@ type Querier interface {
 	ResetRunningSessions(ctx context.Context) error
 	ResetSessionModels(ctx context.Context, agentID string) error
 	SetAgentHarness(ctx context.Context, arg SetAgentHarnessParams) error
+	SetAgentImage(ctx context.Context, arg SetAgentImageParams) error
 	SetAgentLoginUser(ctx context.Context, arg SetAgentLoginUserParams) error
 	SetAgentModel(ctx context.Context, arg SetAgentModelParams) error
 	SetAgentTemplate(ctx context.Context, arg SetAgentTemplateParams) error
 	SetBootToken(ctx context.Context, arg SetBootTokenParams) error
 	SetExposurePort(ctx context.Context, arg SetExposurePortParams) error
 	SetIdentityProviderRole(ctx context.Context, arg SetIdentityProviderRoleParams) error
+	SetImageDefault(ctx context.Context, arg SetImageDefaultParams) error
+	SetImageLatestRev(ctx context.Context, arg SetImageLatestRevParams) error
+	SetNodeArch(ctx context.Context, arg SetNodeArchParams) error
 	SetNodeCapacity(ctx context.Context, arg SetNodeCapacityParams) error
 	SetNodeState(ctx context.Context, arg SetNodeStateParams) error
 	SetNodeVersion(ctx context.Context, arg SetNodeVersionParams) error
@@ -185,6 +214,7 @@ type Querier interface {
 	SetSandboxSubnet(ctx context.Context, arg SetSandboxSubnetParams) error
 	SetServiceEnabled(ctx context.Context, arg SetServiceEnabledParams) (int64, error)
 	SetSessionACPID(ctx context.Context, arg SetSessionACPIDParams) error
+	SetSessionGit(ctx context.Context, arg SetSessionGitParams) error
 	SetSessionModel(ctx context.Context, arg SetSessionModelParams) error
 	SetSessionOrigin(ctx context.Context, arg SetSessionOriginParams) error
 	SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error
@@ -195,6 +225,7 @@ type Querier interface {
 	SetUserThreadAutoSettleDays(ctx context.Context, arg SetUserThreadAutoSettleDaysParams) error
 	SettleSession(ctx context.Context, arg SettleSessionParams) (int64, error)
 	ShareAgent(ctx context.Context, arg ShareAgentParams) error
+	StartImageBuild(ctx context.Context, arg StartImageBuildParams) error
 	StoreRefreshedLogin(ctx context.Context, arg StoreRefreshedLoginParams) (int64, error)
 	TakeLoginState(ctx context.Context, arg TakeLoginStateParams) (LoginState, error)
 	TakeOverApp(ctx context.Context, arg TakeOverAppParams) (int64, error)
@@ -207,14 +238,19 @@ type Querier interface {
 	UnsettleSession(ctx context.Context, arg UnsettleSessionParams) (int64, error)
 	UnshareAgent(ctx context.Context, arg UnshareAgentParams) (int64, error)
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
+	UpdateAgentRepoBranch(ctx context.Context, arg UpdateAgentRepoBranchParams) error
 	UpdateExposure(ctx context.Context, arg UpdateExposureParams) error
+	UpdateGitCredential(ctx context.Context, arg UpdateGitCredentialParams) error
+	UpdateImage(ctx context.Context, arg UpdateImageParams) error
 	UpdateMCPServer(ctx context.Context, arg UpdateMCPServerParams) error
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) error
 	UpdateSecret(ctx context.Context, arg UpdateSecretParams) error
+	UpdateSessionGitStatus(ctx context.Context, arg UpdateSessionGitStatusParams) error
 	UpdateSkill(ctx context.Context, arg UpdateSkillParams) error
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
 	UpdateWebhook(ctx context.Context, arg UpdateWebhookParams) error
 	UpsertLocalNode(ctx context.Context, arg UpsertLocalNodeParams) error
 	UpsertModelCatalog(ctx context.Context, arg UpsertModelCatalogParams) error
 	UpsertService(ctx context.Context, arg UpsertServiceParams) error
+	UpsertUserGitConfig(ctx context.Context, arg UpsertUserGitConfigParams) error
 }

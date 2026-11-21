@@ -108,6 +108,7 @@ func TestSnapshotCompatibility(t *testing.T) {
 		"protocol":    func(s *snapshotInfo, _ *manifest) { s.ResumeVersion++ },
 		"sandboxd":    func(s *snapshotInfo, _ *manifest) { s.Sandboxd = "def.cpio" },
 		"base":        func(_ *snapshotInfo, m *manifest) { m.BaseImagePath = "/other.ext4" },
+		"layers":      func(_ *snapshotInfo, m *manifest) { m.Layers = []LayerFile{{Path: "/layer.ext4", Subdir: "upper"}} },
 		"size":        func(_ *snapshotInfo, m *manifest) { m.Spec.Resources.MemoryMB = 512 },
 		"devices":     func(_ *snapshotInfo, m *manifest) { m.Resumable = false },
 		"disk": func(s *snapshotInfo, _ *manifest) {

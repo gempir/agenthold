@@ -16,9 +16,11 @@ import { isPanelTab, type PanelTab } from '@/components/agent/AgentPanel';
 import { isAgentSection, type AgentSection } from '@/components/agent/sections';
 import { AccountSettings } from '@/pages/AccountSettings';
 import { AgentPage } from '@/pages/AgentPage';
+import { GitSettingsPage } from '@/pages/GitSettingsPage';
 import { AgentSettingsPage } from '@/pages/AgentSettingsPage';
 import { AppPage, isAppSection, type AppSection } from '@/pages/AppPage';
 import { HomePage } from '@/pages/HomePage';
+import { ImagesPage } from '@/pages/ImagesPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NewChatPage } from '@/pages/NewChatPage';
 import { NodesPage } from '@/pages/NodesPage';
@@ -75,13 +77,14 @@ const agentRoute = createRoute({
   path: '/a/$agentId',
   validateSearch: (
     s: Record<string, unknown>,
-  ): { s?: string; panel?: PanelTab } => ({
+  ): { s?: string; panel?: PanelTab; cwd?: string } => ({
     ...(str(s.s) && { s: str(s.s) }),
     ...(isPanelTab(s.panel) && { panel: s.panel }),
+    ...(str(s.cwd) && { cwd: str(s.cwd) }),
   }),
   component: function Agent() {
     const { agentId } = agentRoute.useParams();
-    const { s, panel } = agentRoute.useSearch();
+    const { s, panel, cwd } = agentRoute.useSearch();
     const navigate = useNavigate();
     return (
       <AgentPage
@@ -89,11 +92,12 @@ const agentRoute = createRoute({
         agentId={agentId}
         sessionId={s}
         panel={panel}
+        cwd={cwd}
         onPanel={(p) =>
           void navigate({
             to: '/a/$agentId',
             params: { agentId },
-            search: { s, panel: p },
+            search: { s, panel: p, cwd },
             replace: true,
           })
         }
@@ -174,6 +178,12 @@ const nodesRoute = createRoute({
   component: NodesPage,
 });
 
+const imagesRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/images',
+  component: ImagesPage,
+});
+
 const providersRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: '/providers',
@@ -204,6 +214,12 @@ const threadsSettingsRoute = createRoute({
   component: ThreadsSettingsPage,
 });
 
+const gitRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/git',
+  component: GitSettingsPage,
+});
+
 const toolsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: '/tools',
@@ -228,7 +244,9 @@ const routeTree = rootRoute.addChildren([
       toolsRoute,
       tokensRoute,
       slackRoute,
+      gitRoute,
       providersRoute,
+      imagesRoute,
       nodesRoute,
     ]),
   ]),

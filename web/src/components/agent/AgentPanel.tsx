@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import {
   ChevronRight,
+  FolderGit2,
+  GitBranch,
   Loader2,
   Maximize2,
   Minimize2,
@@ -12,6 +14,7 @@ import {
 } from 'lucide-react';
 import { sessionsQuery, type Agent } from '@/api/queries';
 import { FilesTab } from '@/components/FilesTab';
+import { GitTab } from '@/components/GitTab';
 import { LiveLog } from '@/components/chat/LiveLog';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
@@ -26,9 +29,13 @@ const TerminalTab = lazy(() =>
   import('@/components/TerminalTab').then((m) => ({ default: m.TerminalTab })),
 );
 
-export type PanelTab = 'overview' | 'files' | 'terminal' | 'activity';
+export type PanelTab = 'overview' | 'git' | 'files' | 'terminal' | 'activity';
 export const isPanelTab = (v: unknown): v is PanelTab =>
-  v === 'overview' || v === 'files' || v === 'terminal' || v === 'activity';
+  v === 'overview' ||
+  v === 'git' ||
+  v === 'files' ||
+  v === 'terminal' ||
+  v === 'activity';
 
 /** Tabs only those who may use the agent get. */
 export const panelTabNeedsUse = (t: PanelTab) =>
@@ -60,6 +67,7 @@ export function AgentPanel({
 }) {
   const tabs: { id: PanelTab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
+    { id: 'git', label: 'Git' },
     { id: 'files', label: 'Files' },
     ...(access.canUse
       ? [
@@ -139,6 +147,7 @@ export function AgentPanel({
             {tab === 'overview' && (
               <Overview agent={agent} access={access} sessionId={sessionId} />
             )}
+            {tab === 'git' && <PanelGit agent={agent} access={access} />}
             {tab === 'files' && <PanelFiles agent={agent} access={access} />}
             {tab === 'activity' && access.canUse && (
               <LiveLog key={agent.id} agentId={agent.id} live fill />
@@ -158,6 +167,21 @@ export function AgentPanel({
           </div>
         </div>
       </aside>
+    </>
+  );
+}
+
+function PanelGit({ agent, access }: { agent: Agent; access: Access }) {
+  const { action, busy } = useAgentActions(agent);
+  return (
+    <>
+      <GitTab
+        agentId={agent.id}
+        canUse={access.canUse}
+        starting={busy}
+        onStart={() => action.mutate('start')}
+      />
+      <ErrorText error={action.error} />
     </>
   );
 }
@@ -255,8 +279,29 @@ function Overview({
                   s.id === sessionId && 'bg-accent',
                 )}
               >
-                <span className="min-w-0 flex-1 truncate">
-                  {s.title || 'New thread'}
+                <span className="grid min-w-0 flex-1">
+                  <span className="truncate">{s.title || 'New thread'}</span>
+                  {(s.git?.project || s.git?.branch) && (
+                    <span
+                      title={[s.git.project, s.git.branch]
+                        .filter(Boolean)
+                        .join(' · ')}
+                      className="flex min-w-0 items-center gap-2 truncate text-[11px] text-muted-foreground"
+                    >
+                      {s.git.project && (
+                        <span className="flex min-w-0 items-center gap-1">
+                          <FolderGit2 className="size-3 shrink-0" aria-hidden />
+                          <span className="truncate">{s.git.project}</span>
+                        </span>
+                      )}
+                      {s.git.branch && (
+                        <span className="flex min-w-0 items-center gap-1 font-mono">
+                          <GitBranch className="size-3 shrink-0" aria-hidden />
+                          <span className="truncate">{s.git.branch}</span>
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </span>
                 {s.running ? (
                   <Loader2

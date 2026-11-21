@@ -19,9 +19,11 @@ import (
 	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/harness"
+	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store/db"
+	"github.com/gempir/agenthold/internal/tunnel"
 )
 
 // ListHarnesses implements gen.StrictServerInterface.
@@ -98,6 +100,17 @@ func (a *API) apiSession(ctx context.Context, s db.AgentSession) (gen.Session, e
 		m := apiChoice(c)
 		out.Model = &m
 	}
+	if s.Cwd != "" {
+		cwd := s.Cwd
+		out.Cwd = &cwd
+	}
+	if s.GitProject != "" || s.GitBranch != "" {
+		out.Git = &gen.SessionGit{Project: s.GitProject, Branch: s.GitBranch}
+		if s.GitRepoPath != "" {
+			p := s.GitRepoPath
+			out.Git.RepoPath = &p
+		}
+	}
 	if s.OriginAgentID != "" {
 		name := "(deleted agent)"
 		if ag, err := a.Store.GetAgent(ctx, s.OriginAgentID); err == nil {
@@ -155,19 +168,83 @@ func (a *API) CreateSession(ctx context.Context, req gen.CreateSessionRequestObj
 		return nil, sandbox.ErrTemplate
 	}
 	title := ""
-	if req.Body != nil && req.Body.Title != nil {
-		title = strings.TrimSpace(*req.Body.Title)
+	var opts session.CreateOpts
+	if b := req.Body; b != nil {
+		if b.Title != nil {
+			title = strings.TrimSpace(*b.Title)
+		}
+		if opts, err = a.sessionGitStart(ctx, acc.Row.Agent, *b); err != nil {
+			return nil, err
+		}
 	}
-	s, err := a.Sessions.Create(ctx, req.AgentId, me(ctx).ID, title)
+	s, err := a.Sessions.CreateWith(ctx, req.AgentId, me(ctx).ID, title, opts)
 	if err != nil {
 		return nil, err
 	}
-	a.record(ctx, mustAgent(ctx, a, s.AgentID), audit.SessionCreate, s.ID, nil)
+	a.record(ctx, acc.Row.Agent, audit.SessionCreate, s.ID, nil)
 	g, err := a.apiSession(ctx, s)
 	if err != nil {
 		return nil, err
 	}
 	return gen.CreateSession201JSONResponse(g), nil
+}
+
+// sessionGitStart prepares where a new session works: its working directory
+// and, in a git repository, the branch (checked out, or in a new worktree).
+func (a *API) sessionGitStart(ctx context.Context, ag db.Agent, b gen.CreateSessionJSONRequestBody) (session.CreateOpts, error) {
+	var opts session.CreateOpts
+	cwd, err := cleanRelPath("cwd", deref(b.Cwd))
+	if err != nil {
+		return opts, err
+	}
+	branch := strings.TrimSpace(deref(b.GitBranch))
+	createBranch, createWorktree := deref(b.CreateBranch), deref(b.CreateWorktree)
+	switch {
+	case createWorktree && (branch == "" || cwd == ""):
+		return opts, badRequest("createWorktree needs cwd (the repository) and gitBranch")
+	case branch != "" && cwd == "":
+		return opts, badRequest("gitBranch needs cwd (the repository)")
+	case createBranch && branch == "":
+		return opts, badRequest("createBranch needs gitBranch")
+	case cwd == "":
+		return opts, nil
+	}
+	if branch == "" {
+		opts.Cwd = cwd
+		// What the directory holds is detected now if the machine runs, or
+		// after the first turn.
+		if ok, err := a.Node.Connected(ctx, ag.ID); err == nil && ok {
+			if reply, err := node.Client(a.Node, ag.ID).Git(ctx, tunnel.GitRequest{Action: tunnel.GitStatus, Path: cwd}); err == nil && reply.Repo != nil {
+				opts.GitProject, opts.GitBranch, opts.GitRepoPath = reply.Repo.Project, reply.Repo.Branch, reply.Repo.Path
+			}
+		}
+		return opts, nil
+	}
+	ts, err := a.session(ctx, ag.ID)
+	if err != nil {
+		return opts, err
+	}
+	action, req := audit.GitCheckout, tunnel.GitRequest{Action: tunnel.GitCheckout, Path: cwd, Branch: branch, Create: createBranch}
+	if createWorktree {
+		action, req = audit.GitWorktreeAdd, tunnel.GitRequest{Action: tunnel.GitWorktreeAdd, Path: cwd, Branch: branch, Create: createBranch}
+	}
+	reply, err := ts.Git(ctx, req)
+	if err != nil {
+		return opts, err
+	}
+	repo := reply.Repo
+	if repo == nil {
+		return opts, errStatus(http.StatusBadGateway, "the sandbox did not describe the repository")
+	}
+	a.record(ctx, ag, action, repo.Path, map[string]any{"path": repo.Path, "branch": repo.Branch, "create": createBranch, "repo": cwd})
+	opts.Cwd = cwd
+	if createWorktree {
+		opts.Cwd = repo.Path
+	} else {
+		a.noteBranch(ctx, ag.ID, *repo)
+	}
+	opts.GitProject, opts.GitBranch, opts.GitRepoPath = repo.Project, repo.Branch, repo.Path
+	return opts, nil
 }
 
 // GetSession implements gen.StrictServerInterface.

@@ -60,6 +60,14 @@ const (
 	AppDeploy       = "app.deploy"
 	AppExec         = "app.exec"
 	AppTakeOver     = "app.takeover"
+
+	GitConfigUpdate     = "git.config.update"
+	GitCredentialPut    = "git.credential.put"
+	GitCredentialDelete = "git.credential.delete"
+	GitClone            = "git.clone"
+	GitCheckout         = "git.checkout"
+	GitWorktreeAdd      = "git.worktree_add"
+	GitPull             = "git.pull"
 )
 
 // Entry is one audit record. AgentID is empty for account-level actions.

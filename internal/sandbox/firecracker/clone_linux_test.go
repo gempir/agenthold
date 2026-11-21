@@ -72,6 +72,7 @@ func TestCloneCopiesDisksAndGetsItsOwnIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	srcManifest.BaseImagePath = "/old/base.ext4" // built from an older base: the clone must keep it
+	srcManifest.Layers = []LayerFile{{Path: "/old/custom.ext4", Subdir: "upper"}}
 	if err = d.save("ag_src", srcManifest); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +114,7 @@ func TestCloneCopiesDisksAndGetsItsOwnIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.State != sandbox.StateCreated || m.BaseImagePath != "/old/base.ext4" || m.Spec.AgentID != "ag_dst" || m.Spec.Resources.MemoryMB != 2048 || m.Spec.Env["A"] != "b" {
+	if m.State != sandbox.StateCreated || m.BaseImagePath != "/old/base.ext4" || len(m.Layers) != 1 || m.Layers[0] != (LayerFile{Path: "/old/custom.ext4", Subdir: "upper"}) || m.Spec.AgentID != "ag_dst" || m.Spec.Resources.MemoryMB != 2048 || m.Spec.Env["A"] != "b" {
 		t.Fatalf("manifest = %+v", m)
 	}
 	// Its own network allocation and VMM user, like Create.

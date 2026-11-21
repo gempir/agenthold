@@ -98,3 +98,12 @@ ORDER BY s.id;
 UPDATE agent_sessions SET settled_at = sqlc.arg(settled_at), settled_by = 'auto'
 WHERE id = sqlc.arg(id) AND settled_at IS NULL AND status = 'idle'
   AND MAX(updated_at, COALESCE(unsettled_at, 0)) < CAST(sqlc.arg(cutoff) AS INTEGER);
+
+-- name: SetSessionGit :exec
+UPDATE agent_sessions SET cwd = ?, git_project = ?, git_branch = ?, git_repo_path = ? WHERE id = ?;
+
+-- name: UpdateSessionGitStatus :exec
+UPDATE agent_sessions SET git_project = ?, git_branch = ?, git_repo_path = ? WHERE id = ?;
+
+-- name: UpdateAgentRepoBranch :exec
+UPDATE agent_sessions SET git_branch = ? WHERE agent_id = ? AND git_repo_path = ?;

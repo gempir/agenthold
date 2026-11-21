@@ -34,6 +34,14 @@ func (p postgresQueries) ClaimExposureName(ctx context.Context, name string) err
 	return p.q.ClaimExposureName(ctx, name)
 }
 
+func (p postgresQueries) ClearDefaultImages(ctx context.Context) error {
+	return p.q.ClearDefaultImages(ctx)
+}
+
+func (p postgresQueries) CompleteImageBuild(ctx context.Context, arg db.CompleteImageBuildParams) error {
+	return p.q.CompleteImageBuild(ctx, postgres.CompleteImageBuildParams(arg))
+}
+
 func (p postgresQueries) ConsumeNodeJoinToken(ctx context.Context, arg db.ConsumeNodeJoinTokenParams) (string, error) {
 	value, err := p.q.ConsumeNodeJoinToken(ctx, postgres.ConsumeNodeJoinTokenParams(arg))
 	return value, err
@@ -50,6 +58,16 @@ func (p postgresQueries) CountAgentApps(ctx context.Context, createdByAgentID st
 
 func (p postgresQueries) CountExposures(ctx context.Context, agentID string) (int64, error) {
 	value, err := p.q.CountExposures(ctx, agentID)
+	return value, err
+}
+
+func (p postgresQueries) CountImageAgents(ctx context.Context, imageID string) (int64, error) {
+	value, err := p.q.CountImageAgents(ctx, imageID)
+	return value, err
+}
+
+func (p postgresQueries) CountLayerSHAInBuilds(ctx context.Context, layerSha256 string) (int64, error) {
+	value, err := p.q.CountLayerSHAInBuilds(ctx, layerSha256)
 	return value, err
 }
 
@@ -97,8 +115,20 @@ func (p postgresQueries) CreateExposure(ctx context.Context, arg db.CreateExposu
 	return p.q.CreateExposure(ctx, postgres.CreateExposureParams(arg))
 }
 
+func (p postgresQueries) CreateGitCredential(ctx context.Context, arg db.CreateGitCredentialParams) error {
+	return p.q.CreateGitCredential(ctx, postgres.CreateGitCredentialParams(arg))
+}
+
 func (p postgresQueries) CreateIdentity(ctx context.Context, arg db.CreateIdentityParams) error {
 	return p.q.CreateIdentity(ctx, postgres.CreateIdentityParams(arg))
+}
+
+func (p postgresQueries) CreateImage(ctx context.Context, arg db.CreateImageParams) error {
+	return p.q.CreateImage(ctx, postgres.CreateImageParams(arg))
+}
+
+func (p postgresQueries) CreateImageBuild(ctx context.Context, arg db.CreateImageBuildParams) error {
+	return p.q.CreateImageBuild(ctx, postgres.CreateImageBuildParams(arg))
 }
 
 func (p postgresQueries) CreateLoginState(ctx context.Context, arg db.CreateLoginStateParams) error {
@@ -205,6 +235,15 @@ func (p postgresQueries) DeleteExpiredSlackLinkCodes(ctx context.Context, expire
 func (p postgresQueries) DeleteExposure(ctx context.Context, id string) (int64, error) {
 	value, err := p.q.DeleteExposure(ctx, id)
 	return value, err
+}
+
+func (p postgresQueries) DeleteGitCredential(ctx context.Context, arg db.DeleteGitCredentialParams) (int64, error) {
+	value, err := p.q.DeleteGitCredential(ctx, postgres.DeleteGitCredentialParams(arg))
+	return value, err
+}
+
+func (p postgresQueries) DeleteImage(ctx context.Context, id string) error {
+	return p.q.DeleteImage(ctx, id)
 }
 
 func (p postgresQueries) DeleteMCPServer(ctx context.Context, id string) error {
@@ -326,6 +365,10 @@ func (p postgresQueries) ExtendSession(ctx context.Context, arg db.ExtendSession
 	return p.q.ExtendSession(ctx, postgres.ExtendSessionParams(arg))
 }
 
+func (p postgresQueries) FailImageBuild(ctx context.Context, arg db.FailImageBuildParams) error {
+	return p.q.FailImageBuild(ctx, postgres.FailImageBuildParams(arg))
+}
+
 func (p postgresQueries) GetAgent(ctx context.Context, id string) (db.Agent, error) {
 	value, err := p.q.GetAgent(ctx, id)
 	return db.Agent(value), err
@@ -339,6 +382,11 @@ func (p postgresQueries) GetAgentSession(ctx context.Context, id string) (db.Age
 func (p postgresQueries) GetAgentWithSandbox(ctx context.Context, id string) (db.GetAgentWithSandboxRow, error) {
 	value, err := p.q.GetAgentWithSandbox(ctx, id)
 	return db.GetAgentWithSandboxRow{Agent: db.Agent(value.Agent), Sandbox: db.Sandbox(value.Sandbox)}, err
+}
+
+func (p postgresQueries) GetDefaultImage(ctx context.Context) (db.Image, error) {
+	value, err := p.q.GetDefaultImage(ctx)
+	return db.Image(value), err
 }
 
 func (p postgresQueries) GetExposure(ctx context.Context, arg db.GetExposureParams) (db.Exposure, error) {
@@ -356,9 +404,39 @@ func (p postgresQueries) GetExposureByPort(ctx context.Context, arg db.GetExposu
 	return db.Exposure(value), err
 }
 
+func (p postgresQueries) GetGitCredential(ctx context.Context, id string) (db.GitCredential, error) {
+	value, err := p.q.GetGitCredential(ctx, id)
+	return db.GitCredential(value), err
+}
+
+func (p postgresQueries) GetGitCredentialByHost(ctx context.Context, arg db.GetGitCredentialByHostParams) (db.GitCredential, error) {
+	value, err := p.q.GetGitCredentialByHost(ctx, postgres.GetGitCredentialByHostParams(arg))
+	return db.GitCredential(value), err
+}
+
 func (p postgresQueries) GetIdentity(ctx context.Context, arg db.GetIdentityParams) (db.Identity, error) {
 	value, err := p.q.GetIdentity(ctx, postgres.GetIdentityParams(arg))
 	return db.Identity(value), err
+}
+
+func (p postgresQueries) GetImage(ctx context.Context, id string) (db.Image, error) {
+	value, err := p.q.GetImage(ctx, id)
+	return db.Image(value), err
+}
+
+func (p postgresQueries) GetImageBuild(ctx context.Context, id string) (db.ImageBuild, error) {
+	value, err := p.q.GetImageBuild(ctx, id)
+	return db.ImageBuild(value), err
+}
+
+func (p postgresQueries) GetImageBuildByRevArch(ctx context.Context, arg db.GetImageBuildByRevArchParams) (db.ImageBuild, error) {
+	value, err := p.q.GetImageBuildByRevArch(ctx, postgres.GetImageBuildByRevArchParams(arg))
+	return db.ImageBuild(value), err
+}
+
+func (p postgresQueries) GetImageByName(ctx context.Context, name string) (db.Image, error) {
+	value, err := p.q.GetImageByName(ctx, name)
+	return db.Image(value), err
 }
 
 func (p postgresQueries) GetMCPServer(ctx context.Context, id string) (db.McpServer, error) {
@@ -479,6 +557,11 @@ func (p postgresQueries) GetTokenUser(ctx context.Context, arg db.GetTokenUserPa
 func (p postgresQueries) GetUser(ctx context.Context, id string) (db.User, error) {
 	value, err := p.q.GetUser(ctx, id)
 	return db.User(value), err
+}
+
+func (p postgresQueries) GetUserGitConfig(ctx context.Context, userID string) (db.UserGitConfig, error) {
+	value, err := p.q.GetUserGitConfig(ctx, userID)
+	return db.UserGitConfig(value), err
 }
 
 func (p postgresQueries) GetWebhook(ctx context.Context, id string) (db.Webhook, error) {
@@ -665,6 +748,18 @@ func (p postgresQueries) ListAgentsByLoginUser(ctx context.Context, loginUserID 
 	return result, nil
 }
 
+func (p postgresQueries) ListAllImageBuilds(ctx context.Context) ([]db.ImageBuild, error) {
+	value, err := p.q.ListAllImageBuilds(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ImageBuild, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.ImageBuild(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListAllMachines(ctx context.Context) ([]db.ListAllMachinesRow, error) {
 	value, err := p.q.ListAllMachines(ctx)
 	if err != nil {
@@ -701,6 +796,18 @@ func (p postgresQueries) ListExposures(ctx context.Context, agentID string) ([]d
 	return result, nil
 }
 
+func (p postgresQueries) ListGitCredentials(ctx context.Context, userID string) ([]db.GitCredential, error) {
+	value, err := p.q.ListGitCredentials(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.GitCredential, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.GitCredential(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListIdentities(ctx context.Context) ([]db.ListIdentitiesRow, error) {
 	value, err := p.q.ListIdentities(ctx)
 	if err != nil {
@@ -709,6 +816,42 @@ func (p postgresQueries) ListIdentities(ctx context.Context) ([]db.ListIdentitie
 	result := make([]db.ListIdentitiesRow, 0, len(value))
 	for _, row := range value {
 		result = append(result, db.ListIdentitiesRow(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListImageBuilds(ctx context.Context, imageID string) ([]db.ImageBuild, error) {
+	value, err := p.q.ListImageBuilds(ctx, imageID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ImageBuild, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.ImageBuild(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListImageBuildsByRev(ctx context.Context, arg db.ListImageBuildsByRevParams) ([]db.ImageBuild, error) {
+	value, err := p.q.ListImageBuildsByRev(ctx, postgres.ListImageBuildsByRevParams(arg))
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ImageBuild, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.ImageBuild(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListImages(ctx context.Context) ([]db.Image, error) {
+	value, err := p.q.ListImages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.Image, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.Image(row))
 	}
 	return result, nil
 }
@@ -969,6 +1112,15 @@ func (p postgresQueries) MarkSessionRunning(ctx context.Context, arg db.MarkSess
 	return p.q.MarkSessionRunning(ctx, postgres.MarkSessionRunningParams(arg))
 }
 
+func (p postgresQueries) MarkStaleImageBuildsFailed(ctx context.Context, now int64) error {
+	return p.q.MarkStaleImageBuildsFailed(ctx, now)
+}
+
+func (p postgresQueries) MaxImageRevision(ctx context.Context, imageID string) (int64, error) {
+	value, err := p.q.MaxImageRevision(ctx, imageID)
+	return value, err
+}
+
 func (p postgresQueries) MaxSessionSeq(ctx context.Context, sessionID string) (int64, error) {
 	value, err := p.q.MaxSessionSeq(ctx, sessionID)
 	return value, err
@@ -1018,6 +1170,10 @@ func (p postgresQueries) SetAgentHarness(ctx context.Context, arg db.SetAgentHar
 	return p.q.SetAgentHarness(ctx, postgres.SetAgentHarnessParams(arg))
 }
 
+func (p postgresQueries) SetAgentImage(ctx context.Context, arg db.SetAgentImageParams) error {
+	return p.q.SetAgentImage(ctx, postgres.SetAgentImageParams(arg))
+}
+
 func (p postgresQueries) SetAgentLoginUser(ctx context.Context, arg db.SetAgentLoginUserParams) error {
 	return p.q.SetAgentLoginUser(ctx, postgres.SetAgentLoginUserParams(arg))
 }
@@ -1040,6 +1196,18 @@ func (p postgresQueries) SetExposurePort(ctx context.Context, arg db.SetExposure
 
 func (p postgresQueries) SetIdentityProviderRole(ctx context.Context, arg db.SetIdentityProviderRoleParams) error {
 	return p.q.SetIdentityProviderRole(ctx, postgres.SetIdentityProviderRoleParams(arg))
+}
+
+func (p postgresQueries) SetImageDefault(ctx context.Context, arg db.SetImageDefaultParams) error {
+	return p.q.SetImageDefault(ctx, postgres.SetImageDefaultParams(arg))
+}
+
+func (p postgresQueries) SetImageLatestRev(ctx context.Context, arg db.SetImageLatestRevParams) error {
+	return p.q.SetImageLatestRev(ctx, postgres.SetImageLatestRevParams(arg))
+}
+
+func (p postgresQueries) SetNodeArch(ctx context.Context, arg db.SetNodeArchParams) error {
+	return p.q.SetNodeArch(ctx, postgres.SetNodeArchParams(arg))
 }
 
 func (p postgresQueries) SetNodeCapacity(ctx context.Context, arg db.SetNodeCapacityParams) error {
@@ -1091,6 +1259,10 @@ func (p postgresQueries) SetSessionACPID(ctx context.Context, arg db.SetSessionA
 	return p.q.SetSessionACPID(ctx, postgres.SetSessionACPIDParams(arg))
 }
 
+func (p postgresQueries) SetSessionGit(ctx context.Context, arg db.SetSessionGitParams) error {
+	return p.q.SetSessionGit(ctx, postgres.SetSessionGitParams(arg))
+}
+
 func (p postgresQueries) SetSessionModel(ctx context.Context, arg db.SetSessionModelParams) error {
 	return p.q.SetSessionModel(ctx, postgres.SetSessionModelParams(arg))
 }
@@ -1130,6 +1302,10 @@ func (p postgresQueries) SettleSession(ctx context.Context, arg db.SettleSession
 
 func (p postgresQueries) ShareAgent(ctx context.Context, arg db.ShareAgentParams) error {
 	return p.q.ShareAgent(ctx, postgres.ShareAgentParams(arg))
+}
+
+func (p postgresQueries) StartImageBuild(ctx context.Context, arg db.StartImageBuildParams) error {
+	return p.q.StartImageBuild(ctx, postgres.StartImageBuildParams(arg))
 }
 
 func (p postgresQueries) StoreRefreshedLogin(ctx context.Context, arg db.StoreRefreshedLoginParams) (int64, error) {
@@ -1194,8 +1370,20 @@ func (p postgresQueries) UpdateAgent(ctx context.Context, arg db.UpdateAgentPara
 	return p.q.UpdateAgent(ctx, postgres.UpdateAgentParams(arg))
 }
 
+func (p postgresQueries) UpdateAgentRepoBranch(ctx context.Context, arg db.UpdateAgentRepoBranchParams) error {
+	return p.q.UpdateAgentRepoBranch(ctx, postgres.UpdateAgentRepoBranchParams(arg))
+}
+
 func (p postgresQueries) UpdateExposure(ctx context.Context, arg db.UpdateExposureParams) error {
 	return p.q.UpdateExposure(ctx, postgres.UpdateExposureParams(arg))
+}
+
+func (p postgresQueries) UpdateGitCredential(ctx context.Context, arg db.UpdateGitCredentialParams) error {
+	return p.q.UpdateGitCredential(ctx, postgres.UpdateGitCredentialParams(arg))
+}
+
+func (p postgresQueries) UpdateImage(ctx context.Context, arg db.UpdateImageParams) error {
+	return p.q.UpdateImage(ctx, postgres.UpdateImageParams(arg))
 }
 
 func (p postgresQueries) UpdateMCPServer(ctx context.Context, arg db.UpdateMCPServerParams) error {
@@ -1208,6 +1396,10 @@ func (p postgresQueries) UpdateSchedule(ctx context.Context, arg db.UpdateSchedu
 
 func (p postgresQueries) UpdateSecret(ctx context.Context, arg db.UpdateSecretParams) error {
 	return p.q.UpdateSecret(ctx, postgres.UpdateSecretParams(arg))
+}
+
+func (p postgresQueries) UpdateSessionGitStatus(ctx context.Context, arg db.UpdateSessionGitStatusParams) error {
+	return p.q.UpdateSessionGitStatus(ctx, postgres.UpdateSessionGitStatusParams(arg))
 }
 
 func (p postgresQueries) UpdateSkill(ctx context.Context, arg db.UpdateSkillParams) error {
@@ -1232,4 +1424,8 @@ func (p postgresQueries) UpsertModelCatalog(ctx context.Context, arg db.UpsertMo
 
 func (p postgresQueries) UpsertService(ctx context.Context, arg db.UpsertServiceParams) error {
 	return p.q.UpsertService(ctx, postgres.UpsertServiceParams(arg))
+}
+
+func (p postgresQueries) UpsertUserGitConfig(ctx context.Context, arg db.UpsertUserGitConfigParams) error {
+	return p.q.UpsertUserGitConfig(ctx, postgres.UpsertUserGitConfigParams(arg))
 }

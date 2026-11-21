@@ -27,6 +27,8 @@ tags:
   - name: auth
   - name: agents
   - name: nodes
+  - name: images
+    description: Enterprise custom VM images built as read-only layers on top of the base image.
   - name: admin
   - name: files
   - name: sessions
@@ -50,6 +52,8 @@ tags:
     description: WebSocket endpoints. Not generated as JSON handlers.
   - name: slack
     description: Linking Slack users to agenthold accounts.
+  - name: git
+    description: Git author identity, proxy-injected HTTPS credentials, repositories, branches and worktrees.
   - name: meta
 
 paths:
@@ -354,6 +358,133 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+
+  /images:
+    get:
+      operationId: listImages
+      tags: [images]
+      description: >-
+        Lists the built-in base image and all custom enterprise images. All signed-in users may
+        list images to pick one when creating an agent or app; build-time secret IDs are included
+        for admins only.
+      responses:
+        "200":
+          description: Images.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImageList" }
+    post:
+      operationId: createImage
+      tags: [images]
+      description: Creates a custom image recipe. Admins only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImageInput" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomImage" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /images/{imageId}:
+    parameters:
+      - { name: imageId, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getImage
+      tags: [images]
+      description: Returns a custom image and its build history.
+      responses:
+        "200":
+          description: Image details.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomImageDetail" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateImage
+      tags: [images]
+      description: Updates a custom image recipe or its default status. Admins only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImageInput" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomImage" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteImage
+      tags: [images]
+      description: Deletes a custom image when no machine references it. Admins only.
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /images/{imageId}/builds:
+    parameters:
+      - { name: imageId, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: listImageBuilds
+      tags: [images]
+      description: Lists builds of a custom image, newest revision first. Admins only.
+      responses:
+        "200":
+          description: Builds.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ImageBuild" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: startImageBuild
+      tags: [images]
+      description: >-
+        Starts a new revision build of the image on one connected node per architecture. Admins only.
+      responses:
+        "202":
+          description: Build started.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ImageBuild" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /images/{imageId}/builds/{buildId}:
+    parameters:
+      - { name: imageId, in: path, required: true, schema: { type: string } }
+      - { name: buildId, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getImageBuild
+      tags: [images]
+      description: Returns a build's status and full/live log output. Admins only.
+      responses:
+        "200":
+          description: Build details with logs.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImageBuildDetail" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
 
   /agents:
     get:
@@ -1020,14 +1151,20 @@ paths:
               type: object
               properties:
                 title: { type: string, maxLength: 200 }
+                cwd: { type: string, maxLength: 4096, description: "Optional working directory relative to the agent's home directory." }
+                gitBranch: { type: string, maxLength: 255, description: "Optional branch to check out or create when starting in a git repository." }
+                createBranch: { type: boolean, description: "Create gitBranch if it does not exist." }
+                createWorktree: { type: boolean, description: "Create a new git worktree on gitBranch for this session." }
       responses:
         "201":
           description: Created.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Session" }
+        "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
   /sessions/{sessionId}:
     parameters:
@@ -2191,6 +2328,250 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
         "413": { $ref: "#/components/responses/Error" }
 
+  /me/git:
+    get:
+      operationId: getGitSettings
+      tags: [git]
+      description: Your git author identity and connected HTTPS credentials.
+      responses:
+        "200":
+          description: Current git settings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitSettings" }
+    put:
+      operationId: updateGitSettings
+      tags: [git]
+      description: Update your git author name and email (empty values fall back to your account profile).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [authorName, authorEmail]
+              properties:
+                authorName: { type: string, maxLength: 200 }
+                authorEmail: { type: string, maxLength: 320 }
+      responses:
+        "200":
+          description: Updated git settings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitSettings" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /me/git/credentials:
+    post:
+      operationId: upsertGitCredential
+      tags: [git]
+      description: Store or replace an HTTPS git credential for a host. Tokens are encrypted at rest and injected by the egress proxy.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GitCredentialInput" }
+      responses:
+        "200":
+          description: Stored credential metadata.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitCredential" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /me/git/credentials/{credentialId}:
+    parameters:
+      - name: credentialId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      operationId: deleteGitCredential
+      tags: [git]
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/git/repos:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listAgentGitRepos
+      tags: [git]
+      description: Discover git repositories and worktrees inside a running agent's home directory.
+      responses:
+        "200":
+          description: Discovered repositories.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitRepoList" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/git/status:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+      - name: path
+        in: query
+        schema: { type: string }
+        description: Relative path inside the agent's home directory (empty for home).
+    get:
+      operationId: getAgentGitStatus
+      tags: [git]
+      description: Inspect git repository status and branches for a directory in a running agent.
+      responses:
+        "200":
+          description: Repository status and branch list.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitRepoStatus" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/git/clone:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: cloneAgentGitRepo
+      tags: [git]
+      description: Clone a git repository into a running agent's home directory.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string, minLength: 1, maxLength: 2048 }
+                path: { type: string, maxLength: 4096, description: "Optional target directory relative to home." }
+                branch: { type: string, maxLength: 255, description: "Optional branch to check out." }
+      responses:
+        "201":
+          description: Cloned repository.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitRepo" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/git/checkout:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: checkoutAgentGitBranch
+      tags: [git]
+      description: Switch to or create a branch in a repository inside a running agent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, branch]
+              properties:
+                path: { type: string, maxLength: 4096 }
+                branch: { type: string, minLength: 1, maxLength: 255 }
+                create: { type: boolean }
+                fromRef: { type: string, maxLength: 255 }
+      responses:
+        "200":
+          description: Updated repository state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitRepo" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/git/worktrees:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: createAgentGitWorktree
+      tags: [git]
+      description: Create a new git worktree for a repository inside a running agent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, branch]
+              properties:
+                path: { type: string, maxLength: 4096, description: "Repository path relative to home." }
+                branch: { type: string, minLength: 1, maxLength: 255 }
+                create: { type: boolean, description: "Create a new branch for the worktree." }
+                fromRef: { type: string, maxLength: 255, description: "Optional base ref when creating a new branch." }
+                worktreePath: { type: string, maxLength: 4096, description: "Optional worktree path relative to home." }
+      responses:
+        "201":
+          description: Created worktree.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitRepo" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/git/pull:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: pullAgentGitRepo
+      tags: [git]
+      description: Fetch or pull updates in a repository inside a running agent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string, maxLength: 4096 }
+                fetchOnly: { type: boolean }
+      responses:
+        "200":
+          description: Updated repository state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitRepo" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/git:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    patch:
+      operationId: updateSessionGit
+      tags: [sessions, git]
+      description: Update a session's working directory or refresh its detected git project and branch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cwd: { type: string, maxLength: 4096, description: "Working directory relative to home (empty clears)." }
+                refresh: { type: boolean, description: "Re-detect git project and branch from the running sandbox." }
+      responses:
+        "200":
+          description: Updated session.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
 security:
   - session: []
   - token: []
@@ -2359,6 +2740,7 @@ components:
         name: { type: string }
         online: { type: boolean }
         local: { type: boolean, description: The controller's built-in node. }
+        arch: { type: string, description: "CPU architecture of the node (arm64 or amd64), when known." }
         agents: { type: integer, description: Agents placed on this node. }
         cpus: { type: integer, description: Logical CPUs reported by the node. }
         availableMemoryBytes: { type: integer, format: int64, description: Available memory at the last report. }
@@ -2489,6 +2871,10 @@ components:
         owner: { $ref: "#/components/schemas/User" }
         nodeId: { type: string, description: Assigned node ID; absent before placement. }
         nodeName: { type: string, description: Assigned node name when known. }
+        imageId: { type: string, description: "Custom image ID, or empty string for the built-in agenthold Base image." }
+        imageName: { type: string, description: "Display name of the machine's image." }
+        imageRevision: { type: integer, format: int64, description: "Pinned custom image revision (0 for built-in base)." }
+        imageUpdateAvailable: { type: boolean, description: "True when the machine's custom image has a newer ready revision." }
         harness: { type: string }
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }
@@ -2539,6 +2925,11 @@ components:
         harness: { type: string, description: Harness id (see /harnesses). Default claude-code. }
         model: { type: string }
         permissionPolicy: { type: string, enum: [auto-approve, ask] }
+        imageId:
+          type: string
+          description: >-
+            Custom image ID to build the machine from, "base" for the built-in base image,
+            or omit to use the installation's default image.
         nodeId:
           type: string
           description: >-
@@ -2574,6 +2965,17 @@ components:
           additionalProperties: { type: string }
           description: Default model options, by harness config option id. Changing the harness resets them.
         permissionPolicy: { type: string, enum: [auto-approve, ask] }
+        imageId:
+          type: string
+          description: >-
+            Switch to another custom image ID (pinned to its latest ready revision), or "base" for
+            the built-in base image. Takes effect after Reset system (needsRebuild).
+        imageRevision:
+          type: integer
+          format: int64
+          description: >-
+            Upgrade or pin a specific ready revision of the machine's current custom image.
+            Takes effect after Reset system (needsRebuild).
 
     ModelChoice:
       type: object
@@ -2865,6 +3267,10 @@ components:
             sessionId: { type: string, description: The other agent's session that sent the messages. }
         title: { type: string }
         running: { type: boolean }
+        cwd: { type: string, description: "Working directory relative to the agent's home directory." }
+        git:
+          $ref: "#/components/schemas/SessionGit"
+          description: "The git project and branch this session is on; absent when not in a git repository."
         model:
           $ref: "#/components/schemas/ModelChoice"
           description: The session's own model choice; absent when it uses the agent's default.
@@ -3082,6 +3488,10 @@ components:
         owner: { $ref: "#/components/schemas/User" }
         nodeId: { type: string }
         nodeName: { type: string }
+        imageId: { type: string, description: "Custom image ID, or empty string for the built-in agenthold Base image." }
+        imageName: { type: string, description: "Display name of the app's image." }
+        imageRevision: { type: integer, format: int64, description: "Pinned custom image revision (0 for built-in base)." }
+        imageUpdateAvailable: { type: boolean, description: "True when the app's custom image has a newer ready revision." }
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }
         idleMinutes: { type: integer, description: 0 means always on (never sleeps for idleness). }
@@ -3126,6 +3536,9 @@ components:
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }
         idleMinutes: { type: integer, minimum: 0, maximum: 10080, description: Default 0 (always on). }
+        imageId:
+          type: string
+          description: Custom image ID, "base" for built-in base, or omit for the installation default.
 
     AppPatch:
       type: object
@@ -3135,6 +3548,113 @@ components:
         cpus: { type: number }
         memoryMb: { type: integer, format: int64 }
         idleMinutes: { type: integer, minimum: 0, maximum: 10080 }
+        imageId: { type: string, description: Switch image (takes effect after Reset system). }
+        imageRevision: { type: integer, format: int64, description: Switch to a specific ready revision (takes effect after Reset system). }
+
+    BuiltinBaseImage:
+      type: object
+      required: [id, name, description, isDefault]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        isDefault: { type: boolean }
+
+    ImageInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        description: { type: string, maxLength: 500 }
+        aptPackages:
+          type: array
+          items: { type: string }
+        setupScript: { type: string, description: Bash script executed as root inside an isolated builder microVM. }
+        env:
+          type: object
+          additionalProperties: { type: string }
+          description: Environment variables written to /etc/agenthold/image.env.d/10-custom.env. PATH supports $PATH/${PATH}.
+        secretIds:
+          type: array
+          items: { type: string }
+          description: Secret IDs injected via the egress proxy during image builds only (never baked into the image).
+        isDefault:
+          type: boolean
+          description: Make this custom image the installation default for new agents and apps.
+
+    CustomImage:
+      type: object
+      required: [id, name, description, aptPackages, setupScript, env, secretIds, isDefault, latestRevision, readyArches, building, agentCount, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        aptPackages:
+          type: array
+          items: { type: string }
+        setupScript: { type: string }
+        env:
+          type: object
+          additionalProperties: { type: string }
+        secretIds:
+          type: array
+          items: { type: string }
+        isDefault: { type: boolean }
+        latestRevision: { type: integer, format: int64 }
+        readyArches:
+          type: array
+          items: { type: string }
+        building: { type: boolean }
+        agentCount: { type: integer, format: int64 }
+        latestBuildStatus: { type: string, enum: [queued, building, ready, failed] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ImageBuild:
+      type: object
+      required: [id, imageId, revision, arch, nodeId, status, error, layerSha256, layerSize, zstdSize, createdAt]
+      properties:
+        id: { type: string }
+        imageId: { type: string }
+        revision: { type: integer, format: int64 }
+        arch: { type: string }
+        nodeId: { type: string }
+        status: { type: string, enum: [queued, building, ready, failed] }
+        error: { type: string }
+        baseKey: { type: string }
+        layerSha256: { type: string }
+        layerSize: { type: integer, format: int64 }
+        zstdSize: { type: integer, format: int64 }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+
+    ImageBuildDetail:
+      allOf:
+        - $ref: "#/components/schemas/ImageBuild"
+        - type: object
+          required: [log]
+          properties:
+            log: { type: string }
+
+    CustomImageDetail:
+      allOf:
+        - $ref: "#/components/schemas/CustomImage"
+        - type: object
+          required: [builds]
+          properties:
+            builds:
+              type: array
+              items: { $ref: "#/components/schemas/ImageBuild" }
+
+    ImageList:
+      type: object
+      required: [base, images]
+      properties:
+        base: { $ref: "#/components/schemas/BuiltinBaseImage" }
+        images:
+          type: array
+          items: { $ref: "#/components/schemas/CustomImage" }
 
     DeployInput:
       type: object
@@ -3299,3 +3819,76 @@ components:
           required: [url]
           properties:
             url: { type: string, description: The secret delivery URL. Shown once. }
+
+    SessionGit:
+      type: object
+      required: [project, branch]
+      properties:
+        project: { type: string }
+        branch: { type: string }
+        repoPath: { type: string }
+
+    GitCredentialInput:
+      type: object
+      required: [host, token]
+      properties:
+        host: { type: string, minLength: 1, maxLength: 253, description: "Hostname, e.g. github.com or gitlab.com." }
+        username: { type: string, maxLength: 200, description: "Optional HTTP Basic username (defaults to x-access-token for github.com, oauth2 for gitlab.com, git otherwise)." }
+        token: { type: string, minLength: 1, maxLength: 16384 }
+        label: { type: string, maxLength: 100 }
+
+    GitCredential:
+      type: object
+      required: [id, host, username, label, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        host: { type: string }
+        username: { type: string }
+        label: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    GitSettings:
+      type: object
+      required: [authorName, authorEmail, defaultAuthorName, defaultAuthorEmail, credentials]
+      properties:
+        authorName: { type: string }
+        authorEmail: { type: string }
+        defaultAuthorName: { type: string }
+        defaultAuthorEmail: { type: string }
+        credentials:
+          type: array
+          items: { $ref: "#/components/schemas/GitCredential" }
+
+    GitRepo:
+      type: object
+      required: [path, project, branch, detached, dirty, ahead, behind, isWorktree]
+      properties:
+        path: { type: string }
+        project: { type: string }
+        remoteUrl: { type: string }
+        branch: { type: string }
+        detached: { type: boolean }
+        dirty: { type: boolean }
+        ahead: { type: integer }
+        behind: { type: integer }
+        isWorktree: { type: boolean }
+        mainPath: { type: string }
+
+    GitRepoList:
+      type: object
+      required: [connected, repos]
+      properties:
+        connected: { type: boolean }
+        repos:
+          type: array
+          items: { $ref: "#/components/schemas/GitRepo" }
+
+    GitRepoStatus:
+      type: object
+      required: [branches]
+      properties:
+        repo: { $ref: "#/components/schemas/GitRepo" }
+        branches:
+          type: array
+          items: { type: string }

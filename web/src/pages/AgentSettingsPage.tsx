@@ -7,6 +7,7 @@ import { ActivityTab } from '@/components/ActivityTab';
 import { AgentSecretsTab } from '@/components/AgentSecretsTab';
 import { AgentStateDot } from '@/components/AgentStateBadge';
 import { FilesTab } from '@/components/FilesTab';
+import { GitTab } from '@/components/GitTab';
 import { HarnessPanel } from '@/components/HarnessPanel';
 import { PreviewTab } from '@/components/PreviewTab';
 import { ServicesTab } from '@/components/ServicesTab';
@@ -149,6 +150,18 @@ function Section({
       return (
         <>
           <FilesTab
+            agentId={a.id}
+            canUse={canUse}
+            starting={busy}
+            onStart={() => action.mutate('start')}
+          />
+          <ErrorText error={action.error} />
+        </>
+      );
+    case 'git':
+      return (
+        <>
+          <GitTab
             agentId={a.id}
             canUse={canUse}
             starting={busy}

@@ -28,6 +28,8 @@ type Agent struct {
 	Kind                 string
 	CreatedByAgentID     string
 	ModelOptions         string
+	ImageID              string
+	ImageRevision        int64
 }
 
 type AgentMcpServer struct {
@@ -62,6 +64,10 @@ type AgentSession struct {
 	OriginSessionID string
 	Model           string
 	ModelOptions    string
+	Cwd             string
+	GitProject      string
+	GitBranch       string
+	GitRepoPath     string
 	SettledAt       sql.NullInt64
 	SettledBy       string
 	UnsettledAt     sql.NullInt64
@@ -125,6 +131,17 @@ type ExposureReleasedName struct {
 	ReleasedAt int64
 }
 
+type GitCredential struct {
+	ID         string
+	UserID     string
+	Host       string
+	Username   string
+	Ciphertext []byte
+	Label      string
+	CreatedAt  int64
+	UpdatedAt  int64
+}
+
 type Identity struct {
 	Provider     string
 	Subject      string
@@ -135,6 +152,41 @@ type Identity struct {
 	LastLoginAt  int64
 	ProviderRole string
 	RoleConfig   string
+}
+
+type Image struct {
+	ID          string
+	Name        string
+	Description string
+	AptPackages string
+	SetupScript string
+	EnvJson     string
+	SecretIds   string
+	IsDefault   int64
+	LatestRev   int64
+	CreatedBy   string
+	CreatedAt   int64
+	UpdatedAt   int64
+}
+
+type ImageBuild struct {
+	ID          string
+	ImageID     string
+	Revision    int64
+	Arch        string
+	NodeID      string
+	Status      string
+	Error       string
+	RecipeJson  string
+	BaseKey     string
+	LayerSha256 string
+	LayerSize   int64
+	ZstdSha256  string
+	ZstdSize    int64
+	LogText     string
+	StartedAt   int64
+	FinishedAt  int64
+	CreatedAt   int64
 }
 
 type LoginState struct {
@@ -174,6 +226,7 @@ type Node struct {
 	Version            string
 	MemoryTotalBytes   int64
 	DiskAllocatedBytes int64
+	Arch               string
 }
 
 type NodeJoinToken struct {
@@ -361,6 +414,13 @@ type User struct {
 	Role                 string
 	RoleOverride         string
 	ThreadAutoSettleDays int64
+}
+
+type UserGitConfig struct {
+	UserID      string
+	AuthorName  string
+	AuthorEmail string
+	UpdatedAt   int64
 }
 
 type Webhook struct {

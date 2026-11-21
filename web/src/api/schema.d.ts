@@ -276,6 +276,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Lists the built-in base image and all custom enterprise images. All signed-in users may list images to pick one when creating an agent or app; build-time secret IDs are included for admins only. */
+        get: operations["listImages"];
+        put?: never;
+        /** @description Creates a custom image recipe. Admins only. */
+        post: operations["createImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/images/{imageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        /** @description Returns a custom image and its build history. */
+        get: operations["getImage"];
+        put?: never;
+        post?: never;
+        /** @description Deletes a custom image when no machine references it. Admins only. */
+        delete: operations["deleteImage"];
+        options?: never;
+        head?: never;
+        /** @description Updates a custom image recipe or its default status. Admins only. */
+        patch: operations["updateImage"];
+        trace?: never;
+    };
+    "/images/{imageId}/builds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        /** @description Lists builds of a custom image, newest revision first. Admins only. */
+        get: operations["listImageBuilds"];
+        put?: never;
+        /** @description Starts a new revision build of the image on one connected node per architecture. Admins only. */
+        post: operations["startImageBuild"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/images/{imageId}/builds/{buildId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+                buildId: string;
+            };
+            cookie?: never;
+        };
+        /** @description Returns a build's status and full/live log output. Admins only. */
+        get: operations["getImageBuild"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents": {
         parameters: {
             query?: never;
@@ -1820,6 +1899,201 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/git": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Your git author identity and connected HTTPS credentials. */
+        get: operations["getGitSettings"];
+        /** @description Update your git author name and email (empty values fall back to your account profile). */
+        put: operations["updateGitSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/git/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Store or replace an HTTPS git credential for a host. Tokens are encrypted at rest and injected by the egress proxy. */
+        post: operations["upsertGitCredential"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/git/credentials/{credentialId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credentialId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteGitCredential"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/repos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description Discover git repositories and worktrees inside a running agent's home directory. */
+        get: operations["listAgentGitRepos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/status": {
+        parameters: {
+            query?: {
+                /** @description Relative path inside the agent's home directory (empty for home). */
+                path?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description Inspect git repository status and branches for a directory in a running agent. */
+        get: operations["getAgentGitStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Clone a git repository into a running agent's home directory. */
+        post: operations["cloneAgentGitRepo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/checkout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Switch to or create a branch in a repository inside a running agent. */
+        post: operations["checkoutAgentGitBranch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/worktrees": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Create a new git worktree for a repository inside a running agent. */
+        post: operations["createAgentGitWorktree"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/pull": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Fetch or pull updates in a repository inside a running agent. */
+        post: operations["pullAgentGitRepo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/git": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Update a session's working directory or refresh its detected git project and branch. */
+        patch: operations["updateSessionGit"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1928,6 +2202,8 @@ export interface components {
             online: boolean;
             /** @description The controller's built-in node. */
             local: boolean;
+            /** @description CPU architecture of the node (arm64 or amd64), when known. */
+            arch?: string;
             /** @description Agents placed on this node. */
             agents: number;
             /** @description Logical CPUs reported by the node. */
@@ -2121,6 +2397,17 @@ export interface components {
             nodeId?: string;
             /** @description Assigned node name when known. */
             nodeName?: string;
+            /** @description Custom image ID, or empty string for the built-in agenthold Base image. */
+            imageId?: string;
+            /** @description Display name of the machine's image. */
+            imageName?: string;
+            /**
+             * Format: int64
+             * @description Pinned custom image revision (0 for built-in base).
+             */
+            imageRevision?: number;
+            /** @description True when the machine's custom image has a newer ready revision. */
+            imageUpdateAvailable?: boolean;
             harness: string;
             cpus: number;
             /** Format: int64 */
@@ -2174,6 +2461,8 @@ export interface components {
             model?: string;
             /** @enum {string} */
             permissionPolicy?: "auto-approve" | "ask";
+            /** @description Custom image ID to build the machine from, "base" for the built-in base image, or omit to use the installation's default image. */
+            imageId?: string;
             /** @description Place the agent on this node (an `id` from `GET /nodes`). Omit it for automatic placement. Admins only (403 otherwise). 400 if the node does not exist; 409 if it is offline, cannot report its capacity or has less available memory than `memoryMb`. The agent stays on the node for its whole life. */
             nodeId?: string;
         };
@@ -2204,6 +2493,13 @@ export interface components {
             };
             /** @enum {string} */
             permissionPolicy?: "auto-approve" | "ask";
+            /** @description Switch to another custom image ID (pinned to its latest ready revision), or "base" for the built-in base image. Takes effect after Reset system (needsRebuild). */
+            imageId?: string;
+            /**
+             * Format: int64
+             * @description Upgrade or pin a specific ready revision of the machine's current custom image. Takes effect after Reset system (needsRebuild).
+             */
+            imageRevision?: number;
         };
         ModelChoice: {
             /** @description Model id ('' keeps the default). */
@@ -2439,6 +2735,10 @@ export interface components {
             };
             title: string;
             running: boolean;
+            /** @description Working directory relative to the agent's home directory. */
+            cwd?: string;
+            /** @description The git project and branch this session is on; absent when not in a git repository. */
+            git?: components["schemas"]["SessionGit"];
             /** @description The session's own model choice; absent when it uses the agent's default. */
             model?: components["schemas"]["ModelChoice"];
             createdBy: components["schemas"]["User"];
@@ -2617,6 +2917,17 @@ export interface components {
             owner: components["schemas"]["User"];
             nodeId?: string;
             nodeName?: string;
+            /** @description Custom image ID, or empty string for the built-in agenthold Base image. */
+            imageId?: string;
+            /** @description Display name of the app's image. */
+            imageName?: string;
+            /**
+             * Format: int64
+             * @description Pinned custom image revision (0 for built-in base).
+             */
+            imageRevision?: number;
+            /** @description True when the app's custom image has a newer ready revision. */
+            imageUpdateAvailable?: boolean;
             cpus: number;
             /** Format: int64 */
             memoryMb: number;
@@ -2668,6 +2979,8 @@ export interface components {
             memoryMb?: number;
             /** @description Default 0 (always on). */
             idleMinutes?: number;
+            /** @description Custom image ID, "base" for built-in base, or omit for the installation default. */
+            imageId?: string;
         };
         AppPatch: {
             /** @description Convert to a template (it is stopped first) or back */
@@ -2677,6 +2990,91 @@ export interface components {
             /** Format: int64 */
             memoryMb?: number;
             idleMinutes?: number;
+            /** @description Switch image (takes effect after Reset system). */
+            imageId?: string;
+            /**
+             * Format: int64
+             * @description Switch to a specific ready revision (takes effect after Reset system).
+             */
+            imageRevision?: number;
+        };
+        BuiltinBaseImage: {
+            id: string;
+            name: string;
+            description: string;
+            isDefault: boolean;
+        };
+        ImageInput: {
+            name: string;
+            description?: string;
+            aptPackages?: string[];
+            /** @description Bash script executed as root inside an isolated builder microVM. */
+            setupScript?: string;
+            /** @description Environment variables written to /etc/agenthold/image.env.d/10-custom.env. PATH supports $PATH/${PATH}. */
+            env?: {
+                [key: string]: string;
+            };
+            /** @description Secret IDs injected via the egress proxy during image builds only (never baked into the image). */
+            secretIds?: string[];
+            /** @description Make this custom image the installation default for new agents and apps. */
+            isDefault?: boolean;
+        };
+        CustomImage: {
+            id: string;
+            name: string;
+            description: string;
+            aptPackages: string[];
+            setupScript: string;
+            env: {
+                [key: string]: string;
+            };
+            secretIds: string[];
+            isDefault: boolean;
+            /** Format: int64 */
+            latestRevision: number;
+            readyArches: string[];
+            building: boolean;
+            /** Format: int64 */
+            agentCount: number;
+            /** @enum {string} */
+            latestBuildStatus?: "queued" | "building" | "ready" | "failed";
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ImageBuild: {
+            id: string;
+            imageId: string;
+            /** Format: int64 */
+            revision: number;
+            arch: string;
+            nodeId: string;
+            /** @enum {string} */
+            status: "queued" | "building" | "ready" | "failed";
+            error: string;
+            baseKey?: string;
+            layerSha256: string;
+            /** Format: int64 */
+            layerSize: number;
+            /** Format: int64 */
+            zstdSize: number;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ImageBuildDetail: components["schemas"]["ImageBuild"] & {
+            log: string;
+        };
+        CustomImageDetail: components["schemas"]["CustomImage"] & {
+            builds: components["schemas"]["ImageBuild"][];
+        };
+        ImageList: {
+            base: components["schemas"]["BuiltinBaseImage"];
+            images: components["schemas"]["CustomImage"][];
         };
         DeployInput: {
             /** @description The machine to copy from. */
@@ -2821,6 +3219,56 @@ export interface components {
         CreatedWebhook: components["schemas"]["Webhook"] & {
             /** @description The secret delivery URL. Shown once. */
             url: string;
+        };
+        SessionGit: {
+            project: string;
+            branch: string;
+            repoPath?: string;
+        };
+        GitCredentialInput: {
+            /** @description Hostname, e.g. github.com or gitlab.com. */
+            host: string;
+            /** @description Optional HTTP Basic username (defaults to x-access-token for github.com, oauth2 for gitlab.com, git otherwise). */
+            username?: string;
+            token: string;
+            label?: string;
+        };
+        GitCredential: {
+            id: string;
+            host: string;
+            username: string;
+            label: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        GitSettings: {
+            authorName: string;
+            authorEmail: string;
+            defaultAuthorName: string;
+            defaultAuthorEmail: string;
+            credentials: components["schemas"]["GitCredential"][];
+        };
+        GitRepo: {
+            path: string;
+            project: string;
+            remoteUrl?: string;
+            branch: string;
+            detached: boolean;
+            dirty: boolean;
+            ahead: number;
+            behind: number;
+            isWorktree: boolean;
+            mainPath?: string;
+        };
+        GitRepoList: {
+            connected: boolean;
+            repos: components["schemas"]["GitRepo"][];
+        };
+        GitRepoStatus: {
+            repo?: components["schemas"]["GitRepo"];
+            branches: string[];
         };
     };
     responses: {
@@ -3273,6 +3721,203 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+        };
+    };
+    listImages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Images. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageList"];
+                };
+            };
+        };
+    };
+    createImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageInput"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomImage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Image details. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomImageDetail"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageInput"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomImage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    listImageBuilds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Builds. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageBuild"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    startImageBuild: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Build started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageBuild"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getImageBuild: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+                buildId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Build details with logs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageBuildDetail"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
         };
     };
     listAgents: {
@@ -4270,6 +4915,14 @@ export interface operations {
             content: {
                 "application/json": {
                     title?: string;
+                    /** @description Optional working directory relative to the agent's home directory. */
+                    cwd?: string;
+                    /** @description Optional branch to check out or create when starting in a git repository. */
+                    gitBranch?: string;
+                    /** @description Create gitBranch if it does not exist. */
+                    createBranch?: boolean;
+                    /** @description Create a new git worktree on gitBranch for this session. */
+                    createWorktree?: boolean;
                 };
             };
         };
@@ -4283,8 +4936,10 @@ export interface operations {
                     "application/json": components["schemas"]["Session"];
                 };
             };
+            400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
         };
     };
     getSession: {
@@ -6094,6 +6749,335 @@ export interface operations {
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             413: components["responses"]["Error"];
+        };
+    };
+    getGitSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current git settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitSettings"];
+                };
+            };
+        };
+    };
+    updateGitSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    authorName: string;
+                    authorEmail: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated git settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitSettings"];
+                };
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    upsertGitCredential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GitCredentialInput"];
+            };
+        };
+        responses: {
+            /** @description Stored credential metadata. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitCredential"];
+                };
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    deleteGitCredential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credentialId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    listAgentGitRepos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Discovered repositories. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepoList"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    getAgentGitStatus: {
+        parameters: {
+            query?: {
+                /** @description Relative path inside the agent's home directory (empty for home). */
+                path?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Repository status and branch list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepoStatus"];
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    cloneAgentGitRepo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    url: string;
+                    /** @description Optional target directory relative to home. */
+                    path?: string;
+                    /** @description Optional branch to check out. */
+                    branch?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Cloned repository. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    checkoutAgentGitBranch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    path: string;
+                    branch: string;
+                    create?: boolean;
+                    fromRef?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated repository state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    createAgentGitWorktree: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Repository path relative to home. */
+                    path: string;
+                    branch: string;
+                    /** @description Create a new branch for the worktree. */
+                    create?: boolean;
+                    /** @description Optional base ref when creating a new branch. */
+                    fromRef?: string;
+                    /** @description Optional worktree path relative to home. */
+                    worktreePath?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created worktree. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    pullAgentGitRepo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    path: string;
+                    fetchOnly?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated repository state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateSessionGit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Working directory relative to home (empty clears). */
+                    cwd?: string;
+                    /** @description Re-detect git project and branch from the running sandbox. */
+                    refresh?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated session. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
         };
     };
 }

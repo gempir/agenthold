@@ -66,7 +66,7 @@ func (q *Queries) DeleteAgentSession(ctx context.Context, id string) error {
 }
 
 const getAgentSession = `-- name: GetAgentSession :one
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, settled_at, settled_by, unsettled_at FROM agent_sessions WHERE id = $1
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at FROM agent_sessions WHERE id = $1
 `
 
 func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession, error) {
@@ -85,6 +85,10 @@ func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession,
 		&i.OriginSessionID,
 		&i.Model,
 		&i.ModelOptions,
+		&i.Cwd,
+		&i.GitProject,
+		&i.GitBranch,
+		&i.GitRepoPath,
 		&i.SettledAt,
 		&i.SettledBy,
 		&i.UnsettledAt,
@@ -134,7 +138,7 @@ func (q *Queries) InsertSessionEvent(ctx context.Context, arg InsertSessionEvent
 }
 
 const linkedSessions = `-- name: LinkedSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, settled_at, settled_by, unsettled_at FROM agent_sessions WHERE agent_id = $1 AND origin_agent_id = $2 ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at FROM agent_sessions WHERE agent_id = $1 AND origin_agent_id = $2 ORDER BY updated_at DESC
 `
 
 type LinkedSessionsParams struct {
@@ -165,6 +169,10 @@ func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) 
 			&i.OriginSessionID,
 			&i.Model,
 			&i.ModelOptions,
+			&i.Cwd,
+			&i.GitProject,
+			&i.GitBranch,
+			&i.GitRepoPath,
 			&i.SettledAt,
 			&i.SettledBy,
 			&i.UnsettledAt,
@@ -183,7 +191,7 @@ func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) 
 }
 
 const listAgentSessions = `-- name: ListAgentSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, settled_at, settled_by, unsettled_at FROM agent_sessions WHERE agent_id = $1 ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at FROM agent_sessions WHERE agent_id = $1 ORDER BY updated_at DESC
 `
 
 func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]AgentSession, error) {
@@ -208,6 +216,10 @@ func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]Agen
 			&i.OriginSessionID,
 			&i.Model,
 			&i.ModelOptions,
+			&i.Cwd,
+			&i.GitProject,
+			&i.GitBranch,
+			&i.GitRepoPath,
 			&i.SettledAt,
 			&i.SettledBy,
 			&i.UnsettledAt,
@@ -486,6 +498,29 @@ func (q *Queries) SetSessionACPID(ctx context.Context, arg SetSessionACPIDParams
 	return err
 }
 
+const setSessionGit = `-- name: SetSessionGit :exec
+UPDATE agent_sessions SET cwd = $1, git_project = $2, git_branch = $3, git_repo_path = $4 WHERE id = $5
+`
+
+type SetSessionGitParams struct {
+	Cwd         string
+	GitProject  string
+	GitBranch   string
+	GitRepoPath string
+	ID          string
+}
+
+func (q *Queries) SetSessionGit(ctx context.Context, arg SetSessionGitParams) error {
+	_, err := q.db.ExecContext(ctx, setSessionGit,
+		arg.Cwd,
+		arg.GitProject,
+		arg.GitBranch,
+		arg.GitRepoPath,
+		arg.ID,
+	)
+	return err
+}
+
 const setSessionModel = `-- name: SetSessionModel :exec
 UPDATE agent_sessions SET model = $1, model_options = $2 WHERE id = $3
 `
@@ -566,6 +601,42 @@ func (q *Queries) UnsettleSession(ctx context.Context, arg UnsettleSessionParams
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const updateAgentRepoBranch = `-- name: UpdateAgentRepoBranch :exec
+UPDATE agent_sessions SET git_branch = $1 WHERE agent_id = $2 AND git_repo_path = $3
+`
+
+type UpdateAgentRepoBranchParams struct {
+	GitBranch   string
+	AgentID     string
+	GitRepoPath string
+}
+
+func (q *Queries) UpdateAgentRepoBranch(ctx context.Context, arg UpdateAgentRepoBranchParams) error {
+	_, err := q.db.ExecContext(ctx, updateAgentRepoBranch, arg.GitBranch, arg.AgentID, arg.GitRepoPath)
+	return err
+}
+
+const updateSessionGitStatus = `-- name: UpdateSessionGitStatus :exec
+UPDATE agent_sessions SET git_project = $1, git_branch = $2, git_repo_path = $3 WHERE id = $4
+`
+
+type UpdateSessionGitStatusParams struct {
+	GitProject  string
+	GitBranch   string
+	GitRepoPath string
+	ID          string
+}
+
+func (q *Queries) UpdateSessionGitStatus(ctx context.Context, arg UpdateSessionGitStatusParams) error {
+	_, err := q.db.ExecContext(ctx, updateSessionGitStatus,
+		arg.GitProject,
+		arg.GitBranch,
+		arg.GitRepoPath,
+		arg.ID,
+	)
+	return err
 }
 
 const upsertModelCatalog = `-- name: UpsertModelCatalog :exec

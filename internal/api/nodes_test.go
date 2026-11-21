@@ -51,6 +51,70 @@ func TestOnlyAdminsManageNodes(t *testing.T) {
 	expect(t, "remove unknown", ops.do("DELETE", "/nodes/nope", nil, nil), 404)
 }
 
+// Admins choose the node of a new agent; everybody else gets automatic placement.
+func TestAdminsPickTheNodeOfANewAgent(t *testing.T) {
+	e := newEnvWith(t, func(c *config.Config) { c.Auth.Admins = []string{"ops@example.com"} })
+	ops := e.login("ops", "Ops", "ops@example.com")
+	dev := e.login("dev", "Dev", "dev@example.com")
+	var nodes []gen.NodeInfo
+	expect(t, "list", ops.do("GET", "/nodes", nil, &nodes), 200)
+	if len(nodes) == 0 {
+		t.Fatal("no nodes")
+	}
+	pick := nodes[0]
+
+	var ag gen.Agent
+	expect(t, "pin", ops.do("POST", "/agents", gen.AgentInput{Name: "pinned", Harness: ptr("fake"), NodeId: &pick.Id}, &ag), 201)
+	if ag.NodeId == nil || *ag.NodeId != pick.Id || ag.NodeName == nil || *ag.NodeName != pick.Name {
+		t.Fatalf("pinned agent is on %v (%v), want %s", ag.NodeId, ag.NodeName, pick.Id)
+	}
+	e.sandboxes.Wait()
+	if got := ops.agent(ag.Id); got.State != gen.SandboxStateRunning || got.NodeId == nil || *got.NodeId != pick.Id {
+		t.Fatalf("pinned agent = %+v", got)
+	}
+
+	// An empty node is automatic placement, for everyone.
+	expect(t, "empty node", dev.do("POST", "/agents", gen.AgentInput{Name: "auto", Harness: ptr("fake"), NodeId: ptr("")}, &ag), 201)
+	if ag.NodeId == nil || *ag.NodeId == "" {
+		t.Fatalf("automatic agent has no node: %+v", ag)
+	}
+	// A regular user does not choose.
+	before := agentCount(t, dev)
+	expect(t, "pin as user", dev.do("POST", "/agents", gen.AgentInput{Name: "nope", Harness: ptr("fake"), NodeId: &pick.Id}, nil), 403)
+	if got := agentCount(t, dev); got != before {
+		t.Fatalf("a refused request created an agent (%d -> %d)", before, got)
+	}
+
+	status, msg := createError(t, ops, gen.AgentInput{Name: "x", Harness: ptr("fake"), NodeId: ptr("node_nope")})
+	if status != 400 || !strings.Contains(msg, `unknown node \"node_nope\"`) {
+		t.Fatalf("unknown node: %d %s", status, msg)
+	}
+	if got := agentCount(t, ops); got != 1 {
+		t.Fatalf("a refused request created an agent: ops has %d", got)
+	}
+}
+
+// A node that is offline cannot take a pinned agent, and automatic placement has nothing left to choose from.
+func TestPinnedAgentNeedsAnOnlineNode(t *testing.T) {
+	e := newEnvWith(t, func(c *config.Config) { c.Auth.Admins = []string{"ops@example.com"} })
+	if e.edge == nil {
+		t.Skip("needs AGENTHOLD_TEST_NODE=remote")
+	}
+	ops := e.login("ops", "Ops", "ops@example.com")
+	var nodes []gen.NodeInfo
+	expect(t, "list", ops.do("GET", "/nodes", nil, &nodes), 200)
+	pick := nodes[0]
+
+	e.edge.down()
+	status, msg := createError(t, ops, gen.AgentInput{Name: "x", Harness: ptr("fake"), NodeId: &pick.Id})
+	if status != 409 || !strings.Contains(msg, pick.Name+" is offline") {
+		t.Fatalf("offline node: %d %s", status, msg)
+	}
+	expect(t, "automatic without nodes", ops.do("POST", "/agents", gen.AgentInput{Name: "x", Harness: ptr("fake")}, nil), 503)
+	e.edge.up()
+	expect(t, "online again", ops.do("POST", "/agents", gen.AgentInput{Name: "y", Harness: ptr("fake"), NodeId: &pick.Id}, nil), 201)
+}
+
 func TestLocalAdminIsAdmin(t *testing.T) {
 	e := localEnv(t, "root", "pw pw pw")
 	c, status := e.localLogin("root", "pw pw pw")
@@ -98,6 +162,19 @@ func TestOfflineNodeMakesAgentUnreachable(t *testing.T) {
 		t.Fatalf("state after reconnect = %s (%s)", got.State, got.StateError)
 	}
 	expect(t, "read after reconnect", ops.rawStatus("GET", "/agents/"+ag.Id+"/files/content?path=kept.txt", ""), 200)
+}
+
+// createError posts an agent and returns the status and the raw error body.
+func createError(t *testing.T, c *client, in gen.AgentInput) (int, string) {
+	t.Helper()
+	return c.rawJSON("POST", "/agents", in)
+}
+
+func agentCount(t *testing.T, c *client) int {
+	t.Helper()
+	var list []gen.Agent
+	expect(t, "list agents", c.do("GET", "/agents", nil, &list), 200)
+	return len(list)
 }
 
 func (c *client) rawStatus(method, path, body string) int {

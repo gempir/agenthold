@@ -151,6 +151,34 @@ type Placer interface {
 	Place(ctx context.Context) (Placement, error)
 }
 
+// LocalNodeID is the node id of the controller's built-in node.
+const LocalNodeID = "local"
+
+// ErrUnknownNode is returned when a requested node is not registered.
+var ErrUnknownNode = errors.New("unknown node")
+
+// NodeUnavailableError is returned when a requested node exists but cannot
+// take the agent now: it is offline, cannot report its capacity or has too
+// little memory. Msg says which and is meant for the user.
+type NodeUnavailableError struct{ Msg string }
+
+func (e *NodeUnavailableError) Error() string { return e.Msg }
+
+// PlaceRequest asks for a placement. An empty NodeID is automatic placement;
+// otherwise the agent goes to exactly that node or the request fails.
+type PlaceRequest struct {
+	NodeID string
+	// MemoryMB is the memory the agent is configured with. A requested node
+	// must have at least this much available.
+	MemoryMB int64
+}
+
+// NodePlacer is implemented by backends that can place an agent on a node
+// the caller chose.
+type NodePlacer interface {
+	PlaceOn(ctx context.Context, req PlaceRequest) (Placement, error)
+}
+
 // Reachability is implemented by backends whose nodes can be disconnected.
 // Reachable returns an error wrapping ErrUnreachable when the agent's node is
 // not connected.

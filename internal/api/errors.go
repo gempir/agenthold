@@ -38,6 +38,7 @@ func toHTTP(err error) (int, string) {
 	var inv *apps.InvalidError
 	var applyErr *apps.ApplyError
 	var limit *apps.LimitError
+	var unavailable *sandbox.NodeUnavailableError
 	switch {
 	case errors.As(err, &applyErr):
 		return http.StatusConflict, applyErr.Error()
@@ -50,6 +51,10 @@ func toHTTP(err error) (int, string) {
 		return http.StatusServiceUnavailable, unreachableMessage(err)
 	case errors.Is(err, sandbox.ErrNoCapacity):
 		return http.StatusServiceUnavailable, err.Error()
+	case errors.Is(err, sandbox.ErrUnknownNode):
+		return http.StatusBadRequest, err.Error()
+	case errors.As(err, &unavailable):
+		return http.StatusConflict, unavailable.Msg
 	case errors.Is(err, tunnel.ErrNotConnected):
 		return http.StatusConflict, "the machine is not running; start it first"
 	case errors.As(err, &limit):

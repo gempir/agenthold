@@ -15,6 +15,25 @@ A new agent goes to the connected node with the most available memory (then disk
 whole life; agents never move between nodes. With no connected node, creating an agent fails with
 "no node is available to run agents".
 
+### Choosing the node
+
+**Admins** can pick the node of a new agent: with more than one node, the **New agent** dialog has a **Node**
+field (default **Automatic**) listing each node with its status, available memory and free disk. Offline
+nodes, nodes that have not reported their capacity and nodes with less available memory than the agent's
+memory are shown but cannot be selected. Through the API it is `nodeId` (an `id` from `GET /nodes`) in the
+body of `POST /agents`:
+
+```sh
+curl -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"build box","nodeId":"node_abc123"}' https://agenthold.example.com/api/v1/agents
+```
+
+The server checks the request again: an unknown node is a 400, an offline node, one that cannot report its
+capacity or one with too little available memory is a 409 with the reason, and anybody who is not an admin
+gets a 403 (leave `nodeId` out for automatic placement). The agent stays on the node as always; its page shows
+the node under **Settings**. A clone lives on the node of the machine it was cloned from (disks never leave their
+node), so cloning and starting from a template take no node.
+
 The built-in node exists when `sandbox.driver` is `auto` (the default) and the host has `/dev/kvm`, or when
 it is set to `firecracker`. `sandbox.driver: none` makes the server a pure controller.
 

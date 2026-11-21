@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -160,6 +161,70 @@ func TestPlacementPicksMostFreeNodeAndAgentsStay(t *testing.T) {
 	m.Wait()
 	if st, _ := big.backend.Status(t.Context(), sandbox.ID(sb.DriverID)); st.State != sandbox.StateStopped {
 		t.Fatalf("stop did not reach the agent's node: %v", st)
+	}
+}
+
+func TestPlaceOnPinsAgentToTheChosenNode(t *testing.T) {
+	f := newClusterFixture(t, nil)
+	small := f.addEdge("node_small", 1<<30)
+	big := f.addEdge("node_big", 8<<30)
+	// Automatic placement would pick the big node; the request wins.
+	if p, err := f.c.PlaceOn(t.Context(), sandbox.PlaceRequest{NodeID: small.id, MemoryMB: 512}); err != nil || p.NodeID != small.id || p.Driver != "fake" {
+		t.Fatalf("pinned placement %+v %v", p, err)
+	}
+
+	m := sandbox.NewManagerWithNode(f.st, f.c, sandbox.BaseSpec, sandbox.Options{}, nil)
+	defer m.Close()
+	place, err := m.PlaceNew(t.Context(), sandbox.PlaceRequest{NodeID: small.id, MemoryMB: 512})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var start func()
+	err = f.st.Tx(t.Context(), func(q *db.Queries) error {
+		if err := q.CreateAgent(t.Context(), db.CreateAgentParams{ID: "ag", OwnerID: "u", Name: "ag", Image: "base"}); err != nil {
+			return err
+		}
+		start, err = m.ProvisionAt(t.Context(), q, "ag", place)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start()
+	m.Wait()
+	sb, err := f.st.GetSandbox(t.Context(), "ag")
+	if err != nil || sb.NodeID != small.id || sb.State != string(sandbox.PhaseRunning) {
+		t.Fatalf("sandbox %+v %v", sb, err)
+	}
+	if st, _ := big.backend.Status(t.Context(), sandbox.ID(sb.DriverID)); st.State != sandbox.StateMissing {
+		t.Fatalf("agent leaked to another node: %v", st)
+	}
+}
+
+func TestPlaceOnRefusesUnusableNodes(t *testing.T) {
+	f := newClusterFixture(t, nil)
+	small := f.addEdge("node_small", 1<<30)
+	gone := f.addEdge("node_gone", 8<<30)
+	f.disconnect(gone)
+
+	if _, err := f.c.PlaceOn(t.Context(), sandbox.PlaceRequest{NodeID: "node_nope"}); !errors.Is(err, sandbox.ErrUnknownNode) {
+		t.Fatalf("unknown node: %v", err)
+	}
+	var unavailable *sandbox.NodeUnavailableError
+	if _, err := f.c.PlaceOn(t.Context(), sandbox.PlaceRequest{NodeID: gone.id}); !errors.As(err, &unavailable) || !strings.Contains(err.Error(), "node_gone-name is offline") {
+		t.Fatalf("offline node: %v", err)
+	}
+	// The node has 1 GiB available: 1024 MB fit, 1025 do not.
+	if _, err := f.c.PlaceOn(t.Context(), sandbox.PlaceRequest{NodeID: small.id, MemoryMB: 1024}); err != nil {
+		t.Fatalf("exactly enough memory: %v", err)
+	}
+	_, err := f.c.PlaceOn(t.Context(), sandbox.PlaceRequest{NodeID: small.id, MemoryMB: 1025})
+	if !errors.As(err, &unavailable) || !strings.Contains(err.Error(), "1024 MB of memory available, the agent needs 1025 MB") {
+		t.Fatalf("too little memory: %v", err)
+	}
+	// Automatic placement is unchanged by any of this.
+	if p, err := f.c.Place(t.Context()); err != nil || p.NodeID != small.id {
+		t.Fatalf("automatic placement %+v %v", p, err)
 	}
 }
 

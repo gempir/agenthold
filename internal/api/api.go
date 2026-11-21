@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gempir/agenthold/internal/activity"
+
 	"github.com/go-chi/chi/v5"
 
 	"github.com/gempir/agenthold/internal/api/gen"
@@ -55,6 +57,8 @@ type Deps struct {
 	Stats StatsFunc
 	// Slack is the Slack integration; nil disables its endpoints.
 	Slack Slack
+	// Activity is the live per-agent activity log (nil: always empty).
+	Activity *activity.Log
 	// ShowTestHarness lists the scripted test harness (development).
 	ShowTestHarness bool
 	Limits          config.Sandbox

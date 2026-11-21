@@ -184,3 +184,41 @@ it('shows presence avatars and marks you', async () => {
   expect(await screen.findByTitle('Bob')).toBeInTheDocument();
   expect(await screen.findByTitle('Alice (you)')).toBeInTheDocument();
 });
+
+it('offers the live activity log while a turn waits for its first answer', async () => {
+  mockApi({
+    'GET /agents/a1/activity': [
+      {
+        seq: 1,
+        at: '2030-01-01T00:00:00Z',
+        level: 'info',
+        source: 'machine',
+        message: 'wake: machine started, waiting for sandboxd took=420ms',
+      },
+      {
+        seq: 2,
+        at: '2030-01-01T00:00:01Z',
+        level: 'warn',
+        source: 'tunnel',
+        message: 'tunnel: rejected err="invalid boot token"',
+      },
+    ],
+  });
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <ChatView sessionId="s1" agentId="a1" canUse agentState="sleeping" />
+    </QueryClientProvider>,
+  );
+  act(() => {
+    FakeSocket.all[0].emit(
+      ev(1, 'prompt', { text: 'hi', user: { id: 'u', name: 'U' } }),
+    );
+    FakeSocket.all[0].emit({ type: 'status', running: true });
+  });
+  await userEvent.click(
+    await screen.findByRole('button', { name: /What is happening/ }),
+  );
+  const log = await screen.findByTestId('live-log');
+  expect(await screen.findByText(/invalid boot token/)).toBeInTheDocument();
+  expect(log).toHaveTextContent('waiting for sandboxd');
+});

@@ -59,6 +59,9 @@ type Options struct {
 	ConnectTimeout time.Duration
 	// BootFiles returns extra files written into the sandbox before each start.
 	BootFiles func(ctx context.Context, agentID string) (map[string][]byte, error)
+	// LastActivity, if set, describes what last happened for an agent since
+	// a time (its activity log): a start that times out says why.
+	LastActivity func(agentID string, since time.Time) string
 }
 
 // Backend is the lifecycle part of the node boundary. All calls carry a
@@ -205,6 +208,8 @@ func (m *Manager) boot(ctx context.Context, agentID string, id ID) error {
 	if err := m.driver.SetTunnelToken(ctx, agentID, hashToken(token)); err != nil {
 		return err
 	}
+	began := time.Now()
+	m.log.Info("wake: starting the machine", "agent", agentID)
 	boot := Boot{AgentID: agentID, Token: token, TunnelPort: m.opts.TunnelPort}
 	if m.opts.BootFiles != nil {
 		files, err := m.opts.BootFiles(ctx, agentID)
@@ -214,8 +219,10 @@ func (m *Manager) boot(ctx context.Context, agentID string, id ID) error {
 		boot.Files = files
 	}
 	if err := m.driver.Start(ctx, id, boot); err != nil {
+		m.log.Warn("wake: the machine did not start", "agent", agentID, "took", time.Since(began), "err", err)
 		return err
 	}
+	m.log.Info("wake: machine started, waiting for sandboxd", "agent", agentID, "took", time.Since(began))
 	if st, err := m.driver.Status(ctx, id); err == nil && st.Subnet.IsValid() {
 		if err := m.store.SetSandboxSubnet(ctx, db.SetSandboxSubnetParams{Subnet: st.Subnet.String(), AgentID: agentID}); err != nil {
 			return err
@@ -231,9 +238,15 @@ func (m *Manager) boot(ctx context.Context, agentID string, id ID) error {
 			if st.State != StateRunning {
 				detail = fmt.Sprintf(" (sandbox %s %s)", st.State, st.Detail)
 			}
+			if m.opts.LastActivity != nil {
+				if last := m.opts.LastActivity(agentID, began); last != "" {
+					detail += "; last: " + last
+				}
+			}
 			return fmt.Errorf("sandboxd did not connect within %s%s", m.opts.ConnectTimeout, detail)
 		}
 	}
+	m.log.Info("wake: sandboxd connected", "agent", agentID, "took", time.Since(began))
 	m.set(agentID, PhaseRunning, "")
 	return nil
 }

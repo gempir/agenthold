@@ -48,6 +48,9 @@ type harnessConn struct {
 	// updatesSeen counts the session/update notifications read off the
 	// harness's stdout, updatesHandled those SessionUpdate has finished.
 	updatesSeen, updatesHandled atomic.Int64
+	// promptAt is when the last prompt was sent (unix nanoseconds; 0 once
+	// its first update arrived): the activity log times the first answer.
+	promptAt atomic.Int64
 	// probing: a model probe is scheduled or running (see probe.go).
 	probing atomic.Bool
 	// probeSessions are the ACP sessions of running probes (guarded by mu):
@@ -474,6 +477,9 @@ func (c *harnessConn) SessionUpdate(ctx context.Context, n acp.SessionNotificati
 	sessionID, ok := c.sessionFor(n.SessionId)
 	if !ok {
 		return nil
+	}
+	if at := c.promptAt.Swap(0); at != 0 {
+		c.m.lg.Info("harness: first update of the turn", "agent", c.agentID, "session", sessionID, "took", time.Since(time.Unix(0, at)))
 	}
 	raw, err := json.Marshal(n.Update)
 	if err != nil {

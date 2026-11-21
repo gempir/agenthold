@@ -118,6 +118,16 @@ and its connection to the controller ends with the sleep.
 While an agent runs, the API reports `lastActivityAt` and `sleepsAt`, and the UI shows when it will fall asleep.
 After a server restart, the idle clock of running agents starts again.
 
+## What is happening right now
+
+While a message waits for its first answer (the machine wakes, the harness starts), the chat offers **What is
+happening**: a live log of the agent's last few hundred platform events. It shows the wake (resume or cold boot,
+and why a snapshot could not be used), the guest's boot console (kernel, sandboxd's init phases, its tunnel
+attempts), refused tunnel connections and why, the harness start with timings (process, ACP `initialize`,
+`session/new` or `session/resume`, the prompt and its first update), and the harness's stderr. A failed turn
+offers the same log as **Show what happened**. The API is `GET /api/v1/agents/{id}/activity?after=<seq>`. The log
+lives in the controller's memory: it is empty after a restart, and an edge node's guest console is not in it.
+
 ## Memory snapshots
 
 Sleep pauses the microVM and writes a Firecracker snapshot of it (its device state and its memory) next to its

@@ -1,5 +1,5 @@
 // Package harness describes the agent harnesses (Claude Code, Codex,
-// OpenCode) that run inside sandboxes and speak ACP on stdio. Everything
+// OpenCode, Antigravity) that run inside sandboxes and speak ACP on stdio. Everything
 // harness-specific is one Adapter value in an adapter package; the rest of
 // the server only reads these descriptors.
 package harness
@@ -35,8 +35,13 @@ type Adapter struct {
 	Name string
 	// Package is the npm package of images/base/package.json that installs
 	// Command[0] into the base image. Empty for harnesses not in the image
-	// (the test fake).
+	// (the test fake) and for native binaries (Binary).
 	Package string
+	// Binary is set instead of Package for a harness the image installs as a
+	// pinned native binary: the prefix of its variables in
+	// images/base/versions.env (<Binary>_VERSION and <Binary>_SHA256_ARM64/X64).
+	// provision.sh links it into /usr/local/bin as Command[0].
+	Binary string
 	// Command starts the harness in ACP mode inside the sandbox.
 	Command []string
 	// Env returns what is added to the harness's environment (never secret

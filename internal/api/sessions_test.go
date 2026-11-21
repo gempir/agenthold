@@ -325,7 +325,7 @@ func TestHarnessList(t *testing.T) {
 	for _, h := range hs {
 		ids = append(ids, h.Id)
 	}
-	if strings.Join(ids, ",") != "claude-code,codex,fake,opencode" {
+	if strings.Join(ids, ",") != "antigravity,claude-code,codex,fake,opencode" {
 		t.Fatalf("harnesses %v", ids)
 	}
 	var me gen.Me

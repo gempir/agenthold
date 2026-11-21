@@ -39,11 +39,12 @@ The scripts cache verified downloads and the provisioned rootfs tree in
 
 | Input | Pin |
 | --- | --- |
-| Base version | `2026.11.16-1` |
+| Base version | `2026.11.21-1` |
 | Debian | `trixie`, snapshot `20261110T000000Z`, including updates and security |
 | Debian archive keyring | `2025.1`, downloaded package checked by sha256 |
 | Node.js | `24.22.3`, official architecture-specific tarballs checked by sha256 |
 | Harnesses | `@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp` and `opencode-ai`, versions in `images/base/package.json` |
+| Antigravity CLI | `1.5.14`, Google's architecture-specific release tarballs checked by sha256 (the build and URLs that `install.sh` reads from the updater manifests) |
 | Linux | `6.1.188`, upstream tarball checked by sha256 |
 | Kernel configuration | Firecracker `v1.18.0` microVM + CI configs, checked by sha256, plus committed agenthold fragments |
 | Test VMM | Firecracker `v1.18.0`, architecture-specific release archive checked by sha256 |
@@ -52,7 +53,7 @@ The scripts cache verified downloads and the provisioned rootfs tree in
 truth. Debian packages resolve against the dated snapshot; `npm ci` installs the locked dependency
 graph and verifies registry integrity hashes, including the optional native packages for each
 architecture. The runtime apt sources use the live Debian archive so the agent can install updates.
-The image includes Chromium, Python, a compiler toolchain, Git and the three harness adapters.
+The image includes Chromium, Python, a compiler toolchain, Git and the four harnesses.
 Docker is installed only by the optional boot test, rather than in the base.
 
 The builds fix filesystem UUID/hash seed, kernel build metadata and Go paths, and pin every

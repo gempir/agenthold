@@ -30,6 +30,7 @@ import (
 	"github.com/gempir/agenthold/internal/auth/authtest"
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/egress"
+	_ "github.com/gempir/agenthold/internal/harness/antigravity"
 	_ "github.com/gempir/agenthold/internal/harness/claude"
 	_ "github.com/gempir/agenthold/internal/harness/codex"
 	fakeharness "github.com/gempir/agenthold/internal/harness/fake"

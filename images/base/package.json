@@ -1,6 +1,6 @@
 {
   "name": "agenthold-guest-tools",
-  "version": "2026.11.16-1",
+  "version": "2026.11.21-1",
   "private": true,
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.107.0",

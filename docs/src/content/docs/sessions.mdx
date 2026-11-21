@@ -44,9 +44,9 @@ Each agent has a permission policy:
 
 ### Account logins (the normal way)
 
-Claude Code and Codex logins live on your account, under **Provider logins** (`/settings/providers`). Connect
-each once; every agent that uses your logins then has them when its harness starts, and switching an agent between
-Claude Code and Codex needs no new sign-in.
+Claude Code, Codex and Antigravity logins live on your account, under **Provider logins** (`/settings/providers`).
+Connect each once; every agent that uses your logins then has them when its harness starts, and switching an agent
+between these harnesses needs no new sign-in.
 
 | Harness | What you connect | How the harness gets it | Refresh |
 | --- | --- | --- | --- |
@@ -55,6 +55,7 @@ Claude Code and Codex needs no new sign-in.
 | Codex | **ChatGPT login:** the `auth.json` that `codex login` writes (run it with a temporary `CODEX_HOME`, the page shows the command) | `~/.codex/auth.json` with placeholder tokens; the proxy puts the access token into requests to `chatgpt.com/backend-api/` | by the server, see below |
 | Codex | **ChatGPT access token** (`at-…`, if your ChatGPT workspace issues them) | `CODEX_ACCESS_TOKEN` placeholder, swapped for `auth.openai.com` (whoami only) and `chatgpt.com/backend-api/` | none |
 | Codex | **API key** | `OPENAI_API_KEY` placeholder (and an `auth.json` naming it), swapped for `api.openai.com` | none |
+| Antigravity | **Gemini API key** (Google AI Studio) | `GEMINI_API_KEY` placeholder, swapped in `x-goog-api-key` for `generativelanguage.googleapis.com`; the server then signs in with the `gemini-api-key` method on its own | none |
 
 The real values are encrypted at rest with the master key, never returned by the API and never enter the
 sandbox. The proxy replaces a placeholder only inside the one header the harness sends it in, only for the hosts
@@ -77,8 +78,8 @@ Everyone who can prompt that agent (users it is shared with, schedules, webhooks
 login through it, which is why the choice is explicit and visible. You can stop it at any time (**Stop using**),
 also from the settings page, which lists the agents using your logins. Your login is only delivered while you can
 still see the agent. An API key secret
-attached to the agent for its harness (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) takes precedence over the account
-login.
+attached to the agent for its harness (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) takes precedence
+over the account login.
 
 Connecting, disconnecting and refresh failures are recorded in your account's audit entries; using a
 login (once per harness start), attaching and detaching it are recorded on the agent.
@@ -106,19 +107,22 @@ until their owner chooses **Use my logins**.
 ## Harness adapters
 
 An adapter (`internal/harness/<name>`) is one `harness.Adapter` value: how to start the harness in ACP mode, the npm
-package of `images/base/package.json` that installs it, which environment it needs (never secret values), which
+package of `images/base/package.json` that installs it (or, for a native binary, its pin in
+`images/base/versions.env`), which environment it needs (never secret values), which
 secret presets fit it, where it keeps logins and skills, terminal commands for login methods the harness advertises
 without one, and login methods the server may call on its own when the harness asks for authentication (such as an
 API key provided as a secret). Harnesses whose login can live on the account set `Login`, an `AccountLoginer` (what
 can be connected, how it is validated, and how it reaches the harness as placeholders, files and proxy injections),
 which also implements `Refresher` for expiring logins. Nothing outside `internal/harness` knows about a particular
-harness. Versions are pinned in `images/base/package.json` only; a test checks it against the adapters.
+harness. Versions are pinned in `images/base/package.json` (npm) and `images/base/versions.env` (native binaries,
+an exact version and a sha256 per architecture) only; a test checks them against the adapters.
 
 | Harness | ACP entry point | In the base image |
 | --- | --- | --- |
 | `claude-code` | `claude-agent-acp` ([@agentclientprotocol/claude-agent-acp](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp), which bundles the Claude Agent SDK and Claude Code) | yes |
 | `opencode` | `opencode acp` (native ACP, [opencode-ai](https://www.npmjs.com/package/opencode-ai)) | yes |
 | `codex` | `codex-acp` ([@agentclientprotocol/codex-acp](https://www.npmjs.com/package/@agentclientprotocol/codex-acp)) | yes |
+| `antigravity` | `agy acp --disable-telemetry` (native ACP, [Antigravity CLI](https://antigravity.google/docs/cli/acp), a pinned native binary) | yes |
 | `fake` | `/opt/agenthold/fakeagent`, a scripted agent for tests and UI work (development only) | shipped with sandboxd |
 
 ### When a harness fails
@@ -148,6 +152,7 @@ Provider errors come from the harness, so how fast a turn fails depends on its r
 | Codex | fails at once | Codex's own retries |
 | Claude Code | fails at once (subscription limits carry their reset time) | 3 retries, about 4 seconds (`CLAUDE_CODE_MAX_RETRIES=3`, set by the adapter; Claude Code's default is 10, about three minutes). A longer outage ends the turn; send the message again. 529 overloaded errors keep Claude Code's own budget (three attempts, about 2 seconds). |
 | OpenCode | `insufficient_quota` and other 429s are retried for about 70 seconds, and a `retry-after` is waited out however long it is; OpenCode has no setting for this and sends nothing over ACP meanwhile | the same |
+| Antigravity | an exhausted daily quota or spend cap ends the turn at once (Gemini API key) | per-minute rate limits are retried by agy. A provider error (also a rejected key) arrives as a warning in the agent's reply and the turn ends normally, not with an `error` event |
 
 A cancel before the prompt reached the harness ends the turn right away; afterwards the harness gets
 `session/cancel`, and if it has not ended the turn 15 seconds later the turn ends without it. Both end with
@@ -173,6 +178,16 @@ Signing in:
   `provider/model`, for example `anthropic/claude-sonnet-5-5`.
 - **Codex:** an account login (ChatGPT login, ChatGPT access token or API key), or an OpenAI API key secret as
   `OPENAI_API_KEY`; the server then signs in with the key on its own.
+- **Antigravity:** an account login (Gemini API key), or a Gemini API key secret as `GEMINI_API_KEY`; the server
+  then signs in with the `gemini-api-key` method on its own (over ACP agy needs no `modelProvider` setting for
+  it). A Google sign-in works inside the sandbox: **Log in from the terminal** runs `agy acp --login`, which shows a
+  URL to open on any computer and takes the code back. The guest has no keyring (no D-Bus session bus), so agy keeps
+  that login in `~/.gemini/antigravity-cli/antigravity-oauth-token` and the agent is marked "credentials inside
+  sandbox". Google sign-ins are not offered as account logins: the token file's format is undocumented and holds a
+  refresh token, so the server cannot take it over. Enterprise logins (`oauth-business`, `agent-platform` with
+  Application Default Credentials) are advertised by agy and also have to be set up inside the sandbox. Mind
+  Google's terms: a consumer Google account (`oauth-personal`, subscription quota) may not be permitted in
+  third-party tools; a Gemini API key or an enterprise login is the safe choice.
 - **OpenCode** has no account logins: it supports many providers with its own login file, which does not fit one
   login per harness. Use secrets or its terminal login.
 
@@ -215,6 +230,7 @@ reported options, and cannot type ids; before the agent's first conversation the
 | Claude Code | the account (subscription or API key) and Claude Code's settings | per model (low to max) | on models that support it, not on every plan | `default`, `opus`, `sonnet`, `haiku` (aliases) |
 | Codex | the login (ChatGPT plan or API key) | per model | on models that support it | none: start a conversation to load the list |
 | OpenCode | the providers configured in the sandbox (secrets, `opencode auth login`, config) | per model variant | no | none, but any `provider/model` id can be typed |
+| Antigravity | the login (Gemini API key, Google or enterprise sign-in); Claude models are offered only to the ACP clients Google names (JetBrains, Zed, Xcode, Android Studio), so not here | per model (`thought_level`, low to xhigh) | no | `gemini-4-neon`, `gemini-4-carbon`, `gemini-4-hydrogen`, `gemini-4-argon`, `gemini-3.8-flash` |
 
 The default model also reaches the harness when it starts (`ANTHROPIC_MODEL` for Claude Code, the `model` setting for
 OpenCode), so new conversations start on it. A model id from an old setting that the harness no longer lists stays
@@ -236,7 +252,8 @@ agent: it returns the stored catalog or the built-in list of that harness, with 
 
 ## Base image
 
-`images/base` (`make guest-base`) is Debian trixie with Node.js 24, the Claude Code and Codex ACP adapters, OpenCode, git, Python 3,
+`images/base` (`make guest-base`) is Debian trixie with Node.js 24, the Claude Code and Codex ACP adapters, OpenCode,
+the Antigravity CLI (`agy`, self-update off: `AGY_CLI_DISABLE_AUTO_UPDATE=true` in every process's environment), git, Python 3,
 build tools, ripgrep, jq and headless Chromium (`CHROME_BIN`, Playwright and Puppeteer variables set). The
 `agent` user has passwordless sudo inside its own sandbox.
 

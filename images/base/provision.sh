@@ -2,8 +2,9 @@
 # Provisions the base image. Runs as root inside the image's root filesystem after the Debian
 # packages from packages.txt are installed by scripts/guest/build-rootfs.sh in a chroot.
 #
-# Expects this directory's files in the same directory as the script. If /tmp/node.tar.xz exists
-# it is used (the rootfs build downloads it on the host); otherwise it is downloaded here.
+# Expects this directory's files in the same directory as the script. If /tmp/node.tar.xz and
+# /tmp/agy.tar.gz exist they are used (the rootfs build downloads them on the host); otherwise they
+# are downloaded here. Either way they are checked against versions.env.
 set -euxo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=versions.env
@@ -11,8 +12,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export DEBIAN_FRONTEND=noninteractive
 
 case "$(dpkg --print-architecture)" in
-  arm64) node_arch=arm64; node_sha="$NODE_SHA256_ARM64" ;;
-  amd64) node_arch=x64; node_sha="$NODE_SHA256_X64" ;;
+  arm64) node_arch=arm64; node_sha="$NODE_SHA256_ARM64"; agy_path=linux-arm/cli_linux_arm64.tar.gz; agy_sha="$AGY_SHA256_ARM64" ;;
+  amd64) node_arch=x64; node_sha="$NODE_SHA256_X64"; agy_path=linux-x64/cli_linux_x64.tar.gz; agy_sha="$AGY_SHA256_X64" ;;
   *) echo "unsupported architecture" >&2; exit 1 ;;
 esac
 
@@ -34,6 +35,21 @@ for bin in /opt/agenthold/tools/node_modules/.bin/*; do
   ln -s "$bin" "/usr/local/bin/$(basename "$bin")"
 done
 npm cache clean --force
+
+# Antigravity CLI: one native binary, pinned like Node.js (install.sh would fetch the latest build
+# and set up shell aliases). Root-owned, so its self-updater cannot replace it; image.env also
+# turns the updater off.
+if [[ ! -f /tmp/agy.tar.gz ]]; then
+  curl -fsSL -o /tmp/agy.tar.gz "https://storage.googleapis.com/antigravity-public/antigravity-cli/${AGY_BUILD}/${agy_path}"
+fi
+echo "${agy_sha}  /tmp/agy.tar.gz" | sha256sum -c -
+mkdir -p "/opt/agenthold/antigravity-cli/${AGY_VERSION}"
+tar -xzf /tmp/agy.tar.gz -C "/opt/agenthold/antigravity-cli/${AGY_VERSION}" --no-same-owner antigravity
+chmod 0755 "/opt/agenthold/antigravity-cli/${AGY_VERSION}/antigravity"
+ln -sf "/opt/agenthold/antigravity-cli/${AGY_VERSION}/antigravity" /usr/local/bin/agy
+rm -f /tmp/agy.tar.gz
+# (A throwaway home: agy writes its state under ~/.gemini on any run.)
+HOME="$(mktemp -d)" agy --version
 
 ln -sf /usr/bin/fdfind /usr/local/bin/fd
 

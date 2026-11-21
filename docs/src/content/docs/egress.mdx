@@ -45,7 +45,8 @@ an injection rule:
 - **template**: the header value; `{{.Value}}` is the secret, and `base64` is available, for example
   `Basic {{base64 (print "x-access-token:" .Value)}}` for git over HTTPS.
 
-Presets exist for Anthropic, OpenAI, GitHub, GitLab and OpenRouter.
+Presets exist for Anthropic, OpenAI, GitHub, GitLab, OpenRouter and Gemini (`x-goog-api-key` for
+`generativelanguage.googleapis.com`).
 
 Attaching a secret to an agent can also set an environment variable. Inside the sandbox that variable holds
 a **placeholder** (`agenthold-placeholder-...`), never the value. For requests to the rule's hosts, the proxy

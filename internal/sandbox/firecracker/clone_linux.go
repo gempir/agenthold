@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/gempir/agenthold/internal/diskcopy"
 	"github.com/gempir/agenthold/internal/sandbox"
@@ -195,13 +196,14 @@ func (d *Driver) Clone(ctx context.Context, src sandbox.ID, s sandbox.Spec) (res
 		return "", err
 	}
 	clone := &manifest{
-		// The system disk is an overlay on the base image it was built with.
-		BaseImagePath: m.BaseImagePath, Version: 1, Spec: s, Subnet: subnet,
+		// The system disk is an overlay on the base image and layers it was built with.
+		BaseImagePath: m.BaseImagePath, Layers: slices.Clone(m.Layers), Version: 1, Spec: s, Subnet: subnet,
 		UID: d.cfg.UIDBase + index, GID: d.cfg.GIDBase + index, State: sandbox.StateCreated,
 		// Its first boot clears the identity the copied disks carry.
 		Fresh: true,
 	}
 	clone.Spec.Env = maps.Clone(s.Env)
+	clone.Spec.Layers = slices.Clone(s.Layers)
 	for _, name := range diskNames {
 		if err = d.chownDisk(filepath.Join(dir, name+".cloning"), clone.UID, clone.GID); err != nil {
 			return "", err

@@ -369,3 +369,169 @@ func TestEnsureIdentityForced(t *testing.T) {
 		t.Fatalf("machine-id = %q", b)
 	}
 }
+
+func TestGuestBootLayers(t *testing.T) {
+	in := sandboxd.GuestBoot{
+		AgentID: "ag_1", Token: "secret", TunnelPort: 7443,
+		Layers: []sandboxd.GuestLayer{
+			{Device: "/dev/vde", Subdir: "upper"},
+			{Device: "/dev/vdf"},
+		},
+	}
+	data, err := sandboxd.EncodeGuestBoot(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := sandboxd.DecodeGuestBoot(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Version = 1
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("round trip:\n%+v\n%+v", in, out)
+	}
+
+	tooMany := make([]sandboxd.GuestLayer, sandboxd.MaxGuestLayers+1)
+	for i := range tooMany {
+		tooMany[i] = sandboxd.GuestLayer{Device: "/dev/vd" + string(rune('e'+i))}
+	}
+	for name, layers := range map[string][]sandboxd.GuestLayer{
+		"not dev":      {{Device: "/tmp/vde"}},
+		"dev root":     {{Device: "/dev"}},
+		"unclean dev":  {{Device: "/dev/../etc/passwd"}},
+		"colon dev":    {{Device: "/dev/vde:foo"}},
+		"duplicate":    {{Device: "/dev/vde"}, {Device: "/dev/vde"}},
+		"abs subdir":   {{Device: "/dev/vde", Subdir: "/upper"}},
+		"dotdot":       {{Device: "/dev/vde", Subdir: "../upper"}},
+		"dot":          {{Device: "/dev/vde", Subdir: "."}},
+		"colon subdir": {{Device: "/dev/vde", Subdir: "a:b"}},
+		"comma subdir": {{Device: "/dev/vde", Subdir: "a,b"}},
+		"too many":     tooMany,
+	} {
+		b := sandboxd.GuestBoot{AgentID: "a", Token: "t", TunnelPort: 1, Layers: layers}
+		if _, err := sandboxd.EncodeGuestBoot(b); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+func TestMountPlanWithLayers(t *testing.T) {
+	l := sandboxd.Layout{Overlay: "/dev/vdb", Home: "/dev/vdc", Config: "/dev/vdd"}
+	layers := []sandboxd.GuestLayer{
+		{Device: "/dev/vde", Subdir: "upper"},
+		{Device: "/dev/vdf"},
+	}
+	plan := sandboxd.RootMounts(l, layers...)
+	idx := func(pred func(sandboxd.Step) bool) int { return slices.IndexFunc(plan, pred) }
+	l0 := idx(func(s sandboxd.Step) bool { return s.Source == "/dev/vde" })
+	l1 := idx(func(s sandboxd.Step) bool { return s.Source == "/dev/vdf" })
+	ovl := idx(func(s sandboxd.Step) bool { return s.FSType == "overlay" })
+	if l0 < 0 || l1 < 0 || ovl < 0 || l0 >= ovl || l1 >= ovl {
+		t.Fatalf("order:\n%s", dump(plan))
+	}
+	for _, i := range []int{l0, l1} {
+		if plan[i].FSType != "ext4" || plan[i].Flags&sandboxd.FlagReadOnly == 0 {
+			t.Fatalf("layer mount %s must be ro ext4", plan[i])
+		}
+	}
+	wantLower := "lowerdir=/run/agenthold/layers/0/upper:/run/agenthold/layers/1:/run/agenthold/base,"
+	if !strings.Contains(plan[ovl].Data, wantLower) {
+		t.Fatalf("overlay data = %q, want %q", plan[ovl].Data, wantLower)
+	}
+	made := map[string]bool{}
+	for _, s := range append(sandboxd.EarlyMounts(), plan...) {
+		if s.IsMkdir() {
+			made[s.Target] = true
+			continue
+		}
+		switch s.Target {
+		case "/proc", "/sys", "/dev", "/run", sandboxd.NewRoot() + "/run", sandboxd.NewRoot() + "/dev", sandboxd.NewRoot() + "/proc", sandboxd.NewRoot() + "/sys":
+			continue
+		}
+		if !made[s.Target] {
+			t.Errorf("mount on %s without a mkdir first", s.Target)
+		}
+	}
+}
+
+func TestBuildChildEnv(t *testing.T) {
+	dir := t.TempDir()
+	baseFile := filepath.Join(dir, "image.env")
+	envDir := filepath.Join(dir, "image.env.d")
+	if err := os.MkdirAll(filepath.Join(envDir, "ignored.env"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(baseFile, []byte("PATH=/home/agent/.local/bin:/usr/local/bin:/usr/bin\nBASE_ONLY=1\nSHARED=base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(envDir, "05-harnesses.env"), []byte("PATH=/opt/harnesses/bin:$PATH\nSHARED=harness\nHARNESS=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(envDir, "10-custom.env"), []byte("PATH=/opt/go/bin:${PATH}:/opt/extra\nSHARED=custom\nCUSTOM=yes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(envDir, "99-skip.txt"), []byte("SKIP=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	raw := sandboxd.BuildChildEnv(baseFile, envDir, map[string]string{"SHARED": "boot", "BOOT_ONLY": "ok"}, nil)
+	got := map[string]string{}
+	for _, kv := range raw {
+		k, v, _ := strings.Cut(kv, "=")
+		got[k] = v
+	}
+	wantPath := "/opt/go/bin:/opt/harnesses/bin:/home/agent/.local/bin:/usr/local/bin:/usr/bin:/opt/extra"
+	if got["PATH"] != wantPath {
+		t.Fatalf("PATH = %q, want %q", got["PATH"], wantPath)
+	}
+	if got["BASE_ONLY"] != "1" || got["HARNESS"] != "1" || got["CUSTOM"] != "yes" || got["SHARED"] != "boot" || got["BOOT_ONLY"] != "ok" {
+		t.Fatalf("env = %v", got)
+	}
+	if _, ok := got["SKIP"]; ok {
+		t.Fatalf("non-.env file was loaded: %v", got)
+	}
+	if got[sandboxd.EnvInitChild] != "1" {
+		t.Fatalf("missing %s", sandboxd.EnvInitChild)
+	}
+	if script := sandboxd.ProfilePathScript("/a:/b'c"); !strings.Contains(script, `export PATH='/a:/b'\''c'`) {
+		t.Fatalf("profile script = %q", script)
+	}
+}
+
+func TestSeedHomeFromSkel(t *testing.T) {
+	if err := sandboxd.SeedHomeFromSkel(filepath.Join(t.TempDir(), "missing"), t.TempDir(), -1, -1); err != nil {
+		t.Fatalf("missing skel: %v", err)
+	}
+	skel := t.TempDir()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(skel, ".config/app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skel, ".bashrc"), []byte("skel-bashrc\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skel, ".config/app/conf"), []byte("nested\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(".bashrc", filepath.Join(skel, ".profile")); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-existing file in home must never be overwritten.
+	if err := os.WriteFile(filepath.Join(home, ".bashrc"), []byte("existing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := sandboxd.SeedHomeFromSkel(skel, home, -1, -1); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(home, ".bashrc")); err != nil || string(b) != "existing\n" {
+		t.Fatalf(".bashrc = %q, %v", b, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(home, ".config/app/conf")); err != nil || string(b) != "nested\n" {
+		t.Fatalf("nested = %q, %v", b, err)
+	}
+	if st, err := os.Stat(filepath.Join(home, ".config/app/conf")); err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %v %v", st, err)
+	}
+	if target, err := os.Readlink(filepath.Join(home, ".profile")); err != nil || target != ".bashrc" {
+		t.Fatalf("symlink = %q %v", target, err)
+	}
+}

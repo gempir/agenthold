@@ -371,9 +371,10 @@ func (m *Manager) backgroundOnce(agentID, op string, fn func(ctx context.Context
 func SpecJSON(s Spec) string {
 	b, _ := json.Marshal(struct {
 		Image     string
+		Layers    []string `json:",omitempty"`
 		Resources Resources
 		Env       map[string]string `json:",omitempty"`
-	}{s.Image, s.Resources, s.Env})
+	}{s.Image, s.Layers, s.Resources, s.Env})
 	return string(b)
 }
 

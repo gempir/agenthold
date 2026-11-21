@@ -57,6 +57,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -104,6 +105,7 @@ type snapshotInfo struct {
 	HostCPU       string               `json:"hostCpu"`
 	HostKernel    string               `json:"hostKernel"`
 	BaseImagePath string               `json:"baseImagePath"`
+	Layers        []LayerFile          `json:"layers,omitempty"`
 	VCPUs         int                  `json:"vcpus"`
 	MemoryMiB     int64                `json:"memoryMib"`
 	Balloon       bool                 `json:"balloon"`
@@ -252,7 +254,7 @@ func hostCPU() (string, error) {
 	return hex.EncodeToString(h.Sum(nil))[:32], nil
 }
 
-func (d *Driver) diskStamps(id sandbox.ID) (map[string]diskStamp, error) {
+func (d *Driver) diskStamps(id sandbox.ID, m *manifest) (map[string]diskStamp, error) {
 	out := map[string]diskStamp{}
 	for _, name := range diskNames {
 		st, err := os.Stat(filepath.Join(d.dir(id), name))
@@ -260,6 +262,13 @@ func (d *Driver) diskStamps(id sandbox.ID) (map[string]diskStamp, error) {
 			return nil, err
 		}
 		out[name] = diskStamp{Size: st.Size(), ModNano: st.ModTime().UnixNano()}
+	}
+	for i, l := range d.activeLayers(m) {
+		st, err := os.Stat(l.Path)
+		if err != nil {
+			return nil, err
+		}
+		out[fmt.Sprintf("layer_%d", i)] = diskStamp{Size: st.Size(), ModNano: st.ModTime().UnixNano()}
 	}
 	return out, nil
 }
@@ -317,12 +326,14 @@ func (d *Driver) compatible(id sandbox.ID, m *manifest, s *snapshotInfo) error {
 		return fmt.Errorf("resume protocol %d, want %d", s.ResumeVersion, sandboxd.ResumeVersion)
 	case s.BaseImagePath != m.BaseImagePath:
 		return errors.New("base image changed since the snapshot")
+	case !slices.Equal(s.Layers, d.activeLayers(m)):
+		return errors.New("image layers changed since the snapshot")
 	case s.VCPUs != vcpus || s.MemoryMiB != mem:
 		return errors.New("machine size changed since the snapshot")
 	case !m.Resumable:
 		return errors.New("machine was not booted with the resume devices")
 	}
-	disks, err := d.diskStamps(id)
+	disks, err := d.diskStamps(id, m)
 	if err != nil {
 		return err
 	}
@@ -513,7 +524,7 @@ func (d *Driver) suspend(ctx context.Context, id sandbox.ID, m *manifest) (err e
 	info := snapshotInfo{
 		Format: snapshotFormat, Created: time.Now().UTC(), Firecracker: d.host.firecracker, Kernel: d.host.kernel,
 		Sandboxd: filepath.Base(d.initrd), ResumeVersion: sandboxd.ResumeVersion, HostCPU: d.host.cpu, HostKernel: d.host.hostKernel,
-		BaseImagePath: m.BaseImagePath, VCPUs: vcpus, MemoryMiB: mem, Balloon: m.Balloon, BalloonMiB: balloon,
+		BaseImagePath: m.BaseImagePath, Layers: d.activeLayers(m), VCPUs: vcpus, MemoryMiB: mem, Balloon: m.Balloon, BalloonMiB: balloon,
 	}
 	// From here a failure must not resume the VM (it is gone): the caller's
 	// cold stop finds it stopped and finish removes the partial files.
@@ -651,7 +662,7 @@ func (d *Driver) finalizeSnapshot(id sandbox.ID, m *manifest, info *snapshotInfo
 			return fmt.Errorf("sync %s: %w", name, err)
 		}
 	}
-	disks, err := d.diskStamps(id)
+	disks, err := d.diskStamps(id, m)
 	if err != nil {
 		return err
 	}

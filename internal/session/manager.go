@@ -14,6 +14,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 
+	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/harness"
 	"github.com/gempir/agenthold/internal/id"
 	"github.com/gempir/agenthold/internal/store"
@@ -90,6 +91,7 @@ type Manager struct {
 	// waiting turn can be cancelled).
 	starting map[string]chan struct{}
 	activity func(agentID string)
+	audit    *audit.Log
 	tools    Tools
 	logins   Logins
 	catMu    sync.Mutex // serializes model catalog updates
@@ -341,6 +343,14 @@ func (m *Manager) Close() {
 // Wait blocks until running turns have finished (tests).
 func (m *Manager) Wait() { m.wg.Wait() }
 
+// PlaceholderTitle is the title of a new thread until its first message
+// names it.
+const PlaceholderTitle = "New thread"
+
+// IsPlaceholderTitle reports whether t is a placeholder title, including the
+// one threads got before they were called threads.
+func IsPlaceholderTitle(t string) bool { return t == PlaceholderTitle || t == "New session" }
+
 // Create starts a new, empty session.
 func (m *Manager) Create(ctx context.Context, agentID, userID, title string) (db.AgentSession, error) {
 	return m.CreateWith(ctx, agentID, userID, title, CreateOpts{})
@@ -363,7 +373,7 @@ func (m *Manager) CreateWith(ctx context.Context, agentID, userID, title string,
 	now := time.Now().Unix()
 	s := db.AgentSession{ID: id.New("ses"), AgentID: agentID, Title: title, Status: "idle", CreatedBy: userID, CreatedAt: now, UpdatedAt: now}
 	if s.Title == "" {
-		s.Title = "New session"
+		s.Title = PlaceholderTitle
 	}
 	if err := m.store.CreateAgentSession(ctx, db.CreateAgentSessionParams{ID: s.ID, AgentID: agentID, Title: s.Title, CreatedBy: userID, CreatedAt: now, UpdatedAt: now}); err != nil {
 		return s, err
@@ -496,14 +506,18 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 		m.wg.Done()
 		return err
 	}
-	if err := m.store.SetSessionStatus(lctx, db.SetSessionStatusParams{Status: "running", UpdatedAt: time.Now().Unix(), ID: sessionID}); err != nil {
+	// A new turn is activity: it unsettles a settled session.
+	if err := m.store.MarkSessionRunning(lctx, db.MarkSessionRunningParams{UpdatedAt: time.Now().Unix(), ID: sessionID}); err != nil {
 		_ = m.log.append(lctx, sessionID, EventError, "", map[string]string{"message": "Could not start the turn: " + err.Error()})
 		release()
 		_ = m.log.append(lctx, sessionID, EventTurnEnd, "", map[string]any{"stopReason": "error"})
 		m.wg.Done()
 		return err
 	}
-	if sess.Title == "New session" {
+	if sess.SettledAt.Valid {
+		m.recordUnsettledByActivity(lctx, sess, userID, opts)
+	}
+	if IsPlaceholderTitle(sess.Title) {
 		if err := m.store.RenameAgentSessionTitle(lctx, sessionID, titleFrom(text)); err != nil {
 			m.lg.Warn("title session", "session", sessionID, "err", err)
 		}

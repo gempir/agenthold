@@ -31,8 +31,9 @@ type Paths struct {
 	Jailer      string
 	Kernel      string
 	// Sandboxd is the running executable: the agenthold binary is also every guest's sandboxd.
-	Sandboxd  string
-	BaseImage string
+	Sandboxd       string
+	BaseImage      string
+	HarnessesImage string
 }
 
 type artifact struct {
@@ -49,12 +50,13 @@ type baseArtifact struct {
 // manifest is the runtime manifest a release binary embeds (format 2): the files it carries and
 // the keys of the kernel and base image it runs with.
 type manifest struct {
-	Format  int                 `json:"format"`
-	Version string              `json:"version"`
-	Arch    string              `json:"arch"`
-	Files   map[string]artifact `json:"files"`
-	Kernel  assetRef            `json:"kernel"`
-	Base    assetRef            `json:"base"`
+	Format    int                 `json:"format"`
+	Version   string              `json:"version"`
+	Arch      string              `json:"arch"`
+	Files     map[string]artifact `json:"files"`
+	Kernel    assetRef            `json:"kernel"`
+	Base      assetRef            `json:"base"`
+	Harnesses *assetRef           `json:"harnesses,omitempty"`
 }
 
 type assetRef struct {
@@ -188,6 +190,13 @@ func prepare(ctx context.Context, dataDir string, assets fs.FS, client *http.Cli
 	if err != nil {
 		return paths, fmt.Errorf("base image: %w", err)
 	}
+	var harnesses string
+	if m.Harnesses != nil && m.Harnesses.Key != "" {
+		harnesses, err = ensureAsset(ctx, abs, m.Arch, KindHarnesses, m.Harnesses.Key, src, d)
+		if err != nil {
+			return paths, fmt.Errorf("harnesses image: %w", err)
+		}
+	}
 	self, err := executable()
 	if err != nil {
 		return paths, fmt.Errorf("sandboxd (this executable): %w", err)
@@ -195,7 +204,7 @@ func prepare(ctx context.Context, dataDir string, assets fs.FS, client *http.Cli
 	return Paths{
 		Bundled: true, Version: m.Version,
 		Firecracker: filepath.Join(versionDir, "firecracker"), Jailer: filepath.Join(versionDir, "jailer"),
-		Kernel: kernel, Sandboxd: self, BaseImage: base,
+		Kernel: kernel, Sandboxd: self, BaseImage: base, HarnessesImage: harnesses,
 	}, nil
 }
 
@@ -222,8 +231,8 @@ func readManifest(assets fs.FS) (manifest, error) {
 			return m, fmt.Errorf("runtime manifest %s: %w", name, err)
 		}
 	}
-	if !validKey(m.Kernel.Key) || !validKey(m.Base.Key) {
-		return m, errors.New("runtime manifest: kernel and base keys must be 32 lowercase hex digits")
+	if !validKey(m.Kernel.Key) || !validKey(m.Base.Key) || (m.Harnesses != nil && !validKey(m.Harnesses.Key)) {
+		return m, errors.New("runtime manifest: asset keys must be 32 lowercase hex digits")
 	}
 	return m, nil
 }
@@ -356,11 +365,21 @@ func (r contextReader) Read(p []byte) (int, error) {
 // PinBase copies an explicitly configured development image into the immutable content-addressed
 // base store. Rebuilding sourcePath afterwards cannot change an existing agent's lower layer.
 func PinBase(ctx context.Context, dataDir, sourcePath string) (string, error) {
+	return pinImage(ctx, dataDir, "base", sourcePath)
+}
+
+// PinHarnesses copies an explicitly configured development harnesses layer image into the
+// immutable content-addressed harnesses store.
+func PinHarnesses(ctx context.Context, dataDir, sourcePath string) (string, error) {
+	return pinImage(ctx, dataDir, "harnesses", sourcePath)
+}
+
+func pinImage(ctx context.Context, dataDir, subdir, sourcePath string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
 	if dataDir == "" || sourcePath == "" {
-		return "", errors.New("pin base: data directory and source image are required")
+		return "", errors.New("pin image: data directory and source image are required")
 	}
 	abs, err := filepath.Abs(dataDir)
 	if err != nil {
@@ -373,7 +392,7 @@ func PinBase(ctx context.Context, dataDir, sourcePath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	baseDir := filepath.Join(abs, "base")
+	baseDir := filepath.Join(abs, subdir)
 	if err := secureDir(baseDir); err != nil {
 		return "", err
 	}

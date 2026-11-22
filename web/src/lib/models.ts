@@ -136,6 +136,15 @@ export function choiceLabel(
   c: Choice,
   fallback = 'Default model',
 ): string {
+  return choiceParts(catalog, c, fallback).join(' · ');
+}
+
+/** The parts of choiceLabel: the model's name, then its chosen options. */
+export function choiceParts(
+  catalog: ModelCatalog | undefined,
+  c: Choice,
+  fallback = 'Default model',
+): string[] {
   const parts = [c.model ? modelName(catalog, c.model) : fallback];
   const shown = modelOptionsFor(catalog, c.model);
   for (const [id, v] of Object.entries(c.options)) {
@@ -151,5 +160,5 @@ export function choiceLabel(
       parts.push(value ? valueLabel(o, value) : v);
     }
   }
-  return parts.join(' · ');
+  return parts;
 }

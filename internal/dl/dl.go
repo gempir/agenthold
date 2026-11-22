@@ -108,8 +108,9 @@ func (h *Handler) Start(ctx context.Context) {
 	go func() {
 		kernel := h.assetUnavailable(ctx, rel.Arch, runtimeassets.KindKernel, rel.KernelKey) == ""
 		base := h.assetUnavailable(ctx, rel.Arch, runtimeassets.KindBase, rel.BaseKey) == ""
+		harnesses := rel.HarnessesKey != "" && h.assetUnavailable(ctx, rel.Arch, runtimeassets.KindHarnesses, rel.HarnessesKey) == ""
 		h.log.Info("downloads: serving the release to nodes and other installs", "version", rel.Version, "arch", rel.Arch,
-			"kernel", kernel, "base", base)
+			"kernel", kernel, "base", base, "harnesses", harnesses)
 	}()
 }
 
@@ -170,6 +171,9 @@ func (h *Handler) serveIndex(w http.ResponseWriter, r *http.Request) {
 	if h.assetUnavailable(r.Context(), rel.Arch, runtimeassets.KindBase, rel.BaseKey) == "" {
 		entry.Base = assetPath(rel.Arch, runtimeassets.KindBase, rel.BaseKey)
 	}
+	if rel.HarnessesKey != "" && h.assetUnavailable(r.Context(), rel.Arch, runtimeassets.KindHarnesses, rel.HarnessesKey) == "" {
+		entry.Harnesses = assetPath(rel.Arch, runtimeassets.KindHarnesses, rel.HarnessesKey)
+	}
 	data, _ := json.Marshal(index{Format: 1, Version: rel.Version, Arch: map[string]indexArch{rel.Arch: entry}})
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -186,10 +190,11 @@ type index struct {
 type indexArch struct {
 	Binary          string `json:"binary"`
 	RuntimeManifest string `json:"runtime_manifest"`
-	// Kernel and Base are the asset paths without extension: <path>.json is the manifest and
-	// <path>.zst the file. They are left out when this controller cannot serve the asset.
-	Kernel string `json:"kernel,omitempty"`
-	Base   string `json:"base,omitempty"`
+	// Kernel, Base and Harnesses are the asset paths without extension: <path>.json is the manifest
+	// and <path>.zst the file. They are left out when this controller cannot serve the asset.
+	Kernel    string `json:"kernel,omitempty"`
+	Base      string `json:"base,omitempty"`
+	Harnesses string `json:"harnesses,omitempty"`
 }
 
 func assetPath(arch, kind, key string) string {
@@ -283,7 +288,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, name string, f *
 }
 
 // assetName matches <arch>/<kind>-<key>.<json|zst> below /dl/assets/.
-var assetName = regexp.MustCompile(`^(amd64|arm64)/(kernel|base)-([0-9a-f]{32})\.(json|zst)$`)
+var assetName = regexp.MustCompile(`^(amd64|arm64)/(kernel|base|harnesses)-([0-9a-f]{32})\.(json|zst)$`)
 
 // serveAsset serves an asset kept in the data directory: its manifest, or its compressed file once
 // that is exactly the file the manifest pins. Any architecture the data directory holds is served.

@@ -116,7 +116,7 @@ var exposureTools = []map[string]any{
 
 // tools lists the tools offered to agents.
 func (p *Service) tools() []map[string]any {
-	out := append([]map[string]any{}, Tools...)
+	out := append(append([]map[string]any{}, Tools...), threadTools...)
 	if p.Preview.Enabled() {
 		out = append(out, exposureTools...)
 	}
@@ -176,6 +176,12 @@ func (p *Service) Call(ctx context.Context, callerID, sessionID, tool string, ar
 			return nil, errors.New("text is required")
 		}
 		return p.message(ctx, caller, sessionID, in.Agent, in.Text, tool == "ask")
+	case "list_threads":
+		return p.listThreads(ctx, caller, sessionID, in.IncludeSettled)
+	case "settle_thread":
+		return p.settleThread(ctx, caller, in.ThreadID, sessionID)
+	case "unsettle_thread":
+		return p.unsettleThread(ctx, caller, in.ThreadID)
 	case "expose_port":
 		return p.expose(ctx, caller, in.Port, in.Name, preview.Access(in.Access))
 	case "list_exposures":

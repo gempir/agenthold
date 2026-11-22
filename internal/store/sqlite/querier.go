@@ -12,6 +12,8 @@ type Querier interface {
 	AttachMCPServer(ctx context.Context, arg AttachMCPServerParams) error
 	AttachSecret(ctx context.Context, arg AttachSecretParams) error
 	AttachSkill(ctx context.Context, arg AttachSkillParams) error
+	// Settles a candidate unless it saw activity since it was listed.
+	AutoSettleSession(ctx context.Context, arg AutoSettleSessionParams) (int64, error)
 	ClaimExposureName(ctx context.Context, name string) error
 	ClearDefaultImages(ctx context.Context) error
 	CompleteImageBuild(ctx context.Context, arg CompleteImageBuildParams) error
@@ -158,6 +160,9 @@ type Querier interface {
 	ListAllImageBuilds(ctx context.Context) ([]ImageBuild, error)
 	// Every machine with its sandbox and owner (the admin overview).
 	ListAllMachines(ctx context.Context) ([]ListAllMachinesRow, error)
+	// Active, idle sessions whose agent owner's auto-settle period has passed
+	// since their last activity or their last unsettle by hand.
+	ListAutoSettleCandidates(ctx context.Context, now int64) ([]ListAutoSettleCandidatesRow, error)
 	ListExposures(ctx context.Context, agentID string) ([]Exposure, error)
 	ListGitCredentials(ctx context.Context, userID string) ([]GitCredential, error)
 	// Every identity with its user, for re-evaluating roles at start.
@@ -198,6 +203,8 @@ type Querier interface {
 	// A clone of an app is an app of its cloner, managed by no agent.
 	MakeAppClone(ctx context.Context, id string) error
 	MarkCredentialsInSandbox(ctx context.Context, id string) error
+	// A new turn is activity: it also unsettles the session.
+	MarkSessionRunning(ctx context.Context, arg MarkSessionRunningParams) error
 	MarkStaleImageBuildsFailed(ctx context.Context, now int64) error
 	MaxImageRevision(ctx context.Context, imageID string) (int64, error)
 	MaxSessionSeq(ctx context.Context, sessionID string) (int64, error)
@@ -246,6 +253,9 @@ type Querier interface {
 	SetSlackThreadHeader(ctx context.Context, arg SetSlackThreadHeaderParams) error
 	SetUserRole(ctx context.Context, arg SetUserRoleParams) error
 	SetUserRoleOverride(ctx context.Context, arg SetUserRoleOverrideParams) error
+	SetUserThreadAutoSettleDays(ctx context.Context, arg SetUserThreadAutoSettleDaysParams) error
+	// Settles an active session; no row when it is settled already.
+	SettleSession(ctx context.Context, arg SettleSessionParams) (int64, error)
 	ShareAgent(ctx context.Context, arg ShareAgentParams) error
 	StartImageBuild(ctx context.Context, arg StartImageBuildParams) error
 	// Only if nobody replaced the credential meanwhile.
@@ -260,6 +270,8 @@ type Querier interface {
 	// Moves a sandbox to a new state only if it is currently in one of the allowed states.
 	TransitionSandbox(ctx context.Context, arg TransitionSandboxParams) (int64, error)
 	TrimPreviewSessions(ctx context.Context, arg TrimPreviewSessionsParams) error
+	// Unsettles a settled session; no row when it is active already.
+	UnsettleSession(ctx context.Context, arg UnsettleSessionParams) (int64, error)
 	UnshareAgent(ctx context.Context, arg UnshareAgentParams) (int64, error)
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
 	UpdateAgentRepoBranch(ctx context.Context, arg UpdateAgentRepoBranchParams) error

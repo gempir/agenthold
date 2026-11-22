@@ -968,6 +968,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{sessionId}/settle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Settle the thread: mark it done and move it out of the active list. It stays readable and usable; a new
+         *     message unsettles it. Needs the right to send prompts to the agent. Settling a settled thread changes nothing.
+         */
+        post: operations["settleSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/unsettle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Move a settled thread back into the active list. The auto-settle period starts over. Needs the right to send
+         *     prompts to the agent.
+         */
+        post: operations["unsettleSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{sessionId}/cancel": {
         parameters: {
             query?: never;
@@ -1531,6 +1575,23 @@ export interface paths {
         put: operations["attachSkill"];
         post?: never;
         delete: operations["detachSkill"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getMySettings"];
+        /** @description Change your settings. Fields left out keep their value. */
+        put: operations["updateMySettings"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2685,6 +2746,23 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+            /**
+             * Format: date-time
+             * @description When the thread was settled (done, out of the active list); absent while it is active.
+             */
+            settledAt?: string;
+            /**
+             * @description Who settled it: a user, the agent itself (platform tools), or the auto-settle job after the agent owner's period without activity. Absent while it is active.
+             * @enum {string}
+             */
+            settledBy?: "user" | "agent" | "auto";
+        };
+        UserSettings: {
+            /** @description Threads of your agents settle themselves after this many days without activity; 0 = never. It applies to every thread of the agents you own, also those that people you share with started. */
+            threadAutoSettleDays: number;
+        };
+        UserSettingsUpdate: {
+            threadAutoSettleDays?: number;
         };
         SessionEvent: {
             /** Format: int64 */
@@ -4999,6 +5077,54 @@ export interface operations {
             409: components["responses"]["Error"];
         };
     };
+    settleSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Settled. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    unsettleSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active again. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
     cancelSession: {
         parameters: {
             query?: never;
@@ -6031,6 +6157,51 @@ export interface operations {
             };
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+        };
+    };
+    getMySettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Your settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSettings"];
+                };
+            };
+        };
+    };
+    updateMySettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Your settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSettings"];
+                };
+            };
+            400: components["responses"]["Error"];
         };
     };
     listTokens: {

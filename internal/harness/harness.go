@@ -33,14 +33,14 @@ type Adapter struct {
 	ID string
 	// Name is shown in the UI.
 	Name string
-	// Package is the npm package of images/base/package.json that installs
-	// Command[0] into the base image. Empty for harnesses not in the image
+	// Package is the npm package of images/harnesses/package.json that installs
+	// Command[0] into the harnesses layer. Empty for harnesses not in the image
 	// (the test fake) and for native binaries (Binary).
 	Package string
 	// Binary is set instead of Package for a harness the image installs as a
 	// pinned native binary: the prefix of its variables in
-	// images/base/versions.env (<Binary>_VERSION and <Binary>_SHA256_ARM64/X64).
-	// provision.sh links it into /usr/local/bin as Command[0].
+	// images/harnesses/versions.env (<Binary>_VERSION and <Binary>_SHA256_ARM64/X64).
+	// scripts/guest/build-harnesses.sh links it into /usr/local/bin as Command[0].
 	Binary string
 	// Command starts the harness in ACP mode inside the sandbox.
 	Command []string

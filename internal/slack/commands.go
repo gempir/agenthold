@@ -13,11 +13,11 @@ import (
 )
 
 const helpText = "*agenthold in Slack*\n" +
-	"• Message me here, or mention me in a channel: a new chat starts in a thread. Replies in the thread continue it.\n" +
+	"• Message me here, or mention me in a channel: a new agenthold thread starts in a Slack thread. Replies in it continue it.\n" +
 	"• `/agenthold agents`: your agents and their state\n" +
 	"• `/agenthold use <agent>`: the default agent of this channel or DM\n" +
-	"• `/agenthold new [agent] [message]`: start a chat\n" +
-	"• `/agenthold chats [agent]`: recent chats, to continue here\n" +
+	"• `/agenthold new [agent] [message]`: start a thread\n" +
+	"• `/agenthold threads [agent]`: recent threads, to continue here\n" +
 	"• `/agenthold link` / `unlink`: connect or disconnect your agenthold account"
 
 // HandleCommand handles the /agenthold slash command. Answers go to the
@@ -70,7 +70,7 @@ func (s *Service) HandleCommand(ctx context.Context, cmd slackgo.SlashCommand) {
 		s.cmdUse(ctx, uctx, u.ID, team, r, rest)
 	case "new":
 		s.cmdNew(ctx, uctx, u.ID, team, r, rest)
-	case "chats":
+	case "threads", "chats": // chats: the command's name before threads
 		s.cmdChats(ctx, uctx, r, rest)
 	default:
 		s.say(ctx, r, "I don't know `"+escape(sub)+"`.\n\n"+helpText)
@@ -105,14 +105,14 @@ func (s *Service) cmdAgents(ctx, uctx context.Context, r reply) {
 	s.send(ctx, r, "Your agents", blocks)
 }
 
-// agentBlocks show an agent with buttons to start a chat (and to make it
+// agentBlocks show an agent with buttons to start a thread (and to make it
 // the channel's default).
 func agentBlocks(a gen.Agent, useHere bool) []slackgo.Block {
 	line := stateEmoji(a.State) + " *" + escape(a.Name) + "* · " + string(a.State)
 	if a.Role == gen.Shared {
 		line += " · shared by " + escape(a.Owner.Name)
 	}
-	buttons := []slackgo.BlockElement{slackgo.NewButtonBlockElement("start_chat", a.Id, plain("Start chat"))}
+	buttons := []slackgo.BlockElement{slackgo.NewButtonBlockElement("start_chat", a.Id, plain("Start thread"))}
 	if useHere {
 		buttons = append(buttons, slackgo.NewButtonBlockElement("use_here", a.Id, plain("Use here")))
 	}
@@ -138,7 +138,7 @@ func (s *Service) cmdUse(ctx, uctx context.Context, userID, team string, r reply
 		s.say(ctx, r, ":warning: "+escape(s.errorText(err)))
 		return
 	}
-	s.say(ctx, r, "*"+escape(a.Name)+"* now answers new chats here.")
+	s.say(ctx, r, "*"+escape(a.Name)+"* now answers new threads here.")
 }
 
 func (s *Service) cmdNew(ctx, uctx context.Context, userID, team string, r reply, rest string) {
@@ -166,7 +166,7 @@ func (s *Service) cmdNew(ctx, uctx context.Context, userID, team string, r reply
 			s.say(ctx, r, "You have no agents you can chat with yet. Create one at "+s.o.PublicURL+"/new.")
 			return
 		}
-		blocks := []slackgo.Block{sectionBlock("Which agent? Start a chat with one of yours, or `/agenthold new <agent> <message>`.")}
+		blocks := []slackgo.Block{sectionBlock("Which agent? Start a thread with one of yours, or `/agenthold new <agent> <message>`.")}
 		for i, a := range agents {
 			if i == 20 {
 				break
@@ -195,14 +195,14 @@ func (s *Service) cmdChats(ctx, uctx context.Context, r reply, ref string) {
 	}
 	chats := s.recentChats(uctx, agents, 10)
 	if len(chats) == 0 {
-		s.say(ctx, r, "No chats yet.")
+		s.say(ctx, r, "No threads yet.")
 		return
 	}
-	blocks := []slackgo.Block{sectionBlock("*Recent chats*")}
+	blocks := []slackgo.Block{sectionBlock("*Recent threads*")}
 	for _, c := range chats {
 		blocks = append(blocks, chatBlocks(s, c)...)
 	}
-	s.send(ctx, r, "Recent chats", blocks)
+	s.send(ctx, r, "Recent threads", blocks)
 }
 
 type chat struct {
@@ -237,6 +237,8 @@ func chatBlocks(s *Service, c chat) []slackgo.Block {
 		fmt.Sprintf(" · <!date^%d^{date_short_pretty} {time}|%s>", c.session.UpdatedAt.Unix(), c.session.UpdatedAt.Format(time.RFC822))
 	if c.session.Running {
 		line += " · :arrows_counterclockwise: running"
+	} else if c.session.SettledAt != nil {
+		line += " · :white_check_mark: settled"
 	}
 	return []slackgo.Block{
 		sectionBlock(line),

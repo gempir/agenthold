@@ -1,14 +1,42 @@
 ---
-title: "Sessions and harnesses"
+title: "Threads and harnesses"
 description: "agenthold does not implement an agent loop. A **harness** (Claude Code, ...) runs inside each sandbox and speaks the Agent Client Protocol (ACP) on stdio. The server is the ACP client."
 ---
 
 agenthold does not implement an agent loop. A **harness** (Claude Code, ...) runs inside each sandbox and speaks
 the [Agent Client Protocol](https://agentclientprotocol.com) (ACP) on stdio. The server is the ACP client.
 
+A conversation with an agent is a **thread**. In the API, the database and the event log a thread is a
+**session** (`/api/v1/sessions/...`), so the rest of this page uses both words for the same thing.
+
+## Threads and settling
+
+The sidebar lists your **active threads** at the top, newest activity first, as cards: the agent, the title, and
+whether it is working (a thread that finished while the page was open shows **Done** until you open it). When a thread's work is done,
+**settle** it: hover its card and click **✓ Settle**, or use **Settle** in the thread's header. A settled thread
+moves into the folded **Settled** section at the bottom of the sidebar (with its count; whether it is folded is
+remembered per browser). It stays readable and usable: open it from there, and **Unsettle** it on its row or in its
+header. A new message in a settled thread, from anyone (a person, Slack, a schedule, another agent), makes it
+active again.
+
+- **Who can settle.** Whoever may send prompts to the agent: its owner and the people it is shared with. The agent
+  itself can settle its own threads with its [platform tools](/agents/#its-own-threads).
+- **Auto-settle.** Threads with no activity for a number of days settle themselves. The number is a setting of the
+  agent's **owner** (Settings, **Threads**; default 3 days, *Never* turns it off), and it applies to every
+  thread of their agents, also those that people they share with started: a thread has one state for everyone
+  who sees it, so one person's setting has to decide, and the owner is the one who runs the agent. Unsettling a
+  thread by hand starts the period over, so it is not settled again right away. A thread with a running turn is
+  never auto-settled. The server checks once at start and then every hour.
+- **Audit.** Every settle and unsettle is in the agent's audit log: by a user, by the agent (with its name), by the
+  auto-settle job (as the owner, with the period), or by a new message.
+
+The API: `POST /sessions/{id}/settle` and `POST /sessions/{id}/unsettle` (both return the session; repeating one
+changes nothing), `settledAt` and `settledBy` (`user`, `agent` or `auto`) on every session, and
+`GET`/`PUT /me/settings` for `threadAutoSettleDays` (0 to 365, 0 = never).
+
 ## How a turn works
 
-1. A user prompts a session (the agent's owner or a user it is shared with). If the agent sleeps, the prompt wakes it.
+1. A user prompts a thread (the agent's owner or a user it is shared with). If the agent sleeps, the prompt wakes it.
 2. The server makes sure the agent's harness is running. sandboxd starts it as the `agent` user, in
    `/home/agent`, with the sandbox's environment plus what the adapter adds. Its stdio goes over the tunnel.
    One harness process serves all of an agent's sessions.
@@ -107,15 +135,15 @@ until their owner chooses **Use my logins**.
 ## Harness adapters
 
 An adapter (`internal/harness/<name>`) is one `harness.Adapter` value: how to start the harness in ACP mode, the npm
-package of `images/base/package.json` that installs it (or, for a native binary, its pin in
-`images/base/versions.env`), which environment it needs (never secret values), which
+package of `images/harnesses/package.json` that installs it (or, for a native binary, its pin in
+`images/harnesses/versions.env`), which environment it needs (never secret values), which
 secret presets fit it, where it keeps logins and skills, terminal commands for login methods the harness advertises
 without one, and login methods the server may call on its own when the harness asks for authentication (such as an
 API key provided as a secret). Harnesses whose login can live on the account set `Login`, an `AccountLoginer` (what
 can be connected, how it is validated, and how it reaches the harness as placeholders, files and proxy injections),
 which also implements `Refresher` for expiring logins. Nothing outside `internal/harness` knows about a particular
-harness. Versions are pinned in `images/base/package.json` (npm) and `images/base/versions.env` (native binaries,
-an exact version and a sha256 per architecture) only; a test checks them against the adapters.
+harness. Versions are pinned in `images/harnesses/package.json` (npm) and `images/harnesses/versions.env` (native
+binaries, an exact version and a sha256 per architecture) only; a test checks them against the adapters.
 
 | Harness | ACP entry point | In the base image |
 | --- | --- | --- |
@@ -193,12 +221,20 @@ Signing in:
 
 ## Choosing models
 
-The model button in the composer ("Opus 5.5 · Medium") picks the model of one conversation; the agent's
-settings (Harness → Default model) pick the default for every conversation without its own choice. The picker lists
-the models the harness offers, grouped by provider, one line each (the description is behind the info icon), with a
-Reasoning section for the chosen model: effort levels and, where the model has it, fast mode (Standard/Fast). A choice
-applies at once and the picker stays open, so a model and its reasoning are set in one go. Keys: arrows to move, Enter
-to pick, Escape to close, Alt+1…9 for the n-th model, ←/→ to change the effort.
+The model button in the composer (the harness's logo, then "Opus 5.5 Medium") picks the model of one conversation;
+the agent's settings (Harness → Default model) pick the default for every conversation without its own choice. The
+picker has three columns. A rail on the left holds **Favorites** (a star) and one entry per harness, each with its
+logo; the middle lists the models of the entry chosen there, one line each with the provider's logo (the description
+is behind the info icon) and a check after the current one; the right column, **Reasoning**, lists the effort levels
+of the current model with a check on the chosen one. On/off options such as fast mode (Standard/Fast) sit in the
+footer. A choice applies at once and the picker stays open, so a model and its reasoning are set in one go. Typing in
+the search box searches every harness at once, grouped by harness. On a phone the reasoning levels move under the
+list. Keys: arrows to move through the list (and through the rail or the levels when they have the focus), Enter to
+pick, Escape to close; there are no shortcuts.
+
+The star on a row (shown on hover, always on starred models) keeps the model in Favorites, which lists the starred
+models of every harness the picker offers, each with its harness. The picker opens on Favorites when there are any,
+otherwise on the current harness. Favorites are kept in the browser, not on the server.
 
 The list comes from the harness itself: its ACP session config options (a `model` option, a `thought_level` option
 for effort, a fast mode toggle) reported with every `session/new`, `session/resume` and `session/load`. agenthold stores the last report
@@ -238,10 +274,10 @@ and is shown as "custom" until it is changed.
 
 ### Switching the harness from the picker
 
-The harness is the agent's: all its conversations use it. The owner finds the other harnesses under "Switch
-the agent to" in the same picker: a harness that reported models (or has a built-in list) opens to show them, one that
-never ran on this agent is a single row marked "Agent default". Picking one asks to confirm inline ("Switches demo2
-to Codex (all chats)"); confirming changes the agent's harness and default model (the picked one, or the new
+The harness is the agent's: all its conversations use it. The owner finds the other harnesses in the picker's
+rail: a harness that reported models (or has a built-in list) lists its default and its models, one that never ran on
+this agent only its default model. A dot on a harness's logo marks a missing login. Picking one asks to confirm in the
+reasoning column ("Switches demo2 to Codex (all chats)"); confirming changes the agent's harness and default model (the picked one, or the new
 harness's own), resets the models chosen in its conversations, and restarts the harness with the next message.
 Conversations keep their history but start with a fresh context, since the old harness's sessions mean nothing to the
 new one. The switch waits while a conversation is running (the API answers 409), and the picker warns when the new
@@ -252,10 +288,11 @@ agent: it returns the stored catalog or the built-in list of that harness, with 
 
 ## Base image
 
-`images/base` (`make guest-base`) is Debian trixie with Node.js 24, the Claude Code and Codex ACP adapters, OpenCode,
-the Antigravity CLI (`agy`, self-update off: `AGY_CLI_DISABLE_AUTO_UPDATE=true` in every process's environment), git, Python 3,
-build tools, ripgrep, jq and headless Chromium (`CHROME_BIN`, Playwright and Puppeteer variables set). The
-`agent` user has passwordless sudo inside its own sandbox.
+`images/base` (`make guest-base`) is Debian trixie with Node.js 24, git, Python 3, build tools, ripgrep, jq and
+headless Chromium (`CHROME_BIN`, Playwright and Puppeteer variables set). The coding harnesses — the Claude Code and
+Codex ACP adapters, OpenCode, and the Antigravity CLI (`agy`, self-update off: `AGY_CLI_DISABLE_AUTO_UPDATE=true` via
+`/etc/agenthold/image.env.d/05-harnesses.env`) — live in their own read-only layer (`images/harnesses`,
+`make guest-harnesses`) mounted over the base. The `agent` user has passwordless sudo inside its own sandbox.
 
 ## Testing
 

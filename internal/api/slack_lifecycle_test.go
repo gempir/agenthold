@@ -94,7 +94,7 @@ func TestSlackThreadStopsWhenAccessEnds(t *testing.T) {
 	// Alice stops sharing: her next prompt does not reach bob's thread.
 	expect(t, "unshare", alice.do("DELETE", "/agents/"+ag.Id+"/shares/"+bob.me().Id, nil, nil), 204)
 	se.webPrompt(alice, sess.Id, "after unshare")
-	se.fake.waitFor("notice in bob's thread", inChannel("C9", "no longer follows its chat", "*Bob*"))
+	se.fake.waitFor("notice in bob's thread", inChannel("C9", "no longer follows its agenthold thread", "*Bob*"))
 	se.fake.waitFor("alice's thread goes on", func(c slackCall) bool {
 		return c.method == "chat.update" && inChannel("C8", "echo: after unshare", "Done")(c)
 	})
@@ -105,7 +105,7 @@ func TestSlackThreadStopsWhenAccessEnds(t *testing.T) {
 	// Alice disconnects Slack: her thread stops too.
 	expect(t, "unlink", alice.do("DELETE", "/me/slack/T1/U1", nil, nil), 204)
 	se.webPrompt(alice, sess.Id, "after unlink")
-	se.fake.waitFor("notice in alice's thread", inChannel("C8", "no longer follows its chat"))
+	se.fake.waitFor("notice in alice's thread", inChannel("C8", "no longer follows its agenthold thread"))
 	se.threadsOf(sess.Id, 0)
 	se.waitIdle(sess.Id)
 	for _, c := range se.fake.all() {

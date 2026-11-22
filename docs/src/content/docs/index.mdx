@@ -3,7 +3,7 @@ title: agenthold
 description: Self-hosted, multi-user platform for running many persistent AI agents, each in its own sandbox.
 ---
 
-agenthold runs AI coding agents (Claude Code, Codex and others) on a server you control. Every agent gets its own Firecracker microVM with a home directory that survives sleep and restarts, and people talk to it from a chat in the browser.
+agenthold runs AI coding agents (Claude Code, Codex and others) on a server you control. Every agent gets its own Firecracker microVM with a home directory that survives sleep and restarts, and people talk to it in threads in the browser.
 
 - **One sandbox per agent.** Agents sleep when idle and wake on demand. Files, history and sessions stay on disk.
 - **Secrets stay outside.** An egress proxy injects credentials into outgoing requests, so agents use API keys and logins they never see. [Egress and secrets](/egress/) explains the model.
@@ -16,8 +16,8 @@ Run your own instance on a Linux host with KVM. Native release packaging is in p
   <Card title="Install" icon="ph:rocket-launch" href="/install/">
     A Linux KVM host, an HTTPS proxy or tunnel, and a way to sign in.
   </Card>
-  <Card title="Sessions and harnesses" icon="ph:chats" href="/sessions/">
-    How chats work, and how Claude Code and Codex logins are set up.
+  <Card title="Threads and harnesses" icon="ph:chats" href="/sessions/">
+    How threads work and settle, and how Claude Code and Codex logins are set up.
   </Card>
   <Card title="Security" icon="ph:shield-check" href="/security/">
     The threat model and what each layer protects.

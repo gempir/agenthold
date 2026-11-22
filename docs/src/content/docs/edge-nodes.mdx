@@ -129,7 +129,7 @@ that the controller is older), but then cannot learn where the controller serves
 ## When a node is down
 
 If a node's connection drops, its agents show as **unreachable** (not as an error). Operations on them —
-chat, terminal, files, start, stop, reset, delete — fail at once with "node … is offline". The node keeps
+threads, terminal, files, start, stop, reset, delete — fail at once with "node … is offline". The node keeps
 its VMs and their secrets in memory and reconnects with backoff (1 s up to 30 s). On reconnect the
 controller pushes the current configuration again and reconciles every agent of that node with what
 actually runs there; interrupted operations are resolved then.

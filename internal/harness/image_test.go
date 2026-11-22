@@ -17,16 +17,16 @@ import (
 	_ "github.com/gempir/agenthold/internal/harness/opencode"
 )
 
-// images/base/package.json is the only place npm harness versions are pinned
-// (package-lock.json is generated from it), images/base/versions.env the only
+// images/harnesses/package.json is the only place npm harness versions are pinned
+// (package-lock.json is generated from it), images/harnesses/versions.env the only
 // place native harness binaries are. Each adapter names its package or binary;
-// this checks that the image installs exactly those, at one version, and that
-// the command each adapter runs is a binary the image installs.
+// this checks that the harnesses layer installs exactly those, at one version, and
+// that the command each adapter runs is a binary the layer installs.
 func TestAdaptersMatchBaseImage(t *testing.T) {
 	var pkg struct {
 		Dependencies map[string]string `json:"dependencies"`
 	}
-	readJSON(t, "../../images/base/package.json", &pkg)
+	readJSON(t, "../../images/harnesses/package.json", &pkg)
 	var lock struct {
 		Packages map[string]struct {
 			Version      string            `json:"version"`
@@ -34,13 +34,12 @@ func TestAdaptersMatchBaseImage(t *testing.T) {
 			Bin          map[string]string `json:"bin"`
 		} `json:"packages"`
 	}
-	readJSON(t, "../../images/base/package-lock.json", &lock)
+	readJSON(t, "../../images/harnesses/package-lock.json", &lock)
 	if root := lock.Packages[""].Dependencies; !maps.Equal(root, pkg.Dependencies) {
 		t.Fatalf("package-lock.json was not regenerated: it locks %v, package.json asks for %v", root, pkg.Dependencies)
 	}
-	versions := readEnv(t, "../../images/base/versions.env")
-	provision := readText(t, "../../images/base/provision.sh")
-	rootfs := readText(t, "../../scripts/guest/build-rootfs.sh")
+	versions := readEnv(t, "../../images/harnesses/versions.env")
+	buildHarnesses := readText(t, "../../scripts/guest/build-harnesses.sh")
 
 	var ids, pkgs []string
 	for _, ad := range harness.List(false) {
@@ -49,14 +48,14 @@ func TestAdaptersMatchBaseImage(t *testing.T) {
 		case ad.Package != "" && ad.Binary != "":
 			t.Errorf("%s: both an npm package and a native binary", ad.ID)
 		case ad.Binary != "":
-			checkBinary(t, ad, versions, provision, rootfs)
+			checkBinary(t, ad, versions, buildHarnesses)
 		case ad.Package == "":
-			t.Errorf("%s: no package or binary in the base image", ad.ID)
+			t.Errorf("%s: no package or binary in the harnesses layer", ad.ID)
 		default:
 			pkgs = append(pkgs, ad.Package)
 			want, ok := pkg.Dependencies[ad.Package]
 			if !ok {
-				t.Errorf("%s: %s is not in images/base/package.json", ad.ID, ad.Package)
+				t.Errorf("%s: %s is not in images/harnesses/package.json", ad.ID, ad.Package)
 				continue
 			}
 			locked := lock.Packages["node_modules/"+ad.Package]
@@ -73,7 +72,12 @@ func TestAdaptersMatchBaseImage(t *testing.T) {
 	}
 	slices.Sort(pkgs)
 	if deps := slices.Sorted(maps.Keys(pkg.Dependencies)); !slices.Equal(deps, pkgs) {
-		t.Errorf("the base image installs %v, the adapters use %v", deps, pkgs)
+		t.Errorf("the harnesses layer installs %v, the adapters use %v", deps, pkgs)
+	}
+
+	harnessEnv := readText(t, "../../images/harnesses/image.env")
+	if !slices.Contains(strings.Split(harnessEnv, "\n"), "AGY_CLI_DISABLE_AUTO_UPDATE=true") {
+		t.Error("images/harnesses/image.env does not set AGY_CLI_DISABLE_AUTO_UPDATE=true")
 	}
 }
 
@@ -83,30 +87,28 @@ var (
 )
 
 // checkBinary checks a native harness: an exact version and a sha256 per
-// architecture in versions.env, verified by both the rootfs build (which
-// downloads it) and provision.sh (which installs it as Command[0]).
-func checkBinary(t *testing.T, ad *harness.Adapter, versions map[string]string, provision, rootfs string) {
+// architecture in images/harnesses/versions.env, verified and linked into
+// /usr/local/bin as Command[0] by scripts/guest/build-harnesses.sh.
+func checkBinary(t *testing.T, ad *harness.Adapter, versions map[string]string, buildHarnesses string) {
 	t.Helper()
 	b := ad.Binary
 	if v := versions[b+"_VERSION"]; !pinnedVersion.MatchString(v) {
-		t.Errorf("%s: versions.env pins %s_VERSION=%q, not an exact version", ad.ID, b, v)
+		t.Errorf("%s: images/harnesses/versions.env pins %s_VERSION=%q, not an exact version", ad.ID, b, v)
 	}
 	for _, arch := range []string{"ARM64", "X64"} {
 		key := b + "_SHA256_" + arch
 		if !sha256Hex.MatchString(versions[key]) {
-			t.Errorf("%s: versions.env has no sha256 %s", ad.ID, key)
+			t.Errorf("%s: images/harnesses/versions.env has no sha256 %s", ad.ID, key)
 		}
-		for name, script := range map[string]string{"provision.sh": provision, "build-rootfs.sh": rootfs} {
-			if !strings.Contains(script, "$"+key) {
-				t.Errorf("%s: %s does not check %s", ad.ID, name, key)
-			}
+		if !strings.Contains(buildHarnesses, "$"+key) {
+			t.Errorf("%s: build-harnesses.sh does not check %s", ad.ID, key)
 		}
 	}
-	if !strings.Contains(provision, "${"+b+"_VERSION}") {
-		t.Errorf("%s: provision.sh does not install %s_VERSION", ad.ID, b)
+	if !strings.Contains(buildHarnesses, "${"+b+"_VERSION}") {
+		t.Errorf("%s: build-harnesses.sh does not install %s_VERSION", ad.ID, b)
 	}
-	if !regexp.MustCompile(`(?m)^ln -sf \S+ /usr/local/bin/` + regexp.QuoteMeta(ad.Command[0]) + `$`).MatchString(provision) {
-		t.Errorf("%s runs %q, which provision.sh does not link into /usr/local/bin", ad.ID, ad.Command[0])
+	if !regexp.MustCompile(`(?m)^ln -sf \S+ "\$TREE/usr/local/bin/` + regexp.QuoteMeta(ad.Command[0]) + `"$`).MatchString(buildHarnesses) {
+		t.Errorf("%s runs %q, which build-harnesses.sh does not link into /usr/local/bin", ad.ID, ad.Command[0])
 	}
 }
 

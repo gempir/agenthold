@@ -60,7 +60,7 @@ Every user has one of three roles:
 | Role | May |
 | --- | --- |
 | **Admin** | Everything: the **Overview** (every node, machine and user), nodes and join tokens, picking the node of a new agent, the Slack connection, role overrides, and all a User may, with no agent limit. |
-| **User** | Use the agents it owns and the ones shared with it (chats, prompts, terminal, files) and create its own agents, up to `auth.user_max_agents` (default 2; templates and clones count). |
+| **User** | Use the agents it owns and the ones shared with it (threads, prompts, terminal, files) and create its own agents, up to `auth.user_max_agents` (default 2; templates and clones count). |
 | **Disabled** | Nothing. The user can sign in, but sees *"Your account has no access to this agenthold"* and can only sign out. Every API call but `GET /me` and sign-in/out answers 403, its API tokens and Slack link do nothing, its schedules and webhooks do not run, and its agents get no platform tools. |
 
 **New installs default to Disabled**: a person who signs in and matches no rule below gets no access until the
@@ -96,7 +96,7 @@ its own session and does not refresh provider tokens, but no session lasts longe
 somebody off at once, set an override to **Disabled** in the Overview.
 
 The role is read from the database on every request: a change (sign-in, restart or override) applies to the
-user's existing sessions and API tokens immediately. Open connections (terminal, chat and log streams, WebSockets
+user's existing sessions and API tokens immediately. Open connections (terminal, thread and log streams, WebSockets
 to previews) re-check it every 2 seconds and are closed when the user is Disabled.
 
 ### Overrides

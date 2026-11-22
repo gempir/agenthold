@@ -61,16 +61,17 @@ bash "$REPO_ROOT/scripts/guest/fetch-runtime.sh" --out "$RUNTIME"
 cp "$RUNTIME/firecracker" "$RUNTIME/jailer" "$STAGE/"
 KERNEL_KEY="$(bash "$REPO_ROOT/scripts/guest/kernel-key.sh")"
 BASE_KEY="$(bash "$REPO_ROOT/scripts/guest/base-key.sh")"
-jq -n --arg version "$VERSION" --arg arch "$ARCH" --arg kernel "$KERNEL_KEY" --arg base "$BASE_KEY" \
+HARNESSES_KEY="$(bash "$REPO_ROOT/scripts/guest/harnesses-key.sh")"
+jq -n --arg version "$VERSION" --arg arch "$ARCH" --arg kernel "$KERNEL_KEY" --arg base "$BASE_KEY" --arg harnesses "$HARNESSES_KEY" \
   --arg fc "$(sha256sum "$STAGE/firecracker" | cut -d' ' -f1)" --argjson fcsize "$(stat -c %s "$STAGE/firecracker")" \
   --arg jailer "$(sha256sum "$STAGE/jailer" | cut -d' ' -f1)" --argjson jailersize "$(stat -c %s "$STAGE/jailer")" \
   '{format: 2, version: $version, arch: $arch,
     files: {firecracker: {sha256: $fc, size: $fcsize}, jailer: {sha256: $jailer, size: $jailersize}},
-    kernel: {key: $kernel}, base: {key: $base}}' > "$STAGE/manifest.json"
+    kernel: {key: $kernel}, base: {key: $base}, harnesses: {key: $harnesses}}' > "$STAGE/manifest.json"
 COMMIT="$(git -C "$REPO_ROOT" rev-parse --short=12 HEAD)"
 LDFLAGS="-s -w -X github.com/gempir/agenthold/internal/version.Version=$VERSION -X github.com/gempir/agenthold/internal/version.Commit=$COMMIT"
 (cd "$REPO_ROOT" && CGO_ENABLED=0 go build -trimpath -tags bundled -ldflags "$LDFLAGS" -o "$OUT/agenthold-linux-$ARCH" ./cmd/agenthold)
 cp "$STAGE/manifest.json" "$OUT/runtime-linux-$ARCH.manifest.json"
 (cd "$OUT" && sha256sum "agenthold-linux-$ARCH" "runtime-linux-$ARCH.manifest.json" > SHA256SUMS)
-printf 'Release binary: %s (kernel %s, base %s)\n' "$OUT/agenthold-linux-$ARCH" "$KERNEL_KEY" "$BASE_KEY"
+printf 'Release binary: %s (kernel %s, base %s, harnesses %s)\n' "$OUT/agenthold-linux-$ARCH" "$KERNEL_KEY" "$BASE_KEY" "$HARNESSES_KEY"
 ls -lh "$OUT/agenthold-linux-$ARCH"

@@ -739,8 +739,8 @@ func TestSlackAgentPickerAndDefault(t *testing.T) {
 	se.fake.waitFor("answer", shows("chat.update", "echo: third", "Done"))
 	se.waitIdle(se.thread("DU1", "602.1").SessionID)
 
-	// /agenthold chats lists them; Continue in Slack binds a new thread.
-	se.slack.HandleCommand(t.Context(), slackgo.SlashCommand{TeamID: "T1", ChannelID: "C9", UserID: "U1", Text: "chats", ResponseURL: se.fake.srv.URL + "/respond/chats"})
+	// /agenthold threads (once: chats) lists them; Continue in Slack binds a new thread.
+	se.slack.HandleCommand(t.Context(), slackgo.SlashCommand{TeamID: "T1", ChannelID: "C9", UserID: "U1", Text: "threads", ResponseURL: se.fake.srv.URL + "/respond/chats"})
 	list := se.fake.waitFor("chats", func(c slackCall) bool { return c.method == "respond/chats" })
 	if !strings.Contains(list.text(), "Continue in Slack") || !strings.Contains(list.text(), "/a/"+a1.Id+"?s=") {
 		t.Fatalf("chats %s", list.text())

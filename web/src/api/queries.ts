@@ -11,6 +11,14 @@ export const meQuery = queryOptions({
   retry: false,
 });
 
+export type UserSettings = components['schemas']['UserSettings'];
+
+export const mySettingsQuery = queryOptions({
+  queryKey: ['me', 'settings'],
+  queryFn: () => unwrap(api.GET('/me/settings')),
+  retry: false,
+});
+
 export const providersQuery = queryOptions({
   queryKey: ['providers'],
   queryFn: () => unwrap(api.GET('/auth/providers')),

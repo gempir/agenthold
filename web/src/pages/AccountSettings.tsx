@@ -7,6 +7,7 @@ import {
   Layers,
   LockKeyhole,
   MessageSquare,
+  MessagesSquare,
   Plug,
   Server,
   Wrench,
@@ -30,6 +31,7 @@ export const ACCOUNT_SETTINGS_NAV: {
   /** Only shown to admins (the local admin or auth.admins). */
   admin?: boolean;
 }[] = [
+  { to: '/settings/threads', label: 'Threads', icon: MessagesSquare },
   { to: '/settings/agents', label: 'Agents', icon: Bot },
   { to: '/settings/secrets', label: 'Secrets', icon: LockKeyhole },
   { to: '/settings/tools', label: 'Tools', icon: Wrench },

@@ -246,6 +246,12 @@ function HarnessForm({
                 onChange={setModel}
                 side="bottom"
                 label="Default model"
+                harness={{
+                  id: agent.harness,
+                  name:
+                    options.find((h) => h.id === agent.harness)?.name ??
+                    agent.harness,
+                }}
                 defaultLabel="Harness default"
                 defaultDescription="Whatever the harness is configured to use"
                 note={

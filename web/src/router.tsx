@@ -28,6 +28,7 @@ import { OverviewPage } from '@/pages/OverviewPage';
 import { ProvidersPage } from '@/pages/ProvidersPage';
 import { SlackLinkPage } from '@/pages/SlackLinkPage';
 import { SlackPage } from '@/pages/SlackPage';
+import { ThreadsSettingsPage } from '@/pages/ThreadsSettingsPage';
 import {
   AgentsSettingsPage,
   SecretsSettingsPage,
@@ -207,6 +208,12 @@ const slackRoute = createRoute({
   component: SlackPage,
 });
 
+const threadsSettingsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/threads',
+  component: ThreadsSettingsPage,
+});
+
 const gitRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: '/git',
@@ -231,6 +238,7 @@ const routeTree = rootRoute.addChildren([
     slackLinkRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
+      threadsSettingsRoute,
       agentsSettingsRoute,
       secretsRoute,
       toolsRoute,

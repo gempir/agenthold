@@ -87,12 +87,14 @@ fi
 if ((check)); then
   work="$(mktemp -d "${TMPDIR:-/var/tmp}/agenthold-pull-check.XXXXXXXX")"
   base_dir="$work/base"
+  harnesses_dir="$work/harnesses"
   kernel_dir="$work/kernel"
   assets_dir="$work/assets"
 else
   ((install)) || [[ "$current" == "$ROOT/releases/"* && -x "$current/agenthold" ]] || { echo 'invalid current deployment' >&2; exit 1; }
   work="$(mktemp -d "$ROOT/.pull.XXXXXXXX")"
   base_dir="$DATA_DIR/base"
+  harnesses_dir="$DATA_DIR/harnesses"
   kernel_dir="$DATA_DIR/kernel"
   assets_dir="$DATA_DIR/assets"
 fi
@@ -124,7 +126,7 @@ verify() { printf '%s  %s\n' "$1" "$2" | sha256sum --check --status; }
 # get <relative path> <max bytes> <destination> [timeout]: copy one file of the source.
 get() {
   local rel="$1" max="$2" dest="$3" size
-  [[ "$rel" =~ ^(channel\.json|sha-[0-9a-f]{40}/[A-Za-z0-9][A-Za-z0-9._-]*|assets/(amd64|arm64)/(kernel|base)-[0-9a-f]{32}\.(json|zst))$ ]] || { echo "refusing source path $rel" >&2; return 1; }
+  [[ "$rel" =~ ^(channel\.json|sha-[0-9a-f]{40}/[A-Za-z0-9][A-Za-z0-9._-]*|assets/(amd64|arm64)/(kernel|base|harnesses)-[0-9a-f]{32}\.(json|zst))$ ]] || { echo "refusing source path $rel" >&2; return 1; }
   if [[ "$kind" == local ]]; then
     local src="$SOURCE/$rel"
     [[ -f "$src" && ! -L "$src" && ! -L "$(dirname -- "$src")" ]] || { echo "$src is missing or not a regular file" >&2; return 1; }
@@ -168,7 +170,8 @@ jq -e --arg v "$version" --arg arch "$ARCH" '
   ([.binary.sha256, .runtime_manifest.sha256, .sums.sha256, .kernel.manifest.sha256, .base.manifest.sha256] | all(sha)) and
   (.kernel.key | key) and (.base.key | key) and
   .kernel.manifest.path == ("assets/" + $arch + "/kernel-" + .kernel.key + ".json") and
-  .base.manifest.path == ("assets/" + $arch + "/base-" + .base.key + ".json")
+  .base.manifest.path == ("assets/" + $arch + "/base-" + .base.key + ".json") and
+  (.harnesses == null or ((.harnesses.key | key) and (.harnesses.manifest.sha256 | sha) and .harnesses.manifest.path == ("assets/" + $arch + "/harnesses-" + .harnesses.key + ".json")))
 ' "$work/channel.json" >/dev/null || { echo 'channel does not point to the files of its version' >&2; exit 1; }
 binary_sha="$(jq -er .binary.sha256 "$work/channel.json")"
 manifest_sha="$(jq -er .runtime_manifest.sha256 "$work/channel.json")"
@@ -188,15 +191,19 @@ verify "$sums_sha" "$work/SHA256SUMS" || { echo 'SHA256SUMS checksum mismatch' >
 get "$version/runtime-linux-$ARCH.manifest.json" 65536 "$work/runtime.json"
 verify "$manifest_sha" "$work/runtime.json" || { echo 'runtime manifest checksum mismatch' >&2; exit 1; }
 jq -e --arg version "$version" --arg arch "$ARCH" --slurpfile c "$work/channel.json" '
-  .format == 2 and .arch == $arch and .version == $version and .kernel.key == $c[0].kernel.key and .base.key == $c[0].base.key
+  .format == 2 and .arch == $arch and .version == $version and .kernel.key == $c[0].kernel.key and .base.key == $c[0].base.key and
+  ((.harnesses.key // "") == ($c[0].harnesses.key // ""))
 ' "$work/runtime.json" >/dev/null || { echo 'runtime manifest does not match the release' >&2; exit 1; }
 
 # The asset manifests, pinned by the channel; each pins its files.
-for k in kernel base; do
+harnesses_key="$(jq -r '.harnesses.key // empty' "$work/channel.json")"
+asset_kinds=(kernel base)
+[[ -z "$harnesses_key" ]] || asset_kinds+=(harnesses)
+for k in "${asset_kinds[@]}"; do
   rel="$(jq -er --arg k "$k" '.[$k].manifest.path' "$work/channel.json")"
   get "$rel" 65536 "$work/$k.json"
   verify "$(jq -er --arg k "$k" '.[$k].manifest.sha256' "$work/channel.json")" "$work/$k.json" || { echo "$k asset manifest checksum mismatch" >&2; exit 1; }
-  max=34359738368; [[ "$k" == kernel ]] && max=536870912
+  max=34359738368; [[ "$k" == kernel ]] && max=536870912; [[ "$k" == harnesses ]] && max=8589934592
   jq -e --arg k "$k" --arg arch "$ARCH" --argjson max "$max" --slurpfile c "$work/channel.json" '
     .format == 1 and .kind == $k and .arch == $arch and .key == $c[0][$k].key and
     (.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and (.compressed.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
@@ -230,14 +237,21 @@ fi
 
 # Each asset's compressed file stays next to the decompressed one (/dl/assets/ serves it from there).
 # Everything is fetched and verified while the old service is still running.
-install -d -m 0700 "$base_dir" "$kernel_dir"
+install -d -m 0700 "$base_dir" "$harnesses_dir" "$kernel_dir"
 install -d -m 0755 "$assets_dir" "$assets_dir/$ARCH"
+asset_file() { # asset_file <kind> <sha256>
+  case "$1" in
+    kernel) echo "$kernel_dir/$2" ;;
+    harnesses) echo "$harnesses_dir/$2.ext4" ;;
+    *) echo "$base_dir/$2.ext4" ;;
+  esac
+}
 # Disk space for what is missing, plus headroom for a rollback.
 required=536870912
-for k in kernel base; do
+for k in "${asset_kinds[@]}"; do
   sha="$(jq -er .sha256 "$work/$k.json")"; csha="$(jq -er .compressed.sha256 "$work/$k.json")"
   size="$(jq -er .size "$work/$k.json")"; csize="$(jq -er .compressed.size "$work/$k.json")"
-  if [[ "$k" == kernel ]]; then f="$kernel_dir/$sha"; else f="$base_dir/$sha.ext4"; fi
+  f="$(asset_file "$k" "$sha")"
   [[ -f "$f.zst" && ! -L "$f.zst" && "$(stat -c %s "$f.zst")" == "$csize" ]] && verify "$csha" "$f.zst" || required=$((required + csize))
   [[ -f "$f" && ! -L "$f" && "$(stat -c %s "$f")" == "$size" ]] && verify "$sha" "$f" || required=$((required + size))
 done
@@ -250,13 +264,13 @@ if ((required > 536870912)); then
     [[ "$host_available" =~ ^[0-9]+$ ]] && ((host_available >= required)) || { echo 'insufficient host disk space for the assets and rollback' >&2; exit 1; }
   fi
 fi
-# place_asset <kernel|base>: the verified compressed and uncompressed file, then the manifest.
+# place_asset <kernel|base|harnesses>: the verified compressed and uncompressed file, then the manifest.
 place_asset() {
   local k="$1" key sha csha size csize f tmp
   key="$(jq -er .key "$work/$k.json")"
   sha="$(jq -er .sha256 "$work/$k.json")"; csha="$(jq -er .compressed.sha256 "$work/$k.json")"
   size="$(jq -er .size "$work/$k.json")"; csize="$(jq -er .compressed.size "$work/$k.json")"
-  if [[ "$k" == kernel ]]; then f="$kernel_dir/$sha"; else f="$base_dir/$sha.ext4"; fi
+  f="$(asset_file "$k" "$sha")"
   if [[ -f "$f.zst" && ! -L "$f.zst" && "$(stat -c %s "$f.zst")" == "$csize" ]] && verify "$csha" "$f.zst"; then
     echo "verified compressed $k is already cached"
   else
@@ -278,8 +292,7 @@ place_asset() {
   install -m 0644 "$work/$k.json" "$assets_dir/$ARCH/.$k-$key.json.tmp"
   mv -f -- "$assets_dir/$ARCH/.$k-$key.json.tmp" "$assets_dir/$ARCH/$k-$key.json"
 }
-place_asset kernel
-place_asset base
+for k in "${asset_kinds[@]}"; do place_asset "$k"; done
 
 if ((check)); then
   echo "check passed: $version from $SOURCE is complete and verified (running: ${current_commit:-nothing})"
@@ -316,6 +329,7 @@ else
   # The assets this release runs with, for pruning.
   cp "$work/kernel.json" "$work/release/kernel.json"
   cp "$work/base.json" "$work/release/base.json"
+  [[ ! -f "$work/harnesses.json" ]] || cp "$work/harnesses.json" "$work/release/harnesses.json"
   chmod 0755 "$work/release"
   mv "$work/release" "$release_dir"
 fi
@@ -362,7 +376,7 @@ prune_remove() { # prune_remove <parent-dir> <path> <file|dir|vdir>
   case "$kind" in
     file) [[ -f "$path" && "$(basename -- "$path")" =~ ^[0-9a-f]{64}\.ext4(\.zst)?$ ]] || return 0;;
     kfile) [[ -f "$path" && "$(basename -- "$path")" =~ ^[0-9a-f]{64}(\.zst)?$ ]] || return 0;;
-    asset) [[ -f "$path" && "$(basename -- "$path")" =~ ^(kernel|base)-[0-9a-f]{32}\.(json|zst)$ ]] || return 0;;
+    asset) [[ -f "$path" && "$(basename -- "$path")" =~ ^(kernel|base|harnesses)-[0-9a-f]{32}\.(json|zst)$ ]] || return 0;;
     dir) [[ -d "$path" && "$(basename -- "$path")" =~ ^[0-9a-f]{40}$ ]] || return 0;;
     vdir) [[ -d "$path" && "$(basename -- "$path")" =~ ^sha-[0-9a-f]{40}$ ]] || return 0;;
     *) return 0;;
@@ -420,6 +434,31 @@ prune_kernels() { # prune_kernels <new-release-dir> <previous-release-dir>: keep
     prune_remove "$kernel_dir" "$f" kfile
   done
 }
+prune_harnesses() { # prune_harnesses <new-release-dir> <previous-release-dir>
+  local real state ref f sha dir name
+  [[ -d "$harnesses_dir" && ! -L "$harnesses_dir" ]] || return 0
+  real="$(cd "$harnesses_dir" && pwd -P)"
+  [[ "$real" == "$(cd "$DATA_DIR" && pwd -P)/harnesses" ]] || { echo 'prune: harnesses cache resolves outside the data directory; skipping harnesses' >&2; return 0; }
+  declare -A keep=()
+  for dir in "$1" "$2"; do
+    [[ -f "$dir/harnesses.json" ]] || continue
+    sha="$(jq -er '.sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))' "$dir/harnesses.json" 2>/dev/null)" || { echo "prune: unreadable $dir/harnesses.json; skipping harnesses" >&2; return 0; }
+    keep[$sha]=1
+  done
+  while IFS= read -r -d '' state; do
+    while IFS= read -r ref; do
+      ref="$(basename -- "$ref")"
+      [[ "$ref" =~ ^([0-9a-f]{64})\.ext4$ ]] && keep[${BASH_REMATCH[1]}]=1
+    done < <(jq -r '(.layers // [])[] | .path // empty' "$state" 2>/dev/null || { echo "prune: cannot read $state; skipping harnesses" >&2; return 0; })
+  done < <(find "$DATA_DIR" -maxdepth 5 -path '*/agents/*/state.json' -type f -not -path "$harnesses_dir/*" -print0 2>/dev/null)
+  for f in "$harnesses_dir"/*.ext4 "$harnesses_dir"/*.ext4.zst; do
+    [[ -e "$f" || -L "$f" ]] || continue
+    name="$(basename -- "$f")"
+    sha="${name%%.*}"
+    [[ "$sha" =~ ^[0-9a-f]{64}$ && -z "${keep[$sha]:-}" ]] || continue
+    prune_remove "$harnesses_dir" "$f" file
+  done
+}
 prune_manifests() { # asset manifests whose file the prune removed
   local f k sha dir="$assets_dir/$ARCH"
   [[ -d "$dir" && ! -L "$dir" ]] || return 0
@@ -429,11 +468,12 @@ prune_manifests() { # asset manifests whose file the prune removed
     case "$k" in
       kernel) [[ -e "$kernel_dir/$sha" ]] || prune_remove "$dir" "$f" asset;;
       base) [[ -e "$base_dir/$sha.ext4" ]] || prune_remove "$dir" "$f" asset;;
+      harnesses) [[ -e "$harnesses_dir/$sha.ext4" ]] || prune_remove "$dir" "$f" asset;;
     esac
   done
 }
 prune_store_assets() { # store assets that no version left in the local store names
-  local m f name dir="$SOURCE/assets/$ARCH"
+  local m f name hk dir="$SOURCE/assets/$ARCH"
   [[ -d "$dir" && ! -L "$dir" ]] || return 0
   declare -A keep=()
   for m in "$SOURCE"/sha-*/runtime-linux-"$ARCH".manifest.json; do
@@ -441,6 +481,8 @@ prune_store_assets() { # store assets that no version left in the local store na
     keep["kernel-$(jq -er .kernel.key "$m" 2>/dev/null)"]=1 && keep["base-$(jq -er .base.key "$m" 2>/dev/null)"]=1 ||
       { echo "prune: cannot read $m; skipping store assets" >&2; return 0; }
     [[ -n "${keep[kernel-]:-}${keep[base-]:-}" ]] && { echo "prune: no keys in $m; skipping store assets" >&2; return 0; }
+    hk="$(jq -r '.harnesses.key // empty' "$m" 2>/dev/null || true)"
+    [[ -z "$hk" ]] || keep["harnesses-$hk"]=1
   done
   for f in "$dir"/*.json "$dir"/*.zst; do
     [[ -f "$f" ]] || continue
@@ -479,6 +521,7 @@ prune() {
   local previous="sha-$(basename -- "$2")"
   prune_bytes=0
   prune_bases "$1" "$2"
+  prune_harnesses "$1" "$2"
   prune_kernels "$1" "$2"
   prune_manifests
   prune_releases "$1" "$2"

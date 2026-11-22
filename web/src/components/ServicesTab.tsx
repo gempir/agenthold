@@ -297,7 +297,7 @@ function AddServiceForm({
           <Input
             value={command}
             onChange={(e) => setCommand(e.target.value)}
-            placeholder="npm run dev -- --port 5173"
+            placeholder="bun run dev --port 5173"
             required
           />
         </label>

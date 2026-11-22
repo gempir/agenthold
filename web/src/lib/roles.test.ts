@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'bun:test';
 import { quotaFull, quotaText } from './roles';
 
 it('describes the agent quota', () => {

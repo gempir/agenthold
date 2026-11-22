@@ -2,29 +2,18 @@
 # Provisions the base image. Runs as root inside the image's root filesystem after the Debian
 # packages from packages.txt are installed by scripts/guest/build-rootfs.sh in a chroot.
 #
-# Expects this directory's files in the same directory as the script. If /tmp/node.tar.xz exists
-# it is used (the rootfs build downloads it on the host); otherwise it is downloaded here.
+# Expects the files staged by the rootfs builder in the same directory as the script.
 set -euxo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=versions.env
 . "$here/versions.env"
 export DEBIAN_FRONTEND=noninteractive
 
-case "$(dpkg --print-architecture)" in
-  arm64) node_arch=arm64; node_sha="$NODE_SHA256_ARM64" ;;
-  amd64) node_arch=x64; node_sha="$NODE_SHA256_X64" ;;
-  *) echo "unsupported architecture" >&2; exit 1 ;;
-esac
-
-# Node.js from the official binaries (Debian's is too old for current harnesses).
-if [[ ! -f /tmp/node.tar.xz ]]; then
-  curl -fsSL -o /tmp/node.tar.xz "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${node_arch}.tar.xz"
-fi
-echo "${node_sha}  /tmp/node.tar.xz" | sha256sum -c -
-tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 --no-same-owner \
-  --exclude='*/CHANGELOG.md' --exclude='*/README.md' --exclude='*/LICENSE' --exclude='*/share/doc'
-rm -f /tmp/node.tar.xz
-node --version
+install -m 0755 "$here/bun" /usr/local/bin/bun
+# Keep npm package entry points with an env node shebang runnable with Bun.
+ln -sf bun /usr/local/bin/node
+ln -sf bun /usr/local/bin/bunx
+test "$(bun --version)" = "$BUN_VERSION"
 
 # Harnesses are delivered as their own read-only layer (images/harnesses/) mounted over the base.
 mkdir -p /opt/agenthold/tools

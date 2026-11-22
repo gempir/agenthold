@@ -1,6 +1,7 @@
+import { stubGlobal } from '@/test-setup';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
+import { expect, it } from 'bun:test';
 import { mockApi, renderApp } from '@/test-utils';
 
 const user = { id: 'u1', name: 'Alice', email: 'a@example.com' };
@@ -115,7 +116,7 @@ it('lets the owner take the app over', async () => {
       return { body: current };
     },
   });
-  vi.stubGlobal('confirm', () => true);
+  stubGlobal('confirm', () => true);
   renderApp('/apps/ap1');
   const u = userEvent.setup();
   await u.click(await screen.findByRole('button', { name: 'Take over' }));

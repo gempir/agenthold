@@ -1,7 +1,8 @@
+import { stubGlobal } from '@/test-setup';
 import { render } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
-import { vi } from 'vitest';
+import { vi } from 'bun:test';
 import { createAppRouter } from './router';
 
 type Handler = (req: { method: string; body: unknown }) => {
@@ -49,7 +50,7 @@ export function mockApi(routes: Record<string, Handler | unknown>) {
       );
     },
   );
-  vi.stubGlobal('fetch', fn);
+  stubGlobal('fetch', fn);
   return { calls };
 }
 

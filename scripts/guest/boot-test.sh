@@ -48,6 +48,8 @@ case "$(uname -m)" in
 esac
 ART="$REPO_ROOT/build/guest/$ARCH"
 SCRIPTS="$REPO_ROOT/scripts/guest"
+# shellcheck source=../../images/base/versions.env
+. "$REPO_ROOT/images/base/versions.env"
 
 log() { printf '\n==> %s\n' "$*"; }
 STATUS=0
@@ -246,6 +248,7 @@ boot boot1 1024 \
   -run "$MKDEB" \
   -run 'cat /etc/agenthold/boottest.txt; echo "env=$BOOTTEST_SERVER"; hostname; cat /etc/resolv.conf | grep nameserver; ip route show default' \
   -run 'echo "--- cmdline"; cat /proc/cmdline; echo "--- mounts"; findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS | grep -vE "^/(proc|sys|dev)/"; echo "--- blk"; for b in /sys/block/vd*; do echo "$(basename $b) $(cat $b/size) ro=$(cat $b/ro) serial=$(cat $b/serial 2>/dev/null)"; done; echo "--- pid1"; ps -o pid,ppid,user,comm -e | head -20; echo "--- uname"; uname -a; echo "--- df"; df -h / /home/agent' \
+  -run 'bun --version; node -p process.versions.bun; bunx --version' \
   -shutdown
 check_conn boot1
 [[ "$(out boot1 0)" == $'agent\n1000\n/home/agent\n/home/agent\nagent:agent 755' ]] && pass "boot1: commands run as agent (uid 1000) in /home/agent, home owned by agent" || fail "boot1: identity/cwd: $(out boot1 0 | tr '\n' '|')"
@@ -255,6 +258,7 @@ o="$(out boot1 3)"
 [[ "$o" == *"boot file $NONCE"* ]] && pass "boot1: boot file from the config drive is in place" || fail "boot1: boot file: $o"
 [[ "$o" == *"env=$HOST_IP"* ]] && pass "boot1: boot env reached the agent with {{server}} resolved to $HOST_IP" || fail "boot1: env: $o"
 [[ "$o" == *"boottest"* && "$o" == *"nameserver $HOST_IP"* && "$o" == *"default via $HOST_IP"* ]] && pass "boot1: hostname, resolver and default route point at the gateway" || fail "boot1: net: $o"
+[[ "$(code boot1 5)" == 0 && "$(out boot1 5)" == "$BUN_VERSION"$'\n'"$BUN_VERSION"$'\n'"$BUN_VERSION" ]] && pass "boot1: Bun $BUN_VERSION and its compatibility entry points run" || fail "boot1: Bun: $(jq -c '.results[5]' "$RUN/boot1.json")"
 log "Guest view (boot 1)"
 out boot1 4
 check_exit boot1

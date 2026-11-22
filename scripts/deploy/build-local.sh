@@ -75,7 +75,7 @@ esac
 proto='=https'; [[ "$RELEASES" == file://* ]] && proto='=file'
 [[ "$MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ && "$RETRY_DELAY" =~ ^[0-9]+$ ]] || { echo 'invalid retry limits' >&2; exit 2; }
 id -u "$BUILD_USER" >/dev/null 2>&1 || { echo "build user $BUILD_USER does not exist" >&2; exit 1; }
-for tool in git go node pnpm jq zstd sha256sum flock systemd-run make curl; do
+for tool in git go jq zstd sha256sum flock systemd-run make curl unzip; do
   command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
 done
 
@@ -293,7 +293,15 @@ echo "==> release $version: kernel $kernel_key, base $base_key${harnesses_key:+,
 # Cheap checks first, then the expensive ones.
 phase deploy-tests user bash -c 'bash scripts/deploy/pull_test.sh && bash scripts/deploy/bootstrap_test.sh'
 phase test-go user make test-go
-phase web user make web
+if [[ -f "$wt/web/bun.lock" ]]; then
+  bun_dir="$CACHE/user/bun/$(sed -n 's/^BUN_VERSION=//p' "$wt/images/base/versions.env")"
+  if [[ ! -x "$bun_dir/bun" ]]; then
+    phase bun user bash scripts/guest/install-bun.sh "$bun_dir" "$CACHE/user/bun-downloads"
+  fi
+  phase web user bash -c 'export PATH="$1:$PATH"; exec make web' _ "$bun_dir"
+else
+  phase web user make web
+fi
 if [[ "$RELEASES" == local ]]; then
   phase binary user env VERSION="$version" bash scripts/release/build.sh --out "$rel"
   check_release

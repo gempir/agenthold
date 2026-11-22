@@ -1,6 +1,7 @@
-import { screen, within } from '@testing-library/react';
+import { stubGlobal } from '@/test-setup';
+import { waitFor, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { beforeEach, expect, it } from 'bun:test';
 import type { Agent, Session } from '@/api/queries';
 import { initials } from '@/components/AgentBadge';
 import { SETTLED_OPEN_PREF } from '@/components/layout/Sidebar';
@@ -61,9 +62,8 @@ class FakeSocket {
 
 beforeEach(() => {
   localStorage.clear();
-  vi.stubGlobal('WebSocket', FakeSocket);
+  stubGlobal('WebSocket', FakeSocket);
 });
-afterEach(() => vi.unstubAllGlobals());
 
 function setup(sessions: Session[]) {
   let list = sessions;
@@ -105,10 +105,10 @@ it('shows active threads as cards and settles one from its hover button', async 
   });
   expect(settle).toHaveAttribute('title', 'Settle thread');
   await userEvent.click(settle);
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(calls.some((c) => c.key === 'POST /sessions/s1/settle')).toBe(true),
   );
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(within(threads).queryByText('Fix the build')).toBeNull(),
   );
   expect(within(threads).getByText(/No active threads/)).toBeVisible();
@@ -121,7 +121,7 @@ it('folds and unfolds the Settled section, remembering it, with Show more', asyn
   setup([session(), ...Array.from({ length: 13 }, (_, i) => settled(i))]);
   renderApp('/settings/threads');
   const header = await screen.findByRole('button', { name: /Settled/ });
-  await vi.waitFor(() => expect(header).toHaveTextContent('13'));
+  await waitFor(() => expect(header).toHaveTextContent('13'));
   expect(header).toHaveAttribute('aria-expanded', 'false');
   expect(screen.queryByRole('list', { name: 'Settled threads' })).toBeNull();
 
@@ -153,7 +153,7 @@ it('unsettles a settled thread from its row', async () => {
       name: 'Unsettle thread Old thread 0',
     }),
   );
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(calls.some((c) => c.key === 'POST /sessions/old0/unsettle')).toBe(
       true,
     ),
@@ -178,7 +178,7 @@ it('settles and unsettles from the thread view header', async () => {
   const { calls } = setup([session()]);
   renderApp('/a/a1?s=s1');
   await userEvent.click(await screen.findByRole('button', { name: 'Settle' }));
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(calls.some((c) => c.key === 'POST /sessions/s1/settle')).toBe(true),
   );
   expect(

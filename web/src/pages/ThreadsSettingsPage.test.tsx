@@ -1,11 +1,9 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { afterEach, expect, it, vi } from 'vitest';
+import { expect, it } from 'bun:test';
 import { mockApi } from '@/test-utils';
 import { ThreadsSettingsPage } from './ThreadsSettingsPage';
-
-afterEach(() => vi.unstubAllGlobals());
 
 const renderPage = () =>
   render(

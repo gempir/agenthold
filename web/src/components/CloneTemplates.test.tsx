@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { waitFor, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
@@ -7,12 +7,10 @@ import {
   createRouter,
   RouterProvider,
 } from '@tanstack/react-router';
-import { afterEach, expect, it, vi } from 'vitest';
+import { expect, it } from 'bun:test';
 import type { Agent } from '@/api/queries';
 import { mockApi, renderApp } from '@/test-utils';
 import { NewAgentDialog } from './AgentsSection';
-
-afterEach(() => vi.unstubAllGlobals());
 
 const me = {
   user: { id: 'u1', email: 'a@x.io', name: 'Alice', avatarUrl: '' },
@@ -87,7 +85,7 @@ it('offers templates in the new-agent dialog and clones the chosen one', async (
   expect(screen.getByText(/A copy of toolchain/)).toBeVisible();
   await userEvent.type(screen.getByLabelText('Name'), 'fresh');
   await userEvent.click(screen.getByRole('button', { name: 'Create' }));
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(calls.some((c) => c.key === 'POST /agents/t1/clone')).toBe(true),
   );
   expect(calls.find((c) => c.key === 'POST /agents/t1/clone')?.body).toEqual({
@@ -142,7 +140,7 @@ it('clones an agent from its settings', async () => {
   await userEvent.type(name, 'second');
   await userEvent.click(within(dialog).getByLabelText(/as a template/));
   await userEvent.click(within(dialog).getByRole('button', { name: 'Clone' }));
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(calls.some((c) => c.key === 'POST /agents/a1/clone')).toBe(true),
   );
   expect(calls.find((c) => c.key === 'POST /agents/a1/clone')?.body).toEqual({
@@ -181,7 +179,7 @@ it('saves a machine as a template and converts it back', async () => {
   await userEvent.click(
     await screen.findByRole('button', { name: 'Save as template' }),
   );
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(calls.find((c) => c.key === 'PATCH /agents/a1')?.body).toEqual({
       isTemplate: true,
     }),
@@ -190,7 +188,7 @@ it('saves a machine as a template and converts it back', async () => {
   await userEvent.click(
     await screen.findByRole('button', { name: 'Convert to agent' }),
   );
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(
       calls.filter((c) => c.key === 'PATCH /agents/a1').map((c) => c.body),
     ).toEqual([{ isTemplate: true }, { isTemplate: false }]),

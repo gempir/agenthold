@@ -1,6 +1,7 @@
-import { render, screen, within } from '@testing-library/react';
+import { stubGlobal } from '@/test-setup';
+import { waitFor, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, expect, it, vi } from 'vitest';
+import { expect, it, setSystemTime } from 'bun:test';
 import {
   agentPollInterval,
   agentsPollInterval,
@@ -10,8 +11,6 @@ import {
 } from '@/api/queries';
 import { AgentStateBadge } from '@/components/AgentStateBadge';
 import { mockApi, renderApp } from '@/test-utils';
-
-afterEach(() => vi.unstubAllGlobals());
 
 const me = {
   user: { id: 'u1', email: 'a@x.io', name: 'Alice', avatarUrl: '' },
@@ -88,7 +87,7 @@ it('lets an owner reset the system without an image setting', async () => {
   expect(await screen.findByText(/Reset the system to apply/)).toBeVisible();
   expect(screen.queryByLabelText('Image')).toBeNull();
   await userEvent.click(screen.getByRole('button', { name: 'Reset system' }));
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(calls.some((c) => c.key === 'POST /agents/a1/rebuild')).toBe(true),
   );
 });
@@ -144,8 +143,7 @@ it('polls fast while transient and slowly while running', () => {
 });
 
 it('badge shows Asleep and sleeps-in text', () => {
-  vi.useFakeTimers();
-  vi.setSystemTime(new Date('2030-01-01T00:00:00Z'));
+  setSystemTime(new Date('2030-01-01T00:00:00Z'));
   try {
     const { unmount } = render(<AgentStateBadge state="sleeping" />);
     expect(screen.getByText('Asleep')).toBeInTheDocument();
@@ -153,7 +151,7 @@ it('badge shows Asleep and sleeps-in text', () => {
     render(<AgentStateBadge state="running" sleepsAt="2030-01-01T00:05:00Z" />);
     expect(screen.getByText('sleeps in 5 min')).toBeInTheDocument();
   } finally {
-    vi.useRealTimers();
+    setSystemTime();
   }
 });
 
@@ -167,7 +165,7 @@ it('sleeping banner Wake now posts start', async () => {
   renderApp('/a/a1');
   expect(await screen.findByText(/This agent is asleep\./)).toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: 'Wake now' }));
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(calls.some((c) => c.key === 'POST /agents/a1/start')).toBe(true),
   );
 });
@@ -201,7 +199,7 @@ it('sharing tab lists access and shares by email', async () => {
   ).toBeVisible();
   await userEvent.type(screen.getByLabelText('Email'), 'c@x.io');
   await userEvent.click(screen.getByRole('button', { name: 'Share' }));
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(calls.find((c) => c.key === 'POST /agents/a1/shares')?.body).toEqual(
       { email: 'c@x.io' },
     ),
@@ -209,7 +207,7 @@ it('sharing tab lists access and shares by email', async () => {
 });
 
 it('shared user chats but sees no activity, owner settings or share form', async () => {
-  vi.stubGlobal('WebSocket', FakeSocket);
+  stubGlobal('WebSocket', FakeSocket);
   mockApi({
     'GET /me': { user: bob },
     'GET /harnesses': [],
@@ -257,7 +255,7 @@ class FakeSocket {
 }
 
 it('lands in the most recent thread across agents', async () => {
-  vi.stubGlobal('WebSocket', FakeSocket);
+  stubGlobal('WebSocket', FakeSocket);
   mockApi({
     'GET /me': me,
     'GET /harnesses': [],
@@ -280,7 +278,7 @@ it('lands in the most recent thread across agents', async () => {
     'GET /agents/a2': agent({ id: 'a2', name: 'two', state: 'running' }),
   });
   const { router } = renderApp('/');
-  await vi.waitFor(() => expect(router.state.location.href).toBe('/a/a2?s=s2'));
+  await waitFor(() => expect(router.state.location.href).toBe('/a/a2?s=s2'));
   const chats = await screen.findByRole('list', { name: 'Threads' });
   const rows = within(chats).getAllByRole('link');
   expect(rows.map((r) => r.textContent)).toEqual([
@@ -298,7 +296,7 @@ it('lands in the most recent thread across agents', async () => {
 });
 
 it('does not land in an agent that is being deleted', async () => {
-  vi.stubGlobal('WebSocket', FakeSocket);
+  stubGlobal('WebSocket', FakeSocket);
   mockApi({
     'GET /me': me,
     'GET /harnesses': [],
@@ -320,13 +318,13 @@ it('does not land in an agent that is being deleted', async () => {
     'GET /agents/a1': agent({ id: 'a1', name: 'one', state: 'running' }),
   });
   const { router } = renderApp('/');
-  await vi.waitFor(() => expect(router.state.location.href).toBe('/a/a1?s=s1'));
+  await waitFor(() => expect(router.state.location.href).toBe('/a/a1?s=s1'));
   const chats = await screen.findByRole('list', { name: 'Threads' });
   expect(within(chats).queryByText('Newest')).not.toBeInTheDocument();
 });
 
 it('starts a thread from the draft composer', async () => {
-  vi.stubGlobal('WebSocket', FakeSocket);
+  stubGlobal('WebSocket', FakeSocket);
   const { calls } = mockApi({
     'GET /me': me,
     'GET /harnesses': [
@@ -348,21 +346,19 @@ it('starts a thread from the draft composer', async () => {
   const picker = await screen.findByRole('button', {
     name: /Model for this conversation/,
   });
-  await vi.waitFor(() =>
-    expect(picker).toHaveAttribute('title', 'Claude Code'),
-  );
+  await waitFor(() => expect(picker).toHaveAttribute('title', 'Claude Code'));
   await userEvent.type(
     screen.getByRole('textbox', { name: 'Message' }),
     'build it{Enter}',
   );
-  await vi.waitFor(() => expect(router.state.location.href).toBe('/a/a1?s=s9'));
+  await waitFor(() => expect(router.state.location.href).toBe('/a/a1?s=s9'));
   expect(calls.find((c) => c.key === 'POST /sessions/s9/prompt')?.body).toEqual(
     { text: 'build it' },
   );
 });
 
 it('toggles the agent panel with its threads and manage links', async () => {
-  vi.stubGlobal('WebSocket', FakeSocket);
+  stubGlobal('WebSocket', FakeSocket);
   mockApi({
     'GET /me': me,
     'GET /harnesses': [],
@@ -448,7 +444,7 @@ it('a new thread starts with the model picked in the composer', async () => {
     screen.getByRole('textbox', { name: 'Message' }),
     'hi{Enter}',
   );
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(calls.map((c) => c.key)).toContain('POST /sessions/s1/prompt'),
   );
   const keys = calls.map((c) => c.key);
@@ -479,7 +475,7 @@ const logLines = [
 ];
 
 it('streams the activity log in its own panel tab', async () => {
-  vi.stubGlobal('WebSocket', FakeSocket);
+  stubGlobal('WebSocket', FakeSocket);
   const { calls } = mockApi({
     'GET /me': me,
     'GET /harnesses': [],
@@ -510,7 +506,7 @@ it('streams the activity log in its own panel tab', async () => {
 });
 
 it('shows the Activity tab of the panel while the chat waits', async () => {
-  vi.stubGlobal('WebSocket', FakeSocket);
+  stubGlobal('WebSocket', FakeSocket);
   mockApi({
     'GET /me': me,
     'GET /harnesses': [],
@@ -608,14 +604,14 @@ it('the owner switches the agent to another harness from the model picker', asyn
   await user.click(
     within(confirm).getByRole('button', { name: 'Switch to Codex' }),
   );
-  await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(calls.find((c) => c.key === 'PATCH /agents/a1')?.body).toEqual({
     harness: 'codex',
     model: '',
     modelOptions: {},
   });
   // The composer now names the new harness.
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(
       screen.getByRole('button', { name: /Model for this conversation/ }),
     ).toHaveAttribute('title', 'Codex'),
@@ -650,7 +646,7 @@ it('switching to a model of another harness sends it along', async () => {
   // It has no account login: signing in inside the sandbox is the way.
   expect(confirm).toHaveTextContent('Model: GPT-5');
   await user.click(within(confirm).getByRole('button', { name: /Switch/ }));
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(calls.find((c) => c.key === 'PATCH /agents/a1')?.body).toEqual({
       harness: 'opencode',
       model: 'openai/gpt-5',
@@ -733,7 +729,7 @@ const repo = (over: Partial<GitRepo> = {}): GitRepo => ({
 });
 
 it('the sidebar shows project and branch of a thread, and nothing for one without', async () => {
-  vi.stubGlobal('WebSocket', FakeSocket);
+  stubGlobal('WebSocket', FakeSocket);
   mockApi({
     'GET /me': me,
     'GET /harnesses': [],
@@ -752,7 +748,7 @@ it('the sidebar shows project and branch of a thread, and nothing for one withou
   });
   renderApp('/a/a1?s=s2');
   const chats = await screen.findByRole('list', { name: 'Threads' });
-  const [withGit, plain] = await vi.waitFor(() => {
+  const [withGit, plain] = await waitFor(() => {
     const rows = within(chats).getAllByRole('link');
     expect(rows).toHaveLength(2);
     return rows;
@@ -765,7 +761,7 @@ it('the sidebar shows project and branch of a thread, and nothing for one withou
 });
 
 it('the sidebar search matches threads by project and branch', async () => {
-  vi.stubGlobal('WebSocket', FakeSocket);
+  stubGlobal('WebSocket', FakeSocket);
   mockApi({
     'GET /me': me,
     'GET /harnesses': [],
@@ -789,7 +785,7 @@ it('the sidebar search matches threads by project and branch', async () => {
   });
   renderApp('/a/a1?s=s1');
   const chats = await screen.findByRole('list', { name: 'Threads' });
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(within(chats).getAllByRole('link')).toHaveLength(2),
   );
   const search = screen.getByRole('searchbox', {
@@ -809,7 +805,7 @@ it('the sidebar search matches threads by project and branch', async () => {
 });
 
 it('starting a chat with a selected repository passes its cwd', async () => {
-  vi.stubGlobal('WebSocket', FakeSocket);
+  stubGlobal('WebSocket', FakeSocket);
   const { calls } = mockApi({
     'GET /me': me,
     'GET /harnesses': [
@@ -834,14 +830,14 @@ it('starting a chat with a selected repository passes its cwd', async () => {
     screen.getByRole('textbox', { name: 'Message' }),
     'go{Enter}',
   );
-  await vi.waitFor(() => expect(router.state.location.href).toBe('/a/a1?s=s9'));
+  await waitFor(() => expect(router.state.location.href).toBe('/a/a1?s=s9'));
   expect(calls.find((c) => c.key === 'POST /agents/a1/sessions')?.body).toEqual(
     { cwd: 'projects/api' },
   );
 });
 
 it('a ?cwd= preselects the repository of the draft', async () => {
-  vi.stubGlobal('WebSocket', FakeSocket);
+  stubGlobal('WebSocket', FakeSocket);
   const { calls } = mockApi({
     'GET /me': me,
     'GET /harnesses': [],
@@ -856,12 +852,12 @@ it('a ?cwd= preselects the repository of the draft', async () => {
   });
   renderApp('/a/a1?cwd=projects/web');
   const trigger = await screen.findByRole('button', { name: 'Project' });
-  await vi.waitFor(() => expect(trigger).toHaveTextContent('web'));
+  await waitFor(() => expect(trigger).toHaveTextContent('web'));
   await userEvent.type(
     screen.getByRole('textbox', { name: 'Message' }),
     'hi{Enter}',
   );
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(calls.some((c) => c.key === 'POST /agents/a1/sessions')).toBe(true),
   );
   expect(calls.find((c) => c.key === 'POST /agents/a1/sessions')?.body).toEqual(
@@ -870,7 +866,7 @@ it('a ?cwd= preselects the repository of the draft', async () => {
 });
 
 it('a session on a branch shows it in the composer and refreshes it', async () => {
-  vi.stubGlobal('WebSocket', FakeSocket);
+  stubGlobal('WebSocket', FakeSocket);
   const { calls } = mockApi({
     'GET /me': me,
     'GET /harnesses': [],
@@ -889,7 +885,7 @@ it('a session on a branch shows it in the composer and refreshes it', async () =
   await userEvent.click(
     within(badge).getByRole('button', { name: 'Refresh git branch' }),
   );
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(calls.find((c) => c.key === 'PATCH /sessions/s1/git')?.body).toEqual(
       {
         refresh: true,

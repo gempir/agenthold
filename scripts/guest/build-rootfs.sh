@@ -58,7 +58,7 @@ log() { printf '\n==> %s\n' "$*"; }
 
 # --- build dependencies (Debian/Ubuntu hosts) --------------------------------------------------------
 need=()
-for pair in mmdebstrap:mmdebstrap mkfs.ext4:e2fsprogs zstd:zstd mksquashfs:squashfs-tools jq:jq curl:curl; do
+for pair in mmdebstrap:mmdebstrap mkfs.ext4:e2fsprogs zstd:zstd mksquashfs:squashfs-tools jq:jq curl:curl unzip:unzip; do
   command -v "${pair%%:*}" >/dev/null || need+=("${pair#*:}")
 done
 if ((${#need[@]})); then
@@ -82,15 +82,6 @@ trap 'rm -rf "$WORK"' EXIT
 t0=$(date +%s)
 
 # --- inputs ----------------------------------------------------------------------------------------
-if [[ "$ARCH" == arm64 ]]; then node_arch=arm64; node_sha="$NODE_SHA256_ARM64"; else node_arch=x64; node_sha="$NODE_SHA256_X64"; fi
-NODE_TARBALL="$CACHE/node-v$NODE_VERSION-linux-$node_arch.tar.xz"
-if ! echo "$node_sha  $NODE_TARBALL" | sha256sum -c --quiet - 2>/dev/null; then
-  log "Downloading Node.js $NODE_VERSION"
-  curl -fsSL --retry 3 -o "$NODE_TARBALL.part" "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-$node_arch.tar.xz"
-  echo "$node_sha  $NODE_TARBALL.part" | sha256sum -c --quiet -
-  mv "$NODE_TARBALL.part" "$NODE_TARBALL"
-fi
-
 KEYRING_DEB="$CACHE/$DEBIAN_KEYRING_DEB"
 if ! echo "$DEBIAN_KEYRING_SHA256  $KEYRING_DEB" | sha256sum -c --quiet - 2>/dev/null; then
   log "Downloading $DEBIAN_KEYRING_DEB"
@@ -104,10 +95,11 @@ KEYRING="$WORK/keyring/usr/share/keyrings/debian-archive-keyring.gpg"
 # --- tree (cached: only rebuilt when images/base changes) ---------------------------------------------
 # Bump TREE_FORMAT when the mmdebstrap invocation below changes.
 TREE_FORMAT=3
-tree_key="$( (echo "$TREE_FORMAT $ARCH"; cat "$IMG_DIR/versions.env" "$IMG_DIR/packages.txt" "$IMG_DIR/provision.sh" "$IMG_DIR/image.env") | sha256sum | cut -c1-16)"
+tree_key="$( (echo "$TREE_FORMAT $ARCH"; cat "$IMG_DIR/versions.env" "$IMG_DIR/packages.txt" "$IMG_DIR/provision.sh" "$IMG_DIR/image.env" "$REPO_ROOT/scripts/guest/install-bun.sh") | sha256sum | cut -c1-16)"
 TREE="$CACHE/tree-$ARCH-$tree_key"
 if [[ ! -f "$TREE.done" ]]; then
   rm -rf "$CACHE/tree-$ARCH-"*
+  bash "$REPO_ROOT/scripts/guest/install-bun.sh" "$WORK" "$CACHE"
   log "mmdebstrap $DEBIAN_SUITE ($ARCH) from snapshot $DEBIAN_SNAPSHOT"
   packages="$(grep -vE '^\s*(#|$)' "$IMG_DIR/packages.txt" | paste -sd, -)"
   snap="http://snapshot.debian.org/archive"
@@ -126,8 +118,7 @@ if [[ ! -f "$TREE.done" ]]; then
     --dpkgopt='path-exclude=/usr/share/locale/*' \
     --dpkgopt='path-include=/usr/share/locale/locale.alias' \
     --customize-hook='mkdir -p "$1/tmp/agenthold-base"' \
-    --customize-hook="copy-in $IMG_DIR/versions.env $IMG_DIR/image.env $IMG_DIR/provision.sh /tmp/agenthold-base" \
-    --customize-hook="upload $NODE_TARBALL /tmp/node.tar.xz" \
+    --customize-hook="copy-in $IMG_DIR/versions.env $IMG_DIR/image.env $IMG_DIR/provision.sh $WORK/bun /tmp/agenthold-base" \
     --customize-hook='chroot "$1" /bin/bash /tmp/agenthold-base/provision.sh' \
     --customize-hook='rm -rf "$1/tmp/agenthold-base" "$1/etc/resolv.conf" && touch "$1/etc/resolv.conf"' \
     "$DEBIAN_SUITE" "$TREE" \
@@ -143,7 +134,7 @@ fi
 # Mount point of the delivered sandboxd (a cached tree may still hold a daemon from before G1).
 rm -f "$TREE/opt/agenthold/sandboxd"
 install -m 0755 /dev/null "$TREE/opt/agenthold/sandboxd"
-# Clamp every timestamp (npm and the hooks carry "now").
+# Clamp every timestamp (the provisioning hooks carry "now").
 find "$TREE" -xdev -newermt "@$SOURCE_DATE_EPOCH" -exec touch --no-dereference --date="@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
 
 # --- ext4 -------------------------------------------------------------------------------------------
@@ -212,12 +203,12 @@ fi
 base_key="$(bash "$REPO_ROOT/scripts/guest/base-key.sh")"
 jq -n --arg version "$BASE_VERSION" --arg arch "$ARCH" --arg file "$NAME.ext4" --argjson size "$size" \
   --arg sha256 "$sha" --argjson zstdSize "$zsize" --argjson zstdSha256 "$zsha" --argjson squashfsSize "$sqsize" \
-  --arg fsUuid "$FS_UUID" --arg debian "$DEBIAN_SUITE@$DEBIAN_SNAPSHOT" --arg node "$NODE_VERSION" \
+  --arg fsUuid "$FS_UUID" --arg debian "$DEBIAN_SUITE@$DEBIAN_SNAPSHOT" --arg bun "$BUN_VERSION" \
   --arg baseKey "$base_key" --argjson treeMiB "$tree_mb" --argjson sde "$SOURCE_DATE_EPOCH" \
   '{version: $version, arch: $arch, format: "ext4", file: $file, size: $size, sha256: $sha256,
     zstd: (if $zstdSize == null then null else {file: ($file + ".zst"), size: $zstdSize, sha256: $zstdSha256} end),
     squashfsSize: $squashfsSize, fsUuid: $fsUuid, treeMiB: $treeMiB, sourceDateEpoch: $sde,
-    inputs: {debian: $debian, node: $node, baseKey: $baseKey}}' >"$OUT/$NAME.manifest.json"
+    inputs: {debian: $debian, bun: $bun, baseKey: $baseKey}}' >"$OUT/$NAME.manifest.json"
 
 # Hand the outputs to the invoking user when run through sudo (the repo is theirs).
 if [[ -n "${SUDO_UID:-}" ]]; then chown -R "$SUDO_UID:${SUDO_GID:-$SUDO_UID}" "$OUT"; fi

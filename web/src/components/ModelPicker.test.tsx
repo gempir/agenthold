@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, vi } from 'bun:test';
 import { ModelPicker, type HarnessChoice } from './ModelPicker';
 import type { Choice, ModelCatalog } from '@/lib/models';
 
@@ -455,7 +455,7 @@ it('asks before switching the agent, then switches and closes', async () => {
     within(confirm).getByRole('button', { name: 'Switch to Codex' }),
   );
   expect(onSwitch).toHaveBeenCalledWith('codex', 'gpt-5-mini');
-  await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 });
 
 it('switches to a harness without known models on its default', async () => {

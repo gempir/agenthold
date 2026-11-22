@@ -51,7 +51,7 @@ HARNESS_DIR="$REPO_ROOT/images/harnesses"
 log() { printf '\n==> %s\n' "$*"; }
 
 need=()
-for pair in mkfs.ext4:e2fsprogs zstd:zstd jq:jq curl:curl; do
+for pair in mkfs.ext4:e2fsprogs zstd:zstd jq:jq curl:curl unzip:unzip; do
   command -v "${pair%%:*}" >/dev/null || need+=("${pair#*:}")
 done
 if ((${#need[@]})); then
@@ -73,17 +73,9 @@ trap 'rm -rf "$WORK"' EXIT
 
 t0=$(date +%s)
 
-# --- pinned Node.js toolchain (shared cache with build-rootfs.sh) -----------------------------------
-if [[ "$ARCH" == arm64 ]]; then node_arch=arm64; node_sha="$NODE_SHA256_ARM64"; else node_arch=x64; node_sha="$NODE_SHA256_X64"; fi
-NODE_TARBALL="$CACHE/node-v$NODE_VERSION-linux-$node_arch.tar.xz"
-if ! echo "$node_sha  $NODE_TARBALL" | sha256sum -c --quiet - 2>/dev/null; then
-  log "Downloading Node.js $NODE_VERSION"
-  curl -fsSL --retry 3 -o "$NODE_TARBALL.part" "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-$node_arch.tar.xz"
-  echo "$node_sha  $NODE_TARBALL.part" | sha256sum -c --quiet -
-  mv "$NODE_TARBALL.part" "$NODE_TARBALL"
-fi
-mkdir -p "$WORK/node"
-tar -xJf "$NODE_TARBALL" -C "$WORK/node" --strip-components=1 --no-same-owner
+bash "$REPO_ROOT/scripts/guest/install-bun.sh" "$WORK/bin" "$CACHE"
+ln -s bun "$WORK/bin/node"
+export PATH="$WORK/bin:$PATH"
 
 # --- pinned Antigravity CLI (native single-binary harness) ------------------------------------------
 if [[ "$ARCH" == arm64 ]]; then agy_path=linux-arm/cli_linux_arm64.tar.gz; agy_sha="$AGY_SHA256_ARM64"; else agy_path=linux-x64/cli_linux_x64.tar.gz; agy_sha="$AGY_SHA256_X64"; fi
@@ -98,10 +90,13 @@ fi
 # --- install harnesses into layer tree --------------------------------------------------------------
 TREE="$WORK/tree"
 mkdir -p "$TREE/opt/agenthold/tools" "$TREE/usr/local/bin" "$TREE/etc/agenthold/image.env.d"
-cp "$HARNESS_DIR/package.json" "$HARNESS_DIR/package-lock.json" "$TREE/opt/agenthold/tools/"
-log "Installing harnesses ($ARCH) with Node.js $NODE_VERSION"
-PATH="$WORK/node/bin:$PATH" HOME="$WORK/home" npm_config_cache="$WORK/npm-cache" \
-  npm ci --prefix "$TREE/opt/agenthold/tools" --omit=dev --no-fund --no-audit --no-update-notifier
+cp "$HARNESS_DIR/package.json" "$HARNESS_DIR/bun.lock" "$TREE/opt/agenthold/tools/"
+log "Installing harnesses ($ARCH) with Bun $BUN_VERSION"
+HOME="$WORK/home" BUN_INSTALL_CACHE_DIR="$WORK/bun-cache" \
+  bun install --cwd "$TREE/opt/agenthold/tools" --frozen-lockfile --production
+for harness in claude codex opencode; do
+  HOME="$WORK/home" "$TREE/opt/agenthold/tools/node_modules/.bin/$harness" --version
+done
 for bin in "$TREE"/opt/agenthold/tools/node_modules/.bin/*; do
   [[ -e "$bin" || -L "$bin" ]] || continue
   name="$(basename "$bin")"
@@ -167,14 +162,14 @@ fi
 
 jq -n --arg arch "$ARCH" --arg file "$NAME.ext4" --argjson size "$size" \
   --arg sha256 "$sha" --argjson zstdSize "$zsize" --argjson zstdSha256 "$zsha" \
-  --arg fsUuid "$FS_UUID" --arg node "$NODE_VERSION" --arg agy "$AGY_VERSION" \
-  --arg npmLockSha256 "$(sha256sum "$HARNESS_DIR/package-lock.json" | cut -d' ' -f1)" \
+  --arg fsUuid "$FS_UUID" --arg bun "$BUN_VERSION" --arg agy "$AGY_VERSION" \
+  --arg bunLockSha256 "$(sha256sum "$HARNESS_DIR/bun.lock" | cut -d' ' -f1)" \
   --argjson harnesses "$(jq '.dependencies' "$HARNESS_DIR/package.json")" \
   --arg harnessesKey "$HARNESSES_KEY" --argjson treeMiB "$tree_mb" --argjson sde "$SOURCE_DATE_EPOCH" \
   '{arch: $arch, format: "ext4", file: $file, size: $size, sha256: $sha256,
     zstd: (if $zstdSize == null then null else {file: ($file + ".zst"), size: $zstdSize, sha256: $zstdSha256} end),
     fsUuid: $fsUuid, treeMiB: $treeMiB, sourceDateEpoch: $sde,
-    inputs: {node: $node, harnesses: ($harnesses + {"antigravity-cli": $agy}), npmLockSha256: $npmLockSha256, harnessesKey: $harnessesKey}}' >"$OUT/$NAME.manifest.json"
+    inputs: {bun: $bun, harnesses: ($harnesses + {"antigravity-cli": $agy}), bunLockSha256: $bunLockSha256, harnessesKey: $harnessesKey}}' >"$OUT/$NAME.manifest.json"
 
 if [[ -n "${SUDO_UID:-}" ]]; then chown -R "$SUDO_UID:${SUDO_GID:-$SUDO_UID}" "$OUT"; fi
 

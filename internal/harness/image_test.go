@@ -17,29 +17,20 @@ import (
 	_ "github.com/gempir/agenthold/internal/harness/opencode"
 )
 
-// images/harnesses/package.json is the only place npm harness versions are pinned
-// (package-lock.json is generated from it), images/harnesses/versions.env the only
-// place native harness binaries are. Each adapter names its package or binary;
-// this checks that the harnesses layer installs exactly those, at one version, and
-// that the command each adapter runs is a binary the layer installs.
+// The layer builder checks the frozen Bun lockfile and runs the installed commands.
+// This test ties the adapter inventory to the packages and commands that it checks.
 func TestAdaptersMatchBaseImage(t *testing.T) {
 	var pkg struct {
 		Dependencies map[string]string `json:"dependencies"`
 	}
 	readJSON(t, "../../images/harnesses/package.json", &pkg)
-	var lock struct {
-		Packages map[string]struct {
-			Version      string            `json:"version"`
-			Dependencies map[string]string `json:"dependencies"`
-			Bin          map[string]string `json:"bin"`
-		} `json:"packages"`
-	}
-	readJSON(t, "../../images/harnesses/package-lock.json", &lock)
-	if root := lock.Packages[""].Dependencies; !maps.Equal(root, pkg.Dependencies) {
-		t.Fatalf("package-lock.json was not regenerated: it locks %v, package.json asks for %v", root, pkg.Dependencies)
-	}
 	versions := readEnv(t, "../../images/harnesses/versions.env")
 	buildHarnesses := readText(t, "../../scripts/guest/build-harnesses.sh")
+	smokeTest := regexp.MustCompile(`(?m)^for harness in (.+); do$`).FindStringSubmatch(buildHarnesses)
+	if len(smokeTest) == 0 {
+		t.Fatal("the harnesses builder does not smoke test the package commands")
+	}
+	packageCommands := strings.Fields(smokeTest[1])
 
 	var ids, pkgs []string
 	for _, ad := range harness.List(false) {
@@ -58,12 +49,11 @@ func TestAdaptersMatchBaseImage(t *testing.T) {
 				t.Errorf("%s: %s is not in images/harnesses/package.json", ad.ID, ad.Package)
 				continue
 			}
-			locked := lock.Packages["node_modules/"+ad.Package]
-			if locked.Version != want {
-				t.Errorf("%s: package.json pins %s@%s, package-lock.json has %s", ad.ID, ad.Package, want, locked.Version)
+			if !pinnedVersion.MatchString(want) {
+				t.Errorf("%s: package.json must pin an exact version of %s, got %q", ad.ID, ad.Package, want)
 			}
-			if _, ok := locked.Bin[ad.Command[0]]; !ok {
-				t.Errorf("%s runs %q, which %s does not install (bins %v)", ad.ID, ad.Command[0], ad.Package, slices.Collect(maps.Keys(locked.Bin)))
+			if !slices.Contains(packageCommands, ad.Command[0]) {
+				t.Errorf("%s runs %q, which the builder does not smoke test", ad.ID, ad.Command[0])
 			}
 		}
 	}

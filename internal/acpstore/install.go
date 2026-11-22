@@ -257,8 +257,15 @@ SPEC="$2"
 PKG="$3"
 AGENT_ID="$4"
 mkdir -p "$PREFIX"
-npm install --prefix "$PREFIX" --omit=dev --no-fund --no-audit --no-update-notifier "$SPEC" >&2
-node -e '
+if command -v bun >/dev/null 2>&1; then
+  bun add --cwd "$PREFIX" --exact --trust "$SPEC" >&2
+  js=bun
+else
+  # Older base images still ship Node.js and npm.
+  npm install --prefix "$PREFIX" --omit=dev --no-fund --no-audit --no-update-notifier "$SPEC" >&2
+  js=node
+fi
+"$js" -e '
 const fs = require("fs");
 const path = require("path");
 const prefix = process.argv[1];
@@ -282,16 +289,16 @@ process.stdout.write(binPath);
 `
 	res, err := ts.Exec(ctx, []string{"bash", "-c", script, "_", npmPrefix, pkg.Package, pkgName, a.ID}, "", nil, 600, 64*1024)
 	if err != nil {
-		return receipt{}, fmt.Errorf("install %s via npm: %w", a.ID, err)
+		return receipt{}, fmt.Errorf("install %s from the npm registry: %w", a.ID, err)
 	}
 	if res.ExitCode != 0 {
-		return receipt{}, fmt.Errorf("install %s via npm (exit %d): %s", a.ID, res.ExitCode, tailText(res.Output, 600))
+		return receipt{}, fmt.Errorf("install %s from the npm registry (exit %d): %s", a.ID, res.ExitCode, tailText(res.Output, 600))
 	}
-	// Last line is the resolved executable path printed by node.
+	// Last line is the resolved executable path printed by the JavaScript runtime.
 	lines := strings.Split(strings.TrimSpace(res.Output), "\n")
 	binPath := strings.TrimSpace(lines[len(lines)-1])
 	if !strings.HasPrefix(binPath, npmPrefix) {
-		return receipt{}, fmt.Errorf("install %s via npm: could not resolve executable from %q", a.ID, tailText(res.Output, 400))
+		return receipt{}, fmt.Errorf("install %s from the npm registry: could not resolve executable from %q", a.ID, tailText(res.Output, 400))
 	}
 	cmd := append([]string{binPath}, pkg.Args...)
 	return receipt{

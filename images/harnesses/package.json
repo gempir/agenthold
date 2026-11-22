@@ -2,6 +2,7 @@
   "name": "agenthold-guest-tools",
   "version": "2026.11.22-1",
   "private": true,
+  "trustedDependencies": ["@anthropic-ai/claude-code", "opencode-ai"],
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.330",
     "@openai/codex": "0.171.0",

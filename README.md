@@ -15,7 +15,7 @@ container deployment. Automatic deployment remains disabled.
 ## Development
 
 On macOS use an Apple M3 or newer, macOS 15 or newer, and Lima with nested virtualization. Install Go,
-Node and pnpm to run the host-side tests and build the web UI. The VM installs its own Go toolchain.
+Bun 1.4.5 to run the host-side tests and build the web UI. The VM installs its own Go toolchain.
 
 ```sh
 make dev-vm                         # create and start the Lima VM

@@ -4,17 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
-    "preview": "astro preview",
-    "typecheck": "astro check",
-    "lint:docs": "nimbus-docs lint",
-    "lint:docs:fix": "nimbus-docs lint --fix",
-    "prepreview:cf": "astro build",
-    "preview:cf": "wrangler dev",
-    "predeploy": "astro check && astro build",
-    "deploy": "wrangler deploy",
-    "check": "nimbus-docs check"
+    "dev": "bun --bun astro dev",
+    "build": "bun --bun astro build",
+    "preview": "bun --bun astro preview",
+    "typecheck": "bun --bun astro check",
+    "lint:docs": "bun --bun nimbus-docs lint",
+    "lint:docs:fix": "bun --bun nimbus-docs lint --fix",
+    "prepreview:cf": "bun --bun astro build",
+    "preview:cf": "bun --bun wrangler dev",
+    "predeploy": "bun --bun astro check && bun --bun astro build",
+    "deploy": "bun --bun wrangler deploy",
+    "check": "bun --bun nimbus-docs check"
   },
   "dependencies": {
     "@cloudflare/nimbus-docs": "^0.20.0",

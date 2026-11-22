@@ -7,7 +7,7 @@ import {
   createRouter,
   RouterProvider,
 } from '@tanstack/react-router';
-import { expect, it } from 'vitest';
+import { expect, it } from 'bun:test';
 import { mockApi } from '@/test-utils';
 import { SharingTab } from './SharingTab';
 

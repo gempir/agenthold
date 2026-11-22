@@ -38,7 +38,7 @@ Never put secret values into a service's `env`: it is stored in plain text.
 
 ### Keeping a dev server alive
 
-Background processes an agent starts during a turn (`npm run dev &`, `nohup ...`) are stopped when the harness ends,
+Background processes an agent starts during a turn (`bun run dev &`, `nohup ...`) are stopped when the harness ends,
 so a dev server started that way dies with the turn. Agents use their platform tools instead:
 
 | Tool | What it does |
@@ -48,7 +48,7 @@ so a dev server started that way dies with the turn. Agents use their platform t
 | `list_services` | services with their state, restarts and last exit |
 | `service_logs(name, lines?)` | the last lines of its output |
 
-Together with `expose_port`, an agent can run `start_service("web", "npm run dev -- --port 5173", "app")` and then
+Together with `expose_port`, an agent can run `start_service("web", "bun run dev --port 5173", "app")` and then
 `expose_port(5173)` to hand its owner a URL of a dev server that keeps running between turns.
 
 ## Apps

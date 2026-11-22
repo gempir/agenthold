@@ -1,9 +1,8 @@
+import { stubGlobal } from '@/test-setup';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, expect, it, vi } from 'vitest';
+import { expect, it } from 'bun:test';
 import { mockApi, renderApp } from '@/test-utils';
-
-afterEach(() => vi.unstubAllGlobals());
 
 const user = { id: 'u1', name: 'Alice', email: 'a@example.com', avatarUrl: '' };
 const admin = { admin: true, user };
@@ -18,7 +17,7 @@ const identity = {
 };
 
 it('lists linked Slack users and unlinks one after confirmation', async () => {
-  vi.stubGlobal('confirm', () => true);
+  stubGlobal('confirm', () => true);
   const api = mockApi({
     'GET /me': member,
     'GET /me/slack': [identity],
@@ -109,7 +108,7 @@ it('saves tokens and shows the connection error inline', async () => {
 });
 
 it('shows the last error of a down connection and disconnects after confirmation', async () => {
-  vi.stubGlobal('confirm', () => true);
+  stubGlobal('confirm', () => true);
   const api = mockApi({
     'GET /me': admin,
     'GET /me/slack': [],

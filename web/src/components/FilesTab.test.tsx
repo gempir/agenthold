@@ -1,10 +1,8 @@
-import { screen, within } from '@testing-library/react';
+import { waitFor, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, expect, it, vi } from 'vitest';
+import { expect, it } from 'bun:test';
 import type { Agent } from '@/api/queries';
 import { mockApi, renderApp } from '@/test-utils';
-
-afterEach(() => vi.unstubAllGlobals());
 
 const me = {
   user: { id: 'u1', email: 'a@x.io', name: 'Alice', avatarUrl: '' },
@@ -63,7 +61,7 @@ it('lists entries and navigates into a directory in the agent panel', async () =
   expect(await screen.findByText('notes.txt')).toBeVisible();
   expect(screen.getByText('2.0 KB')).toBeVisible();
   await userEvent.click(screen.getByRole('button', { name: 'src' }));
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(calls.filter((c) => c.key === 'GET /agents/a1/files').length).toBe(
       2,
     ),

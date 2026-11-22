@@ -5,7 +5,7 @@ description: "Develop the native server in a Lima VM with nested virtualization.
 
 On macOS, Firecracker development requires an Apple M3 or newer, macOS 15 or newer and
 [Lima](https://lima-vm.io) (`brew install lima`). The template uses `vmType: vz` and nested virtualization;
-OrbStack does not provide `/dev/kvm`. Install Node and pnpm on the Mac for the embedded web build.
+OrbStack does not provide `/dev/kvm`. Install Bun 1.4.5 on the Mac for the embedded web build.
 
 ```sh
 make dev-vm                         # create/start the VM
@@ -47,7 +47,7 @@ outage and secret injection through the API (it needs internet access for an HTT
 The fake driver runs sandbox processes on the host and is for tests and UI development only. For browser
 smoke tests configure `sandbox.driver: fake` on a development-only server, build `agenthold` and `fakeagent`
 next to each other (the server's directory is where the fake harness is looked for), and enable `test_harness`. Then run
-`cd web && pnpm e2e`; `E2E_USER`, `E2E_PASSWORD` and `BASE_URL` override the local defaults. Never use the
+`cd web && bun run e2e`; `E2E_USER`, `E2E_PASSWORD` and `BASE_URL` override the local defaults. Never use the
 fake driver to isolate untrusted agents.
 
 See [guest artifacts](/guest-artifacts/) for kernel and rootfs build details. The historical KVM spike is

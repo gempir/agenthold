@@ -69,14 +69,9 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
         with:
-          package_json_file: web/package.json
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
+          bun-version-file: web/package.json
       - run: make web
       - run: VERSION=${{ needs.meta.outputs.version }} scripts/release/build.sh --out out
       - name: Smoke test

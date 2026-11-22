@@ -4,7 +4,7 @@ LDFLAGS := -s -w \
 	-X github.com/gempir/agenthold/internal/version.Version=$(VERSION) \
 	-X github.com/gempir/agenthold/internal/version.Commit=$(COMMIT)
 GO ?= go
-PNPM ?= pnpm
+BUN ?= bun
 
 export CGO_ENABLED := 0
 
@@ -17,9 +17,9 @@ build-go:
 	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -o bin/agenthold ./cmd/agenthold
 
 web-deps:
-	cd web && $(PNPM) install --frozen-lockfile
+	cd web && $(BUN) install --frozen-lockfile
 web: web-deps
-	cd web && $(PNPM) build
+	cd web && $(BUN) run build
 
 test: test-go test-web
 test-go:
@@ -27,7 +27,7 @@ test-go:
 	# The API suite again, with every agent on an edge node joined over TLS.
 	AGENTHOLD_TEST_NODE=remote CGO_ENABLED=1 $(GO) test -race ./internal/api/
 test-web: web-deps
-	cd web && $(PNPM) test
+	cd web && $(BUN) run test
 
 # The tagged tests require a Linux host with /dev/kvm and root networking privileges.
 test-kvm:
@@ -56,10 +56,10 @@ lint: lint-go lint-web
 lint-go:
 	golangci-lint run ./...
 lint-web: web-deps
-	cd web && $(PNPM) lint
+	cd web && $(BUN) run lint
 fmt:
 	golangci-lint fmt ./...
-	cd web && $(PNPM) format
+	cd web && $(BUN) run format
 
 # These scripts run natively on Linux and re-execute in the Lima VM on macOS.
 guest-kernel:
@@ -100,4 +100,4 @@ gen-sql:
 gen-go-api:
 	$(GO) generate ./internal/api/gen/
 gen-api: web-deps
-	cd web && $(PNPM) gen:api
+	cd web && $(BUN) run gen:api

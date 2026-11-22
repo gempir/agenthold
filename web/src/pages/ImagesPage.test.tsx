@@ -1,9 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, expect, it, vi } from 'vitest';
+import { expect, it } from 'bun:test';
 import { mockApi, renderApp } from '@/test-utils';
-
-afterEach(() => vi.unstubAllGlobals());
 
 const admin = {
   admin: true,

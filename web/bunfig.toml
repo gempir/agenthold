@@ -1,0 +1,9 @@
+[test]
+root = "./src"
+preload = ["./src/test-dom.ts", "./src/test-setup.ts"]
+
+[fmt]
+singleQuote = true
+
+[install]
+linker = "isolated"

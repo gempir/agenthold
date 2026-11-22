@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'bun:test';
 import { parseServerMessage, terminalUrl } from './terminal';
 
 it('builds ws/wss urls', () => {

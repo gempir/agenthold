@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { expect, it } from 'vitest';
+import { expect, it } from 'bun:test';
 import { mockApi } from '@/test-utils';
 import { PreviewTab } from './PreviewTab';
 

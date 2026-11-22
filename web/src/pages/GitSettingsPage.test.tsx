@@ -1,10 +1,9 @@
+import { stubGlobal } from '@/test-setup';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, expect, it, vi } from 'vitest';
+import { expect, it } from 'bun:test';
 import type { Agent, GitCredential, GitRepo, GitSettings } from '@/api/queries';
 import { mockApi, renderApp } from '@/test-utils';
-
-afterEach(() => vi.unstubAllGlobals());
 
 const me = {
   user: { id: 'u1', email: 'a@x.io', name: 'Alice', avatarUrl: '' },
@@ -62,7 +61,7 @@ it('adds a GitHub credential and removes a connected host', async () => {
   let creds: GitCredential[] = [
     cred({ id: 'c9', host: 'gitlab.com', username: 'oauth2', label: '' }),
   ];
-  vi.stubGlobal('confirm', () => true);
+  stubGlobal('confirm', () => true);
   const { calls } = mockApi({
     'GET /me': me,
     'GET /me/git': () => ({ body: settings({ credentials: creds }) }),

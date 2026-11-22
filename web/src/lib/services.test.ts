@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'bun:test';
 import { appendLog, serviceLogsUrl, streamError } from './services';
 
 it('builds the log stream URL', () => {

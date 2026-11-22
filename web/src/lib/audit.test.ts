@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'bun:test';
 import { describeDetails, humanizeAction } from './audit';
 
 it('humanizes known actions and falls back to the raw one', () => {

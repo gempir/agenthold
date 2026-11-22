@@ -1,9 +1,8 @@
+import { stubGlobal } from '@/test-setup';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'bun:test';
 import { mockApi, renderApp } from '@/test-utils';
-
-afterEach(() => vi.unstubAllGlobals());
 
 const providers = [
   { id: 'github', name: 'GitHub', type: 'github' },
@@ -44,7 +43,7 @@ it('says when sign-in is not set up', async () => {
 
 it('signs in the local admin with username and password', async () => {
   const assign = vi.fn();
-  vi.stubGlobal('location', { ...globalThis.location, assign });
+  stubGlobal('location', { ...globalThis.location, assign });
   const { calls } = mockApi({
     'GET /auth/providers': [
       { id: 'local', name: 'Username and password', type: 'local' },

@@ -32,7 +32,7 @@ var serviceTools = []map[string]any{
 			"type": "object", "required": []string{"name", "command"},
 			"properties": map[string]any{
 				"name":    map[string]any{"type": "string", "description": "Lowercase letters, digits and hyphens, up to 40."},
-				"command": map[string]any{"type": "string", "description": "Shell command, for example \"npm run dev -- --port 5173\"."},
+				"command": map[string]any{"type": "string", "description": "Shell command, for example \"bun run dev --port 5173\"."},
 				"workdir": map[string]any{"type": "string", "description": "Directory relative to your home (default: home)."},
 				"env":     map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
 			},

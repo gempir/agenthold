@@ -6,12 +6,12 @@ sidebar is set in `astro.config.ts`. [AGENT.md](AGENT.md) has Nimbus's guidance 
 
 ```sh
 cd docs
-pnpm install
-pnpm dev          # http://localhost:4321
-pnpm run check    # structure, content and pending upgrades
-pnpm run lint:docs
-pnpm run typecheck
-pnpm build        # static site in dist/
+bun install --frozen-lockfile
+bun run dev          # http://localhost:4321
+bun run check    # structure, content and pending upgrades
+bun run lint:docs
+bun run typecheck
+bun run build        # static site in dist/
 ```
 
 Link pages with site paths, `[Install](/install/)`; the lint fails the CI build on broken internal links.
@@ -23,7 +23,7 @@ The slug `api` belongs to the generated API reference, so the page about tokens,
 Cloudflare Workers Builds builds and deploys the site from `main`: a Worker with static assets (`wrangler.jsonc`,
 name `agenthold-docs`). There is no GitHub Actions workflow for the docs; the checks run inside that build.
 
-The Worker project is connected to this repository with these settings:
+The Worker project currently uses the pnpm lockfile and the dashboard commands below. The project scripts run the docs tools on Bun.
 
 | Setting | Value |
 | --- | --- |

@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it } from 'vitest';
+import { expect, it } from 'bun:test';
 import { mockApi, renderApp } from '@/test-utils';
 
 const alice = {
@@ -229,6 +229,7 @@ it('shows the error when the overview cannot be loaded', async () => {
     'GET /me': admin,
     'GET /agents': [],
     'GET /apps': [],
+    'GET /admin/users': [],
     'GET /admin/overview': () => ({
       status: 500,
       body: { error: 'database is down' },

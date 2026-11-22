@@ -15,7 +15,7 @@ import (
 )
 
 func TestPrepareWithHarnessesAsset(t *testing.T) {
-	dataDir := t.TempDir()
+	dataDir := privateDir(t)
 	arch := runtime.GOARCH
 	hKey := strings.Repeat("e", 32)
 	hRaw := []byte("harnesses-layer-ext4-bytes")
@@ -92,7 +92,7 @@ func TestPrepareWithHarnessesAsset(t *testing.T) {
 }
 
 func TestPinHarnesses(t *testing.T) {
-	dataDir := t.TempDir()
+	dataDir := privateDir(t)
 	src := filepath.Join(t.TempDir(), "harnesses.ext4")
 	content := []byte("dev-harnesses-ext4")
 	if err := os.WriteFile(src, content, 0o644); err != nil {

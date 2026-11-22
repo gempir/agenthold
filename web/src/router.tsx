@@ -25,6 +25,7 @@ import { LoginPage } from '@/pages/LoginPage';
 import { NewChatPage } from '@/pages/NewChatPage';
 import { NodesPage } from '@/pages/NodesPage';
 import { OverviewPage } from '@/pages/OverviewPage';
+import { ProfilePage } from '@/pages/ProfilePage';
 import { ProvidersPage } from '@/pages/ProvidersPage';
 import { SlackLinkPage } from '@/pages/SlackLinkPage';
 import { SlackPage } from '@/pages/SlackPage';
@@ -119,10 +120,13 @@ const agentSettingsRoute = createRoute({
   },
 });
 
-const overviewRoute = createRoute({
+// The overview moved into the settings; old links still land there.
+const overviewRedirectRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/overview',
-  component: OverviewPage,
+  beforeLoad: () => {
+    throw redirect({ to: '/settings/overview', replace: true });
+  },
 });
 
 const appPageRoute = createRoute({
@@ -162,8 +166,20 @@ const settingsIndexRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: '/',
   beforeLoad: () => {
-    throw redirect({ to: '/settings/tokens', replace: true });
+    throw redirect({ to: '/settings/profile', replace: true });
   },
+});
+
+const profileRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/profile',
+  component: ProfilePage,
+});
+
+const overviewRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/overview',
+  component: OverviewPage,
 });
 
 const tokensRoute = createRoute({
@@ -234,10 +250,12 @@ const routeTree = rootRoute.addChildren([
     agentRoute,
     agentSettingsRoute,
     appPageRoute,
-    overviewRoute,
+    overviewRedirectRoute,
     slackLinkRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
+      profileRoute,
+      overviewRoute,
       threadsSettingsRoute,
       agentsSettingsRoute,
       secretsRoute,

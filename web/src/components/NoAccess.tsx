@@ -1,25 +1,11 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
 import { ShieldOff } from 'lucide-react';
 import type { User } from '@/api/queries';
 import { Button } from '@/components/ui/button';
+import { useLogout } from '@/hooks/useLogout';
 
 /** What a Disabled user sees: signed in, but no access to anything. */
 export function NoAccess({ user }: { user: User }) {
-  const qc = useQueryClient();
-  const navigate = useNavigate();
-  const logout = useMutation({
-    mutationFn: async () => {
-      await fetch('/api/v1/auth/logout', {
-        method: 'POST',
-        credentials: 'same-origin',
-      });
-    },
-    onSettled: async () => {
-      qc.clear();
-      await navigate({ to: '/login', search: {} });
-    },
-  });
+  const logout = useLogout();
   return (
     <div className="flex h-dvh items-center justify-center p-6">
       <div className="grid max-w-md gap-4 text-center">

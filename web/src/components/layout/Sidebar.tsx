@@ -7,14 +7,13 @@ import {
   useSearch,
 } from '@tanstack/react-router';
 import {
-  AppWindow,
   Bot,
   Check,
   ChevronRight,
+  ChevronsUpDown,
   FolderGit2,
   GitBranch,
   Layers,
-  LayoutDashboard,
   Loader2,
   LogOut,
   Moon,
@@ -22,7 +21,6 @@ import {
   Plus,
   Search,
   Settings,
-  SquarePen,
   Sun,
   Undo2,
   Users,
@@ -36,9 +34,11 @@ import { AgentBadge } from '@/components/AgentBadge';
 import { Avatar } from '@/components/Avatar';
 import { ErrorText } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
+import { Menu, MenuItem, MenuSeparator } from '@/components/ui/menu';
 import { readPref, useShell, writePref } from '@/components/layout/shell';
 import { useChatIndex, type ChatEntry } from '@/hooks/useChatIndex';
 import { useJustFinished } from '@/hooks/useJustFinished';
+import { useLogout } from '@/hooks/useLogout';
 import { useSettle } from '@/hooks/useSettle';
 import { getTheme, setTheme, type Theme } from '@/lib/theme';
 import { relTime, useNow } from '@/lib/time';
@@ -50,6 +50,10 @@ const SETTLED_PAGE = 50;
 const AGENTS_PREVIEW = 6;
 /** localStorage key (agenthold.<key>) of the Settled section's fold. */
 export const SETTLED_OPEN_PREF = 'sidebar.settledOpen';
+/** localStorage key of the sidebar's tab. */
+export const SIDEBAR_TAB_PREF = 'sidebar.tab';
+
+type Tab = 'threads' | 'apps';
 
 /** Who may settle: whoever may send prompts to the agent. */
 const canUse = (c: ChatEntry) =>
@@ -59,10 +63,24 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const shell = useShell();
   const me = useQuery(meQuery);
   const index = useChatIndex();
-  const params = useParams({ strict: false }) as { agentId?: string };
+  const params = useParams({ strict: false }) as {
+    agentId?: string;
+    appId?: string;
+  };
   const search = useSearch({ strict: false }) as { s?: string };
-  const navigate = useNavigate();
   const [query, setQuery] = useState('');
+  const [tab, setTabState] = useState<Tab>(() =>
+    params.appId
+      ? 'apps'
+      : readPref(SIDEBAR_TAB_PREF, 'threads') === 'apps'
+        ? 'apps'
+        : 'threads',
+  );
+  const apps = useQuery(appsQuery);
+  const setTab = (t: Tab) => {
+    setTabState(t);
+    writePref(SIDEBAR_TAB_PREF, t);
+  };
   const [threadLimit, setThreadLimit] = useState(THREADS_PAGE);
   const [settledLimit, setSettledLimit] = useState(SETTLED_PREVIEW);
   const [settledOpen, setSettledOpenState] = useState(
@@ -109,11 +127,6 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
       index.chats.find((c) => c.agent.id === agentId)
     )?.session.id;
 
-  const newThread = () =>
-    params.agentId
-      ? navigate({ to: '/a/$agentId', params: { agentId: params.agentId } })
-      : navigate({ to: '/new' });
-
   return (
     <nav
       aria-label="Sidebar"
@@ -156,177 +169,164 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
         )}
       </div>
 
-      <div className="grid gap-1 px-3 pb-2">
-        <div className="flex items-center gap-1">
-          <label className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-muted-foreground focus-within:bg-accent/60 hover:bg-accent/40">
-            <Search className="size-4 shrink-0" aria-hidden />
-            <input
-              type="search"
-              aria-label="Search threads and agents"
-              placeholder="Search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="min-w-0 flex-1 bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none"
-            />
-          </label>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground"
-            aria-label="New agent"
-            title="New agent"
-            onClick={shell.openNewAgent}
+      <div className="grid gap-2 px-3 pb-2">
+        <label className="flex h-8 min-w-0 items-center gap-2 rounded-lg px-2 text-muted-foreground focus-within:bg-accent/60 hover:bg-accent/40">
+          <Search className="size-4 shrink-0" aria-hidden />
+          <input
+            type="search"
+            aria-label="Search threads, agents and apps"
+            placeholder="Search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="min-w-0 flex-1 bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none"
+          />
+        </label>
+        <div
+          role="tablist"
+          aria-label="Sidebar sections"
+          className="grid grid-cols-2 rounded-lg bg-accent/40 p-0.5 text-xs font-medium"
+        >
+          <SidebarTab
+            selected={tab === 'threads'}
+            onSelect={() => setTab('threads')}
+            count={index.loading ? undefined : active.length}
           >
-            <Bot className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground"
-            aria-label="New thread"
-            title="New thread"
-            onClick={() => void newThread()}
+            Threads
+          </SidebarTab>
+          <SidebarTab
+            selected={tab === 'apps'}
+            onSelect={() => setTab('apps')}
+            count={apps.data?.length}
           >
-            <SquarePen className="size-4" />
-          </Button>
+            Apps
+          </SidebarTab>
         </div>
       </div>
 
-      {me.data?.admin && (
-        <div className="px-3 pb-2">
-          <Link
-            to="/overview"
-            className="flex h-8 items-center gap-2 rounded-lg px-2 text-muted-foreground hover:bg-accent/50 hover:text-foreground data-[status=active]:bg-accent/70 data-[status=active]:text-foreground"
-          >
-            <LayoutDashboard className="size-4 shrink-0" aria-hidden />
-            Overview
-          </Link>
+      {tab === 'apps' ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+          <AppsList query={q} />
         </div>
-      )}
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+          <ErrorText error={index.error ?? settle.error} />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-        <ErrorText error={index.error ?? settle.error} />
-
-        <SectionHeader
-          count={index.loading ? undefined : active.length || undefined}
-        >
-          Threads
-        </SectionHeader>
-        <ul aria-label="Threads" className="mb-3 grid grid-cols-1 gap-1">
-          {index.loading && active.length === 0 && <SkeletonRows n={4} tall />}
-          {!index.loading && active.length === 0 && (
-            <li className="px-2 py-1.5 text-muted-foreground">
-              {q
-                ? 'No matching active threads.'
-                : index.settled.length > 0
-                  ? 'No active threads. Settled ones are below.'
-                  : 'No threads yet.'}
-            </li>
-          )}
-          {active.slice(0, threadLimit).map((c) => (
-            <ThreadCard
-              key={c.session.id}
-              chat={c}
-              now={now}
-              active={search.s === c.session.id}
-              done={done.has(c.session.id)}
-              me={me.data?.user.id}
-              onSettle={
-                canUse(c)
-                  ? () => settle.mutate({ session: c.session, settle: true })
-                  : undefined
-              }
-              settling={
-                settle.isPending &&
-                settle.variables?.session.id === c.session.id
-              }
-            />
-          ))}
-          {active.length > threadLimit && (
-            <li>
-              <button
-                type="button"
-                onClick={() => setThreadLimit((l) => l + THREADS_PAGE)}
-                className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
-              >
-                Show more
-              </button>
-            </li>
-          )}
-        </ul>
-
-        <SectionHeader
-          open={agentsOpen}
-          onToggle={() => setAgentsOpen((o) => !o)}
-          count={index.loading ? undefined : agents.length}
-        >
-          Agents
-        </SectionHeader>
-        {agentsOpen && (
-          <ul aria-label="Agents" className="mb-3 grid grid-cols-1 gap-px">
-            {index.loading && agents.length === 0 && <SkeletonRows n={3} />}
-            {!index.loading && agents.length === 0 && (
+          <ul aria-label="Threads" className="mb-3 grid grid-cols-1 gap-px">
+            {index.loading && active.length === 0 && (
+              <SkeletonRows n={4} tall />
+            )}
+            {!index.loading && active.length === 0 && (
               <li className="px-2 py-1.5 text-muted-foreground">
-                {q ? 'No matching agents.' : 'No agents yet.'}
+                {q
+                  ? 'No matching active threads.'
+                  : index.settled.length > 0
+                    ? 'No active threads. Settled ones are below.'
+                    : 'No threads yet.'}
               </li>
             )}
-            {shownAgents.map(({ agent }) => {
-              const current = params.agentId === agent.id;
-              return (
-                <li key={agent.id} className="group relative">
-                  <Link
-                    to="/a/$agentId"
-                    params={{ agentId: agent.id }}
-                    search={{ s: latestSession(agent.id) }}
-                    aria-current={current ? 'page' : undefined}
-                    className={cn(
-                      'flex h-8 items-center gap-2 rounded-lg pr-9 pl-2 hover:bg-accent/50',
-                      current && 'bg-accent/70',
-                    )}
-                  >
-                    <AgentStateDot state={agent.state} />
-                    <span className="min-w-0 flex-1 truncate">
-                      {agent.name}
-                    </span>
-                    {agent.role === 'shared' && (
-                      <Users
-                        className="size-3.5 shrink-0 text-muted-foreground"
-                        aria-label={`shared by ${agent.owner.name}`}
-                      />
-                    )}
-                  </Link>
-                  <Link
-                    to="/a/$agentId"
-                    params={{ agentId: agent.id }}
-                    aria-label={`New thread with ${agent.name}`}
-                    title="New thread"
-                    className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-                  >
-                    <Plus className="size-3.5" />
-                  </Link>
-                </li>
-              );
-            })}
-            {!q && agents.length > AGENTS_PREVIEW && (
+            {active.slice(0, threadLimit).map((c) => (
+              <ThreadCard
+                key={c.session.id}
+                chat={c}
+                now={now}
+                active={search.s === c.session.id}
+                done={done.has(c.session.id)}
+                me={me.data?.user.id}
+                onSettle={
+                  canUse(c)
+                    ? () => settle.mutate({ session: c.session, settle: true })
+                    : undefined
+                }
+                settling={
+                  settle.isPending &&
+                  settle.variables?.session.id === c.session.id
+                }
+              />
+            ))}
+            {active.length > threadLimit && (
               <li>
                 <button
                   type="button"
-                  onClick={() => setAllAgents((a) => !a)}
+                  onClick={() => setThreadLimit((l) => l + THREADS_PAGE)}
                   className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
                 >
-                  {allAgents
-                    ? 'Show fewer'
-                    : `Show all ${agents.length} agents`}
+                  Show more
                 </button>
               </li>
             )}
           </ul>
-        )}
 
-        <AppsSection query={q} />
-      </div>
+          <SectionHeader
+            open={agentsOpen}
+            onToggle={() => setAgentsOpen((o) => !o)}
+            count={index.loading ? undefined : agents.length}
+          >
+            Agents
+          </SectionHeader>
+          {agentsOpen && (
+            <ul aria-label="Agents" className="mb-3 grid grid-cols-1 gap-px">
+              {index.loading && agents.length === 0 && <SkeletonRows n={3} />}
+              {!index.loading && agents.length === 0 && (
+                <li className="px-2 py-1.5 text-muted-foreground">
+                  {q ? 'No matching agents.' : 'No agents yet.'}
+                </li>
+              )}
+              {shownAgents.map(({ agent }) => {
+                const current = params.agentId === agent.id;
+                return (
+                  <li key={agent.id} className="group relative">
+                    <Link
+                      to="/a/$agentId"
+                      params={{ agentId: agent.id }}
+                      search={{ s: latestSession(agent.id) }}
+                      aria-current={current ? 'page' : undefined}
+                      className={cn(
+                        'flex h-8 items-center gap-2 rounded-lg pr-9 pl-2 hover:bg-accent/50',
+                        current && 'bg-accent/70',
+                      )}
+                    >
+                      <AgentStateDot state={agent.state} />
+                      <span className="min-w-0 flex-1 truncate">
+                        {agent.name}
+                      </span>
+                      {agent.role === 'shared' && (
+                        <Users
+                          className="size-3.5 shrink-0 text-muted-foreground"
+                          aria-label={`shared by ${agent.owner.name}`}
+                        />
+                      )}
+                    </Link>
+                    <Link
+                      to="/a/$agentId"
+                      params={{ agentId: agent.id }}
+                      aria-label={`New thread with ${agent.name}`}
+                      title="New thread"
+                      className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+                    >
+                      <Plus className="size-3.5" />
+                    </Link>
+                  </li>
+                );
+              })}
+              {!q && agents.length > AGENTS_PREVIEW && (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => setAllAgents((a) => !a)}
+                    className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    {allAgents
+                      ? 'Show fewer'
+                      : `Show all ${agents.length} agents`}
+                  </button>
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
+      )}
 
-      {index.settled.length > 0 && (
+      {tab === 'threads' && index.settled.length > 0 && (
         <div className="shrink-0 border-t px-3 pt-1 pb-1">
           <button
             type="button"
@@ -394,6 +394,38 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   );
 }
 
+function SidebarTab({
+  selected,
+  onSelect,
+  count,
+  children,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+  count?: number;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={selected}
+      onClick={onSelect}
+      className={cn(
+        'flex h-7 items-center justify-center gap-1.5 rounded-md',
+        selected
+          ? 'bg-background text-foreground shadow-xs'
+          : 'text-muted-foreground hover:text-foreground',
+      )}
+    >
+      {children}
+      {count != null && count > 0 && (
+        <span className="text-muted-foreground tabular-nums">{count}</span>
+      )}
+    </button>
+  );
+}
+
 function SectionHeader({
   children,
   count,
@@ -458,6 +490,22 @@ function ThreadCard({
       : me && session.createdBy.id !== me
         ? `by ${session.createdBy.name}`
         : null;
+  const status = session.running ? (
+    <Loader2
+      role="img"
+      aria-label="running"
+      className="size-3.5 shrink-0 animate-spin text-sky-500 dark:text-sky-400"
+    />
+  ) : done ? (
+    <span className="flex shrink-0 items-center gap-0.5 font-medium text-emerald-600 dark:text-emerald-400">
+      <Check className="size-3" aria-hidden />
+      Done
+    </span>
+  ) : (
+    <span className="shrink-0 tabular-nums">
+      {relTime(session.updatedAt, now)}
+    </span>
+  );
   return (
     <li className="group relative">
       <Link
@@ -466,51 +514,36 @@ function ThreadCard({
         search={{ s: session.id }}
         aria-current={active ? 'page' : undefined}
         className={cn(
-          'grid grid-cols-1 gap-0.5 rounded-xl border border-transparent px-2.5 py-2 hover:border-border hover:bg-accent/40',
-          active && 'border-border bg-accent/70 hover:bg-accent/70',
+          'grid grid-cols-1 gap-0.5 rounded-lg px-2 py-1.5 hover:bg-accent/40',
+          active && 'bg-accent/70 hover:bg-accent/70',
         )}
       >
-        <span className="flex items-center gap-1.5 pr-16 text-xs text-muted-foreground">
+        <span className="truncate text-[13px] leading-5 font-medium text-foreground">
+          {title}
+        </span>
+        <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           <AgentBadge name={agent.name} />
-          <span className="min-w-0 truncate">{agent.name}</span>
+          <span className="min-w-0 truncate">
+            {[agent.name, by].filter(Boolean).join(' · ')}
+          </span>
+          {session.origin && <Bot className="size-3 shrink-0" aria-hidden />}
           {agent.role === 'shared' && (
             <Users
               className="size-3 shrink-0"
               aria-label={`shared by ${agent.owner.name}`}
             />
           )}
-        </span>
-        <span className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-foreground">
-            {title}
+          <span
+            className={cn(
+              'ml-auto flex shrink-0 items-center',
+              onSettle &&
+                'group-focus-within:invisible group-hover:invisible [@media(hover:none)]:invisible',
+            )}
+          >
+            {status}
           </span>
-          {session.running ? (
-            <Loader2
-              role="img"
-              aria-label="running"
-              className="size-3.5 shrink-0 animate-spin text-sky-500 dark:text-sky-400"
-            />
-          ) : (
-            done && (
-              <span className="flex shrink-0 items-center gap-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                <Check className="size-3" aria-hidden />
-                Done
-              </span>
-            )
-          )}
         </span>
         {hasGit(session.git) && <GitLine git={session.git} />}
-        <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-          {session.origin && <Bot className="size-3 shrink-0" aria-hidden />}
-          <span className="truncate">
-            {[
-              session.running ? 'Working…' : relTime(session.updatedAt, now),
-              by,
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-          </span>
-        </span>
       </Link>
       {onSettle && (
         <button
@@ -519,7 +552,7 @@ function ThreadCard({
           disabled={settling}
           aria-label={`Settle thread ${title}`}
           title="Settle thread"
-          className="absolute top-1.5 right-1.5 flex h-6 items-center gap-1 rounded-md border bg-background px-1.5 text-xs font-medium text-muted-foreground opacity-0 shadow-xs group-focus-within:opacity-100 group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100 disabled:opacity-50 [@media(hover:none)]:opacity-100"
+          className="absolute right-1.5 bottom-1.5 flex h-5 items-center gap-1 rounded-md border bg-background px-1.5 text-[11px] font-medium text-muted-foreground opacity-0 shadow-xs group-focus-within:opacity-100 group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100 disabled:opacity-50 [@media(hover:none)]:opacity-100"
         >
           <Check className="size-3" aria-hidden />
           Settle
@@ -630,89 +663,100 @@ function SkeletonRows({ n, tall }: { n: number; tall?: boolean }) {
   );
 }
 
+/** You: a menu with new agent, settings, theme and sign out. */
 function Footer() {
-  const qc = useQueryClient();
+  const shell = useShell();
   const navigate = useNavigate();
   const me = useQuery(meQuery);
+  const logout = useLogout();
   const [theme, setThemeState] = useState<Theme>(getTheme);
-  const logout = useMutation({
-    mutationFn: async () => {
-      await fetch('/api/v1/auth/logout', {
-        method: 'POST',
-        credentials: 'same-origin',
-      });
-    },
-    onSettled: async () => {
-      qc.clear();
-      await navigate({ to: '/login', search: {} });
-    },
-  });
   const user = me.data?.user;
   return (
-    <div className="flex shrink-0 items-center gap-1 border-t px-3 py-2">
-      <Link
-        to="/settings"
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 py-1 hover:bg-accent/40"
-        title="Account settings"
-      >
-        {user && <Avatar name={user.name} url={user.avatarUrl} size="sm" />}
-        <span className="grid min-w-0 leading-tight">
-          <span className="truncate">{user?.name}</span>
-          {me.data?.role && (
-            <span className="text-xs text-muted-foreground">
-              {ROLE_LABEL[me.data.role]}
+    <div className="shrink-0 border-t px-2 py-1.5">
+      <Menu
+        side="top"
+        className="w-full"
+        trigger={({ open, toggle }) => (
+          <button
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={open}
+            aria-label="Account menu"
+            onClick={toggle}
+            className="flex w-full min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-accent/40"
+          >
+            {user && <Avatar name={user.name} url={user.avatarUrl} size="sm" />}
+            <span className="grid min-w-0 flex-1 leading-tight">
+              <span className="truncate">{user?.name}</span>
+              {me.data?.role && (
+                <span className="text-xs text-muted-foreground">
+                  {ROLE_LABEL[me.data.role]}
+                </span>
+              )}
             </span>
-          )}
-        </span>
-      </Link>
-      <Button
-        asChild
-        variant="ghost"
-        size="icon-sm"
-        className="text-muted-foreground"
-      >
-        <Link to="/settings" aria-label="Settings" title="Settings">
-          <Settings className="size-4" />
-        </Link>
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="text-muted-foreground"
-        aria-label={theme === 'dark' ? 'Light theme' : 'Dark theme'}
-        title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
-        onClick={() => {
-          const next = theme === 'dark' ? 'light' : 'dark';
-          setTheme(next);
-          setThemeState(next);
-        }}
-      >
-        {theme === 'dark' ? (
-          <Sun className="size-4" />
-        ) : (
-          <Moon className="size-4" />
+            <ChevronsUpDown
+              className="size-3.5 shrink-0 text-muted-foreground"
+              aria-hidden
+            />
+          </button>
         )}
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="text-muted-foreground"
-        aria-label="Sign out"
-        title="Sign out"
-        onClick={() => logout.mutate()}
       >
-        <LogOut className="size-4" />
-      </Button>
+        {(close) => (
+          <>
+            <MenuItem
+              onClick={() => {
+                close();
+                shell.openNewAgent();
+              }}
+            >
+              <Bot className="size-4 text-muted-foreground" aria-hidden />
+              New agent
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                close();
+                void navigate({ to: '/settings' });
+              }}
+            >
+              <Settings className="size-4 text-muted-foreground" aria-hidden />
+              Settings
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                const next = theme === 'dark' ? 'light' : 'dark';
+                setTheme(next);
+                setThemeState(next);
+              }}
+            >
+              {theme === 'dark' ? (
+                <Sun className="size-4 text-muted-foreground" aria-hidden />
+              ) : (
+                <Moon className="size-4 text-muted-foreground" aria-hidden />
+              )}
+              {theme === 'dark' ? 'Light theme' : 'Dark theme'}
+            </MenuItem>
+            <MenuSeparator />
+            <MenuItem
+              onClick={() => {
+                close();
+                logout.mutate();
+              }}
+            >
+              <LogOut className="size-4 text-muted-foreground" aria-hidden />
+              Sign out
+            </MenuItem>
+          </>
+        )}
+      </Menu>
     </div>
   );
 }
 
 /** Apps: machines without a harness, reached at their URLs. */
-function AppsSection({ query: q }: { query: string }) {
+function AppsList({ query: q }: { query: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const params = useParams({ strict: false }) as { appId?: string };
-  const [open, setOpen] = useState(true);
   const apps = useQuery(appsQuery);
   const create = useMutation({
     mutationFn: (name: string) => unwrap(api.POST('/apps', { body: { name } })),
@@ -726,67 +770,55 @@ function AppsSection({ query: q }: { query: string }) {
   );
   return (
     <>
-      <div className="flex items-center">
-        <div className="flex-1">
-          <SectionHeader
-            open={open}
-            onToggle={() => setOpen((o) => !o)}
-            count={apps.data?.length}
-          >
-            Apps
-          </SectionHeader>
-        </div>
-        <button
-          type="button"
-          aria-label="New app"
-          title="New app"
-          disabled={create.isPending}
-          onClick={() => {
-            const name = globalThis.prompt?.('Name of the new app')?.trim();
-            if (name) create.mutate(name);
-          }}
-          className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <Plus className="size-3.5" />
-        </button>
-      </div>
       <ErrorText error={apps.error ?? create.error} />
-      {open && (
-        <ul aria-label="Apps" className="mb-3 grid grid-cols-1 gap-px">
-          {apps.isSuccess && list.length === 0 && (
-            <li className="px-2 py-1.5 text-muted-foreground">
-              {q
-                ? 'No matching apps.'
-                : 'No apps yet. Agents create them with deploy_app.'}
-            </li>
-          )}
-          {list.map((a) => (
-            <li key={a.id}>
-              <Link
-                to="/apps/$appId"
-                params={{ appId: a.id }}
-                aria-current={params.appId === a.id ? 'page' : undefined}
-                className={cn(
-                  'flex h-8 items-center gap-2 rounded-lg px-2 hover:bg-accent/50',
-                  params.appId === a.id && 'bg-accent/70',
-                )}
-              >
+      <ul aria-label="Apps" className="grid grid-cols-1 gap-px">
+        {apps.isPending && <SkeletonRows n={3} />}
+        {apps.isSuccess && list.length === 0 && (
+          <li className="px-2 py-1.5 text-muted-foreground">
+            {q
+              ? 'No matching apps.'
+              : 'No apps yet. Agents create them with deploy_app.'}
+          </li>
+        )}
+        {list.map((a) => (
+          <li key={a.id}>
+            <Link
+              to="/apps/$appId"
+              params={{ appId: a.id }}
+              aria-current={params.appId === a.id ? 'page' : undefined}
+              title={a.url || a.name}
+              className={cn(
+                'grid grid-cols-1 rounded-lg px-2 py-1.5 hover:bg-accent/50',
+                params.appId === a.id && 'bg-accent/70',
+              )}
+            >
+              <span className="flex min-w-0 items-center gap-2">
                 <AgentStateDot state={a.state} />
-                <AppWindow
-                  className="size-3.5 shrink-0 text-muted-foreground"
-                  aria-hidden
-                />
                 <span className="min-w-0 flex-1 truncate">{a.name}</span>
-                {a.url && (
-                  <span className="max-w-[45%] truncate text-xs text-muted-foreground">
-                    {a.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
-                  </span>
-                )}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+              </span>
+              {a.url && (
+                <span className="truncate pl-4 text-xs text-muted-foreground">
+                  {a.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                </span>
+              )}
+            </Link>
+          </li>
+        ))}
+        <li>
+          <button
+            type="button"
+            disabled={create.isPending}
+            onClick={() => {
+              const name = globalThis.prompt?.('Name of the new app')?.trim();
+              if (name) create.mutate(name);
+            }}
+            className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-50"
+          >
+            <Plus className="size-3.5" aria-hidden />
+            New app
+          </button>
+        </li>
+      </ul>
     </>
   );
 }

@@ -344,57 +344,22 @@ function Presence({ viewers }: { viewers: Viewer[] }) {
   );
 }
 
-/**
- * "Working 12s", counted from when this component mounted. It links to the
- * Activity tab: what the wake or the harness start is doing.
- */
-function WorkingStatus({
-  label,
-  onOpenActivity,
-  waiting,
-}: {
-  label: string;
-  onOpenActivity?: () => void;
-  /** No answer yet in this turn: the log is the exit hatch. */
-  waiting: boolean;
-}) {
+/** "Working 12s", counted from when this component mounted. */
+function WorkingStatus({ label }: { label: string }) {
   const [start] = useState(() => Date.now());
   const now = useNow(1000);
-  const slow = now - start > 5000;
   return (
-    <div className="grid gap-1">
-      <p
-        role="status"
-        className="flex items-center gap-2 text-sm text-muted-foreground"
-      >
-        <Loader2 className="size-3.5 animate-spin text-sky-400" aria-hidden />
-        {label}
-        <span className="tabular-nums text-muted-foreground/70">
-          {elapsed(now - start)}
-        </span>
-      </p>
-      {onOpenActivity && (waiting || slow) && (
-        <ActivityLink
-          onOpen={onOpenActivity}
-          label={
-            waiting && slow
-              ? 'Taking a while? See what is happening'
-              : 'What is happening'
-          }
-        />
-      )}
-    </div>
+    <p
+      role="status"
+      className="flex items-center gap-2 text-sm text-muted-foreground"
+    >
+      <Loader2 className="size-3.5 animate-spin text-sky-400" aria-hidden />
+      {label}
+      <span className="tabular-nums text-muted-foreground/70">
+        {elapsed(now - start)}
+      </span>
+    </p>
   );
-}
-
-/** Whether anything but notices came after the last prompt. */
-function answeredSinceLastPrompt(items: ChatItem[]) {
-  for (let i = items.length - 1; i >= 0; i--) {
-    const k = items[i].kind;
-    if (k === 'user') return false;
-    if (k !== 'notice') return true;
-  }
-  return false;
 }
 
 function SessionComposer({
@@ -547,8 +512,6 @@ export default function ChatView({
           )}
           {running && (
             <WorkingStatus
-              onOpenActivity={onOpenActivity}
-              waiting={!answeredSinceLastPrompt(state.items)}
               label={
                 agentState === 'sleeping' || agentState === 'starting'
                   ? 'Waking the agent…'

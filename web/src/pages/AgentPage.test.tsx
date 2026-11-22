@@ -289,11 +289,9 @@ it('lands in the most recent thread across agents', async () => {
   ]);
   expect(rows[0]).toHaveAttribute('aria-current', 'page');
   expect(within(rows[0]).getByRole('img', { name: 'running' })).toBeVisible();
-  // The running thread says so on its card.
-  expect(within(rows[0]).getByText('Working…')).toBeVisible();
   // The sidebar search filters threads.
   await userEvent.type(
-    screen.getByRole('searchbox', { name: 'Search threads and agents' }),
+    screen.getByRole('searchbox', { name: 'Search threads, agents and apps' }),
     'old',
   );
   expect(within(chats).getAllByRole('link')).toHaveLength(1);
@@ -511,7 +509,7 @@ it('streams the activity log in its own panel tab', async () => {
   expect(screen.queryByTestId('live-log')).toBeNull();
 });
 
-it('the chat links to the Activity tab while it waits', async () => {
+it('shows the Activity tab of the panel while the chat waits', async () => {
   vi.stubGlobal('WebSocket', FakeSocket);
   mockApi({
     'GET /me': me,
@@ -522,8 +520,10 @@ it('the chat links to the Activity tab while it waits', async () => {
   });
   const { router } = renderApp('/a/a1?s=s1');
   await userEvent.click(
-    await screen.findByRole('button', { name: /What is happening/ }),
+    await screen.findByRole('button', { name: 'Agent panel' }),
   );
+  expect(screen.queryByRole('button', { name: /happening/ })).toBeNull();
+  await userEvent.click(await screen.findByRole('tab', { name: 'Activity' }));
   expect(router.state.location.search).toEqual({ s: 's1', panel: 'activity' });
   const panel = await screen.findByRole('complementary', {
     name: 'Agent panel',
@@ -793,7 +793,7 @@ it('the sidebar search matches threads by project and branch', async () => {
     expect(within(chats).getAllByRole('link')).toHaveLength(2),
   );
   const search = screen.getByRole('searchbox', {
-    name: 'Search threads and agents',
+    name: 'Search threads, agents and apps',
   });
   await userEvent.type(search, 'storefr');
   expect(within(chats).getAllByRole('link')).toHaveLength(1);

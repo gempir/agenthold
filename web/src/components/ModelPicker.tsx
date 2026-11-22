@@ -46,7 +46,6 @@ import {
   type ModelCatalog,
   type ModelOption,
 } from '@/lib/models';
-import { relTime, useNow } from '@/lib/time';
 import { cn } from '@/lib/utils';
 
 /** A harness the agent can be switched to, with what is known of its models. */
@@ -171,10 +170,8 @@ export function ModelPicker({
   allowCustom = true,
   side = 'top',
   label = 'Model',
-  note,
   harness,
   harnessSwitch,
-  footer,
   className,
 }: {
   catalog: ModelCatalog | undefined;
@@ -189,13 +186,9 @@ export function ModelPicker({
   side?: 'top' | 'bottom';
   /** Accessible name of the trigger. */
   label?: string;
-  /** A line under the list (when a change takes effect). */
-  note?: string;
   /** The harness the catalog is of (its id is also in the catalog). */
   harness?: { id: string; name: string };
   harnessSwitch?: HarnessSwitch;
-  /** Under the note (a link to the settings). */
-  footer?: ReactNode;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -257,10 +250,8 @@ export function ModelPicker({
           allowCustom={allowCustom}
           side={side}
           label={label}
-          note={note}
           current={current}
           harnessSwitch={harnessSwitch}
-          footer={footer}
         />
       )}
     </div>
@@ -277,10 +268,8 @@ function PickerPanel({
   allowCustom,
   side,
   label,
-  note,
   current,
   harnessSwitch,
-  footer,
 }: {
   catalog: ModelCatalog | undefined;
   value: Choice;
@@ -291,14 +280,11 @@ function PickerPanel({
   allowCustom: boolean;
   side: 'top' | 'bottom';
   label: string;
-  note?: string;
   current: { id: string; name: string };
   harnessSwitch?: HarnessSwitch;
-  footer?: ReactNode;
 }) {
   const id = useId();
   const listId = `${id}-list`;
-  const now = useNow(60_000);
   const { favorites, toggle: toggleFavorite } = useFavoriteModels();
   const [query, setQuery] = useState('');
   const [pending, setPending] = useState<{ harness: string; model: string }>();
@@ -669,8 +655,6 @@ function PickerPanel({
   const shown = modelOptionsFor(catalog, value.model);
   const toggles = shown?.options.filter((o) => o.kind === 'toggle') ?? [];
   const pendingTarget = pending && harnessOf(pending.harness);
-  const listed = viewed && viewed.id !== current.id ? viewed : rail[0];
-  const source = listed.catalog;
   const tabs: { view: View; key: string }[] = [
     { view: { kind: 'favorites' }, key: 'favorites' },
     ...rail.map((h) => ({
@@ -859,37 +843,28 @@ function PickerPanel({
           )}
         </aside>
       </div>
-      <div className="grid gap-2 border-t px-3 py-2">
-        {toggles.length > 0 && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            {toggles.map((o) => {
-              const [off, on] = toggleLabels(o);
-              return (
-                <Segmented
-                  key={o.id}
-                  label={off === 'Standard' ? 'Speed' : o.name}
-                  ariaLabel={o.name}
-                  hint={o.description}
-                  values={[
-                    { value: o.values[0].value, name: off },
-                    { value: onValue(o), name: on },
-                  ]}
-                  // Nothing chosen is the harness's default: off.
-                  selected={value.options[o.id] ?? o.values[0].value}
-                  onSelect={(v) => setOption(o, v)}
-                />
-              );
-            })}
-          </div>
-        )}
-        <p className="text-xs text-muted-foreground">
-          {source?.source === 'harness' && source.seenAt
-            ? `As ${listed.name || 'the harness'} reported them ${relTime(source.seenAt, now) === 'now' ? 'just now' : `${relTime(source.seenAt, now)} ago`}.`
-            : 'Built-in list: the harness reports its own models once the agent has run.'}
-          {note && <> {note}</>}
-          {footer && <span className="mt-1 block">{footer}</span>}
-        </p>
-      </div>
+      {toggles.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t px-3 py-2">
+          {toggles.map((o) => {
+            const [off, on] = toggleLabels(o);
+            return (
+              <Segmented
+                key={o.id}
+                label={off === 'Standard' ? 'Speed' : o.name}
+                ariaLabel={o.name}
+                hint={o.description}
+                values={[
+                  { value: o.values[0].value, name: off },
+                  { value: onValue(o), name: on },
+                ]}
+                // Nothing chosen is the harness's default: off.
+                selected={value.options[o.id] ?? o.values[0].value}
+                onSelect={(v) => setOption(o, v)}
+              />
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

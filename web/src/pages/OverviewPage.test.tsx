@@ -254,7 +254,7 @@ it('tells non-admins they cannot see it, without asking for data', async () => {
   expect(screen.queryByRole('link', { name: 'Overview' })).toBeNull();
 });
 
-it('links to the overview from the sidebar for admins', async () => {
+it('lists the overview in the settings for admins', async () => {
   mockApi({
     'GET /me': admin,
     'GET /admin/overview': overview,
@@ -264,6 +264,6 @@ it('links to the overview from the sidebar for admins', async () => {
   renderApp('/overview');
   expect(await screen.findByRole('link', { name: 'Overview' })).toHaveAttribute(
     'href',
-    '/overview',
+    '/settings/overview',
   );
 });

@@ -14,12 +14,15 @@ export function SettingsLayout({
   nav,
   navLabel,
   children,
+  wide,
 }: {
   crumbs: ReactNode;
   actions?: ReactNode;
   nav: ReactNode;
   navLabel: string;
   children: ReactNode;
+  /** Let the content use the full width (tables). */
+  wide?: boolean;
 }) {
   return (
     <>
@@ -32,7 +35,12 @@ export function SettingsLayout({
           <ul className="flex gap-0.5 md:flex-col">{nav}</ul>
         </nav>
         <div className="min-w-0 flex-1 md:overflow-y-auto">
-          <div className="w-full max-w-3xl px-4 py-6 md:px-10 md:py-8">
+          <div
+            className={cn(
+              'w-full px-4 py-6 md:px-10 md:py-8',
+              !wide && 'max-w-3xl',
+            )}
+          >
             {children}
           </div>
         </div>

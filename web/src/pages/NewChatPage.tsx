@@ -155,7 +155,7 @@ export function NewChatPage() {
 
   return (
     <>
-      <TopBar>
+      <TopBar newThread={false}>
         <Crumb current>New thread</Crumb>
       </TopBar>
       {body}

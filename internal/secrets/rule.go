@@ -201,4 +201,9 @@ var Presets = []Preset{
 		Rule:        Rule{Hosts: []string{"openrouter.ai"}, Header: "Authorization", Template: "Bearer {{.Value}}"},
 		Description: "OpenRouter API key.",
 	},
+	{
+		ID: "gemini", Name: "Gemini API key", EnvVar: "GEMINI_API_KEY",
+		Rule:        Rule{Hosts: []string{"generativelanguage.googleapis.com"}, Header: "x-goog-api-key", Template: "{{.Value}}"},
+		Description: "Gemini Developer API key (Google AI Studio), sent as x-goog-api-key to generativelanguage.googleapis.com.",
+	},
 }

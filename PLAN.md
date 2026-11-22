@@ -13,7 +13,7 @@ built and is the starting point of this rework.
 A self-hostable, multi-user platform for running many persistent AI agents. Each agent has its own
 Firecracker microVM (its own "computer") with a persistent disk, tools and conversation history.
 
-We do not build an agent harness. Claude Code, Codex and OpenCode run inside the VMs and are driven
+We do not build an agent harness. Claude Code, Codex, OpenCode and Antigravity run inside the VMs and are driven
 through ACP. We build everything around them.
 
 Deployment is **one static binary and one YAML file**. No Docker, no compose, no container runtime.
@@ -231,7 +231,7 @@ CI is green; the demo deploys itself from `main`.
 **Model.** The `agents` table is the table of *machines*. A machine is one Firecracker microVM with
 an owner, shares, resources, disks and a sandbox row. `kind` says what runs in it:
 
-- `agent`: a harness (Claude Code, Codex or OpenCode, nothing else) driven over ACP. Unchanged.
+- `agent`: a harness (Claude Code, Codex, OpenCode or Antigravity, nothing else) driven over ACP. Unchanged.
 - `app`: no harness. sandboxd supervises one service command (restart with backoff, captured logs).
   An app is created by a user or by an agent (`created_by_agent_id`); it belongs to that agent's
   owner. Apps do not idle-sleep unless configured to.

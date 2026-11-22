@@ -45,6 +45,8 @@ OUT="${OUT:-$REPO_ROOT/build/guest/$ARCH}"
 HARNESS_DIR="$REPO_ROOT/images/harnesses"
 # shellcheck source=../../images/base/versions.env
 . "$REPO_ROOT/images/base/versions.env"
+# shellcheck source=../../images/harnesses/versions.env
+. "$HARNESS_DIR/versions.env"
 
 log() { printf '\n==> %s\n' "$*"; }
 
@@ -83,9 +85,19 @@ fi
 mkdir -p "$WORK/node"
 tar -xJf "$NODE_TARBALL" -C "$WORK/node" --strip-components=1 --no-same-owner
 
+# --- pinned Antigravity CLI (native single-binary harness) ------------------------------------------
+if [[ "$ARCH" == arm64 ]]; then agy_path=linux-arm/cli_linux_arm64.tar.gz; agy_sha="$AGY_SHA256_ARM64"; else agy_path=linux-x64/cli_linux_x64.tar.gz; agy_sha="$AGY_SHA256_X64"; fi
+AGY_TARBALL="$CACHE/agy-$AGY_BUILD-$ARCH.tar.gz"
+if ! echo "$agy_sha  $AGY_TARBALL" | sha256sum -c --quiet - 2>/dev/null; then
+  log "Downloading Antigravity CLI $AGY_VERSION"
+  curl -fsSL --retry 3 -o "$AGY_TARBALL.part" "https://storage.googleapis.com/antigravity-public/antigravity-cli/$AGY_BUILD/$agy_path"
+  echo "$agy_sha  $AGY_TARBALL.part" | sha256sum -c --quiet -
+  mv "$AGY_TARBALL.part" "$AGY_TARBALL"
+fi
+
 # --- install harnesses into layer tree --------------------------------------------------------------
 TREE="$WORK/tree"
-mkdir -p "$TREE/opt/agenthold/tools" "$TREE/usr/local/bin" "$TREE/etc/agenthold"
+mkdir -p "$TREE/opt/agenthold/tools" "$TREE/usr/local/bin" "$TREE/etc/agenthold/image.env.d"
 cp "$HARNESS_DIR/package.json" "$HARNESS_DIR/package-lock.json" "$TREE/opt/agenthold/tools/"
 log "Installing harnesses ($ARCH) with Node.js $NODE_VERSION"
 PATH="$WORK/node/bin:$PATH" HOME="$WORK/home" npm_config_cache="$WORK/npm-cache" \
@@ -95,6 +107,14 @@ for bin in "$TREE"/opt/agenthold/tools/node_modules/.bin/*; do
   name="$(basename "$bin")"
   ln -sf "/opt/agenthold/tools/node_modules/.bin/$name" "$TREE/usr/local/bin/$name"
 done
+# Antigravity CLI: root-owned so its self-updater cannot replace it; 05-harnesses.env also disables auto-update.
+mkdir -p "$TREE/opt/agenthold/antigravity-cli/${AGY_VERSION}"
+tar -xzf "$AGY_TARBALL" -C "$TREE/opt/agenthold/antigravity-cli/${AGY_VERSION}" --no-same-owner antigravity
+chmod 0755 "$TREE/opt/agenthold/antigravity-cli/${AGY_VERSION}/antigravity"
+ln -sf "/opt/agenthold/antigravity-cli/${AGY_VERSION}/antigravity" "$TREE/usr/local/bin/agy"
+mkdir -p "$WORK/agy-home"
+HOME="$WORK/agy-home" "$TREE/opt/agenthold/antigravity-cli/${AGY_VERSION}/antigravity" --version
+install -m 0644 "$HARNESS_DIR/image.env" "$TREE/etc/agenthold/image.env.d/05-harnesses.env"
 printf '%s\n' "$HARNESSES_KEY" >"$TREE/etc/agenthold/harnesses-version"
 chown -R 0:0 "$TREE"
 find "$TREE" -xdev -newermt "@$SOURCE_DATE_EPOCH" -exec touch --no-dereference --date="@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
@@ -147,14 +167,14 @@ fi
 
 jq -n --arg arch "$ARCH" --arg file "$NAME.ext4" --argjson size "$size" \
   --arg sha256 "$sha" --argjson zstdSize "$zsize" --argjson zstdSha256 "$zsha" \
-  --arg fsUuid "$FS_UUID" --arg node "$NODE_VERSION" \
+  --arg fsUuid "$FS_UUID" --arg node "$NODE_VERSION" --arg agy "$AGY_VERSION" \
   --arg npmLockSha256 "$(sha256sum "$HARNESS_DIR/package-lock.json" | cut -d' ' -f1)" \
   --argjson harnesses "$(jq '.dependencies' "$HARNESS_DIR/package.json")" \
   --arg harnessesKey "$HARNESSES_KEY" --argjson treeMiB "$tree_mb" --argjson sde "$SOURCE_DATE_EPOCH" \
   '{arch: $arch, format: "ext4", file: $file, size: $size, sha256: $sha256,
     zstd: (if $zstdSize == null then null else {file: ($file + ".zst"), size: $zstdSize, sha256: $zstdSha256} end),
     fsUuid: $fsUuid, treeMiB: $treeMiB, sourceDateEpoch: $sde,
-    inputs: {node: $node, harnesses: $harnesses, npmLockSha256: $npmLockSha256, harnessesKey: $harnessesKey}}' >"$OUT/$NAME.manifest.json"
+    inputs: {node: $node, harnesses: ($harnesses + {"antigravity-cli": $agy}), npmLockSha256: $npmLockSha256, harnessesKey: $harnessesKey}}' >"$OUT/$NAME.manifest.json"
 
 if [[ -n "${SUDO_UID:-}" ]]; then chown -R "$SUDO_UID:${SUDO_GID:-$SUDO_UID}" "$OUT"; fi
 

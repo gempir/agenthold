@@ -185,14 +185,13 @@ it('shows presence avatars and marks you', async () => {
   expect(await screen.findByTitle('Alice (you)')).toBeInTheDocument();
 });
 
-it('links to the Activity tab while a turn waits for its first answer', async () => {
+it('keeps the activity link out of the chat while a turn runs', async () => {
   mockApi({});
-  const onOpenActivity = vi.fn();
   render(
     <QueryClientProvider client={new QueryClient()}>
       <ChatView
         sessionId="s1"
-        onOpenActivity={onOpenActivity}
+        onOpenActivity={vi.fn()}
         canUse
         agentState="sleeping"
       />
@@ -204,12 +203,8 @@ it('links to the Activity tab while a turn waits for its first answer', async ()
     );
     FakeSocket.all[0].emit({ type: 'status', running: true });
   });
-  // No inline log any more: a small link that opens the tab.
-  await userEvent.click(
-    await screen.findByRole('button', { name: /What is happening/ }),
-  );
-  expect(onOpenActivity).toHaveBeenCalledOnce();
-  expect(screen.queryByTestId('live-log')).toBeNull();
+  expect(await screen.findByRole('status')).toHaveTextContent('Waking');
+  expect(screen.queryByRole('button', { name: /happening/ })).toBeNull();
 });
 
 it('offers the Activity tab after a failed turn, and nothing without one', async () => {

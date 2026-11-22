@@ -10,11 +10,13 @@ export function Menu({
   trigger,
   children,
   align = 'start',
+  side = 'bottom',
   className,
 }: {
   trigger: (p: { open: boolean; toggle: () => void }) => ReactNode;
   children: (close: () => void) => ReactNode;
   align?: 'start' | 'end';
+  side?: 'top' | 'bottom';
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -39,7 +41,8 @@ export function Menu({
         <div
           role="menu"
           className={cn(
-            'absolute top-full z-40 mt-1 grid min-w-56 gap-0.5 rounded-xl border bg-card p-1 shadow-xl shadow-black/30',
+            'absolute z-40 grid min-w-56 gap-0.5 rounded-xl border bg-card p-1 shadow-xl shadow-black/30',
+            side === 'top' ? 'bottom-full mb-1' : 'top-full mt-1',
             align === 'end' ? 'right-0' : 'left-0',
             className,
           )}

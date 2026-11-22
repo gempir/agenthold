@@ -66,8 +66,9 @@ it('says how many agents are left and blocks creating past the quota', async () 
   });
   renderApp('/');
   await userEvent.click(
-    await screen.findByRole('button', { name: 'New agent' }),
+    await screen.findByRole('button', { name: 'Account menu' }),
   );
+  await userEvent.click(screen.getByRole('menuitem', { name: 'New agent' }));
   const dialog = await screen.findByRole('dialog');
   expect(within(dialog).getByText(/2 of 2 agents used/)).toBeVisible();
   await userEvent.type(within(dialog).getByLabelText('Name'), 'x');

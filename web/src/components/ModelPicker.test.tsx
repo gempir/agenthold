@@ -324,7 +324,6 @@ it('offers a typed id when the harness takes custom models', async () => {
   );
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: /Model:/ }));
-  expect(screen.getByText(/Built-in list/)).toBeVisible();
   await user.type(screen.getByRole('combobox'), 'acme/model-9');
   await user.click(screen.getByRole('option', { name: /Use “acme\/model-9”/ }));
   expect(onChange).toHaveBeenLastCalledWith({

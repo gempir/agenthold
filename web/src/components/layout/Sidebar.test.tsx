@@ -167,7 +167,7 @@ it('the search looks into settled threads too', async () => {
   renderApp('/settings/threads');
   await screen.findByRole('button', { name: /Settled/ });
   await userEvent.type(
-    screen.getByRole('searchbox', { name: 'Search threads and agents' }),
+    screen.getByRole('searchbox', { name: 'Search threads, agents and apps' }),
     'thread 1',
   );
   const list = screen.getByRole('list', { name: 'Settled threads' });

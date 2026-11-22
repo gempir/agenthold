@@ -128,11 +128,6 @@ export function HarnessMeta({
         allowCustom={isOwner}
         label="Model for this conversation"
         harness={{ id: agent.harness, name }}
-        note={
-          switchable
-            ? 'A change applies from the next message.'
-            : 'This harness picks its model when it starts: change the agent default in the settings.'
-        }
         harnessSwitch={
           others.length > 0
             ? {
@@ -150,18 +145,6 @@ export function HarnessMeta({
                 },
               }
             : undefined
-        }
-        footer={
-          isOwner && (
-            <Link
-              to="/a/$agentId/settings"
-              params={{ agentId: agent.id }}
-              search={{ tab: 'harness' }}
-              className="underline"
-            >
-              Harness settings
-            </Link>
-          )
         }
         onChange={(c) => (session ? set.mutate(c) : onDraft?.(c))}
       />

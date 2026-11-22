@@ -8,7 +8,6 @@ import {
   GitBranch,
   PanelRight,
   Settings2,
-  SquarePen,
   Undo2,
 } from 'lucide-react';
 import { agentQuery, sessionsQuery, type Agent } from '@/api/queries';
@@ -118,24 +117,6 @@ export function AgentPage({
                   <span className="max-sm:sr-only">
                     {selected.settledAt ? 'Unsettle' : 'Settle'}
                   </span>
-                </Button>
-              )}
-              {access.canUse && sessionId && (
-                <Button
-                  asChild
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-muted-foreground"
-                >
-                  <Link
-                    to="/a/$agentId"
-                    params={{ agentId }}
-                    search={{ panel }}
-                    aria-label="New thread"
-                    title="New thread"
-                  >
-                    <SquarePen className="size-4" />
-                  </Link>
                 </Button>
               )}
               <Button

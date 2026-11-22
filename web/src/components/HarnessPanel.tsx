@@ -254,11 +254,6 @@ function HarnessForm({
                 }}
                 defaultLabel="Harness default"
                 defaultDescription="Whatever the harness is configured to use"
-                note={
-                  models.data && !models.data.switchable
-                    ? 'This harness picks its model when it starts: saving restarts it once its turns are done.'
-                    : 'Conversations without a model of their own switch at their next message.'
-                }
                 className="w-full"
               />
             </div>

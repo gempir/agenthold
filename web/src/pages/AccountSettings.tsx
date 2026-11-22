@@ -4,12 +4,14 @@ import {
   Bot,
   GitBranch,
   KeyRound,
+  LayoutDashboard,
   Layers,
   LockKeyhole,
   MessageSquare,
   MessagesSquare,
   Plug,
   Server,
+  UserRound,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -31,6 +33,7 @@ export const ACCOUNT_SETTINGS_NAV: {
   /** Only shown to admins (the local admin or auth.admins). */
   admin?: boolean;
 }[] = [
+  { to: '/settings/profile', label: 'Profile', icon: UserRound },
   { to: '/settings/threads', label: 'Threads', icon: MessagesSquare },
   { to: '/settings/agents', label: 'Agents', icon: Bot },
   { to: '/settings/secrets', label: 'Secrets', icon: LockKeyhole },
@@ -39,6 +42,12 @@ export const ACCOUNT_SETTINGS_NAV: {
   { to: '/settings/providers', label: 'Provider logins', icon: Plug },
   { to: '/settings/tokens', label: 'API tokens', icon: KeyRound },
   { to: '/settings/slack', label: 'Slack', icon: MessageSquare },
+  {
+    to: '/settings/overview',
+    label: 'Overview',
+    icon: LayoutDashboard,
+    admin: true,
+  },
   { to: '/settings/images', label: 'Images', icon: Layers, admin: true },
   { to: '/settings/nodes', label: 'Nodes', icon: Server, admin: true },
 ];
@@ -49,6 +58,7 @@ export function AccountSettings() {
   return (
     <SettingsLayout
       navLabel="Account settings"
+      wide={path.startsWith('/settings/overview')}
       crumbs={<Crumb current>Settings</Crumb>}
       nav={ACCOUNT_SETTINGS_NAV.filter((n) => !n.admin || admin).map((n) => (
         <SettingsNavItem key={n.to} active={path.startsWith(n.to)}>

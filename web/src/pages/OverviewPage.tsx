@@ -7,7 +7,7 @@ import type { components } from '@/api/schema';
 import { AgentStateBadge, AgentStateDot } from '@/components/AgentStateBadge';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { UsersAdmin } from '@/components/UsersAdmin';
-import { Crumb, TopBar } from '@/components/layout/TopBar';
+import { SettingsHeader } from '@/components/layout/SettingsLayout';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -35,24 +35,23 @@ export function OverviewPage() {
   const me = useQuery(meQuery);
   return (
     <>
-      <TopBar>
-        <Crumb current>Overview</Crumb>
-      </TopBar>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="grid gap-6 px-4 py-4 md:px-8 md:py-6">
-          {me.isPending ? (
-            <Loading />
-          ) : me.data?.admin ? (
-            <>
-              <OverviewContent />
-              <UsersAdmin />
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Only admins can see the overview.
-            </p>
-          )}
-        </div>
+      <SettingsHeader
+        title="Overview"
+        description="Nodes, machines and users of this agenthold"
+      />
+      <div className="grid gap-6">
+        {me.isPending ? (
+          <Loading />
+        ) : me.data?.admin ? (
+          <>
+            <OverviewContent />
+            <UsersAdmin />
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Only admins can see the overview.
+          </p>
+        )}
       </div>
     </>
   );

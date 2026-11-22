@@ -1,6 +1,7 @@
 package runtimeassets
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -66,18 +67,41 @@ func seedAssets(dir string, files fstest.MapFS) {
 	_ = enc.Close()
 	k := Asset{Format: 1, Kind: KindKernel, Arch: arch, Key: testKernelKey, SHA256: digest(testKernel).SHA256, Size: int64(len(testKernel)), Compressed: digest(compressed)}
 	kdata, _ := json.Marshal(k)
-	write := func(p string, b []byte) {
+	writeAtomic := func(p string, b []byte) {
+		_ = os.MkdirAll(filepath.Dir(p), 0o755)
+		f, err := os.CreateTemp(filepath.Dir(p), filepath.Base(p)+".*.seed")
+		if err != nil {
+			return
+		}
+		tmp := f.Name()
+		_, werr := f.Write(b)
+		cerr := f.Close()
+		if werr != nil || cerr != nil {
+			_ = os.Remove(tmp)
+			return
+		}
+		_ = os.Chmod(tmp, 0o644)
+		if err := os.Rename(tmp, p); err != nil {
+			_ = os.Remove(tmp)
+		}
+	}
+	writeOnce := func(p string, b []byte) {
 		if _, err := os.Lstat(p); err == nil {
 			return
 		}
-		_ = os.MkdirAll(filepath.Dir(p), 0o755)
-		_ = os.WriteFile(p, b, 0o644)
+		writeAtomic(p, b)
 	}
-	write(ManifestPath(dir, arch, KindKernel, testKernelKey), kdata)
-	write(k.WorkPath(dir), testKernel)
+	writeOnce(ManifestPath(dir, arch, KindKernel, testKernelKey), kdata)
+	writeOnce(k.WorkPath(dir), testKernel)
+	// The base manifest follows the fixture, which a test may change between runs. Replace it
+	// atomically: tests run prepareT concurrently on one data directory, and a prepare that
+	// found it missing would fetch it from the asset source.
 	p := ManifestPath(dir, arch, KindBase, testBaseKey)
-	_ = os.Remove(p)
-	write(p, files["test/base.json"].Data)
+	data := files["test/base.json"].Data
+	if cur, err := os.ReadFile(p); err == nil && bytes.Equal(cur, data) {
+		return
+	}
+	writeAtomic(p, data)
 }
 
 // prepareT runs prepare like a node whose assets were placed by pull.sh and whose asset source

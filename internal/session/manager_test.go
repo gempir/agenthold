@@ -1043,3 +1043,44 @@ func TestObserveSeesEveryAppend(t *testing.T) {
 		t.Fatalf("observed %+v", got)
 	}
 }
+
+func TestWarmPreconnectsRunningAgent(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	now := time.Now().Unix()
+
+	// Without a running sandbox row, Warm does not start the harness.
+	if err := e.st.CreateSandbox(ctx, db.CreateSandboxParams{
+		AgentID: agentID, Driver: "fake", State: "sleeping", StateChangedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e.m.Warm(agentID)
+	e.m.Wait()
+	if info, err := e.m.Harness(ctx, agentID, false); err != nil || info.Connected {
+		t.Fatalf("sleeping agent should not warm: %+v, %v", info, err)
+	}
+
+	// Once running, Warm starts the harness in the background and subsequent
+	// prompts reuse the exact same process.
+	if err := e.st.SetSandboxState(ctx, db.SetSandboxStateParams{State: "running", StateChangedAt: now, AgentID: agentID}); err != nil {
+		t.Fatal(err)
+	}
+	e.m.Warm(agentID)
+	e.m.Warm(agentID) // deduplicated
+	e.m.Wait()
+
+	info, err := e.m.Harness(ctx, agentID, false)
+	if err != nil || !info.Connected {
+		t.Fatalf("warmed agent not connected: %+v, %v", info, err)
+	}
+	pidsBefore := e.pids()
+	if len(pidsBefore) != 1 {
+		t.Fatalf("expected 1 warmed harness process, got %v", pidsBefore)
+	}
+	e.ok("hello")
+	pidsAfter := e.pids()
+	if !slices.Equal(pidsBefore, pidsAfter) {
+		t.Fatalf("prompt did not reuse warmed harness: before=%v after=%v", pidsBefore, pidsAfter)
+	}
+}

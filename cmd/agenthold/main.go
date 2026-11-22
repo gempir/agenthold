@@ -345,6 +345,7 @@ func run() error {
 	sandboxes.OnChange(func(agentID string, p sandbox.Phase) {
 		if p == sandbox.PhaseRunning {
 			tracker.Touch(agentID) // a fresh boot starts the idle clock
+			sessions.Warm(agentID) // start the harness while the user types
 		}
 	})
 	sandboxes.OnChange(func(agentID string, p sandbox.Phase) {

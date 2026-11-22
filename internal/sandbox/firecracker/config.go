@@ -105,6 +105,9 @@ type Config struct {
 	// Balloon adds a virtio balloon to every VM and inflates it before a
 	// snapshot, so the guest's free memory is not written to disk.
 	Balloon bool
+	// KeepHugePages opts out of collapsing guest 4 KiB fallback pages into
+	// 2 MiB huge pages (mirrors sandbox.firecracker.transparent_hugepages: keep).
+	KeepHugePages bool
 	// SnapshotTimeout bounds writing a snapshot (default 2 min);
 	// ResumeConnectTimeout bounds the tunnel reconnect after a resume
 	// (default 15 s).

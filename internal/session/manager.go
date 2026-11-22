@@ -90,6 +90,7 @@ type Manager struct {
 	// starting serializes harness startup per agent (a size-1 channel, so a
 	// waiting turn can be cancelled).
 	starting map[string]chan struct{}
+	warming  map[string]bool
 	activity func(agentID string)
 	audit    *audit.Log
 	tools    Tools
@@ -157,6 +158,7 @@ func NewManager(st *store.Store, wake Waker, lg *slog.Logger) *Manager {
 	m := &Manager{
 		store: st, wake: wake, log: newLog(st), lg: lg, ctx: ctx, cancel: cancel,
 		conns: map[string]*harnessConn{}, turns: map[string]*turn{}, starting: map[string]chan struct{}{},
+		warming: map[string]bool{},
 	}
 	m.endInterruptedTurns(ctx)
 	go m.closeIdleSessionsLoop()
@@ -1050,6 +1052,49 @@ func (m *Manager) Disconnect(agentID string) {
 	if c != nil {
 		c.close("the harness was stopped because the agent's sandbox is stopping or its settings changed")
 	}
+}
+
+// warmTimeout bounds a background harness pre-warm.
+var warmTimeout = time.Minute
+
+// Warm starts an already-running agent's harness connection in the background
+// so the process and ACP initialize (and any background binary warm-up) are
+// already done before the first prompt arrives. It never wakes a sleeping
+// sandbox and does not count as user activity.
+func (m *Manager) Warm(agentID string) {
+	m.mu.Lock()
+	if m.closing || m.wake == nil || m.warming[agentID] {
+		m.mu.Unlock()
+		return
+	}
+	if c := m.conns[agentID]; c != nil && !c.closed() && !m.restartable(c) {
+		m.mu.Unlock()
+		return
+	}
+	m.warming[agentID] = true
+	m.wg.Add(1)
+	m.mu.Unlock()
+	go func() {
+		defer m.wg.Done()
+		defer func() {
+			m.mu.Lock()
+			delete(m.warming, agentID)
+			m.mu.Unlock()
+		}()
+		ctx, cancel := context.WithTimeout(m.ctx, warmTimeout)
+		defer cancel()
+		ag, err := m.store.GetAgent(ctx, agentID)
+		if err != nil || ag.Kind == "app" {
+			return
+		}
+		sb, err := m.store.GetSandbox(ctx, agentID)
+		if err != nil || sb.State != "running" {
+			return
+		}
+		if _, err := m.connection(ctx, agentID, nil); err != nil && m.ctx.Err() == nil {
+			m.lg.Debug("harness: background warm-up skipped", "agent", agentID, "err", err)
+		}
+	}()
 }
 
 // connection returns the agent's live harness connection, starting it if needed.

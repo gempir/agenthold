@@ -17,6 +17,9 @@ func init() {
 				// Logins run in the web terminal, which can show the URL and
 				// accept a pasted code but cannot open a browser.
 				"NO_BROWSER": "1",
+				// Agenthold does not surface Claude Code's follow-up prompt
+				// suggestions, so disable them to avoid extra end-of-turn work.
+				"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "false",
 				// Claude Code retries a 429 or a 5xx ten times with exponential
 				// backoff (about three minutes, measured with 0.107) and says
 				// nothing over ACP meanwhile. Three retries take about 4s: a

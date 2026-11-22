@@ -278,6 +278,7 @@ func (d *Driver) launch(ctx context.Context, id sandbox.ID, m *manifest) error {
 		return err
 	}
 	go d.watchConsole(id, m.Process)
+	d.watchHugePages(id, m.Process, mem, false)
 	m.State = sandbox.StateRunning
 	m.Fresh = false // the guest has the instruction; it resets and stamps itself
 	return d.save(id, m)

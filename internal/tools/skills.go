@@ -30,8 +30,17 @@ func SkillMarkdown(s db.Skill) string {
 func InstallSkills(ctx context.Context, ts *tunnel.Session, dir string, skills []db.Skill) error {
 	var previous []string
 	var buf strings.Builder
+	manifestRead := false
 	if err := ts.ReadFile(ctx, path.Join(dir, manifestName), nil, &buf); err == nil {
+		manifestRead = true
 		_ = json.Unmarshal([]byte(buf.String()), &previous)
+	}
+	if len(skills) == 0 && len(previous) == 0 {
+		// Nothing to install and nothing previously managed to remove: avoid
+		// creating or rewriting the manifest on every session start.
+		if !manifestRead || strings.TrimSpace(buf.String()) == "[]" {
+			return nil
+		}
 	}
 	current := map[string]bool{}
 	names := []string{}

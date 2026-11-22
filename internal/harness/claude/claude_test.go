@@ -15,6 +15,9 @@ func TestEnvironmentCapsRetries(t *testing.T) {
 	if env["CLAUDE_CODE_MAX_RETRIES"] != "3" {
 		t.Fatalf("CLAUDE_CODE_MAX_RETRIES = %q", env["CLAUDE_CODE_MAX_RETRIES"])
 	}
+	if env["CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION"] != "false" {
+		t.Fatalf("CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION = %q", env["CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION"])
+	}
 	if env["ANTHROPIC_MODEL"] != "opus" {
 		t.Fatalf("ANTHROPIC_MODEL = %q", env["ANTHROPIC_MODEL"])
 	}

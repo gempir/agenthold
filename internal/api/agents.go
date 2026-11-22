@@ -86,7 +86,7 @@ type agentSettings struct {
 	policy      string
 }
 
-func (a *API) validateSettings(s *agentSettings) error {
+func (a *API) validateSettings(ctx context.Context, userID, existingHarness string, s *agentSettings) error {
 	var err error
 	if s.name, err = validName(s.name); err != nil {
 		return err
@@ -103,7 +103,16 @@ func (a *API) validateSettings(s *agentSettings) error {
 	if s.harness == "" {
 		s.harness = harness.Default
 	}
-	if ad, ok := harness.Get(s.harness); !ok || (ad.Hidden && !a.ShowTestHarness) {
+	var ok bool
+	if existingHarness != "" && s.harness == existingHarness {
+		_, ok, err = a.resolveAdapter(ctx, s.harness)
+	} else {
+		ok, err = a.ownerHasHarness(ctx, userID, s.harness)
+	}
+	if err != nil {
+		return err
+	}
+	if !ok {
 		return badRequest("unknown harness")
 	}
 	s.model = strings.TrimSpace(s.model)
@@ -181,7 +190,7 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 	if b.PermissionPolicy != nil {
 		s.policy = string(*b.PermissionPolicy)
 	}
-	if err := a.validateSettings(&s); err != nil {
+	if err := a.validateSettings(ctx, u.ID, "", &s); err != nil {
 		return nil, err
 	}
 	var imageID string
@@ -317,7 +326,7 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	if b.IdleMinutes != nil {
 		s.idleMinutes = int64(*b.IdleMinutes)
 	}
-	if err := a.validateSettings(&s); err != nil {
+	if err := a.validateSettings(ctx, me(ctx).ID, ag.Harness, &s); err != nil {
 		return nil, err
 	}
 	newImageID, newImageRev, imageChanged, err := a.resolveMachineImagePatch(ctx, ag, b.ImageId, b.ImageRevision)

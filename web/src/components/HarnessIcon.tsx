@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { harnessBrand, type Brand } from '@/lib/harnesses';
 import { cn } from '@/lib/utils';
 
@@ -83,14 +84,28 @@ export function BrandIcon({
   }
 }
 
-/** The logo of a harness by its id ("claude-code", "codex", "antigravity"). */
+/** The logo of a harness by its id ("claude-code", "codex", "antigravity"), or an ACP Store iconUrl. */
 export function HarnessIcon({
   harness,
+  iconUrl,
   className,
 }: {
   harness: string | undefined;
+  iconUrl?: string;
   className?: string;
 }) {
+  const [failed, setFailed] = useState(false);
+  if (iconUrl && !failed) {
+    return (
+      <img
+        src={iconUrl}
+        alt=""
+        aria-hidden
+        onError={() => setFailed(true)}
+        className={cn('size-4 shrink-0 rounded-sm object-contain', className)}
+      />
+    );
+  }
   return (
     <BrandIcon brand={harnessBrand(harness ?? '')} className={className} />
   );

@@ -52,16 +52,22 @@ func newLog(st *store.Store) *log {
 
 // append stores an event and notifies subscribers.
 func (l *log) append(ctx context.Context, sessionID, typ, userID string, data any) error {
+	_, err := l.appendSeq(ctx, sessionID, typ, userID, data)
+	return err
+}
+
+// appendSeq stores an event, notifies subscribers, and returns its sequence number.
+func (l *log) appendSeq(ctx context.Context, sessionID, typ, userID string, data any) (int64, error) {
 	raw, err := json.Marshal(data)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	seq, ok := l.seq[sessionID]
 	if !ok {
 		if seq, err = l.store.MaxSessionSeq(ctx, sessionID); err != nil {
-			return err
+			return 0, err
 		}
 	}
 	seq++
@@ -69,7 +75,7 @@ func (l *log) append(ctx context.Context, sessionID, typ, userID string, data an
 	if err := l.store.InsertSessionEvent(ctx, db.InsertSessionEventParams{
 		SessionID: sessionID, Seq: seq, At: ev.At.UnixMilli(), Type: typ, UserID: userID, Data: string(raw),
 	}); err != nil {
-		return err
+		return 0, err
 	}
 	l.seq[sessionID] = seq
 	for s := range l.subs[sessionID] {
@@ -78,7 +84,7 @@ func (l *log) append(ctx context.Context, sessionID, typ, userID string, data an
 	for _, fn := range l.observers {
 		fn(sessionID, ev)
 	}
-	return nil
+	return seq, nil
 }
 
 // Viewer is someone watching a session.

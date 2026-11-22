@@ -152,13 +152,12 @@ func (m *Manager) probeConn(ctx context.Context, conn *harnessConn) error {
 	defer func() { m.markProbed(conn, tried) }()
 
 	sctx, scancel := context.WithTimeout(ctx, setOptionTimeout)
-	res, err := conn.acp.NewSession(sctx, acp.NewSessionRequest{Cwd: HomeDir, McpServers: []acp.McpServer{}})
+	acpID, opts, err := conn.proto.NewSession(sctx, HomeDir, []acp.McpServer{})
 	scancel()
 	if err != nil {
 		tried = todo // not tried again before probeRetry
 		return fmt.Errorf("probe session: %w", err)
 	}
-	acpID := string(res.SessionId)
 	conn.setProbe(acpID, true)
 	defer func() {
 		conn.setProbe(acpID, false)
@@ -166,12 +165,11 @@ func (m *Manager) probeConn(ctx context.Context, conn *harnessConn) error {
 		if conn.init.AgentCapabilities.SessionCapabilities.Close != nil && !conn.closed() {
 			cctx, ccancel := context.WithTimeout(context.WithoutCancel(ctx), setOptionTimeout)
 			defer ccancel()
-			_, _ = conn.acp.CloseSession(cctx, acp.CloseSessionRequest{SessionId: res.SessionId})
+			_ = conn.proto.CloseSession(cctx, acpID)
 		}
 	}()
 	// The probe session's own options are only used to find the model option
 	// the harness sets: they are not recorded as a fresh session.
-	opts := fromACP(res.ConfigOptions)
 	conn.mu.Lock()
 	conn.config[acpID] = opts
 	conn.mu.Unlock()

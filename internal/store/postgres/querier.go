@@ -21,6 +21,7 @@ type Querier interface {
 	ConsumeNodeJoinToken(ctx context.Context, arg ConsumeNodeJoinTokenParams) (string, error)
 	CopyServices(ctx context.Context, arg CopyServicesParams) error
 	CountAgentApps(ctx context.Context, createdByAgentID string) (int64, error)
+	CountAgentsByHarness(ctx context.Context, harness string) (int64, error)
 	CountExposures(ctx context.Context, agentID string) (int64, error)
 	CountImageAgents(ctx context.Context, imageID string) (int64, error)
 	CountLayerSHAInBuilds(ctx context.Context, layerSha256 string) (int64, error)
@@ -36,6 +37,7 @@ type Querier interface {
 	CreateApp(ctx context.Context, arg CreateAppParams) error
 	// A clone keeps the settings of its source, including whether its disks hold harness credentials.
 	CreateClonedAgent(ctx context.Context, arg CreateClonedAgentParams) error
+	CreateCustomHarness(ctx context.Context, arg CreateCustomHarnessParams) error
 	CreateExposure(ctx context.Context, arg CreateExposureParams) error
 	CreateGitCredential(ctx context.Context, arg CreateGitCredentialParams) error
 	CreateIdentity(ctx context.Context, arg CreateIdentityParams) error
@@ -61,6 +63,7 @@ type Querier interface {
 	DeleteAPIToken(ctx context.Context, arg DeleteAPITokenParams) (int64, error)
 	DeleteAgent(ctx context.Context, id string) error
 	DeleteAgentSession(ctx context.Context, id string) error
+	DeleteCustomHarness(ctx context.Context, arg DeleteCustomHarnessParams) (int64, error)
 	DeleteExpiredLoginStates(ctx context.Context, expiresAt int64) error
 	DeleteExpiredPreviewCodes(ctx context.Context, expiresAt int64) error
 	DeleteExpiredPreviewSessions(ctx context.Context, expiresAt int64) error
@@ -99,6 +102,7 @@ type Querier interface {
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	GetAgentSession(ctx context.Context, id string) (AgentSession, error)
 	GetAgentWithSandbox(ctx context.Context, id string) (GetAgentWithSandboxRow, error)
+	GetCustomHarness(ctx context.Context, id string) (CustomHarness, error)
 	GetDefaultImage(ctx context.Context) (Image, error)
 	GetExposure(ctx context.Context, arg GetExposureParams) (Exposure, error)
 	GetExposureByName(ctx context.Context, name string) (Exposure, error)
@@ -124,6 +128,7 @@ type Querier interface {
 	GetSecret(ctx context.Context, id string) (Secret, error)
 	GetSecretByName(ctx context.Context, arg GetSecretByNameParams) (Secret, error)
 	GetService(ctx context.Context, arg GetServiceParams) (Service, error)
+	GetSessionEvent(ctx context.Context, arg GetSessionEventParams) (AgentSessionEvent, error)
 	GetSessionUser(ctx context.Context, arg GetSessionUserParams) (GetSessionUserRow, error)
 	GetShare(ctx context.Context, arg GetShareParams) (AgentShare, error)
 	GetSkill(ctx context.Context, id string) (Skill, error)
@@ -163,6 +168,7 @@ type Querier interface {
 	// Active, idle sessions whose agent owner's auto-settle period has passed
 	// since their last activity or their last unsettle by hand.
 	ListAutoSettleCandidates(ctx context.Context, now int64) ([]ListAutoSettleCandidatesRow, error)
+	ListCustomHarnessesByOwner(ctx context.Context, ownerID string) ([]CustomHarness, error)
 	ListExposures(ctx context.Context, agentID string) ([]Exposure, error)
 	ListGitCredentials(ctx context.Context, userID string) ([]GitCredential, error)
 	// Every identity with its user, for re-evaluating roles at start.
@@ -246,7 +252,9 @@ type Querier interface {
 	SetServiceEnabled(ctx context.Context, arg SetServiceEnabledParams) (int64, error)
 	SetSessionACPID(ctx context.Context, arg SetSessionACPIDParams) error
 	SetSessionGit(ctx context.Context, arg SetSessionGitParams) error
+	SetSessionHandoffSeq(ctx context.Context, arg SetSessionHandoffSeqParams) error
 	SetSessionModel(ctx context.Context, arg SetSessionModelParams) error
+	SetSessionNative(ctx context.Context, arg SetSessionNativeParams) error
 	SetSessionOrigin(ctx context.Context, arg SetSessionOriginParams) error
 	SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error
 	SetSlackThreadCursor(ctx context.Context, arg SetSlackThreadCursorParams) error
@@ -275,6 +283,7 @@ type Querier interface {
 	UnshareAgent(ctx context.Context, arg UnshareAgentParams) (int64, error)
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
 	UpdateAgentRepoBranch(ctx context.Context, arg UpdateAgentRepoBranchParams) error
+	UpdateCustomHarness(ctx context.Context, arg UpdateCustomHarnessParams) error
 	UpdateExposure(ctx context.Context, arg UpdateExposureParams) error
 	UpdateGitCredential(ctx context.Context, arg UpdateGitCredentialParams) error
 	UpdateImage(ctx context.Context, arg UpdateImageParams) error

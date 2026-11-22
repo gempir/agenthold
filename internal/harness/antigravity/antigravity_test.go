@@ -125,3 +125,24 @@ func TestAPIKeyLogin(t *testing.T) {
 		t.Fatalf("injection %+v", in)
 	}
 }
+
+func TestAuthorizationURLAndLoginResponse(t *testing.T) {
+	raw := "https://accounts.google.com/o/oauth2/auth?response_type=code&state=abc123&redirect_uri=https%3A%2F%2Fantigravity.google%2Foauth-callback"
+	parsed, ok := ExtractAuthorizationURL(AuthURLPrefix + raw)
+	if !ok {
+		t.Fatal("expected authorization URL to be extracted")
+	}
+	if parsed.State != "abc123" || parsed.RedirectURI != CodeRedirectURI {
+		t.Fatalf("parsed = %+v", parsed)
+	}
+	if got, err := ValidateLoginResponse(parsed, "4/0AeanS-code_123"); err != nil || got != "4/0AeanS-code_123" {
+		t.Fatalf("raw code: got=%q err=%v", got, err)
+	}
+	cb := CodeRedirectURI + "?state=abc123&code=xyz"
+	if got, err := ValidateLoginResponse(parsed, cb); err != nil || got != cb {
+		t.Fatalf("callback URL: got=%q err=%v", got, err)
+	}
+	if _, err := ValidateLoginResponse(parsed, CodeRedirectURI+"?state=wrong&code=xyz"); err == nil {
+		t.Fatal("mismatched state accepted")
+	}
+}

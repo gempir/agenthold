@@ -56,6 +56,11 @@ func (p postgresQueries) CountAgentApps(ctx context.Context, createdByAgentID st
 	return value, err
 }
 
+func (p postgresQueries) CountAgentsByHarness(ctx context.Context, harness string) (int64, error) {
+	value, err := p.q.CountAgentsByHarness(ctx, harness)
+	return value, err
+}
+
 func (p postgresQueries) CountExposures(ctx context.Context, agentID string) (int64, error) {
 	value, err := p.q.CountExposures(ctx, agentID)
 	return value, err
@@ -109,6 +114,10 @@ func (p postgresQueries) CreateApp(ctx context.Context, arg db.CreateAppParams) 
 
 func (p postgresQueries) CreateClonedAgent(ctx context.Context, arg db.CreateClonedAgentParams) error {
 	return p.q.CreateClonedAgent(ctx, postgres.CreateClonedAgentParams(arg))
+}
+
+func (p postgresQueries) CreateCustomHarness(ctx context.Context, arg db.CreateCustomHarnessParams) error {
+	return p.q.CreateCustomHarness(ctx, postgres.CreateCustomHarnessParams(arg))
 }
 
 func (p postgresQueries) CreateExposure(ctx context.Context, arg db.CreateExposureParams) error {
@@ -210,6 +219,11 @@ func (p postgresQueries) DeleteAgent(ctx context.Context, id string) error {
 
 func (p postgresQueries) DeleteAgentSession(ctx context.Context, id string) error {
 	return p.q.DeleteAgentSession(ctx, id)
+}
+
+func (p postgresQueries) DeleteCustomHarness(ctx context.Context, arg db.DeleteCustomHarnessParams) (int64, error) {
+	value, err := p.q.DeleteCustomHarness(ctx, postgres.DeleteCustomHarnessParams(arg))
+	return value, err
 }
 
 func (p postgresQueries) DeleteExpiredLoginStates(ctx context.Context, expiresAt int64) error {
@@ -384,6 +398,11 @@ func (p postgresQueries) GetAgentWithSandbox(ctx context.Context, id string) (db
 	return db.GetAgentWithSandboxRow{Agent: db.Agent(value.Agent), Sandbox: db.Sandbox(value.Sandbox)}, err
 }
 
+func (p postgresQueries) GetCustomHarness(ctx context.Context, id string) (db.CustomHarness, error) {
+	value, err := p.q.GetCustomHarness(ctx, id)
+	return db.CustomHarness(value), err
+}
+
 func (p postgresQueries) GetDefaultImage(ctx context.Context) (db.Image, error) {
 	value, err := p.q.GetDefaultImage(ctx)
 	return db.Image(value), err
@@ -507,6 +526,11 @@ func (p postgresQueries) GetSecretByName(ctx context.Context, arg db.GetSecretBy
 func (p postgresQueries) GetService(ctx context.Context, arg db.GetServiceParams) (db.Service, error) {
 	value, err := p.q.GetService(ctx, postgres.GetServiceParams(arg))
 	return db.Service(value), err
+}
+
+func (p postgresQueries) GetSessionEvent(ctx context.Context, arg db.GetSessionEventParams) (db.AgentSessionEvent, error) {
+	value, err := p.q.GetSessionEvent(ctx, postgres.GetSessionEventParams(arg))
+	return db.AgentSessionEvent(value), err
 }
 
 func (p postgresQueries) GetSessionUser(ctx context.Context, arg db.GetSessionUserParams) (db.GetSessionUserRow, error) {
@@ -780,6 +804,18 @@ func (p postgresQueries) ListAutoSettleCandidates(ctx context.Context, now int64
 	result := make([]db.ListAutoSettleCandidatesRow, 0, len(value))
 	for _, row := range value {
 		result = append(result, db.ListAutoSettleCandidatesRow(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListCustomHarnessesByOwner(ctx context.Context, ownerID string) ([]db.CustomHarness, error) {
+	value, err := p.q.ListCustomHarnessesByOwner(ctx, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.CustomHarness, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.CustomHarness(row))
 	}
 	return result, nil
 }
@@ -1263,8 +1299,16 @@ func (p postgresQueries) SetSessionGit(ctx context.Context, arg db.SetSessionGit
 	return p.q.SetSessionGit(ctx, postgres.SetSessionGitParams(arg))
 }
 
+func (p postgresQueries) SetSessionHandoffSeq(ctx context.Context, arg db.SetSessionHandoffSeqParams) error {
+	return p.q.SetSessionHandoffSeq(ctx, postgres.SetSessionHandoffSeqParams(arg))
+}
+
 func (p postgresQueries) SetSessionModel(ctx context.Context, arg db.SetSessionModelParams) error {
 	return p.q.SetSessionModel(ctx, postgres.SetSessionModelParams(arg))
+}
+
+func (p postgresQueries) SetSessionNative(ctx context.Context, arg db.SetSessionNativeParams) error {
+	return p.q.SetSessionNative(ctx, postgres.SetSessionNativeParams(arg))
 }
 
 func (p postgresQueries) SetSessionOrigin(ctx context.Context, arg db.SetSessionOriginParams) error {
@@ -1372,6 +1416,10 @@ func (p postgresQueries) UpdateAgent(ctx context.Context, arg db.UpdateAgentPara
 
 func (p postgresQueries) UpdateAgentRepoBranch(ctx context.Context, arg db.UpdateAgentRepoBranchParams) error {
 	return p.q.UpdateAgentRepoBranch(ctx, postgres.UpdateAgentRepoBranchParams(arg))
+}
+
+func (p postgresQueries) UpdateCustomHarness(ctx context.Context, arg db.UpdateCustomHarnessParams) error {
+	return p.q.UpdateCustomHarness(ctx, postgres.UpdateCustomHarnessParams(arg))
 }
 
 func (p postgresQueries) UpdateExposure(ctx context.Context, arg db.UpdateExposureParams) error {

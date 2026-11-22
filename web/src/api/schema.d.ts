@@ -844,6 +844,121 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/acp-registry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Search the official ACP Registry (ACP Store) for downloadable ACP coding agents. */
+        get: operations["searchAcpRegistry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/harnesses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description List your added ACP Store and local ACP command harnesses. */
+        get: operations["listCustomHarnesses"];
+        put?: never;
+        /** @description Add an ACP Registry agent or a local ACP command harness. */
+        post: operations["createCustomHarness"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/harnesses/{harnessId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                harnessId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Remove a custom harness. Refused while agents still use it. */
+        delete: operations["deleteCustomHarness"];
+        options?: never;
+        head?: never;
+        /** @description Update settings of a custom harness (name, args, env, custom models, auth method). */
+        patch: operations["updateCustomHarness"];
+        trace?: never;
+    };
+    "/agents/{agentId}/harness/auth/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Start an interactive browser/code sign-in flow (such as Antigravity Google sign-in via `agy acp --login`) inside the agent's sandbox and return the authorization URL. */
+        post: operations["startHarnessAuth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/harness/auth/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Submit the pasted authorization code or callback URL to finish an interactive harness sign-in flow. */
+        post: operations["submitHarnessAuth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/harness/auth/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Cancel an in-progress interactive harness sign-in flow. */
+        post: operations["cancelHarnessAuth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agentId}/harness": {
         parameters: {
             query?: never;
@@ -2644,7 +2759,99 @@ export interface components {
             /** @description Used when an agent does not name a harness. */
             default: boolean;
             name: string;
+            /** @enum {string} */
+            source?: "builtin" | "registry" | "local";
+            /** @enum {string} */
+            protocol?: "acp" | "codex" | "claude";
+            description?: string;
+            version?: string;
+            iconUrl?: string;
             secretPresets: string[];
+        };
+        AcpRegistryAgent: {
+            id: string;
+            name: string;
+            version: string;
+            description: string;
+            authors?: string[];
+            license?: string;
+            website?: string;
+            repository?: string;
+            icon?: string;
+            distributions: string[];
+            /** @description Set when agenthold already ships a built-in harness for this agent. */
+            builtinId?: string;
+            /** @description ID of your already-added custom harness, if any. */
+            addedId?: string;
+        };
+        AcpRegistrySearchResponse: {
+            version: string;
+            agents: components["schemas"]["AcpRegistryAgent"][];
+        };
+        CustomHarness: {
+            id: string;
+            /** @enum {string} */
+            kind: "registry" | "local";
+            name: string;
+            description: string;
+            registryId?: string;
+            registryVersion?: string;
+            distribution?: string;
+            command?: string;
+            args: string[];
+            env: {
+                [key: string]: string;
+            };
+            iconUrl?: string;
+            websiteUrl?: string;
+            repositoryUrl?: string;
+            customModels: string[];
+            authMethod?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        CustomHarnessInput: {
+            /** @enum {string} */
+            kind: "registry" | "local";
+            /** @description Required when kind=registry. */
+            registryId?: string;
+            /**
+             * @description Preferred distribution for registry agents.
+             * @enum {string}
+             */
+            distribution?: "auto" | "binary" | "npx" | "uvx";
+            name?: string;
+            description?: string;
+            /** @description Required when kind=local; optional executable override for kind=registry. */
+            command?: string;
+            args?: string[];
+            env?: {
+                [key: string]: string;
+            };
+            customModels?: string[];
+            authMethod?: string;
+        };
+        CustomHarnessPatch: {
+            name?: string;
+            description?: string;
+            /** @enum {string} */
+            distribution?: "auto" | "binary" | "npx" | "uvx";
+            command?: string;
+            args?: string[];
+            env?: {
+                [key: string]: string;
+            };
+            customModels?: string[];
+            authMethod?: string;
+        };
+        HarnessAuthFlow: {
+            flowId: string;
+            /** @enum {string} */
+            status: "waiting_for_code" | "completed" | "failed";
+            authorizationUrl?: string;
+            message?: string;
         };
         /** @description Which login the agent's harness uses. */
         AgentLogin: {
@@ -4811,7 +5018,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Available harnesses. */
+            /** @description Available harnesses (built-in plus your ACP Store and local ACP harnesses). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4820,6 +5027,224 @@ export interface operations {
                     "application/json": components["schemas"]["HarnessType"][];
                 };
             };
+        };
+    };
+    searchAcpRegistry: {
+        parameters: {
+            query?: {
+                q?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching ACP Registry agents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcpRegistrySearchResponse"];
+                };
+            };
+            502: components["responses"]["Error"];
+        };
+    };
+    listCustomHarnesses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Custom harnesses. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomHarness"][];
+                };
+            };
+        };
+    };
+    createCustomHarness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomHarnessInput"];
+            };
+        };
+        responses: {
+            /** @description Added. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomHarness"];
+                };
+            };
+            400: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+        };
+    };
+    deleteCustomHarness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                harnessId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateCustomHarness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                harnessId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomHarnessPatch"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomHarness"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    startHarnessAuth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Optional auth method id (default oauth-personal for Antigravity). */
+                    method?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Sign-in flow started. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HarnessAuthFlow"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    submitHarnessAuth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    flowId: string;
+                    /** @description Authorization code or full callback URL shown on the provider's sign-in page. */
+                    code: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Sign-in completed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HarnessAuthFlow"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    cancelHarnessAuth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    flowId?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Cancelled. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
         };
     };
     getHarness: {

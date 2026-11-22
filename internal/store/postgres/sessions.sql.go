@@ -66,7 +66,7 @@ func (q *Queries) DeleteAgentSession(ctx context.Context, id string) error {
 }
 
 const getAgentSession = `-- name: GetAgentSession :one
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at FROM agent_sessions WHERE id = $1
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq FROM agent_sessions WHERE id = $1
 `
 
 func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession, error) {
@@ -92,6 +92,8 @@ func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession,
 		&i.SettledAt,
 		&i.SettledBy,
 		&i.UnsettledAt,
+		&i.AcpHarness,
+		&i.HandoffSeq,
 	)
 	return i, err
 }
@@ -108,6 +110,29 @@ func (q *Queries) GetModelCatalog(ctx context.Context, agentID string) (AgentMod
 		&i.Harness,
 		&i.Data,
 		&i.SeenAt,
+	)
+	return i, err
+}
+
+const getSessionEvent = `-- name: GetSessionEvent :one
+SELECT session_id, seq, at, type, user_id, data FROM agent_session_events WHERE session_id = $1 AND seq = $2
+`
+
+type GetSessionEventParams struct {
+	SessionID string
+	Seq       int64
+}
+
+func (q *Queries) GetSessionEvent(ctx context.Context, arg GetSessionEventParams) (AgentSessionEvent, error) {
+	row := q.db.QueryRowContext(ctx, getSessionEvent, arg.SessionID, arg.Seq)
+	var i AgentSessionEvent
+	err := row.Scan(
+		&i.SessionID,
+		&i.Seq,
+		&i.At,
+		&i.Type,
+		&i.UserID,
+		&i.Data,
 	)
 	return i, err
 }
@@ -138,7 +163,7 @@ func (q *Queries) InsertSessionEvent(ctx context.Context, arg InsertSessionEvent
 }
 
 const linkedSessions = `-- name: LinkedSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at FROM agent_sessions WHERE agent_id = $1 AND origin_agent_id = $2 ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq FROM agent_sessions WHERE agent_id = $1 AND origin_agent_id = $2 ORDER BY updated_at DESC
 `
 
 type LinkedSessionsParams struct {
@@ -176,6 +201,8 @@ func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) 
 			&i.SettledAt,
 			&i.SettledBy,
 			&i.UnsettledAt,
+			&i.AcpHarness,
+			&i.HandoffSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -191,7 +218,7 @@ func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) 
 }
 
 const listAgentSessions = `-- name: ListAgentSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at FROM agent_sessions WHERE agent_id = $1 ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq FROM agent_sessions WHERE agent_id = $1 ORDER BY updated_at DESC
 `
 
 func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]AgentSession, error) {
@@ -223,6 +250,8 @@ func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]Agen
 			&i.SettledAt,
 			&i.SettledBy,
 			&i.UnsettledAt,
+			&i.AcpHarness,
+			&i.HandoffSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -521,6 +550,20 @@ func (q *Queries) SetSessionGit(ctx context.Context, arg SetSessionGitParams) er
 	return err
 }
 
+const setSessionHandoffSeq = `-- name: SetSessionHandoffSeq :exec
+UPDATE agent_sessions SET handoff_seq = $1 WHERE id = $2
+`
+
+type SetSessionHandoffSeqParams struct {
+	HandoffSeq int64
+	ID         string
+}
+
+func (q *Queries) SetSessionHandoffSeq(ctx context.Context, arg SetSessionHandoffSeqParams) error {
+	_, err := q.db.ExecContext(ctx, setSessionHandoffSeq, arg.HandoffSeq, arg.ID)
+	return err
+}
+
 const setSessionModel = `-- name: SetSessionModel :exec
 UPDATE agent_sessions SET model = $1, model_options = $2 WHERE id = $3
 `
@@ -533,6 +576,21 @@ type SetSessionModelParams struct {
 
 func (q *Queries) SetSessionModel(ctx context.Context, arg SetSessionModelParams) error {
 	_, err := q.db.ExecContext(ctx, setSessionModel, arg.Model, arg.ModelOptions, arg.ID)
+	return err
+}
+
+const setSessionNative = `-- name: SetSessionNative :exec
+UPDATE agent_sessions SET acp_session_id = $1, acp_harness = $2 WHERE id = $3
+`
+
+type SetSessionNativeParams struct {
+	AcpSessionID string
+	AcpHarness   string
+	ID           string
+}
+
+func (q *Queries) SetSessionNative(ctx context.Context, arg SetSessionNativeParams) error {
+	_, err := q.db.ExecContext(ctx, setSessionNative, arg.AcpSessionID, arg.AcpHarness, arg.ID)
 	return err
 }
 

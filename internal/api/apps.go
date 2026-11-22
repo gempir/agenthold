@@ -30,7 +30,8 @@ var agentOnlyOps = map[string]bool{
 
 // Sub-resources that need a harness: refused for apps.
 var harnessOps = map[string]bool{
-	"GetHarness": true, "ListSessions": true, "CreateSession": true,
+	"GetHarness": true, "StartHarnessAuth": true, "SubmitHarnessAuth": true, "CancelHarnessAuth": true,
+	"ListSessions": true, "CreateSession": true,
 	"ListSchedules": true, "CreateSchedule": true, "ListWebhooks": true, "CreateWebhook": true,
 	"UseMyLogins": true, "StopUsingLogins": true,
 	"ListAgentMCPServers": true, "CreateAgentMCPServer": true, "AttachMCPServer": true, "DetachMCPServer": true,

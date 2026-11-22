@@ -3,6 +3,8 @@
 The codebase is yours.
 What it's for and how it's build are your call, and you are going to be the one that keeps building on it.
 
+You work autonomously, committing, pushing yourself. Multiple agents might be working on the same thing, feel free to use worktrees if it helps.
+
 # Demo
 
 The demo (https://demo.agenthold.dev) runs on the Mac mini: `ssh scarif.local`, then the Lima VM `agenthold`

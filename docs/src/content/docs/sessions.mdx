@@ -3,8 +3,14 @@ title: "Threads and harnesses"
 description: "agenthold does not implement an agent loop. A **harness** (Claude Code, ...) runs inside each sandbox and speaks the Agent Client Protocol (ACP) on stdio. The server is the ACP client."
 ---
 
-agenthold does not implement an agent loop. A **harness** (Claude Code, ...) runs inside each sandbox and speaks
-the [Agent Client Protocol](https://agentclientprotocol.com) (ACP) on stdio. The server is the ACP client.
+agenthold does not implement an agent loop. A **harness** (Claude Code, Codex, Antigravity, OpenCode, or any agent from
+the ACP Store) runs inside each sandbox over stdio:
+
+- **Claude Code** runs natively via `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio`.
+- **Codex** runs natively via `codex app-server -c thread_unload_delay_secs=0` (JSON-RPC 2.0 over stdio, including native `thread/inject_items` for context handoff).
+- **Antigravity (`agy`)**, **OpenCode**, **ACP Store** agents, and **local ACP commands** speak the [Agent Client Protocol](https://agentclientprotocol.com) (ACP) on stdio.
+
+All harnesses normalize into the same session event log, permission workflow, model picker, and token usage updates.
 
 A conversation with an agent is a **thread**. In the API, the database and the event log a thread is a
 **session** (`/api/v1/sessions/...`), so the rest of this page uses both words for the same thing.
@@ -42,8 +48,14 @@ changes nothing), `settledAt` and `settledBy` (`user`, `agent` or `auto`) on eve
    One harness process serves all of an agent's sessions.
 3. If the harness doesn't know the session yet (new process after a sleep or restart), the server uses
    `session/resume` when the harness supports it, and `session/load` otherwise: the log already holds the
-   conversation, so the replay a load sends would only delay the prompt (it is not stored again). Without either
-   capability, a new ACP session starts and the log records a notice that the context was reset.
+   conversation, so the replay a load sends would only delay the prompt (it is not stored again). If the session
+   was previously driven by a **different harness** (or native resume/load fails), agenthold automatically performs
+   a budgeted **Context Handoff**: it reconstructs prior user/assistant messages from the event log, fits them into
+   a 16k-token / 64 KB budget (prioritizing the latest user message, latest assistant reply, original user request,
+   and newest-to-oldest context), and delivers them natively (`thread/inject_items` for Codex) or inline on the
+   first non-slash turn (deferring handoff across slash commands). If older turns were omitted to stay within
+   budget, the handoff notice points the agent to the `read_thread` platform MCP tool so it can inspect earlier
+   history on demand.
 4. `session/prompt` runs. Every `session/update` the harness sends is appended to the session's event log and
    streamed to everyone watching.
 
@@ -145,13 +157,23 @@ which also implements `Refresher` for expiring logins. Nothing outside `internal
 harness. Versions are pinned in `images/harnesses/package.json` (npm) and `images/harnesses/versions.env` (native
 binaries, an exact version and a sha256 per architecture) only; a test checks them against the adapters.
 
-| Harness | ACP entry point | In the base image |
-| --- | --- | --- |
-| `claude-code` | `claude-agent-acp` ([@agentclientprotocol/claude-agent-acp](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp), which bundles the Claude Agent SDK and Claude Code) | yes |
-| `opencode` | `opencode acp` (native ACP, [opencode-ai](https://www.npmjs.com/package/opencode-ai)) | yes |
-| `codex` | `codex-acp` ([@agentclientprotocol/codex-acp](https://www.npmjs.com/package/@agentclientprotocol/codex-acp)) | yes |
-| `antigravity` | `agy acp --disable-telemetry` (native ACP, [Antigravity CLI](https://antigravity.google/docs/cli/acp), a pinned native binary) | yes |
-| `fake` | `/opt/agenthold/fakeagent`, a scripted agent for tests and UI work (development only) | shipped with sandboxd |
+| Harness | Entry point | Protocol | In the base image |
+| --- | --- | --- | --- |
+| `claude-code` | `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio` ([@anthropic-ai/claude-code](https://www.npmjs.com/package/@anthropic-ai/claude-code)) | Native Claude stream-json | yes |
+| `codex` | `codex app-server -c thread_unload_delay_secs=0` ([@openai/codex](https://www.npmjs.com/package/@openai/codex)) | Native Codex App Server | yes |
+| `opencode` | `opencode acp` ([opencode-ai](https://www.npmjs.com/package/opencode-ai)) | ACP | yes |
+| `antigravity` | `agy acp --disable-telemetry` ([Antigravity CLI](https://antigravity.google/docs/cli/acp), pinned native binary) | ACP | yes |
+| ACP Store / Local ACP | Installed on demand into `~/.agenthold/tools/<agent-id>/<version>/` (`binary`, `npx`, or `uvx`) or any local executable | ACP | on demand (persistent home) |
+| `fake` | `/opt/agenthold/fakeagent`, a scripted agent for tests and UI work (development only) | ACP | shipped with sandboxd |
+
+### ACP Store & custom ACP harnesses
+
+Under **Settings → Providers & Harnesses** (`/settings/providers`), you can search and add community coding agents
+from the official [ACP Registry](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json) (`GET /acp-registry`)
+or register any local ACP command (`POST /me/harnesses`). Registry agents are downloaded and verified on demand
+(with SHA-256 and archive path-traversal checks) into `~/.agenthold/tools/<agent-id>/<version>/` inside each agent's
+persistent home volume, so they survive sleep and system resets without rebuilding VM images. Custom harnesses appear
+alongside built-in harnesses in agent settings and the model picker rail.
 
 ### When a harness fails
 
@@ -206,16 +228,13 @@ Signing in:
   `provider/model`, for example `anthropic/claude-sonnet-5-5`.
 - **Codex:** an account login (ChatGPT login, ChatGPT access token or API key), or an OpenAI API key secret as
   `OPENAI_API_KEY`; the server then signs in with the key on its own.
-- **Antigravity:** an account login (Gemini API key), or a Gemini API key secret as `GEMINI_API_KEY`; the server
-  then signs in with the `gemini-api-key` method on its own (over ACP agy needs no `modelProvider` setting for
-  it). A Google sign-in works inside the sandbox: **Log in from the terminal** runs `agy acp --login`, which shows a
-  URL to open on any computer and takes the code back. The guest has no keyring (no D-Bus session bus), so agy keeps
-  that login in `~/.gemini/antigravity-cli/antigravity-oauth-token` and the agent is marked "credentials inside
-  sandbox". Google sign-ins are not offered as account logins: the token file's format is undocumented and holds a
-  refresh token, so the server cannot take it over. Enterprise logins (`oauth-business`, `agent-platform` with
-  Application Default Credentials) are advertised by agy and also have to be set up inside the sandbox. Mind
-  Google's terms: a consumer Google account (`oauth-personal`, subscription quota) may not be permitted in
-  third-party tools; a Gemini API key or an enterprise login is the safe choice.
+- **Antigravity:** an account login (Gemini API key or Vertex AI / Agent Platform API key), a Gemini API key secret
+  as `GEMINI_API_KEY`, or interactive Google account sign-in right from **Agent Settings → Harness → Sign in with Google**
+  (`POST /agents/{agentId}/harness/auth/start` / `submit` / `cancel`). Clicking **Sign in with Google** runs
+  `agy acp --disable-telemetry --login` inside the sandbox, opens a validated Google OAuth URL in your browser, and
+  exchanges the pasted authorization code or callback URL. The adapter sets `SSH_CONNECTION` and
+  `AGY_ACP_FORCE_FILE_STORAGE=1` so `agy` stores the token in `~/.gemini/antigravity-cli/antigravity-oauth-token` on the
+  persistent home volume (marking the agent "credentials inside sandbox").
 - **OpenCode** has no account logins: it supports many providers with its own login file, which does not fit one
   login per harness. Use secrets or its terminal login.
 
@@ -279,8 +298,9 @@ rail: a harness that reported models (or has a built-in list) lists its default 
 this agent only its default model. A dot on a harness's logo marks a missing login. Picking one asks to confirm in the
 reasoning column ("Switches demo2 to Codex (all threads)"); confirming changes the agent's harness and default model (the picked one, or the new
 harness's own), resets the models chosen in its conversations, and restarts the harness with the next message.
-Conversations keep their history but start with a fresh context, since the old harness's sessions mean nothing to the
-new one. The switch waits while a conversation is running (the API answers 409), and the picker warns when the new
+Conversations keep their history and continue seamlessly on the new harness via automatic **Context Handoff**:
+the server transfers recent turns within a portable token budget and makes earlier omitted messages available via
+the `read_thread` platform MCP tool. The switch waits while a conversation is running (the API answers 409), and the picker warns when the new
 harness has no login it could start with (an account login that is not connected: connect it under Provider logins or
 sign in inside the sandbox); the harness settings do the same switch with a form. Users the agent is shared with see
 only the current harness's models, and `GET /agents/{id}/models?harness=<id>` is for those who may configure the

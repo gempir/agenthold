@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { api, unwrap } from '@/api/client';
 import { providerLoginsQuery, type ProviderLoginInfo } from '@/api/queries';
+import { AcpStoreSection } from '@/components/AcpStoreSection';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,13 +16,14 @@ export function ProvidersPage() {
   return (
     <div className="flex max-w-3xl flex-col gap-6">
       <header>
-        <h1 className="text-xl font-semibold">Provider logins</h1>
+        <h1 className="text-xl font-semibold">Providers &amp; Harnesses</h1>
         <p className="text-sm text-muted-foreground">
-          Sign in to Claude Code and Codex once. Every agent that uses your
+          Sign in to Claude Code, Codex, and Antigravity once, or install
+          additional agents from the ACP Store. Every agent that uses your
           logins gets them when it starts, and switching an agent between
-          harnesses needs no new sign-in. Agents only see placeholders: the
-          egress proxy adds the real credential to their requests. Anyone who
-          can prompt such an agent uses your login through it.
+          harnesses continues conversations automatically with context handoff.
+          Agents only see placeholders: the egress proxy adds the real
+          credential to their requests.
         </p>
       </header>
       {logins.isPending && <Loading />}
@@ -29,6 +31,7 @@ export function ProvidersPage() {
       {logins.data?.map((p) => (
         <Provider key={p.provider} info={p} />
       ))}
+      <AcpStoreSection />
     </div>
   );
 }

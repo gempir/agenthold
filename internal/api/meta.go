@@ -21,7 +21,7 @@ func (a *API) GetVersion(context.Context, gen.GetVersionRequestObject) (gen.GetV
 func (a *API) ListAuthProviders(context.Context, gen.ListAuthProvidersRequestObject) (gen.ListAuthProvidersResponseObject, error) {
 	out := gen.ListAuthProviders200JSONResponse{}
 	if a.Auth.LocalEnabled() {
-		out = append(out, gen.AuthProvider{Id: config.LocalProviderID, Name: "Username and password", Type: gen.Local})
+		out = append(out, gen.AuthProvider{Id: config.LocalProviderID, Name: "Username and password", Type: gen.AuthProviderTypeLocal})
 	}
 	for _, p := range a.Auth.Providers() {
 		out = append(out, gen.AuthProvider{Id: p.ID, Name: p.Name, Type: gen.AuthProviderType(p.Type)})

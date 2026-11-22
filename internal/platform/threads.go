@@ -48,6 +48,23 @@ var threadTools = []map[string]any{
 			},
 		},
 	},
+	{
+		"name": "read_thread",
+		"description": "Read conversation history from one of your threads (default: the current thread). " +
+			"Use seq to inspect a single omitted handoff item, or after_seq + limit to paginate. " +
+			"Long items return next_offset; pass offset=next_offset to read the rest.",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"thread_id": map[string]any{"type": "string", "description": "Thread id (default: current thread)."},
+				"seq":       map[string]any{"type": "integer", "description": "Read one specific historical item by its seq id."},
+				"after_seq": map[string]any{"type": "integer", "description": "List items with seq > after_seq (default 0)."},
+				"limit":     map[string]any{"type": "integer", "description": "Maximum items to return (default 20, max 100)."},
+				"max_chars": map[string]any{"type": "integer", "description": "Maximum characters per item text (default 4000, max 20000)."},
+				"offset":    map[string]any{"type": "integer", "description": "Character offset into a single item when seq is set."},
+			},
+		},
+	},
 }
 
 // maxListedThreads bounds list_threads.
@@ -155,4 +172,99 @@ func (p *Service) unsettleThread(ctx context.Context, caller db.Agent, id string
 	}
 	p.agentAudit(ctx, caller, caller.ID, audit.SessionUnsettle, s.ID, map[string]any{"session": s.Title})
 	return fmt.Sprintf("Thread %s (%q) is active again.", s.ID, s.Title), nil
+}
+
+type readThreadItem struct {
+	Seq        int64  `json:"seq"`
+	Role       string `json:"role"`
+	Kind       string `json:"kind"`
+	Status     string `json:"status,omitempty"`
+	Text       string `json:"text"`
+	NextOffset *int   `json:"next_offset,omitempty"`
+}
+
+func (p *Service) readThread(ctx context.Context, caller db.Agent, current string, in toolArgs) (string, error) {
+	s, err := p.ownThread(ctx, caller, in.ThreadID, current)
+	if err != nil {
+		return "", err
+	}
+	maxChars := in.MaxChars
+	if maxChars <= 0 {
+		maxChars = 4000
+	}
+	if maxChars > 20000 {
+		maxChars = 20000
+	}
+	msgs, err := session.ReconstructHistory(ctx, p.Store, s.ID, 0, 0)
+	if err != nil {
+		return "", err
+	}
+	clipItem := func(m session.HistoricalMessage, offset int) readThreadItem {
+		runes := []rune(m.Text)
+		if offset < 0 {
+			offset = 0
+		}
+		if offset > len(runes) {
+			offset = len(runes)
+		}
+		end := min(len(runes), offset+maxChars)
+		item := readThreadItem{
+			Seq:    m.Seq,
+			Role:   m.Role,
+			Kind:   m.Kind,
+			Status: m.Status,
+			Text:   string(runes[offset:end]),
+		}
+		if end < len(runes) {
+			next := end
+			item.NextOffset = &next
+		}
+		return item
+	}
+
+	if in.Seq > 0 {
+		for _, m := range msgs {
+			if m.Seq == in.Seq {
+				b, _ := json.MarshalIndent(map[string]any{
+					"thread_id": s.ID,
+					"title":     s.Title,
+					"item":      clipItem(m, in.Offset),
+				}, "", "  ")
+				return string(b), nil
+			}
+		}
+		return "", fmt.Errorf("no historical item with seq %d in thread %s", in.Seq, s.ID)
+	}
+
+	limit := in.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	var items []readThreadItem
+	var nextAfterSeq int64
+	hasMore := false
+	for _, m := range msgs {
+		if m.Seq <= in.AfterSeq {
+			continue
+		}
+		if len(items) == limit {
+			hasMore = true
+			break
+		}
+		items = append(items, clipItem(m, 0))
+		nextAfterSeq = m.Seq
+	}
+	resp := map[string]any{
+		"thread_id": s.ID,
+		"title":     s.Title,
+		"items":     items,
+	}
+	if hasMore {
+		resp["next_after_seq"] = nextAfterSeq
+	}
+	b, _ := json.MarshalIndent(resp, "", "  ")
+	return string(b), nil
 }

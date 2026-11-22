@@ -20,7 +20,6 @@ import (
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/tunnel"
-	"github.com/gempir/agenthold/internal/version"
 )
 
 // Errors.
@@ -95,9 +94,20 @@ type Manager struct {
 	audit    *audit.Log
 	tools    Tools
 	logins   Logins
+	resolver Resolver
 	catMu    sync.Mutex // serializes model catalog updates
 	probe    bool       // describe unknown models after turns (SetModelProbe)
 }
+
+// Resolver resolves built-in and user-configured ACP Store / local ACP
+// harnesses, installing Registry agents into the sandbox on demand.
+type Resolver interface {
+	AdapterFor(ctx context.Context, harnessID string) (*harness.Adapter, bool, error)
+	Prepare(ctx context.Context, ad *harness.Adapter, ts *tunnel.Session, home string, cfg harness.Config, status func(string)) ([]string, map[string]string, error)
+}
+
+// SetResolver sets the custom harness resolver (ACP Store + local ACP commands).
+func (m *Manager) SetResolver(r Resolver) { m.resolver = r }
 
 // Logins supplies the account login of an agent's harness: files are written
 // into the sandbox, the returned environment is added to the harness.
@@ -219,7 +229,7 @@ func (m *Manager) closeIdleSessions(now time.Time) {
 	m.mu.Unlock()
 	for _, x := range todo {
 		ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
-		_, err := x.c.acp.CloseSession(ctx, acp.CloseSessionRequest{SessionId: acp.SessionId(x.s.acpID)})
+		err := x.c.proto.CloseSession(ctx, x.s.acpID)
 		cancel()
 		x.c.endClose(x.s.acpID, x.done)
 		if err != nil {
@@ -503,7 +513,8 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 		promptData["origin"] = opts.Origin
 		promptData["depth"] = opts.Depth
 	}
-	if err := m.log.append(lctx, sessionID, EventPrompt, userID, promptData); err != nil {
+	promptSeq, err := m.log.appendSeq(lctx, sessionID, EventPrompt, userID, promptData)
+	if err != nil {
 		release()
 		m.wg.Done()
 		return err
@@ -527,7 +538,7 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 
 	go func() {
 		defer m.wg.Done()
-		end, err := m.run(t, sess, text, status)
+		end, err := m.run(t, sess, text, promptSeq, status)
 		m.mu.Lock()
 		t.finished = true
 		if t.killTimer != nil {
@@ -582,7 +593,7 @@ func titleFrom(text string) string {
 
 // run executes one turn and returns the data of its turn_end event, which the
 // caller appends once the turn has been released.
-func (m *Manager) run(t *turn, sess db.AgentSession, text string, status func(string)) (map[string]any, error) {
+func (m *Manager) run(t *turn, sess db.AgentSession, text string, promptSeq int64, status func(string)) (map[string]any, error) {
 	ctx := t.setup
 	notice := func(msg string) {
 		_ = m.log.append(context.WithoutCancel(ctx), sess.ID, EventNotice, "", map[string]string{"message": msg})
@@ -597,7 +608,7 @@ func (m *Manager) run(t *turn, sess db.AgentSession, text string, status func(st
 	m.mu.Lock()
 	t.conn = conn
 	m.mu.Unlock()
-	acpID, err := m.activate(ctx, t, conn, sess, notice)
+	acpID, inlineCtx, handoffToSeq, err := m.activate(ctx, t, conn, sess, text, promptSeq, notice)
 	if err != nil {
 		return nil, err
 	}
@@ -616,10 +627,17 @@ func (m *Manager) run(t *turn, sess db.AgentSession, text string, status func(st
 	m.lg.Info("harness: prompt sent", "agent", sess.AgentID, "session", sess.ID)
 	conn.promptAt.Store(time.Now().UnixNano())
 
+	promptText := WithInlineContext(inlineCtx, text)
 	// Not the setup context: a cancel is session/cancel, answered by the
 	// harness with stopReason "cancelled".
-	res, err := conn.acp.Prompt(t.prompt, acp.PromptRequest{SessionId: acp.SessionId(acpID), Prompt: []acp.ContentBlock{acp.TextBlock(text)}})
+	res, err := conn.proto.Prompt(t.prompt, acpID, promptText)
 	conn.used(acpID)
+	if err == nil && handoffToSeq > 0 {
+		_ = m.store.SetSessionHandoffSeq(context.WithoutCancel(ctx), db.SetSessionHandoffSeqParams{
+			HandoffSeq: handoffToSeq,
+			ID:         sess.ID,
+		})
+	}
 	if err != nil {
 		conn.drainUpdates()
 		var se *stoppedError
@@ -716,17 +734,29 @@ func (m *Manager) giveUp(t *turn, conn *harnessConn, why string) error {
 }
 
 // activate makes sure the harness knows the session: new, loaded or resumed.
-func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess db.AgentSession, notice func(string)) (string, error) {
+// When the agent switched harnesses or restore fails on a thread with prior
+// history, it performs T3-style budgeted Context Handoff (natively via Codex
+// `thread/inject_items` when supported, or inline with slash-command deferral).
+func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess db.AgentSession, userText string, promptSeq int64, notice func(string)) (string, string, int64, error) {
 	sess, err := m.store.GetAgentSession(ctx, sess.ID)
 	if err != nil {
-		return "", err
+		return "", "", 0, err
 	}
 	if err := conn.waitClosed(ctx, sess.AcpSessionID); err != nil {
-		return "", err
+		return "", "", 0, err
 	}
-	if sess.AcpSessionID != "" && conn.isActive(sess.AcpSessionID) {
-		return sess.AcpSessionID, nil
+
+	harnessSwitched := sess.AcpSessionID != "" && sess.AcpHarness != "" && sess.AcpHarness != conn.adapter.ID
+	if !harnessSwitched && sess.AcpSessionID != "" && conn.isActive(sess.AcpSessionID) {
+		// If a previous turn deferred inline handoff because of a slash command,
+		// deliver the pending handoff now if this turn is not also a slash command.
+		if sess.HandoffSeq < 0 && !IsSlashCommand(userText) {
+			inlineCtx, toSeq := m.deliverHandoff(ctx, conn, sess, sess.AcpSessionID, userText, promptSeq, sess.AcpHarness, notice)
+			return sess.AcpSessionID, inlineCtx, toSeq, nil
+		}
+		return sess.AcpSessionID, "", 0, nil
 	}
+
 	cwd := sessionCwd(conn.home, sess.Cwd)
 	caps := conn.init.AgentCapabilities
 	mcp := []acp.McpServer{}
@@ -741,25 +771,19 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 			mcp = servers
 		}
 	}
-	if sess.AcpSessionID != "" {
-		sid := acp.SessionId(sess.AcpSessionID)
-		resume := func(ctx context.Context) ([]acp.SessionConfigOption, error) {
-			res, err := conn.acp.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: sid, Cwd: cwd, McpServers: mcp})
-			return res.ConfigOptions, err
+
+	// Only attempt native resume/load when the saved session belongs to this harness.
+	if !harnessSwitched && sess.AcpSessionID != "" {
+		sid := sess.AcpSessionID
+		resume := func(ctx context.Context) ([]ConfigOption, error) {
+			return conn.proto.ResumeSession(ctx, sid, cwd, mcp)
 		}
-		// The replay is not stored again: the session is bound to this
-		// connection only after it is active.
-		load := func(ctx context.Context) ([]acp.SessionConfigOption, error) {
-			res, err := conn.acp.LoadSession(ctx, acp.LoadSessionRequest{SessionId: sid, Cwd: cwd, McpServers: mcp})
-			return res.ConfigOptions, err
+		load := func(ctx context.Context) ([]ConfigOption, error) {
+			return conn.proto.LoadSession(ctx, sid, cwd, mcp)
 		}
-		// Resume first: the log already has the conversation, and a load
-		// has the harness read and send all of it again (on a woken agent,
-		// before the first prompt can start). A failed resume falls back to
-		// a load where the harness has one.
 		type restore struct {
 			method string
-			fn     func(context.Context) ([]acp.SessionConfigOption, error)
+			fn     func(context.Context) ([]ConfigOption, error)
 		}
 		var ways []restore
 		if caps.SessionCapabilities.Resume != nil {
@@ -770,44 +794,59 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 		}
 		err := errors.New("the harness cannot restore sessions")
 		for i, w := range ways {
-			var config []acp.SessionConfigOption
+			var config []ConfigOption
 			err = m.step(ctx, conn, w.method, func(ctx context.Context) error {
 				var err error
 				config, err = w.fn(ctx)
 				return err
 			})
 			if err == nil {
-				m.observe(conn, sess.AcpSessionID, config, false)
+				m.observeOptions(conn, sess.AcpSessionID, config, nil, false)
 				conn.markActive(sess.AcpSessionID)
-				return sess.AcpSessionID, nil
+				if sess.AcpHarness == "" {
+					_ = m.store.SetSessionNative(context.WithoutCancel(ctx), db.SetSessionNativeParams{
+						AcpSessionID: sess.AcpSessionID,
+						AcpHarness:   conn.adapter.ID,
+						ID:           sess.ID,
+					})
+				}
+				return sess.AcpSessionID, "", 0, nil
 			}
 			if conn.closed() || ctx.Err() != nil {
-				return "", err
+				return "", "", 0, err
 			}
 			if i < len(ways)-1 {
 				m.lg.Warn("restoring the session failed, trying another way", "session", sess.ID, "method", w.method, "err", err)
 			}
 		}
-		// Failed or timed out: a fresh session, with a notice below.
-		m.lg.Warn("restoring the session failed, starting a new one", "session", sess.ID, "err", err)
+		// Failed or timed out: start a fresh session and hand off context below.
+		m.lg.Warn("restoring the session failed, starting a new one with context handoff", "session", sess.ID, "err", err)
 	}
-	newSession := func() (acp.SessionId, error) {
-		var res acp.NewSessionResponse
+
+	if conn.adapter.AuthenticateEagerly {
+		if _, aerr := m.autoAuthenticate(ctx, t, conn); aerr != nil {
+			return "", "", 0, aerr
+		}
+	}
+
+	newSession := func() (string, error) {
+		var sid string
+		var opts []ConfigOption
 		err := m.step(ctx, conn, "session/new", func(ctx context.Context) error {
 			var err error
-			res, err = conn.acp.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: mcp})
+			sid, opts, err = conn.proto.NewSession(ctx, cwd, mcp)
 			return err
 		})
 		if err == nil {
-			m.observe(conn, string(res.SessionId), res.ConfigOptions, true)
+			m.observeOptions(conn, sid, opts, nil, true)
 		}
-		return res.SessionId, err
+		return sid, err
 	}
 	acpID, err := newSession()
 	if err != nil && authRequired(err) {
 		ok, aerr := m.autoAuthenticate(ctx, t, conn)
 		if aerr != nil {
-			return "", aerr
+			return "", "", 0, aerr
 		}
 		if ok {
 			acpID, err = newSession()
@@ -817,22 +856,106 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 		var st *stepTimeout
 		switch {
 		case errors.As(err, &st):
-			return "", m.giveUp(t, conn, st.msg)
+			return "", "", 0, m.giveUp(t, conn, st.msg)
 		case authRequired(err):
-			return "", errLoginNeeded
+			return "", "", 0, errLoginNeeded
 		case conn.closed() || ctx.Err() != nil:
-			return "", err
+			return "", "", 0, err
 		}
-		return "", fmt.Errorf("%s could not start a session: %w", conn.name, err)
+		return "", "", 0, fmt.Errorf("%s could not start a session: %w", conn.name, err)
 	}
-	if sess.AcpSessionID != "" {
+
+	prevHarness := sess.AcpHarness
+	hadPriorSession := sess.AcpSessionID != ""
+	if err := m.store.SetSessionNative(context.WithoutCancel(ctx), db.SetSessionNativeParams{
+		AcpSessionID: acpID,
+		AcpHarness:   conn.adapter.ID,
+		ID:           sess.ID,
+	}); err != nil {
+		return "", "", 0, err
+	}
+	conn.markActive(acpID)
+
+	if hadPriorSession {
+		inlineCtx, toSeq := m.deliverHandoff(ctx, conn, sess, acpID, userText, promptSeq, prevHarness, notice)
+		return acpID, inlineCtx, toSeq, nil
+	}
+	return acpID, "", 0, nil
+}
+
+// deliverHandoff builds a budgeted portable handoff from stored thread events
+// before promptSeq, attempts native injection (Codex thread/inject_items), and
+// falls back to inline context (with slash-command deferral).
+func (m *Manager) deliverHandoff(ctx context.Context, conn *harnessConn, sess db.AgentSession, acpID, userText string, promptSeq int64, prevHarness string, notice func(string)) (string, int64) {
+	msgs, err := ReconstructHistory(ctx, m.store, sess.ID, 0, promptSeq)
+	if err != nil {
+		m.lg.Warn("handoff: reconstruct history failed", "session", sess.ID, "err", err)
 		notice("The agent restarted and could not restore this conversation; it starts with a fresh context.")
+		return "", 0
 	}
-	if err := m.store.SetSessionACPID(context.WithoutCancel(ctx), db.SetSessionACPIDParams{AcpSessionID: string(acpID), ID: sess.ID}); err != nil {
-		return "", err
+	if len(msgs) == 0 {
+		if prevHarness != "" && prevHarness != conn.adapter.ID {
+			notice(fmt.Sprintf("Switched harness to %s.", conn.name))
+		} else {
+			notice("The agent restarted and could not restore this conversation; it starts with a fresh context.")
+		}
+		return "", 0
 	}
-	conn.markActive(string(acpID))
-	return string(acpID), nil
+
+	budget := HandoffBudget(HandoffTokenCap(), userText, DefaultContextWindow)
+	sel := SelectHistory(sess.ID, prevHarness, conn.adapter.ID, msgs, budget)
+	if len(sel.Messages) == 0 {
+		notice("The conversation history exceeded the handoff budget; starting with a fresh context (earlier messages are retrievable with read_thread).")
+		return "", 0
+	}
+
+	// Try native historical-item injection first (e.g. Codex thread/inject_items).
+	injected, ierr := conn.proto.InjectHistory(ctx, acpID, sess.ID, sel)
+	if ierr != nil {
+		m.lg.Warn("handoff: native inject failed, falling back to inline", "session", sess.ID, "err", ierr)
+	}
+	if injected {
+		_ = m.store.SetSessionHandoffSeq(context.WithoutCancel(ctx), db.SetSessionHandoffSeqParams{
+			HandoffSeq: sel.CoveredToSeq,
+			ID:         sess.ID,
+		})
+		notice(formatHandoffNotice(prevHarness, conn.name, sel, true))
+		return "", 0
+	}
+
+	// Defer inline handoff when the user's message is a slash command so the
+	// harness still executes the command natively (mark handoff_seq = -1).
+	if IsSlashCommand(userText) {
+		_ = m.store.SetSessionHandoffSeq(context.WithoutCancel(ctx), db.SetSessionHandoffSeqParams{
+			HandoffSeq: -1,
+			ID:         sess.ID,
+		})
+		return "", 0
+	}
+
+	notice(formatHandoffNotice(prevHarness, conn.name, sel, false))
+	return RenderHistory(sess.ID, sel), sel.CoveredToSeq
+}
+
+func formatHandoffNotice(fromHarness, toName string, sel HandoffSelection, native bool) string {
+	omitted := ""
+	if sel.OmittedItems > 0 {
+		omitted = fmt.Sprintf(" (%d omitted; retrievable with read_thread)", sel.OmittedItems)
+	}
+	mode := "context handoff"
+	if native {
+		mode = "native context handoff"
+	}
+	if fromHarness != "" && fromHarness != toName {
+		fromLabel := fromHarness
+		if ad, ok := harness.Get(fromHarness); ok {
+			fromLabel = ad.Name
+		}
+		if fromLabel != toName {
+			return fmt.Sprintf("Switched from %s to %s with %s: transferred %d conversation items%s.", fromLabel, toName, mode, len(sel.Messages), omitted)
+		}
+	}
+	return fmt.Sprintf("Restored conversation on %s via %s: transferred %d conversation items%s.", toName, mode, len(sel.Messages), omitted)
 }
 
 // autoAuthenticate tries the adapter's non-interactive login methods that
@@ -849,8 +972,7 @@ func (m *Manager) autoAuthenticate(ctx context.Context, t *turn, conn *harnessCo
 			continue
 		}
 		err := m.step(ctx, conn, "authenticate", func(ctx context.Context) error {
-			_, err := conn.acp.Authenticate(ctx, acp.AuthenticateRequest{MethodId: id})
-			return err
+			return conn.proto.Authenticate(ctx, id)
 		})
 		if err == nil {
 			return true, nil
@@ -951,7 +1073,7 @@ func (m *Manager) Cancel(ctx context.Context, sessionID string) error {
 		t.stopSetup()
 		return nil
 	}
-	return conn.acp.Cancel(ctx, acp.CancelNotification{SessionId: acp.SessionId(acpID)})
+	return conn.proto.Cancel(ctx, acpID)
 }
 
 // cancelExpired ends a cancelled turn whose harness did not stop it. The
@@ -1142,7 +1264,16 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 	if agent.Kind == "app" {
 		return nil, ErrNoHarness
 	}
-	ad, ok := harness.Get(agent.Harness)
+	var ad *harness.Adapter
+	var ok bool
+	if m.resolver != nil {
+		ad, ok, err = m.resolver.AdapterFor(ctx, agent.Harness)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		ad, ok = harness.Get(agent.Harness)
+	}
 	if !ok {
 		return nil, fmt.Errorf("unknown harness %q", agent.Harness)
 	}
@@ -1172,7 +1303,15 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 			cfg.Model = ""
 		}
 	}
+	home := sandboxHome(ctx, ts)
+	cmd := ad.Command
 	env := ad.Environment(cfg)
+	if m.resolver != nil && (ad.Source == "registry" || ad.Source == "local") {
+		cmd, env, err = m.resolver.Prepare(ctx, ad, ts, home, cfg, status)
+		if err != nil {
+			return nil, fmt.Errorf("prepare %s: %w", ad.Name, err)
+		}
+	}
 	m.lg.Info("harness: machine reachable", "agent", agentID, "took", time.Since(began))
 	if m.logins != nil {
 		lbegan := time.Now()
@@ -1194,23 +1333,21 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 
 	hc := newHarnessConn(m, agentID, ad, ts)
 	hc.startModel = cfg.Model
-	hc.home = sandboxHome(ctx, ts)
+	hc.home = home
 	spawned := time.Now()
-	proc, err := m.open(ctx, hc, ts, ad.Command, env)
+	proc, err := m.open(ctx, hc, ts, cmd, env)
 	if err != nil {
 		m.lg.Warn("harness: could not start the process", "agent", agentID, "took", time.Since(spawned), "err", err)
 		return nil, err
 	}
-	m.lg.Info("harness: process started", "agent", agentID, "command", strings.Join(ad.Command, " "), "took", time.Since(spawned))
-	hc.start(proc)
+	m.lg.Info("harness: process started", "agent", agentID, "command", strings.Join(cmd, " "), "took", time.Since(spawned))
+	hc.start(proc, env)
 	var init acp.InitializeResponse
+	var initOpts []ConfigOption
+	var initByModel map[string][]ConfigOption
 	err = m.step(ctx, hc, "initialize", func(ctx context.Context) error {
 		var err error
-		init, err = hc.acp.Initialize(ctx, acp.InitializeRequest{
-			ProtocolVersion:    acp.ProtocolVersionNumber,
-			ClientInfo:         &acp.Implementation{Name: "agenthold", Version: version.Version},
-			ClientCapabilities: acp.ClientCapabilities{Auth: acp.AuthCapabilities{Terminal: true}},
-		})
+		init, initOpts, initByModel, err = hc.proto.Initialize(ctx)
 		return err
 	})
 	if err != nil {
@@ -1233,6 +1370,9 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 		return nil, hc.failure()
 	}
 	hc.init = init
+	if len(initOpts) > 0 {
+		m.observeOptions(hc, "", initOpts, initByModel, true)
+	}
 	m.mu.Lock()
 	if m.closing || hc.closed() {
 		m.mu.Unlock()

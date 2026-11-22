@@ -9,7 +9,6 @@ import (
 
 	"github.com/gempir/agenthold/internal/api/gen"
 	"github.com/gempir/agenthold/internal/authz"
-	"github.com/gempir/agenthold/internal/harness"
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store/db"
 )
@@ -33,7 +32,10 @@ func (c catalog) model(id string) (gen.CatalogModel, bool) {
 }
 
 func (a *API) catalog(ctx context.Context, agent db.Agent) (catalog, error) {
-	ad, ok := harness.Get(agent.Harness)
+	ad, ok, err := a.resolveAdapter(ctx, agent.Harness)
+	if err != nil {
+		return catalog{}, err
+	}
 	if !ok {
 		return catalog{}, fmt.Errorf("unknown harness %q", agent.Harness)
 	}
@@ -166,7 +168,9 @@ func (a *API) ListModels(ctx context.Context, req gen.ListModelsRequestObject) (
 		if _, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentConfigure); err != nil {
 			return nil, err
 		}
-		if _, ok := harness.Get(*h); !ok {
+		if ok, err := a.ownerHasHarness(ctx, me(ctx).ID, *h); err != nil {
+			return nil, err
+		} else if !ok {
 			return nil, badRequest(fmt.Sprintf("unknown harness %q", *h))
 		}
 		ag.Harness = *h

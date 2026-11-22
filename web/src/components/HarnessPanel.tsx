@@ -1,13 +1,20 @@
 import { lazy, Suspense, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { TriangleAlert } from 'lucide-react';
+import {
+  CheckCircle2,
+  Copy,
+  ExternalLink,
+  Loader2,
+  TriangleAlert,
+} from 'lucide-react';
 import { api, unwrap } from '@/api/client';
 import {
   agentsQuery,
   harnessesQuery,
   modelsQuery,
   type Agent,
+  type HarnessAuthFlow,
 } from '@/api/queries';
 import { ModelPicker } from '@/components/ModelPicker';
 import { ErrorText, Loading } from '@/components/Spinner';
@@ -19,6 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { choiceLabel, toChoice, type Choice } from '@/lib/models';
 
@@ -63,6 +71,9 @@ export function HarnessPanel({
         </dl>
       )}
       <AccountLogin agent={agent} isOwner={isOwner} onSaved={onSaved} />
+      {isOwner && agent.harness === 'antigravity' && (
+        <AntigravitySignIn agent={agent} />
+      )}
       {isOwner && (
         <details className="border-t pt-3">
           <summary className="cursor-pointer text-sm text-muted-foreground">
@@ -251,6 +262,7 @@ function HarnessForm({
                   name:
                     options.find((h) => h.id === agent.harness)?.name ??
                     agent.harness,
+                  iconUrl: options.find((h) => h.id === agent.harness)?.iconUrl,
                 }}
                 defaultLabel="Harness default"
                 defaultDescription="Whatever the harness is configured to use"
@@ -277,6 +289,222 @@ function HarnessForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+function AntigravitySignIn({ agent }: { agent: Agent }) {
+  const qc = useQueryClient();
+  const [flow, setFlow] = useState<HarnessAuthFlow | null>(null);
+  const [code, setCode] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const start = useMutation({
+    mutationFn: () =>
+      unwrap(
+        api.POST('/agents/{agentId}/harness/auth/start', {
+          params: { path: { agentId: agent.id } },
+          body: {},
+        }),
+      ),
+    onSuccess: (res) => {
+      setCode('');
+      setFlow(res);
+      if (res.status === 'completed') {
+        void qc.invalidateQueries({ queryKey: ['agents', agent.id] });
+        void qc.invalidateQueries({ queryKey: modelsQuery(agent.id).queryKey });
+      }
+    },
+  });
+
+  const submit = useMutation({
+    mutationFn: () =>
+      unwrap(
+        api.POST('/agents/{agentId}/harness/auth/submit', {
+          params: { path: { agentId: agent.id } },
+          body: { flowId: flow!.flowId, code: code.trim() },
+        }),
+      ),
+    onSuccess: (res) => {
+      setFlow(res);
+      if (res.status === 'completed') {
+        setCode('');
+        void qc.invalidateQueries({ queryKey: ['agents', agent.id] });
+        void qc.invalidateQueries({ queryKey: modelsQuery(agent.id).queryKey });
+      }
+    },
+  });
+
+  const cancel = useMutation({
+    mutationFn: (flowId: string) =>
+      unwrap(
+        api.POST('/agents/{agentId}/harness/auth/cancel', {
+          params: { path: { agentId: agent.id } },
+          body: { flowId },
+        }),
+      ),
+  });
+
+  const closeDialog = () => {
+    if (flow?.status === 'waiting_for_code') {
+      cancel.mutate(flow.flowId);
+    }
+    setFlow(null);
+    setCode('');
+    submit.reset();
+    start.reset();
+  };
+
+  return (
+    <div className="grid gap-2 border-t pt-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="grid gap-0.5">
+          <h3 className="text-sm font-medium">
+            Google account sign-in (Gemini subscription)
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            Sign in with your Google account to use your Gemini subscription
+            with Antigravity in this sandbox.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={start.isPending}
+          onClick={() => start.mutate()}
+        >
+          {start.isPending && (
+            <Loader2 className="mr-1.5 size-3.5 animate-spin" aria-hidden />
+          )}
+          Sign in with Google
+        </Button>
+      </div>
+      <ErrorText error={start.error} />
+
+      {flow && (
+        <Dialog open onOpenChange={(o) => !o && closeDialog()}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Sign in to Antigravity with Google</DialogTitle>
+              <DialogDescription>
+                Open the Google sign-in link in your browser, approve access,
+                and paste back the authorization code or callback URL.
+              </DialogDescription>
+            </DialogHeader>
+
+            {flow.status === 'waiting_for_code' && flow.authorizationUrl && (
+              <form
+                className="grid gap-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  submit.mutate();
+                }}
+              >
+                <div className="grid gap-2">
+                  <p className="text-sm font-medium">1. Open Google sign-in</p>
+                  <div className="flex flex-wrap gap-2">
+                    <a
+                      href={flow.authorizationUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                    >
+                      Open Google sign-in
+                      <ExternalLink className="size-3.5" aria-hidden />
+                    </a>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(
+                          flow.authorizationUrl!,
+                        );
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                    >
+                      <Copy className="mr-1.5 size-3.5" aria-hidden />
+                      {copied ? 'Copied' : 'Copy link'}
+                    </Button>
+                  </div>
+                </div>
+
+                <label className="grid gap-1.5 text-sm">
+                  <span className="font-medium">
+                    2. Paste authorization code or callback URL
+                  </span>
+                  <Input
+                    autoFocus
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    placeholder="Paste code or https://antigravity.google/oauth-callback?..."
+                    autoComplete="off"
+                    spellCheck={false}
+                    required
+                  />
+                </label>
+
+                <ErrorText error={submit.error} />
+
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={submit.isPending}
+                    onClick={closeDialog}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={submit.isPending || !code.trim()}
+                  >
+                    {submit.isPending && (
+                      <Loader2
+                        className="mr-1.5 size-3.5 animate-spin"
+                        aria-hidden
+                      />
+                    )}
+                    Complete sign-in
+                  </Button>
+                </div>
+              </form>
+            )}
+
+            {flow.status === 'completed' && (
+              <div className="grid gap-4">
+                <p className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+                  {flow.message ?? 'Signed in to Antigravity.'}
+                </p>
+                <div className="flex justify-end">
+                  <Button onClick={closeDialog}>Done</Button>
+                </div>
+              </div>
+            )}
+
+            {flow.status === 'failed' && (
+              <div className="grid gap-4">
+                <p role="alert" className="text-sm text-destructive">
+                  {flow.message ?? 'Antigravity sign-in failed.'}
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" onClick={closeDialog}>
+                    Close
+                  </Button>
+                  <Button
+                    disabled={start.isPending}
+                    onClick={() => start.mutate()}
+                  >
+                    Try again
+                  </Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
   );
 }
 

@@ -155,7 +155,12 @@ type Process struct {
 
 // StartHarness starts cmd in the sandbox. stderr receives its stderr lines.
 func (s *Session) StartHarness(ctx context.Context, cmd []string, env map[string]string, stderr func(string)) (*Process, error) {
-	c, err := s.Open(ctx, Open{Op: OpHarness, Cmd: cmd, Env: env})
+	return s.StartHarnessInDir(ctx, cmd, "", env, stderr)
+}
+
+// StartHarnessInDir starts cmd in the sandbox with working directory dir (empty = home).
+func (s *Session) StartHarnessInDir(ctx context.Context, cmd []string, dir string, env map[string]string, stderr func(string)) (*Process, error) {
+	c, err := s.Open(ctx, Open{Op: OpHarness, Cmd: cmd, Dir: dir, Env: env})
 	if err != nil {
 		return nil, err
 	}

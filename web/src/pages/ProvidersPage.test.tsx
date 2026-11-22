@@ -46,6 +46,7 @@ it('connects a provider login without echoing it', async () => {
   const { calls } = mockApi({
     'GET /me': me,
     'GET /me/provider-logins': () => ({ body: [claude(connected)] }),
+    'GET /me/harnesses': [],
     'PUT /me/provider-logins/claude-code': () => {
       connected = true;
       return { body: claude(true) };
@@ -136,4 +137,136 @@ it('agent harness settings link to settings when the login is missing, and offer
       name: 'Provider logins',
     }),
   ).toHaveAttribute('href', '/settings/providers');
+});
+
+it('browses the ACP Store and adds a registry harness', async () => {
+  const custom: Array<{
+    id: string;
+    kind: 'registry' | 'local';
+    name: string;
+    description: string;
+    registryId?: string;
+    registryVersion?: string;
+    args: string[];
+    env: Record<string, string>;
+    customModels: string[];
+    createdAt: string;
+    updatedAt: string;
+  }> = [];
+  const { calls } = mockApi({
+    'GET /me': me,
+    'GET /me/provider-logins': [],
+    'GET /me/harnesses': () => ({ body: custom }),
+    'GET /harnesses': [],
+    'GET /acp-registry': () => ({
+      body: {
+        version: '1.0.0',
+        agents: [
+          {
+            id: 'goose',
+            name: 'Goose',
+            version: '1.2.3',
+            description: 'Open source AI developer agent',
+            distributions: ['binary', 'npx'],
+            addedId: custom.find((c) => c.registryId === 'goose')?.id,
+          },
+        ],
+      },
+    }),
+    'POST /me/harnesses': ({ body }: { body: unknown }) => {
+      const b = body as { kind: 'registry' | 'local'; registryId?: string };
+      const created = {
+        id: 'acp_1',
+        kind: b.kind,
+        name: 'Goose',
+        description: 'Open source AI developer agent',
+        registryId: b.registryId,
+        registryVersion: '1.2.3',
+        args: [],
+        env: {},
+        customModels: [],
+        createdAt: '2030-01-01T00:00:00Z',
+        updatedAt: '2030-01-01T00:00:00Z',
+      };
+      custom.push(created);
+      return { status: 201, body: created };
+    },
+  });
+  renderApp('/settings/providers');
+  const user = userEvent.setup();
+  const browseBtn = await screen.findByRole('button', {
+    name: /Browse ACP Store/i,
+  });
+  await user.click(browseBtn);
+  expect(await screen.findByText('Goose')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: /^Add$/i }));
+  await waitFor(() =>
+    expect(calls.some((c) => c.key === 'POST /me/harnesses')).toBe(true),
+  );
+  // Close the modal dialog so the background custom harnesses region is visible.
+  await user.keyboard('{Escape}');
+  const storeSection = await screen.findByRole('region', {
+    name: /ACP Store and custom harnesses/i,
+  });
+  expect(await within(storeSection).findByText('Goose')).toBeVisible();
+});
+
+it('runs Antigravity interactive Google sign-in from harness settings', async () => {
+  const agyAgent: Agent = {
+    ...agent({ source: 'sandbox', connected: false, mine: false }, 'owner'),
+    harness: 'antigravity',
+  };
+  const { calls } = mockApi({
+    'GET /me': me,
+    'GET /agents/a1': agyAgent,
+    'GET /agents/a1/sessions': [],
+    'GET /agents/a1/models': {
+      harness: 'antigravity',
+      source: 'fallback',
+      switchable: true,
+      customModels: false,
+      models: [],
+    },
+    'GET /harnesses': [
+      {
+        id: 'antigravity',
+        name: 'Antigravity',
+        default: false,
+        secretPresets: ['gemini'],
+        accountLogins: true,
+      },
+    ],
+    'POST /agents/a1/harness/auth/start': {
+      flowId: 'af_1',
+      status: 'waiting_for_code',
+      authorizationUrl:
+        'https://accounts.google.com/o/oauth2/auth?redirect_uri=https%3A%2F%2Fantigravity.google%2Foauth-callback&response_type=code&state=s1',
+    },
+    'POST /agents/a1/harness/auth/submit': {
+      flowId: 'af_1',
+      status: 'completed',
+      message: 'Signed in to Antigravity.',
+    },
+  });
+  renderApp('/a/a1/settings?tab=harness');
+  const user = userEvent.setup();
+  await user.click(
+    await screen.findByRole('button', { name: /Sign in with Google/i }),
+  );
+  const link = await screen.findByRole('link', {
+    name: /Open Google sign-in/i,
+  });
+  expect(link).toHaveAttribute(
+    'href',
+    expect.stringContaining('accounts.google.com/o/oauth2/auth'),
+  );
+  await user.type(
+    screen.getByLabelText(/Paste authorization code or callback URL/i),
+    'my-auth-code',
+  );
+  await user.click(screen.getByRole('button', { name: /Complete sign-in/i }));
+  expect(await screen.findByText('Signed in to Antigravity.')).toBeVisible();
+  expect(
+    calls.find((c) => c.key === 'POST /agents/a1/harness/auth/submit')?.body,
+  ).toEqual({ flowId: 'af_1', code: 'my-auth-code' });
 });

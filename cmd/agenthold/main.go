@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gempir/agenthold/internal/acpstore"
 	"github.com/gempir/agenthold/internal/activity"
 
 	"github.com/gempir/agenthold/internal/api"
@@ -291,7 +292,10 @@ func run() error {
 		logger.Info("edge node listener", "addr", cfg.Nodes.Listen, "advertise", cfg.Nodes.Advertise, "fingerprint", nodeIdentity.Fingerprint)
 	}
 
+	acpCatalog := acpstore.NewCatalog(filepath.Join(cfg.DataDir, "cache"))
+	harnessResolver := &acpstore.Resolver{Store: st, Catalog: acpCatalog}
 	sessions := session.NewManager(st, nil, logger)
+	sessions.SetResolver(harnessResolver)
 	sessions.SetLogins(loginSvc)
 	sessions.SetModelProbe(true)
 	sessions.SetAudit(auditLog)
@@ -358,6 +362,7 @@ func run() error {
 		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Node: cluster, Nodes: cluster, Limits: cfg.Sandbox,
 		Box: box, Egress: directory, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc, Git: gitSvc,
 		Preview: previewSvc, Identity: identity, Apps: appsMgr, Images: imageMgr, Activity: activityLog,
+		ACPStore: acpCatalog, Harnesses: harnessResolver,
 		ShowTestHarness: cfg.TestHarness || driverName == "fake", UserMaxAgents: cfg.Auth.UserMaxAgents,
 	})
 	sessions.SetWaker(apiSrv.Wake)

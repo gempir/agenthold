@@ -73,8 +73,8 @@ export function HarnessMeta({
 }) {
   const qc = useQueryClient();
   const harnesses = useQuery(harnessesQuery);
-  const name =
-    harnesses.data?.find((h) => h.id === agent.harness)?.name ?? agent.harness;
+  const currentHarness = harnesses.data?.find((h) => h.id === agent.harness);
+  const name = currentHarness?.name ?? agent.harness;
   const models = useQuery(modelsQuery(agent.id));
   const isOwner = agent.role === 'owner';
   const otherHarnesses = isOwner
@@ -110,6 +110,7 @@ export function HarnessMeta({
   const others: HarnessChoice[] = otherHarnesses.map((h, i) => ({
     id: h.id,
     name: h.name,
+    iconUrl: h.iconUrl,
     catalog: otherModels[i]?.data,
   }));
   return (
@@ -127,7 +128,7 @@ export function HarnessMeta({
         }
         allowCustom={isOwner}
         label="Model for this conversation"
-        harness={{ id: agent.harness, name }}
+        harness={{ id: agent.harness, name, iconUrl: currentHarness?.iconUrl }}
         harnessSwitch={
           others.length > 0
             ? {

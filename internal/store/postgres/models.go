@@ -71,6 +71,8 @@ type AgentSession struct {
 	SettledAt       sql.NullInt64
 	SettledBy       string
 	UnsettledAt     sql.NullInt64
+	AcpHarness      string
+	HandoffSeq      int64
 }
 
 type AgentSessionEvent struct {
@@ -112,6 +114,27 @@ type AuditLog struct {
 	Action  string
 	Target  string
 	Details string
+}
+
+type CustomHarness struct {
+	ID               string
+	OwnerID          string
+	Kind             string
+	Name             string
+	Description      string
+	RegistryID       string
+	RegistryVersion  string
+	Distribution     string
+	Command          string
+	ArgsJson         string
+	EnvJson          string
+	IconUrl          string
+	WebsiteUrl       string
+	RepositoryUrl    string
+	CustomModelsJson string
+	AuthMethod       string
+	CreatedAt        int64
+	UpdatedAt        int64
 }
 
 type Exposure struct {

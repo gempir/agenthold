@@ -376,9 +376,9 @@ func TestSessionLoadHangsFallsBack(t *testing.T) {
 	e.ok("remember me")
 	e.m.Disconnect(agentID) // like a sleep: the next turn starts a new process
 	e.script("session/load hang")
-	// A load that does not come back starts a fresh session, and says so.
+	// A load that does not come back starts a fresh session with context handoff.
 	r := e.ok("hello")
-	if len(r.notices) != 1 || !strings.Contains(r.notices[0], "could not restore this conversation") {
+	if len(r.notices) != 1 || !strings.Contains(r.notices[0], "context handoff") {
 		t.Fatalf("notices %q", r.notices)
 	}
 	e.ok("again")
@@ -421,7 +421,7 @@ func TestSessionLostAfterRestart(t *testing.T) {
 	}
 	_ = os.MkdirAll(filepath.Join(e.home, ".fakeagent", "sessions"), 0o755)
 	r := e.ok("hello")
-	if len(r.notices) != 1 || !strings.Contains(r.notices[0], "could not restore this conversation") {
+	if len(r.notices) != 1 || !strings.Contains(r.notices[0], "context handoff") {
 		t.Fatalf("notices %q", r.notices)
 	}
 }
@@ -517,7 +517,7 @@ func TestSessionResumeOnlyFails(t *testing.T) {
 	e.ok("remember me")
 	e.m.Disconnect(agentID)
 	r := e.ok("hello")
-	if len(r.notices) != 1 || !strings.Contains(r.notices[0], "could not restore this conversation") {
+	if len(r.notices) != 1 || !strings.Contains(r.notices[0], "context handoff") {
 		t.Fatalf("notices %q", r.notices)
 	}
 	if got := e.restores(); !slices.Equal(got, []string{"session/resume"}) {

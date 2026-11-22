@@ -192,6 +192,11 @@ func (d *Daemon) startHarness(o tunnel.Open, stdout, stderr *os.File, cg *harnes
 		// Not CommandContext: everything the harness started is killed, not just it.
 		cmd := exec.Command(o.Cmd[0], o.Cmd[1:]...) //nolint:noctx
 		cmd.Dir = d.acct.home
+		if o.Dir != "" {
+			if st, err := os.Stat(o.Dir); err == nil && st.IsDir() {
+				cmd.Dir = o.Dir
+			}
+		}
 		cmd.Env = d.env(o.Env, d.shell()[0])
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		if d.acct.switchTo {

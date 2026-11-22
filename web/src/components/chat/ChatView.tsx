@@ -30,6 +30,7 @@ import { Avatar } from '@/components/Avatar';
 import {
   groupItems,
   type ChatItem,
+  type ContextUsage,
   type PlanEntry,
   type Viewer,
 } from '@/lib/session';
@@ -362,12 +363,43 @@ function WorkingStatus({ label }: { label: string }) {
   );
 }
 
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+function UsagePill({ usage }: { usage: ContextUsage | null }) {
+  if (!usage || (usage.used <= 0 && usage.size <= 0)) return null;
+  const pct =
+    usage.size > 0
+      ? Math.min(100, Math.round((usage.used / usage.size) * 100))
+      : null;
+  const label =
+    usage.size > 0
+      ? `${formatTokens(usage.used)} / ${formatTokens(usage.size)}`
+      : `${formatTokens(usage.used)} tokens`;
+  return (
+    <span
+      title={
+        pct !== null
+          ? `Context window: ${usage.used.toLocaleString()} / ${usage.size.toLocaleString()} tokens (${pct}%)`
+          : `Tokens used: ${usage.used.toLocaleString()}`
+      }
+      className="shrink-0 tabular-nums text-xs text-muted-foreground"
+    >
+      {label}
+    </span>
+  );
+}
+
 function SessionComposer({
   sessionId,
   running,
   sleeping,
   offline,
   meta,
+  usage,
   onSent,
 }: {
   sessionId: string;
@@ -375,6 +407,7 @@ function SessionComposer({
   sleeping: boolean;
   offline: boolean;
   meta?: ReactNode;
+  usage?: ContextUsage | null;
   onSent: () => void;
 }) {
   const [text, setText] = useState('');
@@ -406,7 +439,14 @@ function SessionComposer({
         disabled={offline}
         onSubmit={() => send.mutate(text.trim())}
         onStop={() => cancel.mutate()}
-        meta={meta}
+        meta={
+          meta || usage ? (
+            <div className="flex min-w-0 items-center gap-2">
+              {meta}
+              <UsagePill usage={usage ?? null} />
+            </div>
+          ) : undefined
+        }
         placeholder={
           running
             ? 'The agent is working… you can draft your next message'
@@ -549,6 +589,7 @@ export default function ChatView({
             sleeping={agentState === 'sleeping'}
             offline={agentState === 'unreachable'}
             meta={composerMeta}
+            usage={state.usage}
             onSent={toBottom}
           />
         ) : (

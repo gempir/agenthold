@@ -109,6 +109,13 @@ export const agentQuery = (agentId: string) =>
 export type Session = components['schemas']['Session'];
 export type SessionGit = components['schemas']['SessionGit'];
 export type HarnessType = components['schemas']['HarnessType'];
+export type CustomHarness = components['schemas']['CustomHarness'];
+export type CustomHarnessInput = components['schemas']['CustomHarnessInput'];
+export type CustomHarnessPatch = components['schemas']['CustomHarnessPatch'];
+export type AcpRegistryAgent = components['schemas']['AcpRegistryAgent'];
+export type AcpRegistrySearchResponse =
+  components['schemas']['AcpRegistrySearchResponse'];
+export type HarnessAuthFlow = components['schemas']['HarnessAuthFlow'];
 
 export const sessionsQuery = (agentId: string) =>
   queryOptions({
@@ -146,6 +153,25 @@ export const harnessesQuery = queryOptions({
   queryFn: () => unwrap(api.GET('/harnesses')),
   retry: false,
 });
+
+export const customHarnessesQuery = queryOptions({
+  queryKey: ['me', 'harnesses'],
+  queryFn: () => unwrap(api.GET('/me/harnesses')),
+  retry: false,
+});
+
+export const acpRegistryQuery = (q: string, limit = 30) =>
+  queryOptions({
+    queryKey: ['acp-registry', q, limit],
+    queryFn: () =>
+      unwrap(
+        api.GET('/acp-registry', {
+          params: { query: { q: q || undefined, limit } },
+        }),
+      ),
+    staleTime: 60_000,
+    retry: false,
+  });
 
 export type AccessList = components['schemas']['AccessList'];
 export type Share = components['schemas']['Share'];

@@ -27,10 +27,45 @@ import (
 )
 
 // ListHarnesses implements gen.StrictServerInterface.
-func (a *API) ListHarnesses(context.Context, gen.ListHarnessesRequestObject) (gen.ListHarnessesResponseObject, error) {
+func (a *API) ListHarnesses(ctx context.Context, _ gen.ListHarnessesRequestObject) (gen.ListHarnessesResponseObject, error) {
 	out := gen.ListHarnesses200JSONResponse{}
+	builtinSrc := gen.HarnessTypeSource("builtin")
 	for _, h := range harness.List(a.ShowTestHarness) {
-		out = append(out, gen.HarnessType{Id: h.ID, Name: h.Name, Default: h.ID == harness.Default, SecretPresets: append([]string{}, h.SecretPresets...), AccountLogins: h.Login != nil})
+		proto := gen.HarnessTypeProtocol(h.EffectiveProtocol())
+		out = append(out, gen.HarnessType{
+			Id:            h.ID,
+			Name:          h.Name,
+			Default:       h.ID == harness.Default,
+			SecretPresets: append([]string{}, h.SecretPresets...),
+			AccountLogins: h.Login != nil,
+			Source:        &builtinSrc,
+			Protocol:      &proto,
+			Description:   opt(h.Description),
+			Version:       opt(h.Version),
+			IconUrl:       opt(h.IconURL),
+		})
+	}
+	if u := me(ctx); u != nil {
+		rows, err := a.Store.ListCustomHarnessesByOwner(ctx, u.ID)
+		if err != nil {
+			return nil, err
+		}
+		acpProto := gen.HarnessTypeProtocol(harness.ProtocolACP)
+		for _, r := range rows {
+			src := gen.HarnessTypeSource(r.Kind)
+			out = append(out, gen.HarnessType{
+				Id:            r.ID,
+				Name:          r.Name,
+				Default:       false,
+				SecretPresets: []string{},
+				AccountLogins: false,
+				Source:        &src,
+				Protocol:      &acpProto,
+				Description:   opt(r.Description),
+				Version:       opt(r.RegistryVersion),
+				IconUrl:       opt(r.IconUrl),
+			})
+		}
 	}
 	return out, nil
 }
@@ -54,7 +89,7 @@ func (a *API) GetHarness(ctx context.Context, req gen.GetHarnessRequestObject) (
 		Harness: acc.Row.Agent.Harness, Connected: info.Connected, AgentName: info.AgentName,
 		AgentVersion: info.AgentVer, LoadSession: info.LoadSession, AuthMethods: []gen.AuthMethodInfo{},
 	}
-	ad, _ := harness.Get(acc.Row.Agent.Harness)
+	ad, _, _ := a.resolveAdapter(ctx, acc.Row.Agent.Harness)
 	for _, m := range info.AuthMethods {
 		if ad == nil {
 			break
@@ -72,7 +107,10 @@ func (a *API) loginCommand(ctx context.Context, agent db.Agent, methodID string)
 	if err != nil {
 		return nil, nil, err
 	}
-	ad, ok := harness.Get(agent.Harness)
+	ad, ok, err := a.resolveAdapter(ctx, agent.Harness)
+	if err != nil {
+		return nil, nil, err
+	}
 	if !ok {
 		return nil, nil, errors.New("unknown harness")
 	}

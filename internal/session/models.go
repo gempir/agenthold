@@ -95,7 +95,7 @@ func kindOf(o ConfigOption) string {
 	switch {
 	case o.Category == "model" || (o.Category == "" && o.ID == "model"):
 		return KindModel
-	case o.Category == "thought_level":
+	case o.Category == "thought_level" || (o.Category == "thinking" && o.Type == "select"):
 		return KindEffort
 	case toggleIDs[o.ID]:
 		if _, _, ok := o.offOn(); ok {
@@ -317,15 +317,14 @@ func catalogView(opts []ConfigOption) ([]ConfigOption, map[string][]ConfigOption
 	return view, extras
 }
 
-// observe records the config options a harness reported for a session.
-// fresh: the report is a session/new answer, whose values are the harness's
-// defaults. A report without options is recorded too: the harness offers no
-// model choice, so a new default needs a restart.
-func (m *Manager) observe(conn *harnessConn, acpID string, in []acp.SessionConfigOption, fresh bool) {
-	opts := fromACP(in)
+// observeOptions records normalized ConfigOptions (and optional per-model
+// option maps reported at initialize by native Codex/Claude drivers).
+func (m *Manager) observeOptions(conn *harnessConn, acpID string, opts []ConfigOption, initialByModel map[string][]ConfigOption, fresh bool) {
 	conn.mu.Lock()
-	conn.config[acpID] = opts
-	if fresh && conn.defaults == nil {
+	if acpID != "" {
+		conn.config[acpID] = opts
+	}
+	if fresh && conn.defaults == nil && len(opts) > 0 {
 		conn.defaults = map[string]string{}
 		for _, o := range opts {
 			conn.defaults[o.ID] = o.Current
@@ -352,13 +351,18 @@ func (m *Manager) observe(conn *harnessConn, acpID string, in []acp.SessionConfi
 	}
 	// A probe session reports a model it was switched to, not the harness's
 	// state: only what it says about that model is kept.
-	if !conn.isProbe(acpID) {
+	if acpID == "" || !conn.isProbe(acpID) {
 		c.Options = view
 	}
-	if fresh {
+	if fresh && len(opts) > 0 {
 		c.Defaults = map[string]string{}
 		for _, o := range opts {
 			c.Defaults[o.ID] = o.Current
+		}
+	}
+	for mid, mOpts := range initialByModel {
+		if len(c.ByModel) < maxCatalogModel {
+			c.ByModel[mid] = slices.Clone(mOpts)
 		}
 	}
 	if mo, ok := modelOption(view); ok && mo.Current != "" {
@@ -587,27 +591,19 @@ type deadlineError struct{}
 
 func (deadlineError) Error() string { return "no answer" }
 
-// setOption sends one session/set_config_option and records the result.
+// setOption sends one config option update and records the result.
 func (m *Manager) setOption(ctx context.Context, conn *harnessConn, acpID string, o ConfigOption, value string) error {
-	req := acp.SetSessionConfigOptionRequest{ValueId: &acp.SetSessionConfigOptionValueId{
-		SessionId: acp.SessionId(acpID), ConfigId: acp.SessionConfigId(o.ID), Value: acp.SessionConfigValueId(value),
-	}}
-	if o.Type == "boolean" {
-		req = acp.SetSessionConfigOptionRequest{Boolean: &acp.SetSessionConfigOptionBoolean{
-			SessionId: acp.SessionId(acpID), ConfigId: acp.SessionConfigId(o.ID), Value: value == "true", Type: "boolean",
-		}}
-	}
 	sctx, cancel := context.WithTimeout(ctx, setOptionTimeout)
 	defer cancel()
-	res, err := conn.acp.SetSessionConfigOption(sctx, req)
+	opts, err := conn.proto.SetConfigOption(sctx, acpID, o, value)
 	if err != nil {
 		if ctx.Err() == nil && errors.Is(sctx.Err(), context.DeadlineExceeded) {
 			return &deadlineError{}
 		}
 		return err
 	}
-	if res.ConfigOptions != nil {
-		m.observe(conn, acpID, res.ConfigOptions, false)
+	if opts != nil {
+		m.observeOptions(conn, acpID, opts, nil, false)
 	} else {
 		// No options in the answer: assume the value took (a harness that
 		// changes more sends config_option_update).

@@ -10,7 +10,6 @@ import (
 	"github.com/gempir/agenthold/internal/api/gen"
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
-	"github.com/gempir/agenthold/internal/harness"
 	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/tunnel"
@@ -98,7 +97,7 @@ func (a *API) DownloadFile(ctx context.Context, req gen.DownloadFileRequestObjec
 	var deny []string
 	if !authz.Can(acc.Role, authz.AgentTerminal) {
 		deny = append(deny, "/etc/agenthold")
-		if ad, ok := harness.Get(acc.Row.Agent.Harness); ok {
+		if ad, ok, _ := a.resolveAdapter(ctx, acc.Row.Agent.Harness); ok {
 			for _, p := range ad.CredentialPaths {
 				deny = append(deny, "~/"+p)
 			}

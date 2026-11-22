@@ -27,12 +27,33 @@ type Model struct {
 	Group string
 }
 
+// Protocol identifies the wire protocol a harness speaks on stdio.
+type Protocol string
+
+const (
+	// ProtocolACP is the Agent Client Protocol (default when empty).
+	ProtocolACP Protocol = "acp"
+	// ProtocolCodex is OpenAI Codex's native JSON-RPC app-server protocol.
+	ProtocolCodex Protocol = "codex"
+	// ProtocolClaude is Claude Code's native stream-json control protocol.
+	ProtocolClaude Protocol = "claude"
+)
+
 // Adapter describes one harness. Adapter packages register one from init.
 type Adapter struct {
 	// ID is stored with each agent ("claude-code").
 	ID string
 	// Name is shown in the UI.
 	Name string
+	// Protocol selects the wire protocol on stdio (empty defaults to ProtocolACP).
+	Protocol Protocol
+	// Source identifies where the adapter came from ("builtin", "registry", "local").
+	Source string
+	// Description, Version and IconURL are optional metadata shown for ACP Store
+	// and custom harnesses.
+	Description string
+	Version     string
+	IconURL     string
 	// Package is the npm package of images/harnesses/package.json that installs
 	// Command[0] into the harnesses layer. Empty for harnesses not in the image
 	// (the test fake) and for native binaries (Binary).
@@ -42,7 +63,7 @@ type Adapter struct {
 	// images/harnesses/versions.env (<Binary>_VERSION and <Binary>_SHA256_ARM64/X64).
 	// scripts/guest/build-harnesses.sh links it into /usr/local/bin as Command[0].
 	Binary string
-	// Command starts the harness in ACP mode inside the sandbox.
+	// Command starts the harness in ACP or native mode inside the sandbox.
 	Command []string
 	// Env returns what is added to the harness's environment (never secret
 	// values). Nil means nothing.
@@ -59,6 +80,10 @@ type Adapter struct {
 	// when the harness asks for authentication (methods backed by
 	// environment variables, such as API keys provided as secrets).
 	AutoAuthenticate []string
+	// AuthenticateEagerly calls AutoAuthenticate before opening a session when
+	// the corresponding auth method is advertised (Antigravity picks its
+	// credential source from authenticate).
+	AuthenticateEagerly bool
 	// TerminalLogins maps login methods to the command that runs them in a
 	// terminal, for harnesses that advertise a method without saying so.
 	TerminalLogins map[string][]string
@@ -67,6 +92,9 @@ type Adapter struct {
 	// the agent ever ran. Keep it small: what the harness accepts whatever
 	// the account (aliases, not dated ids).
 	FallbackModels []Model
+	// CustomModelsList holds user-configured extra model IDs (ACP Store / local
+	// ACP harnesses) that are merged into the picker catalog.
+	CustomModelsList []string
 	// ProbeModels: the client may describe the models' options by switching a
 	// throwaway session through them (see session.Manager.ProbeModels). Set it
 	// only for a harness where that has no side effects: a session that is
@@ -83,6 +111,14 @@ type Adapter struct {
 	// Login is set when the harness's provider login can live on the user's
 	// account (see AccountLoginer).
 	Login AccountLoginer
+}
+
+// EffectiveProtocol returns the adapter's wire protocol, defaulting to ProtocolACP.
+func (a *Adapter) EffectiveProtocol() Protocol {
+	if a.Protocol == "" {
+		return ProtocolACP
+	}
+	return a.Protocol
 }
 
 // Environment returns the harness's environment for c (a fresh map).

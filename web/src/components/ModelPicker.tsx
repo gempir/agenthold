@@ -52,6 +52,7 @@ import { cn } from '@/lib/utils';
 export interface HarnessChoice {
   id: string;
   name: string;
+  iconUrl?: string;
   /** Its catalog: what it reported, or the built-in list; undefined while unknown. */
   catalog?: ModelCatalog;
 }
@@ -187,7 +188,7 @@ export function ModelPicker({
   /** Accessible name of the trigger. */
   label?: string;
   /** The harness the catalog is of (its id is also in the catalog). */
-  harness?: { id: string; name: string };
+  harness?: { id: string; name: string; iconUrl?: string };
   harnessSwitch?: HarnessSwitch;
   className?: string;
 }) {
@@ -212,6 +213,7 @@ export function ModelPicker({
   const current = {
     id: harness?.id ?? catalog?.harness ?? '',
     name: harness?.name ?? harnessLabel(harness?.id ?? catalog?.harness ?? ''),
+    iconUrl: harness?.iconUrl,
   };
   const [name, ...rest] = choiceParts(catalog, value, defaultLabel);
   return (
@@ -227,7 +229,11 @@ export function ModelPicker({
         onClick={() => setOpen((o) => !o)}
         className="flex max-w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-left hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
       >
-        <HarnessIcon harness={current.id} className="size-3.5" />
+        <HarnessIcon
+          harness={current.id}
+          iconUrl={current.iconUrl}
+          className="size-3.5"
+        />
         <span className="truncate">
           {name}
           {rest.length > 0 && (
@@ -280,7 +286,7 @@ function PickerPanel({
   allowCustom: boolean;
   side: 'top' | 'bottom';
   label: string;
-  current: { id: string; name: string };
+  current: { id: string; name: string; iconUrl?: string };
   harnessSwitch?: HarnessSwitch;
 }) {
   const id = useId();
@@ -295,7 +301,7 @@ function PickerPanel({
 
   // The current harness first, then those the agent can switch to.
   const rail: HarnessChoice[] = [
-    { id: current.id, name: current.name, catalog },
+    { id: current.id, name: current.name, iconUrl: current.iconUrl, catalog },
     ...(harnessSwitch?.others ?? []),
   ];
   const harnessOf = (h: string) => rail.find((x) => x.id === h);
@@ -742,7 +748,7 @@ function PickerPanel({
                 controls={listId}
                 onSelect={() => chooseView({ kind: 'harness', id: h.id })}
               >
-                <HarnessIcon harness={h.id} />
+                <HarnessIcon harness={h.id} iconUrl={h.iconUrl} />
               </RailTab>
             ))}
           </div>
@@ -791,7 +797,11 @@ function PickerPanel({
                         className="flex items-center gap-1.5 px-2.5 pt-2.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
                       >
                         {s.harness && (
-                          <HarnessIcon harness={s.harness} className="size-3" />
+                          <HarnessIcon
+                            harness={s.harness}
+                            iconUrl={harnessOf(s.harness)?.iconUrl}
+                            className="size-3"
+                          />
                         )}
                         {s.label}
                         {q && s.harness !== current.id && harnessSwitch && (
@@ -966,14 +976,14 @@ function SwitchConfirm({
       className="grid gap-2 p-3"
     >
       <p className="flex items-center gap-2 font-medium">
-        <HarnessIcon harness={target.id} />
+        <HarnessIcon harness={target.id} iconUrl={target.iconUrl} />
         <span>
           Switches {sw.agentName} to {target.name} (all threads)
         </span>
       </p>
       <p className="text-xs text-muted-foreground">
-        Model: {modelLabel}. {target.name} starts with the next message. The
-        threads keep their history but begin with a fresh context.
+        Model: {modelLabel}. {target.name} starts on the next message, carrying
+        your conversation forward via automatic context handoff.
       </p>
       {sw.busy && (
         <p role="alert" className="text-xs text-amber-600 dark:text-amber-400">

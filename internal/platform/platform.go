@@ -178,6 +178,8 @@ func (p *Service) Call(ctx context.Context, callerID, sessionID, tool string, ar
 		return p.message(ctx, caller, sessionID, in.Agent, in.Text, tool == "ask")
 	case "list_threads":
 		return p.listThreads(ctx, caller, sessionID, in.IncludeSettled)
+	case "read_thread":
+		return p.readThread(ctx, caller, sessionID, in)
 	case "settle_thread":
 		return p.settleThread(ctx, caller, in.ThreadID, sessionID)
 	case "unsettle_thread":

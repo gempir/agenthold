@@ -155,6 +155,12 @@ type toolArgs struct {
 	ThreadID  string            `json:"thread_id"`
 	// IncludeSettled: list_threads also lists settled threads.
 	IncludeSettled bool `json:"include_settled"`
+	// read_thread pagination & item lookup.
+	Seq      int64 `json:"seq"`
+	AfterSeq int64 `json:"after_seq"`
+	Limit    int   `json:"limit"`
+	MaxChars int   `json:"max_chars"`
+	Offset   int   `json:"offset"`
 }
 
 func (p *Service) agentAudit(ctx context.Context, caller db.Agent, machineID, action, target string, details map[string]any) {

@@ -109,4 +109,38 @@ func TestThreadTools(t *testing.T) {
 	if counts[audit.SessionSettle] != 2 || counts[audit.SessionUnsettle] != 1 {
 		t.Fatalf("audit: %v", counts)
 	}
+
+	// read_thread: populate events in ses_cur and verify pagination + seq lookup + isolation.
+	for i, ev := range []struct {
+		typ  string
+		data string
+	}{
+		{"prompt", `{"text":"first question"}`},
+		{"update", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"first answer with details"}}`},
+		{"turn_end", `{"stopReason":"end_turn"}`},
+		{"prompt", `{"text":"second question"}`},
+	} {
+		if err := p.Store.InsertSessionEvent(ctx, db.InsertSessionEventParams{
+			SessionID: "ses_cur", Seq: int64(i + 1), At: int64(i + 1), Type: ev.typ, Data: ev.data,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := callIn("ses_cur", "read_thread", map[string]any{"limit": 2})
+	if err != nil {
+		t.Fatalf("read_thread list: %v", err)
+	}
+	if !strings.Contains(out, `"first question"`) || !strings.Contains(out, `"first answer with details"`) || !strings.Contains(out, `"next_after_seq"`) {
+		t.Fatalf("read_thread page 1: %s", out)
+	}
+	out, err = callIn("ses_cur", "read_thread", map[string]any{"seq": 2, "max_chars": 10})
+	if err != nil {
+		t.Fatalf("read_thread seq: %v", err)
+	}
+	if !strings.Contains(out, `"first answ"`) || !strings.Contains(out, `"next_offset": 10`) {
+		t.Fatalf("read_thread slice: %s", out)
+	}
+	if _, err := callIn("ses_cur", "read_thread", map[string]any{"thread_id": "ses_x"}); !errors.Is(err, ErrNoThread) {
+		t.Fatalf("read_thread other agent: %v", err)
+	}
 }

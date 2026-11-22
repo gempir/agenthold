@@ -20,6 +20,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/gempir/agenthold/internal/acpstore"
 	"github.com/gempir/agenthold/internal/activity"
 
 	"github.com/gempir/agenthold/internal/api"
@@ -81,6 +82,7 @@ type env struct {
 	platform *platform.Service
 	apps     *apps.Manager
 	images   *images.Manager
+	acpStore *acpstore.Catalog
 
 	// api, auth and box are the in-process API and its services (the Slack
 	// integration calls the handlers directly).
@@ -235,7 +237,10 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	e.logins = &logins.Service{Store: st, Box: box, Audit: &audit.Log{Store: st}, Invalidate: e.directory.Invalidate}
 	e.directory.Logins = e.logins
 	e.store = st
+	e.acpStore = acpstore.NewCatalog(t.TempDir())
+	resolver := &acpstore.Resolver{Store: st, Catalog: e.acpStore}
 	e.sessions = session.NewManager(st, nil, activityLog)
+	e.sessions.SetResolver(resolver)
 	e.sessions.SetLogins(e.logins)
 	e.sessions.SetAudit(&audit.Log{Store: st})
 	e.logins.Restart = e.sessions.Restart
@@ -276,6 +281,7 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		Box: box, Egress: e.directory, Sessions: e.sessions, Idle: e.sleeper, Audit: &audit.Log{Store: st}, ShowTestHarness: true,
 		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins, Git: e.git,
 		Preview: e.preview, Identity: e.identity, Apps: e.apps, Images: e.images, Activity: e.activity, UserMaxAgents: cfg.Auth.UserMaxAgents,
+		ACPStore: e.acpStore, Harnesses: resolver,
 	})
 	e.api, e.auth, e.box = a, authSvc, box
 	e.sessions.SetWaker(a.Wake)
@@ -471,7 +477,7 @@ func TestPublicAndUnauthenticated(t *testing.T) {
 	c := e.anon()
 	var providers []gen.AuthProvider
 	expect(t, "providers", c.do("GET", "/auth/providers", nil, &providers), 200)
-	if len(providers) != 2 || providers[0].Id != "oidc" || providers[1].Type != gen.Github {
+	if len(providers) != 2 || providers[0].Id != "oidc" || providers[1].Type != gen.AuthProviderTypeGithub {
 		t.Fatalf("providers = %+v", providers)
 	}
 	expect(t, "me", c.do("GET", "/me", nil, nil), 401)
@@ -519,7 +525,7 @@ func TestLocalAdminLogin(t *testing.T) {
 	e := localEnv(t, "admin", "s3cret pw")
 	var providers []gen.AuthProvider
 	expect(t, "providers", e.anon().do("GET", "/auth/providers", nil, &providers), 200)
-	if len(providers) != 3 || providers[0].Type != gen.Local || providers[0].Id != "local" {
+	if len(providers) != 3 || providers[0].Type != gen.AuthProviderTypeLocal || providers[0].Id != "local" {
 		t.Fatalf("providers = %+v", providers)
 	}
 

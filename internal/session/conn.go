@@ -16,6 +16,7 @@ import (
 
 	"github.com/gempir/agenthold/internal/harness"
 	"github.com/gempir/agenthold/internal/id"
+	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/tunnel"
 )
 
@@ -35,9 +36,9 @@ type harnessConn struct {
 	proc    *tunnel.Process
 	ts      *tunnel.Session
 	// home is the agent account's home in the sandbox.
-	home string
-	acp  *acp.ClientSideConnection
-	init acp.InitializeResponse
+	home  string
+	proto protoClient
+	init  acp.InitializeResponse
 	// stale: restart once no turn uses it (guarded by Manager.mu). staleWhy
 	// says why.
 	stale    bool
@@ -60,12 +61,14 @@ type harnessConn struct {
 	probeSessions map[string]bool
 
 	mu       sync.Mutex
-	lastUsed map[string]time.Time       // ACP session id -> when a turn last started or ended in it
-	closing  map[string]chan struct{}   // ACP sessions being closed (idle); closed when done
-	sessions map[string]string          // ACP session id -> our session id
-	active   map[string]bool            // ACP sessions known to this process
-	config   map[string][]ConfigOption  // ACP session id -> its current config options
-	warned   map[string]map[string]bool // ACP session id -> notices already given
+	lastUsed map[string]time.Time       // native session id -> when a turn last started or ended in it
+	closing  map[string]chan struct{}   // native sessions being closed (idle); closed when done
+	sessions map[string]string          // native session id -> our session id
+	active   map[string]bool            // native sessions known to this process
+	config   map[string][]ConfigOption  // native session id -> its current config options
+	commands map[string][]SlashCommand  // native session id -> advertised slash commands
+	usage    map[string]ContextUsage    // native session id -> latest context usage
+	warned   map[string]map[string]bool // native session id -> notices already given
 	defaults map[string]string          // config option values of the first fresh session (nil: none yet)
 	gaveUp   map[string]bool            // "option=value" the harness refused or did not answer
 	// startModel is the model the harness got in its environment ('' none).
@@ -82,7 +85,8 @@ func newHarnessConn(m *Manager, agentID string, ad *harness.Adapter, ts *tunnel.
 	c := &harnessConn{
 		m: m, agentID: agentID, adapter: ad, name: ad.Name, ts: ts,
 		sessions: map[string]string{}, active: map[string]bool{}, done: make(chan struct{}),
-		config: map[string][]ConfigOption{}, warned: map[string]map[string]bool{}, gaveUp: map[string]bool{},
+		config: map[string][]ConfigOption{}, commands: map[string][]SlashCommand{},
+		usage: map[string]ContextUsage{}, warned: map[string]map[string]bool{}, gaveUp: map[string]bool{},
 	}
 	c.alive()
 	return c
@@ -101,29 +105,33 @@ func (c *harnessConn) idleSince(since time.Time) time.Duration {
 	return time.Since(last)
 }
 
-// start attaches the ACP connection to proc. The connection closes when the
-// process ends or the protocol breaks (output that is not ACP, a line over
-// the SDK's limit).
-func (c *harnessConn) start(proc *tunnel.Process) {
+// start attaches the protocol connection to proc. The connection closes when
+// the process ends or the protocol breaks.
+func (c *harnessConn) start(proc *tunnel.Process, env map[string]string) {
 	c.proc = proc
-	// The SDK starts reading in its constructor but takes the logger only
-	// afterwards: hold the first read back until the logger is set, or a
-	// harness that exits at once races the SDK logging its end.
-	ready := make(chan struct{})
-	c.acp = acp.NewClientSideConnection(c, proc, &updateCounter{r: proc.Stdout, seen: &c.updatesSeen, ready: ready})
-	c.acp.SetLogger(c.m.lg.With("agent", c.agentID, "component", "acp"))
-	close(ready)
+	switch c.adapter.EffectiveProtocol() {
+	case harness.ProtocolCodex:
+		c.proto = newCodexProtoClient(c, proc)
+	case harness.ProtocolClaude:
+		c.proto = newClaudeProtoClient(c, proc, env)
+	default:
+		c.proto = newACPProtoClient(c, proc)
+	}
 	go func() {
 		select {
 		case <-proc.Done():
-		case <-c.acp.Done():
+		case <-c.proto.Done():
 			// The process usually ends right after its output: give its exit
 			// code a moment to arrive before calling it a protocol failure.
 			select {
 			case <-proc.Done():
 			case <-c.done:
 			case <-time.After(exitWait):
-				c.setReason(c.name + " stopped speaking ACP (its output ended or was not valid ACP), so it was stopped; send the message again to retry")
+				if c.adapter.EffectiveProtocol() == harness.ProtocolACP {
+					c.setReason(c.name + " stopped speaking ACP (its output ended or was not valid ACP), so it was stopped; send the message again to retry")
+				} else {
+					c.setReason(c.name + " stopped speaking its protocol (its output ended or was invalid), so it was stopped; send the message again to retry")
+				}
 			}
 		case <-c.done:
 		}
@@ -136,13 +144,13 @@ func (c *harnessConn) start(proc *tunnel.Process) {
 var drainWait = 500 * time.Millisecond
 
 // drainUpdates waits (bounded) until every session/update read off the wire
-// has been handled, if the ACP stream has ended. The SDK fails a pending
-// request as soon as the stream ends, while notifications it already read
-// are still queued for SessionUpdate: ending the turn first would persist
-// the harness's last output after the turn's error and end.
+// has been handled, if the stream has ended.
 func (c *harnessConn) drainUpdates() {
+	if c.proto == nil {
+		return
+	}
 	select {
-	case <-c.acp.Done():
+	case <-c.proto.Done():
 	default:
 		return
 	}
@@ -440,13 +448,16 @@ func (c *harnessConn) closed() bool {
 	}
 }
 
-// ended reports whether the connection is over. When only the ACP stream
+// ended reports whether the connection is over. When only the protocol stream
 // has ended, it waits for the connection to settle why.
 func (c *harnessConn) ended() bool {
+	if c.proto == nil {
+		return c.closed()
+	}
 	select {
 	case <-c.done:
 		return true
-	case <-c.acp.Done():
+	case <-c.proto.Done():
 		<-c.done // start's watcher closes it within exitWait
 		return true
 	default:
@@ -470,6 +481,9 @@ func (c *harnessConn) close(reason string) {
 			c.setReason(reason)
 		}
 		close(c.done)
+		if c.proto != nil {
+			c.proto.Close()
+		}
 		if c.proc != nil {
 			_ = c.proc.Close()
 		}
@@ -538,6 +552,92 @@ func (c *harnessConn) sessionFor(acpID acp.SessionId) (string, bool) {
 	return id, ok
 }
 
+// rebindNativeID updates an active native session ID when a native CLI (Claude)
+// assigns its durable session UUID after the initial temporary ID.
+func (c *harnessConn) rebindNativeID(oldID, newID string) {
+	if oldID == "" || newID == "" || oldID == newID {
+		return
+	}
+	c.mu.Lock()
+	sid, ok := c.sessions[oldID]
+	if ok {
+		delete(c.sessions, oldID)
+		c.sessions[newID] = sid
+	}
+	if c.active[oldID] {
+		delete(c.active, oldID)
+		c.active[newID] = true
+	}
+	if opts, has := c.config[oldID]; has {
+		delete(c.config, oldID)
+		c.config[newID] = opts
+	}
+	if cmds, has := c.commands[oldID]; has {
+		delete(c.commands, oldID)
+		c.commands[newID] = cmds
+	}
+	if ts, has := c.lastUsed[oldID]; has {
+		delete(c.lastUsed, oldID)
+		c.lastUsed[newID] = ts
+	}
+	c.mu.Unlock()
+	if ok && sid != "" {
+		_ = c.m.store.SetSessionNative(context.WithoutCancel(c.m.ctx), db.SetSessionNativeParams{
+			AcpSessionID: newID,
+			AcpHarness:   c.adapter.ID,
+			ID:           sid,
+		})
+	}
+}
+
+func (c *harnessConn) setCommands(acpID string, cmds []SlashCommand) {
+	c.mu.Lock()
+	c.commands[acpID] = cmds
+	c.mu.Unlock()
+}
+
+func (c *harnessConn) noteUsage(acpID string, u ContextUsage) {
+	c.mu.Lock()
+	c.usage[acpID] = u
+	c.mu.Unlock()
+}
+
+// emitRawUpdate appends a normalized ACP-shaped SessionUpdate JSON payload from
+// a native protocol driver (Codex App Server or Claude stream-json).
+func (c *harnessConn) emitRawUpdate(nativeID string, raw json.RawMessage) {
+	c.alive()
+	sessionID, ok := c.sessionFor(acp.SessionId(nativeID))
+	if !ok {
+		return
+	}
+	if at := c.promptAt.Swap(0); at != 0 {
+		c.m.lg.Info("harness: first update of the turn", "agent", c.agentID, "session", sessionID, "took", time.Since(time.Unix(0, at)))
+	}
+	// Track usage & file locations if present.
+	var meta struct {
+		SessionUpdate string `json:"sessionUpdate"`
+		Used          int64  `json:"used"`
+		Size          int64  `json:"size"`
+		Cost          *struct {
+			Amount float64 `json:"amount"`
+		} `json:"cost"`
+		Locations []acp.ToolCallLocation `json:"locations"`
+	}
+	if json.Unmarshal(raw, &meta) == nil {
+		if len(meta.Locations) > 0 {
+			c.m.noteLocations(sessionID, meta.Locations)
+		}
+		if meta.SessionUpdate == "usage_update" && meta.Used > 0 {
+			u := ContextUsage{UsedTokens: meta.Used, MaxTokens: meta.Size}
+			if meta.Cost != nil {
+				u.CostUSD = meta.Cost.Amount
+			}
+			c.noteUsage(nativeID, u)
+		}
+	}
+	_ = c.m.log.append(context.WithoutCancel(c.m.ctx), sessionID, EventUpdate, "", raw)
+}
+
 // SessionUpdate implements acp.Client.
 func (c *harnessConn) SessionUpdate(ctx context.Context, n acp.SessionNotification) error {
 	defer c.updatesHandled.Add(1)
@@ -547,9 +647,27 @@ func (c *harnessConn) SessionUpdate(ctx context.Context, n acp.SessionNotificati
 		// this connection no longer tracks (a finished probe, a forgotten
 		// session) is ignored: its late updates must not bring it back.
 		if c.tracks(string(n.SessionId)) {
-			c.m.observe(c, string(n.SessionId), u.ConfigOptions, false)
+			c.m.observeOptions(c, string(n.SessionId), mergeACPModesAndModels(fromACP(u.ConfigOptions), nil, c.adapter.CustomModelsList), nil, false)
 		}
 		return nil
+	}
+	if u := n.Update.AvailableCommandsUpdate; u != nil {
+		var cmds []SlashCommand
+		for _, cmd := range u.AvailableCommands {
+			sc := SlashCommand{Name: cmd.Name, Description: cmd.Description}
+			if cmd.Input != nil && cmd.Input.Unstructured != nil {
+				sc.InputHint = cmd.Input.Unstructured.Hint
+			}
+			cmds = append(cmds, sc)
+		}
+		c.setCommands(string(n.SessionId), cmds)
+	}
+	if u := n.Update.UsageUpdate; u != nil {
+		cu := ContextUsage{UsedTokens: int64(u.Used), MaxTokens: int64(u.Size)}
+		if u.Cost != nil {
+			cu.CostUSD = u.Cost.Amount
+		}
+		c.noteUsage(string(n.SessionId), cu)
 	}
 	sessionID, ok := c.sessionFor(n.SessionId)
 	if !ok {

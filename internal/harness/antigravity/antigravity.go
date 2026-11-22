@@ -39,8 +39,15 @@ func init() {
 		Command: []string{"agy", "acp", "--disable-telemetry"},
 		Env: func(harness.Config) map[string]string {
 			// The image pins the version; the platform controls upgrades.
-			// (image.env sets it for terminals too.)
-			return map[string]string{"AGY_CLI_DISABLE_AUTO_UPDATE": "true"}
+			// SSH_CONNECTION + AGY_ACP_FORCE_FILE_STORAGE follow T3 Code so agy 1.5
+			// stores Google sign-ins in ~/.gemini/antigravity-cli/antigravity-oauth-token
+			// instead of trying an OS keyring.
+			return map[string]string{
+				"AGY_CLI_DISABLE_AUTO_UPDATE": "true",
+				"AGY_ACP_FORCE_FILE_STORAGE":  "1",
+				"SSH_CONNECTION":              "127.0.0.1 0 127.0.0.1 0",
+				"PYTHONUNBUFFERED":            "1",
+			}
 		},
 		SecretPresets: []string{"gemini"},
 		// The file agy keeps a Google sign-in in when there is no keyring (as
@@ -53,7 +60,9 @@ func init() {
 		SkillsDir: ".gemini/config/skills",
 		// With a Gemini API key in the environment (an attached secret's or
 		// the account login's placeholder), this signs in without the user.
-		AutoAuthenticate: []string{"gemini-api-key"},
+		// For Google account sign-ins, agy uses the stored oauth-personal token.
+		AutoAuthenticate:    []string{"gemini-api-key", "agent-platform"},
+		AuthenticateEagerly: true,
 		// The model is a session config option; sessions start on agy's own
 		// default and the turn switches them.
 		FallbackModels: []harness.Model{

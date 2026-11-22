@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gempir/agenthold/internal/acpstore"
 	"github.com/gempir/agenthold/internal/activity"
 
 	"github.com/go-chi/chi/v5"
@@ -19,6 +20,7 @@ import (
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/egress"
 	"github.com/gempir/agenthold/internal/git"
+	"github.com/gempir/agenthold/internal/harness"
 	"github.com/gempir/agenthold/internal/idle"
 	"github.com/gempir/agenthold/internal/images"
 	"github.com/gempir/agenthold/internal/logins"
@@ -65,6 +67,12 @@ type Deps struct {
 	Slack Slack
 	// Activity is the live per-agent activity log (nil: always empty).
 	Activity *activity.Log
+	// ACPStore searches and installs agents from the official ACP Registry.
+	ACPStore *acpstore.Catalog
+	// Harnesses resolves built-in and user-added custom harnesses.
+	Harnesses *acpstore.Resolver
+	// AntigravityLoginCmd overrides the command launched by StartHarnessAuth (tests).
+	AntigravityLoginCmd []string
 	// ShowTestHarness lists the scripted test harness (development).
 	ShowTestHarness bool
 	// UserMaxAgents is auth.user_max_agents: how many agents a user with the
@@ -81,6 +89,7 @@ type API struct {
 	usage *usageCache
 	wakes
 	agentLocks keyedLocks
+	authFlows  *harnessAuthManager
 }
 
 var _ gen.StrictServerInterface = (*API)(nil)
@@ -99,9 +108,39 @@ func New(d Deps) *API {
 	if d.Preview == nil {
 		d.Preview = &preview.Service{Store: d.Store}
 	}
-	a := &API{Deps: d, authz: authz.Checker{Q: d.Store.Queries}, wakes: wakes{pending: map[string]*wakeCall{}, visitorWake: map[string]time.Time{}, slots: map[string]chan struct{}{}}}
+	if d.ACPStore == nil {
+		d.ACPStore = acpstore.NewCatalog("")
+	}
+	if d.Harnesses == nil {
+		d.Harnesses = &acpstore.Resolver{Store: d.Store, Catalog: d.ACPStore}
+	}
+	a := &API{
+		Deps:      d,
+		authz:     authz.Checker{Q: d.Store.Queries},
+		wakes:     wakes{pending: map[string]*wakeCall{}, visitorWake: map[string]time.Time{}, slots: map[string]chan struct{}{}},
+		authFlows: newHarnessAuthManager(),
+	}
 	a.usage = newUsageCache(a.machineStats, time.Now)
 	return a
+}
+
+// resolveAdapter resolves a built-in or custom harness adapter by id.
+func (a *API) resolveAdapter(ctx context.Context, harnessID string) (*harness.Adapter, bool, error) {
+	if a.Harnesses == nil {
+		ad, ok := harness.Get(harnessID)
+		if !ok || (ad.Hidden && !a.ShowTestHarness) {
+			return nil, false, nil
+		}
+		return ad, true, nil
+	}
+	ad, ok, err := a.Harnesses.AdapterFor(ctx, harnessID)
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	if ad.Hidden && !a.ShowTestHarness {
+		return nil, false, nil
+	}
+	return ad, true, nil
 }
 
 // Mount registers all /api/v1 routes on r.

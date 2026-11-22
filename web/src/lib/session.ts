@@ -71,15 +71,24 @@ export type ChatItem =
   | { kind: 'turn_end'; seq: number; stopReason: string }
   | { kind: 'notice' | 'error'; seq: number; message: string };
 
+export interface ContextUsage {
+  used: number;
+  size: number;
+  costAmount?: number;
+  costCurrency?: string;
+}
+
 export interface ChatState {
   items: ChatItem[];
   plan: PlanEntry[] | null;
+  usage: ContextUsage | null;
   lastSeq: number;
 }
 
 export const initialChatState: ChatState = {
   items: [],
   plan: null,
+  usage: null,
   lastSeq: 0,
 };
 
@@ -162,6 +171,26 @@ function applyUpdate(s: ChatState, seq: number, u: Obj): ChatState {
         ...s,
         plan: Array.isArray(u.entries) ? (u.entries as PlanEntry[]) : s.plan,
       };
+    case 'usage_update': {
+      const used = typeof u.used === 'number' ? u.used : (s.usage?.used ?? 0);
+      const size = typeof u.size === 'number' ? u.size : (s.usage?.size ?? 0);
+      const cost = isObj(u.cost) ? u.cost : undefined;
+      return {
+        ...s,
+        usage: {
+          used,
+          size,
+          costAmount:
+            typeof cost?.amount === 'number'
+              ? cost.amount
+              : s.usage?.costAmount,
+          costCurrency:
+            typeof cost?.currency === 'string'
+              ? cost.currency
+              : s.usage?.costCurrency,
+        },
+      };
+    }
     default:
       return s;
   }

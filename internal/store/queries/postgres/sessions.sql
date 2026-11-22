@@ -10,6 +10,15 @@ SELECT * FROM agent_sessions WHERE agent_id = $1 ORDER BY updated_at DESC;
 -- name: SetSessionACPID :exec
 UPDATE agent_sessions SET acp_session_id = $1 WHERE id = $2;
 
+-- name: SetSessionNative :exec
+UPDATE agent_sessions SET acp_session_id = $1, acp_harness = $2 WHERE id = $3;
+
+-- name: SetSessionHandoffSeq :exec
+UPDATE agent_sessions SET handoff_seq = $1 WHERE id = $2;
+
+-- name: GetSessionEvent :one
+SELECT * FROM agent_session_events WHERE session_id = $1 AND seq = $2;
+
 -- name: SetSessionStatus :exec
 UPDATE agent_sessions SET status = $1, updated_at = $2 WHERE id = $3;
 

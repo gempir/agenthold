@@ -25,7 +25,7 @@ export function SlackPage() {
     <>
       <SettingsHeader
         title="Slack"
-        description="Chat with your agents from Slack. Everything a linked Slack user does runs as you."
+        description="Start and continue agent threads from Slack. Everything a linked Slack user does runs as you."
       />
       <div className="grid gap-10">
         <SlackLinks />

@@ -91,7 +91,7 @@ func (s *Service) cmdAgents(ctx, uctx context.Context, r reply) {
 		return
 	}
 	if len(agents) == 0 {
-		s.say(ctx, r, "You have no agents you can chat with yet. Create one at "+s.o.PublicURL+"/new.")
+		s.say(ctx, r, "You have no agents you can start a thread with yet. Create one at "+s.o.PublicURL+"/new.")
 		return
 	}
 	blocks := []slackgo.Block{sectionBlock("*Your agents*")}
@@ -163,7 +163,7 @@ func (s *Service) cmdNew(ctx, uctx context.Context, userID, team string, r reply
 	}
 	if agent == nil {
 		if len(agents) == 0 {
-			s.say(ctx, r, "You have no agents you can chat with yet. Create one at "+s.o.PublicURL+"/new.")
+			s.say(ctx, r, "You have no agents you can start a thread with yet. Create one at "+s.o.PublicURL+"/new.")
 			return
 		}
 		blocks := []slackgo.Block{sectionBlock("Which agent? Start a thread with one of yours, or `/agenthold new <agent> <message>`.")}

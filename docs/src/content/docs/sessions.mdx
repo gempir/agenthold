@@ -277,7 +277,7 @@ and is shown as "custom" until it is changed.
 The harness is the agent's: all its conversations use it. The owner finds the other harnesses in the picker's
 rail: a harness that reported models (or has a built-in list) lists its default and its models, one that never ran on
 this agent only its default model. A dot on a harness's logo marks a missing login. Picking one asks to confirm in the
-reasoning column ("Switches demo2 to Codex (all chats)"); confirming changes the agent's harness and default model (the picked one, or the new
+reasoning column ("Switches demo2 to Codex (all threads)"); confirming changes the agent's harness and default model (the picked one, or the new
 harness's own), resets the models chosen in its conversations, and restarts the harness with the next message.
 Conversations keep their history but start with a fresh context, since the old harness's sessions mean nothing to the
 new one. The switch waits while a conversation is running (the API answers 409), and the picker warns when the new

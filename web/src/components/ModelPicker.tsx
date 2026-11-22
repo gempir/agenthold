@@ -60,7 +60,7 @@ export interface HarnessChoice {
 /**
  * Lets the picker switch the agent's harness: the other harnesses get their
  * own place in the rail, and picking one of their models asks to confirm.
- * The harness belongs to the agent, so the switch applies to all its chats.
+ * The harness belongs to the agent, so the switch applies to all its threads.
  */
 export interface HarnessSwitch {
   agentName: string;
@@ -159,7 +159,7 @@ function loginProblem(h: HarnessChoice): string | undefined {
  * Favorites (in this browser).
  *
  * With harnessSwitch the other harnesses join the rail; picking one of their
- * models asks to switch the agent (all its chats) to that harness.
+ * models asks to switch the agent (all its threads) to that harness.
  */
 export function ModelPicker({
   catalog,
@@ -630,7 +630,7 @@ function PickerPanel({
     >
       <span>
         A model here switches {harnessSwitch.agentName} to {viewed.name} (all
-        chats).
+        threads).
         {!viewed.catalog?.models.length &&
           ` Its models show once ${harnessSwitch.agentName} has run on ${viewed.name}.`}
       </span>
@@ -950,7 +950,7 @@ function RailTab({
 
 /**
  * The question before a harness switch, in place of the reasoning column:
- * the harness is the agent's, so it applies to all its chats, and the model
+ * the harness is the agent's, so it applies to all its threads, and the model
  * starts over.
  */
 function SwitchConfirm({
@@ -993,17 +993,17 @@ function SwitchConfirm({
       <p className="flex items-center gap-2 font-medium">
         <HarnessIcon harness={target.id} />
         <span>
-          Switches {sw.agentName} to {target.name} (all chats)
+          Switches {sw.agentName} to {target.name} (all threads)
         </span>
       </p>
       <p className="text-xs text-muted-foreground">
         Model: {modelLabel}. {target.name} starts with the next message. The
-        chats keep their history but begin with a fresh context.
+        threads keep their history but begin with a fresh context.
       </p>
       {sw.busy && (
         <p role="alert" className="text-xs text-amber-600 dark:text-amber-400">
-          A chat is still running. Switch once it has finished (or stop it): the
-          harness restarts.
+          A thread is still running. Switch once it has finished (or stop it):
+          the harness restarts.
         </p>
       )}
       {problem && (

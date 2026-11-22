@@ -1109,7 +1109,7 @@ export interface paths {
         /**
          * @description Share the agent with another user (owner only), found by verified
          *     email. A user exists once they have signed in. Shared users can use
-         *     the agent (chat, terminal, files) but not configure, share or delete it.
+         *     the agent (threads, terminal, files) but not configure, share or delete it.
          */
         post: operations["shareAgent"];
         delete?: never;
@@ -2385,7 +2385,7 @@ export interface components {
             command: string;
         };
         /**
-         * @description owner: full control. shared: use the agent (chat, terminal, files), not configure it.
+         * @description owner: full control. shared: use the agent (threads, terminal, files), not configure it.
          * @enum {string}
          */
         AgentRole: "owner" | "shared";

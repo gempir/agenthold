@@ -1382,7 +1382,7 @@ paths:
       description: |
         Share the agent with another user (owner only), found by verified
         email. A user exists once they have signed in. Shared users can use
-        the agent (chat, terminal, files) but not configure, share or delete it.
+        the agent (threads, terminal, files) but not configure, share or delete it.
       requestBody:
         required: true
         content:
@@ -2860,7 +2860,7 @@ components:
     AgentRole:
       type: string
       enum: [owner, shared]
-      description: 'owner: full control. shared: use the agent (chat, terminal, files), not configure it.'
+      description: 'owner: full control. shared: use the agent (threads, terminal, files), not configure it.'
 
     Agent:
       type: object

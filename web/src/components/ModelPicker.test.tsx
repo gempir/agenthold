@@ -441,14 +441,14 @@ it('asks before switching the agent, then switches and closes', async () => {
   await user.click(screen.getByRole('button', { name: /Model:/ }));
   await user.click(screen.getByRole('tab', { name: 'Codex' }));
   await user.click(screen.getByRole('option', { name: 'GPT-5 Mini' }));
-  // Nothing happened yet: the confirm names the agent and says all chats.
+  // Nothing happened yet: the confirm names the agent and says all threads.
   expect(onSwitch).not.toHaveBeenCalled();
   expect(screen.getByRole('option', { name: 'GPT-5 Mini' })).toHaveAttribute(
     'data-pending',
     'true',
   );
   const confirm = screen.getByRole('group', { name: 'Switch to Codex' });
-  expect(confirm).toHaveTextContent('Switches demo2 to Codex (all chats)');
+  expect(confirm).toHaveTextContent('Switches demo2 to Codex (all threads)');
   expect(confirm).toHaveTextContent('Model: GPT-5 Mini');
   // The reasoning column made room for it.
   expect(screen.queryByText('Reasoning')).toBeNull();
@@ -492,7 +492,7 @@ it('keeps the picker open with the error when the switch fails, and Escape backs
   expect(screen.queryByRole('dialog')).toBeNull();
 });
 
-it('warns when the new harness has no login and waits while a chat is running', async () => {
+it('warns when the new harness has no login and waits while a thread is running', async () => {
   render(
     <SwitchHarness
       busy
@@ -523,7 +523,7 @@ it('warns when the new harness has no login and waits while a chat is running', 
     within(confirm).getByRole('link', { name: 'Provider logins.' }),
   ).toBeVisible();
   expect(within(confirm).getByRole('alert')).toHaveTextContent(
-    'A chat is still running',
+    'A thread is still running',
   );
   expect(
     within(confirm).getByRole('button', { name: 'Switch anyway' }),

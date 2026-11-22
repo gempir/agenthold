@@ -103,7 +103,7 @@ func (s *Service) linkBlocks(ctx context.Context, team, slackUser string) ([]sla
 	b := linkButton("link", "Connect your agenthold account", s.linkURL(code))
 	b.Style = slackgo.StylePrimary
 	return []slackgo.Block{
-		sectionBlock("To chat with agents here, connect your Slack account to agenthold. Everything you do in Slack then runs as you, with your access."),
+		sectionBlock("To start threads with agents here, connect your Slack account to agenthold. Everything you do in Slack then runs as you, with your access."),
 		slackgo.NewActionBlock("link", b),
 		contextBlock("The link works once, for 15 minutes."),
 	}, nil

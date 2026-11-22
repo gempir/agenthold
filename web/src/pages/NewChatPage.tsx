@@ -55,7 +55,7 @@ export function NewChatPage() {
           </h1>
           <p className="mt-2 max-w-sm text-sm text-muted-foreground">
             Agents are persistent assistants, each with its own computer. Create
-            one to start chatting.
+            one to start a thread.
           </p>
         </div>
         <Button onClick={shell.openNewAgent}>

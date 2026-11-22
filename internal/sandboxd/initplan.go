@@ -101,7 +101,7 @@ func EarlyMounts() []Step {
 // filesystem: overlay disk, base bind, optional read-only layer drives, the
 // root overlay, home, the native directories, a fresh /run, and finally moves
 // the early mounts into it. Layers are ordered highest precedence first.
-func RootMounts(l Layout, layers ...GuestLayer) []Step {
+func RootMounts(l Layout) []Step {
 	root := func(p string) string { return filepath.Join(initRoot, p) }
 	steps := []Step{
 		{Target: InitDisk},
@@ -112,10 +112,10 @@ func RootMounts(l Layout, layers ...GuestLayer) []Step {
 		{Source: "/", Target: initBase, Flags: FlagBind},
 		{Source: "/", Target: initBase, Flags: FlagBind | FlagRemount | FlagReadOnly},
 	}
-	lowerdirs := make([]string, 0, len(layers)+1)
-	if len(layers) > 0 {
+	lowerdirs := make([]string, 0, len(l.Layers)+1)
+	if len(l.Layers) > 0 {
 		steps = append(steps, Step{Target: initLayers})
-		for i, layer := range layers {
+		for i, layer := range l.Layers {
 			mp := fmt.Sprintf("%s/%d", initLayers, i)
 			steps = append(steps,
 				Step{Target: mp},

@@ -283,6 +283,33 @@ func TestLayersCreateRebuildAndActiveOrder(t *testing.T) {
 	if len(active) != 2 || active[0] != v1Layer || active[1] != defLayer {
 		t.Fatalf("active layers = %+v", active)
 	}
+	overlay := filepath.Join(d.dir(id), "overlay.ext4")
+	before, err := os.Stat(overlay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, bad := range map[string]LayerFile{
+		"missing":   {Path: filepath.Join(tmp, "missing.ext4")},
+		"directory": {Path: tmp},
+		"subdir":    {Path: v1Layer.Path, Subdir: "../upper"},
+	} {
+		resolved[name] = bad
+		if err := d.Rebuild(context.Background(), id, sandbox.Spec{AgentID: "ag_lay", Layers: []string{name}}); err == nil {
+			t.Errorf("rebuild accepted %s layer", name)
+		}
+	}
+	privateFile := mkFile("private.ext4")
+	if err := os.Chmod(privateFile, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	resolved["private"] = LayerFile{Path: privateFile}
+	if err := d.Rebuild(context.Background(), id, sandbox.Spec{AgentID: "ag_lay", Layers: []string{"private"}}); err == nil {
+		t.Fatal("rebuild accepted a layer unreadable by the jailer user")
+	}
+	after, err := os.Stat(overlay)
+	if err != nil || !os.SameFile(before, after) {
+		t.Fatalf("failed layer resolution changed the overlay: %v", err)
+	}
 	if err := d.Rebuild(context.Background(), id, sandbox.Spec{AgentID: "ag_lay", Layers: []string{"corp:v2"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -292,5 +319,35 @@ func TestLayersCreateRebuildAndActiveOrder(t *testing.T) {
 	}
 	if len(m.Layers) != 1 || m.Layers[0] != v2Layer {
 		t.Fatalf("rebuilt layers = %+v", m.Layers)
+	}
+}
+
+func TestDefaultLayerRuntimeFiles(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{
+		BaseImagePath:   filepath.Join(dir, "base.ext4"),
+		KernelPath:      filepath.Join(dir, "kernel"),
+		FirecrackerPath: filepath.Join(dir, "firecracker"),
+		JailerPath:      filepath.Join(dir, "jailer"),
+		SandboxdPath:    filepath.Join(dir, "sandboxd"),
+	}
+	for _, path := range []string{cfg.BaseImagePath, cfg.KernelPath, cfg.FirecrackerPath, cfg.JailerPath, cfg.SandboxdPath} {
+		if err := os.WriteFile(path, nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	layer := filepath.Join(dir, "platform.ext4")
+	if err := os.WriteFile(layer, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg.DefaultLayers = []LayerFile{{Path: layer}}
+	if err := checkRuntimeFiles(cfg); err == nil || !strings.Contains(err.Error(), "readable") {
+		t.Fatalf("private layer: %v", err)
+	}
+	if err := os.Chmod(layer, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkRuntimeFiles(cfg); err != nil {
+		t.Fatalf("world-readable layer: %v", err)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // GuestBootVersion is the format version of GuestBoot.
@@ -179,10 +180,10 @@ func (b GuestBoot) validate() error {
 }
 
 func validateLayerDevice(dev string) error {
-	if !strings.HasPrefix(dev, "/dev/") || filepath.Clean(dev) != dev || dev == "/dev" {
+	if !strings.HasPrefix(dev, "/dev/") || filepath.Clean(dev) != dev {
 		return errors.New("must be a clean path under /dev/")
 	}
-	if strings.ContainsAny(dev, "\x00:, \t\r\n") {
+	if strings.ContainsAny(dev, "\x00:,") || strings.ContainsFunc(dev, unicode.IsSpace) {
 		return errors.New("contains disallowed characters")
 	}
 	return nil

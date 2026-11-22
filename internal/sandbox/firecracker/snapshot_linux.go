@@ -118,6 +118,10 @@ type snapshotInfo struct {
 type diskStamp struct {
 	Size    int64 `json:"size"`
 	ModNano int64 `json:"modNano"`
+	// Read-only layers can be replaced at a stable path while the VM runs.
+	Device     uint64 `json:"device,omitempty"`
+	Inode      uint64 `json:"inode,omitempty"`
+	ChangeNano int64  `json:"changeNano,omitempty"`
 }
 
 // slow lets requests of this instance take up to t (snapshots write the
@@ -254,7 +258,7 @@ func hostCPU() (string, error) {
 	return hex.EncodeToString(h.Sum(nil))[:32], nil
 }
 
-func (d *Driver) diskStamps(id sandbox.ID, m *manifest) (map[string]diskStamp, error) {
+func (d *Driver) diskStamps(id sandbox.ID, m *manifest, mounted bool) (map[string]diskStamp, error) {
 	out := map[string]diskStamp{}
 	for _, name := range diskNames {
 		st, err := os.Stat(filepath.Join(d.dir(id), name))
@@ -264,13 +268,28 @@ func (d *Driver) diskStamps(id sandbox.ID, m *manifest) (map[string]diskStamp, e
 		out[name] = diskStamp{Size: st.Size(), ModNano: st.ModTime().UnixNano()}
 	}
 	for i, l := range d.activeLayers(m) {
-		st, err := os.Stat(l.Path)
+		name := layerDiskName(i)
+		path := l.Path
+		if mounted {
+			path = filepath.Join(d.jailRoot(id), name)
+		}
+		stamp, err := layerDiskStamp(path)
 		if err != nil {
 			return nil, err
 		}
-		out[fmt.Sprintf("layer_%d", i)] = diskStamp{Size: st.Size(), ModNano: st.ModTime().UnixNano()}
+		out[name] = stamp
 	}
 	return out, nil
+}
+
+func layerDiskStamp(path string) (diskStamp, error) {
+	var st unix.Stat_t
+	if err := unix.Stat(path, &st); err != nil {
+		return diskStamp{}, fmt.Errorf("stat layer %s: %w", path, err)
+	}
+	return diskStamp{
+		Size: st.Size, ModNano: st.Mtim.Nano(), Device: st.Dev, Inode: st.Ino, ChangeNano: st.Ctim.Nano(),
+	}, nil
 }
 
 // readSnapshot returns the machine's valid snapshot, nil if it has none.
@@ -326,14 +345,14 @@ func (d *Driver) compatible(id sandbox.ID, m *manifest, s *snapshotInfo) error {
 		return fmt.Errorf("resume protocol %d, want %d", s.ResumeVersion, sandboxd.ResumeVersion)
 	case s.BaseImagePath != m.BaseImagePath:
 		return errors.New("base image changed since the snapshot")
-	case !slices.Equal(s.Layers, d.activeLayers(m)):
+	case len(s.Layers) > sandboxd.MaxGuestLayers || !slices.Equal(s.Layers, d.activeLayers(m)):
 		return errors.New("image layers changed since the snapshot")
 	case s.VCPUs != vcpus || s.MemoryMiB != mem:
 		return errors.New("machine size changed since the snapshot")
 	case !m.Resumable:
 		return errors.New("machine was not booted with the resume devices")
 	}
-	disks, err := d.diskStamps(id, m)
+	disks, err := d.diskStamps(id, m, false)
 	if err != nil {
 		return err
 	}
@@ -662,7 +681,9 @@ func (d *Driver) finalizeSnapshot(id sandbox.ID, m *manifest, info *snapshotInfo
 			return fmt.Errorf("sync %s: %w", name, err)
 		}
 	}
-	disks, err := d.diskStamps(id, m)
+	// Stamp the files the VM actually used. A source path may now point at a
+	// newer layer while the running VM still sees the old bind mount.
+	disks, err := d.diskStamps(id, m, true)
 	if err != nil {
 		return err
 	}
@@ -888,6 +909,16 @@ func (d *Driver) resume(ctx context.Context, id sandbox.ID, m *manifest, boot sa
 	}()
 	if err = d.prepareResume(ctx, id, m); err != nil {
 		return false, err
+	}
+	for i := range s.Layers {
+		name := layerDiskName(i)
+		stamp, err := layerDiskStamp(filepath.Join(d.jailRoot(id), name))
+		if err != nil {
+			return false, err
+		}
+		if stamp != s.Disks[name] {
+			return false, fmt.Errorf("disk %s changed during snapshot preparation", name)
+		}
 	}
 	if err = d.ensureTap(ctx, id, m); err != nil {
 		return false, err

@@ -81,7 +81,7 @@ func TestLayeredRootfsKVM(t *testing.T) {
 	defaultTree := filepath.Join(dir, "default-tree")
 	mustWriteFile(t, filepath.Join(defaultTree, "opt/default-layer/tool.txt"), "default-ok\n", 0o644)
 	mustWriteFile(t, filepath.Join(defaultTree, "etc/layer-conflict"), "from-default\n", 0o644)
-	mustWriteFile(t, filepath.Join(defaultTree, "etc/delete-me"), "should-be-hidden\n", 0o644)
+	mustWriteFile(t, filepath.Join(defaultTree, "etc/delete-me"), "from-default\n", 0o644)
 	mustWriteFile(t, filepath.Join(defaultTree, "etc/agenthold/image.env.d/05-default.env"),
 		"DEFAULT_VAR=ok\nPATH=/opt/default-layer/bin:$PATH\n", 0o644)
 	defaultImg := filepath.Join(dir, "default-layer.ext4")
@@ -208,10 +208,10 @@ func TestLayeredRootfsKVM(t *testing.T) {
 		stop := context.AfterFunc(cctx, func() { _ = p.Close() })
 		defer stop()
 		out, err := io.ReadAll(io.LimitReader(p.Stdout, 1<<20))
+		<-p.Done()
 		if err != nil {
 			t.Fatalf("%s: %v stderr=%s", command, err, stderr.String())
 		}
-		<-p.Done()
 		code, err := p.ExitCode()
 		if err != nil || code != 0 {
 			t.Fatalf("cmd %q failed (code=%d err=%v)\nstdout:\n%s\nstderr:\n%s", command, code, err, out, stderr.String())

@@ -41,7 +41,7 @@ make build
 `make test-go` runs the API suite twice: once against the in-process node and once with
 `AGENTHOLD_TEST_NODE=remote`, where the same fake node joins over TLS as an [edge node](/edge-nodes/).
 `scripts/e2e/edge.sh` builds the binaries, runs a controller with `sandbox.driver: none` and a Firecracker
-node in its own network namespace inside the Lima VM, and drives chat, terminal, files, sleep/wake, a node
+node in its own network namespace inside the Lima VM, and drives threads, terminal, files, sleep/wake, a node
 outage and secret injection through the API (it needs internet access for an HTTPS echo service).
 
 The fake driver runs sandbox processes on the host and is for tests and UI development only. For browser

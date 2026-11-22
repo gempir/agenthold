@@ -72,7 +72,7 @@ func (s *Service) Manifest() map[string]any {
 	if u, err := url.Parse(s.o.PublicURL); err == nil && u.Host != "" {
 		host = u.Host
 	}
-	desc := "Chat with your agenthold agents"
+	desc := "Start and continue agenthold threads"
 	if host != "" {
 		desc += " on " + host
 	}
@@ -80,7 +80,7 @@ func (s *Service) Manifest() map[string]any {
 		"display_information": map[string]any{
 			"name":             "agenthold",
 			"description":      desc,
-			"long_description": "Chat with your agenthold agents from Slack: message the app or mention it in a channel to start a thread. Every action runs as your linked agenthold account, with its access. Answers stream into the thread, with tool calls, plans and permission requests.",
+			"long_description": "Message the app or mention it in a channel to start an agenthold thread from Slack. Every action runs as your linked agenthold account, with its access. Answers stream into the thread, with tool calls, plans and permission requests.",
 			"background_color": "#18181b",
 		},
 		"features": map[string]any{
@@ -89,7 +89,7 @@ func (s *Service) Manifest() map[string]any {
 			},
 			"bot_user": map[string]any{"display_name": "agenthold", "always_online": true},
 			"slash_commands": []any{map[string]any{
-				"command": "/agenthold", "description": "Chat with your agenthold agents",
+				"command": "/agenthold", "description": "Start and continue agenthold threads",
 				"usage_hint": "help | agents | use <agent> | new [agent] [message] | threads [agent] | link | unlink", "should_escape": false,
 			}},
 		},

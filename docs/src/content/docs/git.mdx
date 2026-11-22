@@ -1,6 +1,6 @@
 ---
 title: "Git"
-description: "Git in agents: the base image's defaults, author identity, HTTPS credentials injected by the proxy, repositories and worktrees, and project and branch tracking on chats."
+description: "Git in agents: the base image's defaults, author identity, HTTPS credentials injected by the proxy, repositories and worktrees, and project and branch tracking on threads."
 ---
 
 Agents work in git repositories the way a developer does: they clone, switch branches, create worktrees and
@@ -56,17 +56,17 @@ in the agent's home directory:
 - **Branches.** Switch to an existing branch or create a new one (`POST .../git/checkout`). The status of a
   directory lists its branches (`GET .../git/status`).
 - **Worktrees.** Create a git worktree on a branch of a repository in the agent (`POST .../git/worktrees`), so
-  several chats can work on different branches of one clone.
+  several threads can work on different branches of one clone.
 - **Pull.** Fast-forward a repository from its remote (`POST .../git/pull`).
 
-## Projects and branches on chats
+## Projects and branches on threads
 
-A chat can start in a repository. When you create a chat (`POST /api/v1/agents/{agentId}/sessions`), set `cwd` to
+A thread can start in a repository. When you create a thread (`POST /api/v1/agents/{agentId}/sessions`), set `cwd` to
 the repository, a `gitBranch` (with `createBranch` to create it if it does not exist) and `createWorktree` to give
-the chat its own worktree on that branch.
+the thread its own worktree on that branch.
 
-agenthold detects the chat's project and branch from the running sandbox after each turn, so the branch shown
-follows what the agent actually checked out. `PATCH /api/v1/sessions/{sessionId}/git` changes the chat's working
+agenthold detects the thread's project and branch from the running sandbox after each turn, so the branch shown
+follows what the agent actually checked out. `PATCH /api/v1/sessions/{sessionId}/git` changes the thread's working
 directory or re-detects the project and branch on demand.
 
-The sidebar shows each chat's project and branch, and you can search by either.
+The sidebar shows each thread's project and branch, and you can search by either.

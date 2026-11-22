@@ -117,7 +117,7 @@ func (s *Service) incoming(ctx context.Context, in incoming) {
 	}
 	if agent == nil {
 		if len(agents) == 0 {
-			s.say(ctx, r, "You have no agents you can chat with yet. Create one at "+s.o.PublicURL+"/new.")
+			s.say(ctx, r, "You have no agents you can start a thread with yet. Create one at "+s.o.PublicURL+"/new.")
 			return
 		}
 		s.offerPicker(ctx, &pick{team: in.team, channel: in.channel, threadTS: threadTS, slackUser: in.user, userID: u.ID, text: text, msgTS: in.ts}, agents)

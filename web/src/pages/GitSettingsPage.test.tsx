@@ -177,10 +177,9 @@ it('the Git tab lists repositories and worktrees with their state', async () => 
   expect(within(first).getByText('↑2')).toBeVisible();
   expect(within(first).getByText('↓1')).toBeVisible();
   expect(within(first).queryByText('worktree')).toBeNull();
-  expect(within(first).getByRole('link', { name: 'New chat' })).toHaveAttribute(
-    'href',
-    '/a/a1?cwd=projects%2Fweb',
-  );
+  expect(
+    within(first).getByRole('link', { name: 'New thread' }),
+  ).toHaveAttribute('href', '/a/a1?cwd=projects%2Fweb');
   const second = within(main).getByRole('article', {
     name: 'projects/web-feat',
   });

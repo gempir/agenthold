@@ -30,7 +30,7 @@ export const repoBranch = (r: Pick<GitRepo, 'branch' | 'detached'>) =>
 
 /**
  * Git inside the agent: the repositories and worktrees found in its home,
- * with the actions to start a chat in one, pull, switch branches, add a
+ * with the actions to start a thread in one, pull, switch branches, add a
  * worktree and clone another repository.
  */
 export function GitTab({
@@ -167,7 +167,7 @@ function RepoCard({
               search={{ cwd: repo.path }}
             >
               <SquarePen className="size-3.5" aria-hidden />
-              New chat
+              New thread
             </Link>
           </Button>
           <Button
@@ -371,7 +371,7 @@ function WorktreeForm({
     >
       <p className="text-xs text-muted-foreground">
         A worktree is a second checkout of {repo.project} on its own branch, so
-        chats can work in parallel.
+        threads can work in parallel.
       </p>
       <label className="grid gap-1 text-xs">
         Worktree branch
@@ -410,7 +410,7 @@ function WorktreeForm({
           checked={chat}
           onChange={(e) => setChat(e.target.checked)}
         />
-        Start a chat in the worktree
+        Start a thread in the worktree
       </label>
       <ErrorText error={add.error} />
       <div>

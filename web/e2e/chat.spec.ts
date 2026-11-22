@@ -9,7 +9,7 @@ async function signIn(page: import('@playwright/test').Page) {
   await expect(page.getByRole('button', { name: 'New agent' })).toBeVisible();
 }
 
-test('chat with an agent', async ({ page }) => {
+test('start a thread with an agent', async ({ page }) => {
   await signIn(page);
   const name = `ui-${Date.now()}`;
   await page.getByRole('button', { name: 'New agent' }).click();
@@ -18,9 +18,9 @@ test('chat with an agent', async ({ page }) => {
   await dialog.getByLabel('Harness').selectOption('fake');
   await dialog.getByRole('button', { name: 'Create' }).click();
 
-  // A new agent opens on a blank chat; the sidebar lists it.
+  // A new agent opens on a blank thread; the sidebar lists it.
   await expect(
-    page.getByRole('heading', { name: `Start a chat with ${name}` }),
+    page.getByRole('heading', { name: `Start a thread with ${name}` }),
   ).toBeVisible();
   await expect(
     page.getByRole('list', { name: 'Agents' }).getByText(name),
@@ -37,7 +37,7 @@ test('chat with an agent', async ({ page }) => {
   await expect(page.getByText('echo: hello from the browser')).toBeVisible();
   await expect(
     page
-      .getByRole('list', { name: 'Chats' })
+      .getByRole('list', { name: 'Threads' })
       .getByText('hello from the browser'),
   ).toBeVisible();
 
@@ -49,12 +49,12 @@ test('chat with an agent', async ({ page }) => {
   await expect(page.getByText(/chunk 8/)).toBeVisible();
   await expect(page.getByText('done')).toBeVisible();
 
-  // The agent panel lists the session next to the chat.
+  // The agent panel lists the current thread.
   await page.getByRole('button', { name: 'Agent panel' }).click();
   await expect(
     page
       .getByRole('complementary', { name: 'Agent panel' })
-      .getByRole('list', { name: 'Sessions' })
+      .getByRole('list', { name: 'Threads' })
       .getByText('hello from the browser'),
   ).toBeVisible();
 

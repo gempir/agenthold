@@ -604,7 +604,7 @@ it('the owner switches the agent to another harness from the model picker', asyn
     await within(list).findByRole('option', { name: 'Default model' }),
   );
   const confirm = screen.getByRole('group', { name: 'Switch to Codex' });
-  expect(confirm).toHaveTextContent('Switches demo2 to Codex (all chats)');
+  expect(confirm).toHaveTextContent('Switches demo2 to Codex (all threads)');
   await user.click(
     within(confirm).getByRole('button', { name: 'Switch to Codex' }),
   );

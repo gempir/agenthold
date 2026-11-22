@@ -1,6 +1,6 @@
 ---
 title: "Slack"
-description: "Chat with your agents from Slack: DMs, channel threads and a slash command, as your linked agenthold account."
+description: "Start and continue agent threads from Slack DMs, channel threads, and the slash command using your linked agenthold account."
 ---
 
 The Slack app does in Slack what threads do in the web UI: start threads with any agent you can use, see the
@@ -43,7 +43,7 @@ confirms in a DM. `/agenthold link` offers a new link, `/agenthold unlink` disco
 are also listed, with an **Unlink** button, under **Settings → Slack** (`GET /api/v1/me/slack`); the same page holds
 the admin's workspace connection.
 
-## Chatting
+## Starting a thread
 
 - **DMs.** A message to the bot starts a new thread, in a Slack thread on your message. Replies in the thread continue it.
 - **Channels.** Mention the bot (`@agenthold fix the build`) to start a thread on that message. Invite

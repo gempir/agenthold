@@ -17,9 +17,10 @@ const (
 
 // Layout names the guest's block devices.
 type Layout struct {
-	Overlay string // per-agent writable overlay disk (upper layer of /)
-	Home    string // per-agent /home/agent disk
-	Config  string // read-only boot configuration (GuestBoot)
+	Overlay string       // per-agent writable overlay disk (upper layer of /)
+	Home    string       // per-agent /home/agent disk
+	Config  string       // read-only boot configuration (GuestBoot)
+	Layers  []GuestLayer // additional read-only disks, highest precedence first
 }
 
 // IPConfig is the kernel's ip= argument

@@ -36,20 +36,12 @@ func BuildChildEnv(baseEnvFile, envDir string, boot map[string]string, log *slog
 	}
 	if envDir != "" {
 		if entries, err := os.ReadDir(envDir); err == nil {
-			names := make([]string, 0, len(entries))
-			for _, e := range entries {
-				if e.IsDir() || !strings.HasSuffix(e.Name(), ".env") {
+			// ReadDir returns entries sorted by name.
+			for _, entry := range entries {
+				if !entry.Type().IsRegular() || !strings.HasSuffix(entry.Name(), ".env") {
 					continue
 				}
-				names = append(names, e.Name())
-			}
-			slices.Sort(names)
-			for _, name := range names {
-				p := filepath.Join(envDir, name)
-				st, err := os.Stat(p)
-				if err != nil || !st.Mode().IsRegular() {
-					continue
-				}
+				p := filepath.Join(envDir, entry.Name())
 				f, err := os.Open(p)
 				if err != nil {
 					if log != nil {
@@ -81,9 +73,7 @@ func BuildChildEnv(baseEnvFile, envDir string, boot map[string]string, log *slog
 }
 
 func expandPath(val, current string) string {
-	val = strings.ReplaceAll(val, "${PATH}", current)
-	val = strings.ReplaceAll(val, "$PATH", current)
-	return val
+	return strings.NewReplacer("${PATH}", current, "$PATH", current).Replace(val)
 }
 
 // ProfilePathScript returns an /etc/profile.d snippet that restores the
@@ -108,34 +98,46 @@ func SeedHomeFromSkel(skelDir, homeDir string, uid, gid int) error {
 	if !info.IsDir() {
 		return nil
 	}
-	return filepath.WalkDir(skelDir, func(src string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel, err := filepath.Rel(skelDir, src)
+	return copySkelEntries(skelDir, homeDir, uid, gid)
+}
+
+func copySkelEntries(skelDir, homeDir string, uid, gid int) error {
+	entries, err := os.ReadDir(skelDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		src := filepath.Join(skelDir, entry.Name())
+		dst := filepath.Join(homeDir, entry.Name())
+		info, err := entry.Info()
 		if err != nil {
 			return err
 		}
-		if rel == "." {
-			return nil
+		mode := info.Mode()
+		if !mode.IsDir() && !mode.IsRegular() && mode&os.ModeSymlink == 0 {
+			continue
 		}
-		dst := filepath.Join(homeDir, rel)
-		fi, err := os.Lstat(src)
-		if err != nil {
+		existing, err := os.Lstat(dst)
+		if err == nil {
+			if mode.IsDir() && existing.IsDir() {
+				if err := copySkelEntries(src, dst, uid, gid); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		mode := fi.Mode()
+
+		perm := mode & (os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
 		switch {
 		case mode.IsDir():
-			if existing, err := os.Lstat(dst); err == nil {
-				if existing.IsDir() {
-					return nil
-				}
-				return filepath.SkipDir
-			} else if !errors.Is(err, os.ErrNotExist) {
+			// Populate before applying ownership and potentially read-only permissions.
+			if err := os.Mkdir(dst, 0o700); err != nil {
 				return err
 			}
-			if err := os.Mkdir(dst, mode.Perm()); err != nil {
+			if err := copySkelEntries(src, dst, uid, gid); err != nil {
 				return err
 			}
 			if uid >= 0 && gid >= 0 {
@@ -143,12 +145,10 @@ func SeedHomeFromSkel(skelDir, homeDir string, uid, gid int) error {
 					return err
 				}
 			}
-		case mode&os.ModeSymlink != 0:
-			if _, err := os.Lstat(dst); err == nil {
-				return nil
-			} else if !errors.Is(err, os.ErrNotExist) {
+			if err := os.Chmod(dst, perm); err != nil {
 				return err
 			}
+		case mode&os.ModeSymlink != 0:
 			target, err := os.Readlink(src)
 			if err != nil {
 				return err
@@ -162,17 +162,12 @@ func SeedHomeFromSkel(skelDir, homeDir string, uid, gid int) error {
 				}
 			}
 		case mode.IsRegular():
-			if _, err := os.Lstat(dst); err == nil {
-				return nil
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-			if err := copySkelFile(src, dst, mode.Perm(), uid, gid); err != nil {
+			if err := copySkelFile(src, dst, perm, uid, gid); err != nil {
 				return err
 			}
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 func copySkelFile(src, dst string, perm fs.FileMode, uid, gid int) error {
@@ -181,16 +176,16 @@ func copySkelFile(src, dst string, perm fs.FileMode, uid, gid int) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
 	_, copyErr := io.Copy(out, in)
-	chmodErr := out.Chmod(perm)
 	var chownErr error
 	if uid >= 0 && gid >= 0 {
 		chownErr = out.Chown(uid, gid)
 	}
+	chmodErr := out.Chmod(perm)
 	closeErr := out.Close()
 	if err := errors.Join(copyErr, chmodErr, chownErr, closeErr); err != nil {
 		_ = os.Remove(dst)

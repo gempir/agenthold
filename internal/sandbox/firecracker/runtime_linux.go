@@ -76,6 +76,10 @@ func bindFile(src, dst string, readOnly bool) error {
 	return nil
 }
 
+func layerDiskName(i int) string {
+	return fmt.Sprintf("layer-%d.ext4", i)
+}
+
 func (d *Driver) prepare(ctx context.Context, id sandbox.ID, m *manifest, boot sandbox.Boot) error {
 	layers := d.activeLayers(m)
 	if len(layers) > sandboxd.MaxGuestLayers {
@@ -125,7 +129,7 @@ func (d *Driver) prepare(ctx context.Context, id sandbox.ID, m *manifest, boot s
 		{config, "config.img", true},
 	}
 	for i, l := range layers {
-		binds = append(binds, bindEntry{l.Path, fmt.Sprintf("layer_%d.ext4", i), true})
+		binds = append(binds, bindEntry{l.Path, layerDiskName(i), true})
 	}
 	for _, f := range binds {
 		if err = ctx.Err(); err != nil {
@@ -160,7 +164,7 @@ func (d *Driver) prepareResume(ctx context.Context, id sandbox.ID, m *manifest) 
 		{filepath.Join(d.snapDir(id), "memory"), jailMemory, true},
 	}
 	for i, l := range d.activeLayers(m) {
-		binds = append(binds, bindEntry{l.Path, fmt.Sprintf("layer_%d.ext4", i), true})
+		binds = append(binds, bindEntry{l.Path, layerDiskName(i), true})
 	}
 	for _, f := range binds {
 		if err := ctx.Err(); err != nil {
@@ -247,8 +251,9 @@ func (d *Driver) launch(ctx context.Context, id sandbox.ID, m *manifest) error {
 		}
 	}
 	for i := range d.activeLayers(m) {
+		// Firecracker API resource IDs allow underscores but not hyphens.
 		name := fmt.Sprintf("layer_%d", i)
-		if err = a.put(bootCtx, "/drives/"+name, map[string]any{"drive_id": name, "path_on_host": "/" + name + ".ext4", "is_root_device": false, "is_read_only": true}); err != nil {
+		if err = a.put(bootCtx, "/drives/"+name, map[string]any{"drive_id": name, "path_on_host": "/" + layerDiskName(i), "is_root_device": false, "is_read_only": true}); err != nil {
 			return err
 		}
 	}
@@ -430,9 +435,10 @@ func (d *Driver) finish(ctx context.Context, id sandbox.ID, m *manifest) error {
 	errs = append(errs, d.deleteTap(id))
 	// Unmount before RemoveAll: removing through a live bind could delete data.
 	clean := true
-	unmounts := make([]string, 0, 9+sandboxd.MaxGuestLayers)
+	unmounts := make([]string, 0, 9+2*sandboxd.MaxGuestLayers)
 	for i := sandboxd.MaxGuestLayers - 1; i >= 0; i-- {
-		unmounts = append(unmounts, fmt.Sprintf("layer_%d.ext4", i))
+		// Existing jails may still use the original underscore filenames.
+		unmounts = append(unmounts, layerDiskName(i), fmt.Sprintf("layer_%d.ext4", i))
 	}
 	unmounts = append(unmounts, jailSnapDir, jailVMState, jailMemory, "config.img", "home.ext4", "overlay.ext4", "base.ext4", "initrd", "kernel")
 	for _, name := range unmounts {

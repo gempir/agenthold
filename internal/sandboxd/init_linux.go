@@ -107,8 +107,9 @@ func (in *initState) setup() error {
 	if err != nil {
 		return err
 	}
+	in.layout.Layers = boot.Layers
 	baseDev := BaseDevice(args)
-	for _, layer := range boot.Layers {
+	for _, layer := range in.layout.Layers {
 		switch layer.Device {
 		case baseDev, in.layout.Overlay, in.layout.Home, in.layout.Config:
 			return fmt.Errorf("layer device %s collides with a core guest device", layer.Device)
@@ -127,7 +128,7 @@ func (in *initState) setup() error {
 		return err
 	}
 
-	if err := runSteps(RootMounts(in.layout, boot.Layers...)); err != nil {
+	if err := runSteps(RootMounts(in.layout)); err != nil {
 		return err
 	}
 	if err := pivot(NewRoot()); err != nil {

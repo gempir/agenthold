@@ -173,6 +173,74 @@ func TestSnapshotCompatibility(t *testing.T) {
 	}
 }
 
+func TestSnapshotLayerReplacement(t *testing.T) {
+	d := unitDriver(t)
+	layer := filepath.Join(d.cfg.JailDir, "default.ext4")
+	if err := os.WriteFile(layer, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d.cfg.DefaultLayers = []LayerFile{{Path: layer}}
+	id, err := d.Create(context.Background(), sandbox.Spec{AgentID: "ag_layer_snapshot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := d.load(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Resumable = true
+	_, mem, vcpus := resources(m)
+	info := &snapshotInfo{
+		Format: snapshotFormat, Sandboxd: filepath.Base(d.initrd), ResumeVersion: sandboxd.ResumeVersion,
+		BaseImagePath: m.BaseImagePath, Layers: d.activeLayers(m), VCPUs: vcpus, MemoryMiB: mem,
+	}
+	// A hard link stands in for the jail bind, preserving the original inode
+	// when the node switches the default path to a replacement.
+	root := d.jailRoot(id)
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(layer, filepath.Join(root, layerDiskName(0))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(d.snapDir(id), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"vmstate", "memory", "config.img"} {
+		if err := os.WriteFile(filepath.Join(d.snapDir(id), name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	info.Disks, err = d.diskStamps(id, m, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.compatible(id, m, info); err != nil {
+		t.Fatalf("unchanged layer: %v", err)
+	}
+	st, err := os.Stat(layer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := layer + ".new"
+	if err := os.WriteFile(replacement, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(replacement, st.ModTime(), st.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, layer); err != nil {
+		t.Fatal(err)
+	}
+	info.Disks, err = d.diskStamps(id, m, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.compatible(id, m, info); err == nil || !strings.Contains(err.Error(), layerDiskName(0)) {
+		t.Fatalf("replacement layer accepted: %v", err)
+	}
+}
+
 // unprivilegedChown lets the store's files stay the test user's when the
 // test cannot give them to root.
 func unprivilegedChown(t *testing.T) {

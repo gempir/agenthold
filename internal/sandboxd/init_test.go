@@ -109,7 +109,7 @@ func TestParseCmdline(t *testing.T) {
 		t.Fatalf("got %v", args)
 	}
 	l := sandboxd.LayoutFromCmdline(args)
-	if l != (sandboxd.Layout{Overlay: "/dev/vdb", Home: "/dev/vde", Config: "/dev/vdd"}) {
+	if !reflect.DeepEqual(l, sandboxd.Layout{Overlay: "/dev/vdb", Home: "/dev/vde", Config: "/dev/vdd"}) {
 		t.Fatalf("layout %+v", l)
 	}
 	if d := sandboxd.BaseDevice(args); d != "/dev/vda" {
@@ -400,12 +400,16 @@ func TestGuestBootLayers(t *testing.T) {
 		"dev root":     {{Device: "/dev"}},
 		"unclean dev":  {{Device: "/dev/../etc/passwd"}},
 		"colon dev":    {{Device: "/dev/vde:foo"}},
+		"comma dev":    {{Device: "/dev/vde,foo"}},
+		"NUL dev":      {{Device: "/dev/vde\x00"}},
+		"space dev":    {{Device: "/dev/vde\u00a0"}},
 		"duplicate":    {{Device: "/dev/vde"}, {Device: "/dev/vde"}},
 		"abs subdir":   {{Device: "/dev/vde", Subdir: "/upper"}},
 		"dotdot":       {{Device: "/dev/vde", Subdir: "../upper"}},
 		"dot":          {{Device: "/dev/vde", Subdir: "."}},
 		"colon subdir": {{Device: "/dev/vde", Subdir: "a:b"}},
 		"comma subdir": {{Device: "/dev/vde", Subdir: "a,b"}},
+		"NUL subdir":   {{Device: "/dev/vde", Subdir: "upper\x00"}},
 		"too many":     tooMany,
 	} {
 		b := sandboxd.GuestBoot{AgentID: "a", Token: "t", TunnelPort: 1, Layers: layers}
@@ -417,11 +421,18 @@ func TestGuestBootLayers(t *testing.T) {
 
 func TestMountPlanWithLayers(t *testing.T) {
 	l := sandboxd.Layout{Overlay: "/dev/vdb", Home: "/dev/vdc", Config: "/dev/vdd"}
-	layers := []sandboxd.GuestLayer{
+	l.Layers = []sandboxd.GuestLayer{
 		{Device: "/dev/vde", Subdir: "upper"},
 		{Device: "/dev/vdf"},
 	}
-	plan := sandboxd.RootMounts(l, layers...)
+	single := l
+	single.Layers = l.Layers[:1]
+	singlePlan := sandboxd.RootMounts(single)
+	overlay := slices.IndexFunc(singlePlan, func(s sandboxd.Step) bool { return s.FSType == "overlay" })
+	if overlay < 0 || !strings.HasPrefix(singlePlan[overlay].Data, "lowerdir=/run/agenthold/layers/0/upper:/run/agenthold/base,") {
+		t.Fatalf("one layer:\n%s", dump(singlePlan))
+	}
+	plan := sandboxd.RootMounts(l)
 	idx := func(pred func(sandboxd.Step) bool) int { return slices.IndexFunc(plan, pred) }
 	l0 := idx(func(s sandboxd.Step) bool { return s.Source == "/dev/vde" })
 	l1 := idx(func(s sandboxd.Step) bool { return s.Source == "/dev/vdf" })
@@ -430,8 +441,8 @@ func TestMountPlanWithLayers(t *testing.T) {
 		t.Fatalf("order:\n%s", dump(plan))
 	}
 	for _, i := range []int{l0, l1} {
-		if plan[i].FSType != "ext4" || plan[i].Flags&sandboxd.FlagReadOnly == 0 {
-			t.Fatalf("layer mount %s must be ro ext4", plan[i])
+		if plan[i].FSType != "ext4" || plan[i].Flags != sandboxd.FlagReadOnly|sandboxd.FlagNoAtime {
+			t.Fatalf("layer mount %s must be ro,noatime ext4", plan[i])
 		}
 	}
 	wantLower := "lowerdir=/run/agenthold/layers/0/upper:/run/agenthold/layers/1:/run/agenthold/base,"
@@ -473,6 +484,9 @@ func TestBuildChildEnv(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(envDir, "99-skip.txt"), []byte("SKIP=1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Symlink("99-skip.txt", filepath.Join(envDir, "99-skip.env")); err != nil {
+		t.Fatal(err)
+	}
 	raw := sandboxd.BuildChildEnv(baseFile, envDir, map[string]string{"SHARED": "boot", "BOOT_ONLY": "ok"}, nil)
 	got := map[string]string{}
 	for _, kv := range raw {
@@ -495,6 +509,11 @@ func TestBuildChildEnv(t *testing.T) {
 	if script := sandboxd.ProfilePathScript("/a:/b'c"); !strings.Contains(script, `export PATH='/a:/b'\''c'`) {
 		t.Fatalf("profile script = %q", script)
 	}
+	bootPath := "PATH=/boot/bin:${PATH}:$PATH"
+	raw = sandboxd.BuildChildEnv(baseFile, envDir, map[string]string{"PATH": strings.TrimPrefix(bootPath, "PATH=")}, nil)
+	if !slices.Contains(raw, bootPath) {
+		t.Fatalf("boot PATH was rewritten: %v", raw)
+	}
 }
 
 func TestSeedHomeFromSkel(t *testing.T) {
@@ -512,6 +531,11 @@ func TestSeedHomeFromSkel(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(skel, ".config/app/conf"), []byte("nested\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	readOnly := filepath.Join(skel, ".config/app")
+	if err := os.Chmod(readOnly, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(readOnly, 0o755) })
 	if err := os.Symlink(".bashrc", filepath.Join(skel, ".profile")); err != nil {
 		t.Fatal(err)
 	}
@@ -521,6 +545,11 @@ func TestSeedHomeFromSkel(t *testing.T) {
 	}
 	if err := sandboxd.SeedHomeFromSkel(skel, home, -1, -1); err != nil {
 		t.Fatal(err)
+	}
+	copiedDir := filepath.Join(home, ".config/app")
+	t.Cleanup(func() { _ = os.Chmod(copiedDir, 0o755) })
+	if st, err := os.Stat(copiedDir); err != nil || st.Mode().Perm() != 0o555 {
+		t.Fatalf("directory mode = %v %v", st, err)
 	}
 	if b, err := os.ReadFile(filepath.Join(home, ".bashrc")); err != nil || string(b) != "existing\n" {
 		t.Fatalf(".bashrc = %q, %v", b, err)

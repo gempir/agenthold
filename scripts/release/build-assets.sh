@@ -30,6 +30,7 @@ mkdir -p "$ART"
 
 KERNEL_KEY="$(bash "$REPO_ROOT/scripts/guest/kernel-key.sh")"
 BASE_KEY="$(bash "$REPO_ROOT/scripts/guest/base-key.sh")"
+HARNESSES_KEY="$(bash "$REPO_ROOT/scripts/guest/harnesses-key.sh")"
 
 # The kernel is rebuilt only when its key changed (build/guest/<arch>/kernel.key records it).
 if [[ ! -f "$ART/kernel.manifest.json" || "$(cat "$ART/kernel.key" 2>/dev/null)" != "$KERNEL_KEY" ]]; then
@@ -55,6 +56,22 @@ fi
 echo "$(jq -er .zstd.sha256 "$BASE_MANIFEST")  $BASE.zst" | sha256sum --check --status
 [[ "$(stat -c %s "$BASE.zst")" -le 2000000000 ]] || { echo 'compressed base exceeds the 2 GB download budget' >&2; exit 1; }
 
+HARNESSES_MANIFEST="$ART/harnesses-$ARCH.manifest.json"
+HARNESSES="$ART/harnesses-$ARCH.ext4"
+if [[ ! -f "$HARNESSES" || "$(jq -r '.inputs.harnessesKey // empty' "$HARNESSES_MANIFEST" 2>/dev/null || true)" != "$HARNESSES_KEY" ]]; then
+  bash "$REPO_ROOT/scripts/guest/build-harnesses.sh"
+fi
+[[ "$(jq -er '.inputs.harnessesKey' "$HARNESSES_MANIFEST")" == "$HARNESSES_KEY" ]] || { echo 'harnesses image was not built from these inputs' >&2; exit 1; }
+echo "$(jq -er .sha256 "$HARNESSES_MANIFEST")  $HARNESSES" | sha256sum --check --status
+if [[ ! -f "$HARNESSES.zst" || "$(jq -r '.zstd.sha256 // empty' "$HARNESSES_MANIFEST")" == '' ]]; then
+  zstd -q -f -T0 -6 --long=27 -o "$HARNESSES.zst" "$HARNESSES"
+  jq --arg sha "$(sha256sum "$HARNESSES.zst" | cut -d' ' -f1)" --argjson size "$(stat -c %s "$HARNESSES.zst")" \
+    '.zstd = {file: (.file + ".zst"), size: $size, sha256: $sha}' "$HARNESSES_MANIFEST" > "$HARNESSES_MANIFEST.tmp"
+  mv "$HARNESSES_MANIFEST.tmp" "$HARNESSES_MANIFEST"
+fi
+echo "$(jq -er .zstd.sha256 "$HARNESSES_MANIFEST")  $HARNESSES.zst" | sha256sum --check --status
+[[ "$(stat -c %s "$HARNESSES.zst")" -le 2000000000 ]] || { echo 'compressed harnesses exceeds the 2 GB download budget' >&2; exit 1; }
+
 # asset <kind> <key> <raw file> <compressed file>: write <kind>-<key>.zst (a hard link where
 # possible) and its manifest into OUT.
 asset() {
@@ -71,5 +88,6 @@ if [[ ! -f "$KERNEL.zst" || "$KERNEL.zst" -ot "$KERNEL" ]]; then
 fi
 asset kernel "$KERNEL_KEY" "$KERNEL" "$KERNEL.zst"
 asset base "$BASE_KEY" "$BASE" "$BASE.zst"
+asset harnesses "$HARNESSES_KEY" "$HARNESSES" "$HARNESSES.zst"
 printf 'Assets: %s\n' "$OUT"
 ls -lh "$OUT"

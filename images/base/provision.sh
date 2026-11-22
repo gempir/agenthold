@@ -26,14 +26,8 @@ tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 --no-same-owner \
 rm -f /tmp/node.tar.xz
 node --version
 
-# Freeze the entire dependency graph, including architecture-specific optional packages.
+# Harnesses are delivered as their own read-only layer (images/harnesses/) mounted over the base.
 mkdir -p /opt/agenthold/tools
-cp "$here/package.json" "$here/package-lock.json" /opt/agenthold/tools/
-npm ci --prefix /opt/agenthold/tools --omit=dev --no-fund --no-audit --no-update-notifier
-for bin in /opt/agenthold/tools/node_modules/.bin/*; do
-  ln -s "$bin" "/usr/local/bin/$(basename "$bin")"
-done
-npm cache clean --force
 
 ln -sf /usr/bin/fdfind /usr/local/bin/fd
 

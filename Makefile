@@ -8,7 +8,7 @@ PNPM ?= pnpm
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-go web web-deps test test-go test-web test-kvm test-guest lint lint-go lint-web fmt dev dev-vm dev-vm-shell dev-vm-delete guest-kernel guest-base runtime clean generate gen-sql gen-go-api gen-api
+.PHONY: all build build-go web web-deps test test-go test-web test-kvm test-guest lint lint-go lint-web fmt dev dev-vm dev-vm-shell dev-vm-delete guest-kernel guest-base guest-harnesses runtime clean generate gen-sql gen-go-api gen-api
 
 all: build
 build: web build-go
@@ -66,6 +66,8 @@ guest-kernel:
 	./scripts/guest/build-kernel.sh
 guest-base:
 	./scripts/guest/build-rootfs.sh
+guest-harnesses:
+	./scripts/guest/build-harnesses.sh
 test-guest:
 	./scripts/guest/boot-test.sh
 runtime:

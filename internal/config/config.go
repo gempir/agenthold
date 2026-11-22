@@ -245,10 +245,11 @@ type Sandbox struct {
 // Firecracker configures the microVM runtime. Release builds extract the
 // runtime artifacts automatically; explicit paths support development builds.
 type Firecracker struct {
-	Binary    string `yaml:"binary"`
-	Jailer    string `yaml:"jailer"`
-	Kernel    string `yaml:"kernel"`
-	BaseImage string `yaml:"base_image"`
+	Binary         string `yaml:"binary"`
+	Jailer         string `yaml:"jailer"`
+	Kernel         string `yaml:"kernel"`
+	BaseImage      string `yaml:"base_image"`
+	HarnessesImage string `yaml:"harnesses_image"`
 	// AssetsURL is where a release build fetches its guest kernel and base image from when they
 	// are not on disk yet: the /dl/ root (ending in "/") of a host that serves this architecture's
 	// assets, for example https://agents.example.com/dl/. The files are checked against the asset

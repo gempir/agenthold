@@ -63,15 +63,23 @@ func startLocalHost(ctx context.Context, cfg *config.Config, driverName string, 
 			cfg.Sandbox.Firecracker.Jailer = paths.Jailer
 			cfg.Sandbox.Firecracker.Kernel = paths.Kernel
 			cfg.Sandbox.Firecracker.BaseImage = paths.BaseImage
+			cfg.Sandbox.Firecracker.HarnessesImage = paths.HarnessesImage
 			cfg.Sandbox.SandboxdPath = paths.Sandboxd
 			logger.Info("machines boot this binary as their sandboxd", "path", paths.Sandboxd)
-			logger.Info("release runtime ready", "version", paths.Version, "kernel", paths.Kernel, "base", paths.BaseImage)
+			logger.Info("release runtime ready", "version", paths.Version, "kernel", paths.Kernel, "base", paths.BaseImage, "harnesses", paths.HarnessesImage)
 		} else {
 			base, err := runtimeassets.PinBase(ctx, cfg.DataDir, cfg.Sandbox.Firecracker.BaseImage)
 			if err != nil {
 				return nil, fmt.Errorf("pin development base image: %w", err)
 			}
 			cfg.Sandbox.Firecracker.BaseImage = base
+			if cfg.Sandbox.Firecracker.HarnessesImage != "" {
+				harnesses, err := runtimeassets.PinHarnesses(ctx, cfg.DataDir, cfg.Sandbox.Firecracker.HarnessesImage)
+				if err != nil {
+					return nil, fmt.Errorf("pin development harnesses image: %w", err)
+				}
+				cfg.Sandbox.Firecracker.HarnessesImage = harnesses
+			}
 		}
 	}
 	tunnelPort, err := portOf(cfg.Sandbox.TunnelListen)
@@ -187,10 +195,19 @@ func newDriver(ctx context.Context, cfg *config.Config, name string, fw *egress.
 		if nested != "" && fc.Snapshots == nil {
 			logger.Info("memory snapshots are off: this host is a virtual machine, where resumed guests run far slower than cold-booted ones; set sandbox.firecracker.snapshots to override", "hypervisor", nested)
 		}
+		var defaultLayers []firecracker.LayerFile
+		if fc.HarnessesImage != "" {
+			abs, err := filepath.Abs(fc.HarnessesImage)
+			if err != nil {
+				return nil, err
+			}
+			defaultLayers = append(defaultLayers, firecracker.LayerFile{Path: abs})
+		}
 		layers := node.NewLayerStore(dataDir)
 		return firecracker.New(ctx, firecracker.Config{
 			DataDir: dataDir, BaseImagePath: fc.BaseImage, KernelPath: fc.Kernel,
 			FirecrackerPath: fc.Binary, JailerPath: fc.Jailer, SandboxdPath: cfg.Sandbox.SandboxdPath,
+			DefaultLayers: defaultLayers,
 			ResolveLayer: func(_ context.Context, ref string) (firecracker.LayerFile, error) {
 				p, sub, err := layers.ResolveRef(ref)
 				if err != nil {

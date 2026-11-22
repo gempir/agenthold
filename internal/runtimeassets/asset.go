@@ -32,8 +32,9 @@ import (
 // as kernel/<sha256> or base/<sha256>.ext4 (agents' state names the base by this path) and the
 // compressed file next to it with ".zst" appended, which is what /dl/ serves.
 const (
-	KindKernel = "kernel"
-	KindBase   = "base"
+	KindKernel    = "kernel"
+	KindBase      = "base"
+	KindHarnesses = "harnesses"
 )
 
 // Asset is one asset manifest.
@@ -67,10 +68,14 @@ func ManifestPath(dataDir, arch, kind, key string) string {
 
 // WorkPath is the verified uncompressed file of an asset in a data directory.
 func (a Asset) WorkPath(dataDir string) string {
-	if a.Kind == KindKernel {
+	switch a.Kind {
+	case KindKernel:
 		return filepath.Join(dataDir, "kernel", a.SHA256)
+	case KindHarnesses:
+		return filepath.Join(dataDir, "harnesses", a.SHA256+".ext4")
+	default:
+		return filepath.Join(dataDir, "base", a.SHA256+".ext4")
 	}
-	return filepath.Join(dataDir, "base", a.SHA256+".ext4")
 }
 
 // CompressedPath is the kept compressed file of an asset, served under /dl/assets/.
@@ -88,13 +93,16 @@ func ParseAsset(data []byte, wantKind, wantArch, wantKey string) (Asset, error) 
 		return a, errors.New("asset manifest has trailing data")
 	}
 	maxSize := int64(32 << 30)
-	if a.Kind == KindKernel {
+	switch a.Kind {
+	case KindKernel:
 		maxSize = 512 << 20
+	case KindHarnesses:
+		maxSize = 8 << 30
 	}
 	switch {
 	case a.Format != 1:
 		return a, fmt.Errorf("asset manifest format %d, want 1", a.Format)
-	case a.Kind != KindKernel && a.Kind != KindBase || wantKind != "" && a.Kind != wantKind:
+	case (a.Kind != KindKernel && a.Kind != KindBase && a.Kind != KindHarnesses) || wantKind != "" && a.Kind != wantKind:
 		return a, fmt.Errorf("asset manifest is a %q, want %q", a.Kind, wantKind)
 	case a.Arch != "amd64" && a.Arch != "arm64" || wantArch != "" && a.Arch != wantArch:
 		return a, fmt.Errorf("asset manifest is for %q, want %q", a.Arch, wantArch)

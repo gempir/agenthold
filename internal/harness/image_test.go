@@ -15,15 +15,15 @@ import (
 	_ "github.com/gempir/agenthold/internal/harness/opencode"
 )
 
-// images/base/package.json is the only place harness versions are pinned
+// images/harnesses/package.json is the only place harness versions are pinned
 // (package-lock.json is generated from it). Each adapter names its package;
-// this checks that the image installs exactly those, at one version, and
-// that the command each adapter runs is a binary its package installs.
+// this checks that the harnesses layer installs exactly those, at one version,
+// and that the command each adapter runs is a binary its package installs.
 func TestAdaptersMatchBaseImage(t *testing.T) {
 	var pkg struct {
 		Dependencies map[string]string `json:"dependencies"`
 	}
-	readJSON(t, "../../images/base/package.json", &pkg)
+	readJSON(t, "../../images/harnesses/package.json", &pkg)
 	var lock struct {
 		Packages map[string]struct {
 			Version      string            `json:"version"`
@@ -31,7 +31,7 @@ func TestAdaptersMatchBaseImage(t *testing.T) {
 			Bin          map[string]string `json:"bin"`
 		} `json:"packages"`
 	}
-	readJSON(t, "../../images/base/package-lock.json", &lock)
+	readJSON(t, "../../images/harnesses/package-lock.json", &lock)
 	if root := lock.Packages[""].Dependencies; !maps.Equal(root, pkg.Dependencies) {
 		t.Fatalf("package-lock.json was not regenerated: it locks %v, package.json asks for %v", root, pkg.Dependencies)
 	}
@@ -40,13 +40,13 @@ func TestAdaptersMatchBaseImage(t *testing.T) {
 	for _, ad := range harness.List(false) {
 		ids = append(ids, ad.ID)
 		if ad.Package == "" {
-			t.Errorf("%s: no package in the base image", ad.ID)
+			t.Errorf("%s: no package in the harnesses layer", ad.ID)
 			continue
 		}
 		pkgs = append(pkgs, ad.Package)
 		want, ok := pkg.Dependencies[ad.Package]
 		if !ok {
-			t.Errorf("%s: %s is not in images/base/package.json", ad.ID, ad.Package)
+			t.Errorf("%s: %s is not in images/harnesses/package.json", ad.ID, ad.Package)
 			continue
 		}
 		locked := lock.Packages["node_modules/"+ad.Package]

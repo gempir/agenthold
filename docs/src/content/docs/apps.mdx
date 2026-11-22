@@ -7,7 +7,7 @@ Every agent runs in its own microVM, a *machine*. Two things build on that:
 
 - A **service** is a long-running command that sandboxd, the daemon inside the machine, supervises: a dev server,
   a worker, a database. Any machine can have services.
-- An **app** is a machine without a harness. It has no chat, sessions, schedules or webhooks; it exists to run
+- An **app** is a machine without a harness. It has no threads, schedules or webhooks; it exists to run
   services and to be reached at a [preview URL](/previews/). Agents create apps with `deploy_app`; users can create
   them in the **Apps** section of the sidebar.
 
@@ -15,7 +15,7 @@ Every agent runs in its own microVM, a *machine*. Two things build on that:
 
 A service is `(machine, name, command, workdir, env, enabled)`. The command runs with the login shell (`sh -lc`) as
 the `agent` user, in `workdir` (relative to the home), with `env` added to the machine's environment. It runs in its
-own cgroup, independent of chats and terminals:
+own cgroup, independent of threads and terminals:
 
 - When it exits, it is restarted after a delay that starts at 1 second and doubles up to 30 seconds; a run that
   lasted 60 seconds resets the delay. A command that cannot be started at all (its working directory is missing) is

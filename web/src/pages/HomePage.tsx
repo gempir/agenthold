@@ -4,11 +4,12 @@ import { Loading } from '@/components/Spinner';
 import { TopBar } from '@/components/layout/TopBar';
 import { useChatIndex } from '@/hooks/useChatIndex';
 
-/** Landing: reopen the most recent conversation, or start a new one. */
+/** Landing: reopen the most recent active thread (else the most recent
+ * settled one), or start a new one. */
 export function HomePage() {
   const navigate = useNavigate();
-  const { chats, loading, error } = useChatIndex();
-  const latest = chats[0];
+  const { active, chats, loading, error } = useChatIndex();
+  const latest = active[0] ?? chats[0];
   useEffect(() => {
     if (loading && !error) return;
     if (latest)

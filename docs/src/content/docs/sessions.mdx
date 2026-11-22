@@ -1,14 +1,42 @@
 ---
-title: "Sessions and harnesses"
+title: "Threads and harnesses"
 description: "agenthold does not implement an agent loop. A **harness** (Claude Code, ...) runs inside each sandbox and speaks the Agent Client Protocol (ACP) on stdio. The server is the ACP client."
 ---
 
 agenthold does not implement an agent loop. A **harness** (Claude Code, ...) runs inside each sandbox and speaks
 the [Agent Client Protocol](https://agentclientprotocol.com) (ACP) on stdio. The server is the ACP client.
 
+A conversation with an agent is a **thread**. In the API, the database and the event log a thread is a
+**session** (`/api/v1/sessions/...`), so the rest of this page uses both words for the same thing.
+
+## Threads and settling
+
+The sidebar lists your **active threads** at the top, newest activity first, as cards: the agent, the title, and
+whether it is working (a thread that finished while the page was open shows **Done** until you open it). When a thread's work is done,
+**settle** it: hover its card and click **✓ Settle**, or use **Settle** in the thread's header. A settled thread
+moves into the folded **Settled** section at the bottom of the sidebar (with its count; whether it is folded is
+remembered per browser). It stays readable and usable: open it from there, and **Unsettle** it on its row or in its
+header. A new message in a settled thread, from anyone (a person, Slack, a schedule, another agent), makes it
+active again.
+
+- **Who can settle.** Whoever may send prompts to the agent: its owner and the people it is shared with. The agent
+  itself can settle its own threads with its [platform tools](/agents/#its-own-threads).
+- **Auto-settle.** Threads with no activity for a number of days settle themselves. The number is a setting of the
+  agent's **owner** (Settings, **Threads**; default 3 days, *Never* turns it off), and it applies to every
+  thread of their agents, also those that people they share with started: a thread has one state for everyone
+  who sees it, so one person's setting has to decide, and the owner is the one who runs the agent. Unsettling a
+  thread by hand starts the period over, so it is not settled again right away. A thread with a running turn is
+  never auto-settled. The server checks once at start and then every hour.
+- **Audit.** Every settle and unsettle is in the agent's audit log: by a user, by the agent (with its name), by the
+  auto-settle job (as the owner, with the period), or by a new message.
+
+The API: `POST /sessions/{id}/settle` and `POST /sessions/{id}/unsettle` (both return the session; repeating one
+changes nothing), `settledAt` and `settledBy` (`user`, `agent` or `auto`) on every session, and
+`GET`/`PUT /me/settings` for `threadAutoSettleDays` (0 to 365, 0 = never).
+
 ## How a turn works
 
-1. A user prompts a session (the agent's owner or a user it is shared with). If the agent sleeps, the prompt wakes it.
+1. A user prompts a thread (the agent's owner or a user it is shared with). If the agent sleeps, the prompt wakes it.
 2. The server makes sure the agent's harness is running. sandboxd starts it as the `agent` user, in
    `/home/agent`, with the sandbox's environment plus what the adapter adds. Its stdio goes over the tunnel.
    One harness process serves all of an agent's sessions.

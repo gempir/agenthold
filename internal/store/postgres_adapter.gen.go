@@ -25,6 +25,11 @@ func (p postgresQueries) AttachSkill(ctx context.Context, arg db.AttachSkillPara
 	return p.q.AttachSkill(ctx, postgres.AttachSkillParams(arg))
 }
 
+func (p postgresQueries) AutoSettleSession(ctx context.Context, arg db.AutoSettleSessionParams) (int64, error) {
+	value, err := p.q.AutoSettleSession(ctx, postgres.AutoSettleSessionParams(arg))
+	return value, err
+}
+
 func (p postgresQueries) ClaimExposureName(ctx context.Context, name string) error {
 	return p.q.ClaimExposureName(ctx, name)
 }
@@ -767,6 +772,18 @@ func (p postgresQueries) ListAllMachines(ctx context.Context) ([]db.ListAllMachi
 	return result, nil
 }
 
+func (p postgresQueries) ListAutoSettleCandidates(ctx context.Context, now int64) ([]db.ListAutoSettleCandidatesRow, error) {
+	value, err := p.q.ListAutoSettleCandidates(ctx, now)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ListAutoSettleCandidatesRow, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.ListAutoSettleCandidatesRow(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListExposures(ctx context.Context, agentID string) ([]db.Exposure, error) {
 	value, err := p.q.ListExposures(ctx, agentID)
 	if err != nil {
@@ -1091,6 +1108,10 @@ func (p postgresQueries) MarkCredentialsInSandbox(ctx context.Context, id string
 	return p.q.MarkCredentialsInSandbox(ctx, id)
 }
 
+func (p postgresQueries) MarkSessionRunning(ctx context.Context, arg db.MarkSessionRunningParams) error {
+	return p.q.MarkSessionRunning(ctx, postgres.MarkSessionRunningParams(arg))
+}
+
 func (p postgresQueries) MarkStaleImageBuildsFailed(ctx context.Context, now int64) error {
 	return p.q.MarkStaleImageBuildsFailed(ctx, now)
 }
@@ -1270,6 +1291,15 @@ func (p postgresQueries) SetUserRoleOverride(ctx context.Context, arg db.SetUser
 	return p.q.SetUserRoleOverride(ctx, postgres.SetUserRoleOverrideParams(arg))
 }
 
+func (p postgresQueries) SetUserThreadAutoSettleDays(ctx context.Context, arg db.SetUserThreadAutoSettleDaysParams) error {
+	return p.q.SetUserThreadAutoSettleDays(ctx, postgres.SetUserThreadAutoSettleDaysParams(arg))
+}
+
+func (p postgresQueries) SettleSession(ctx context.Context, arg db.SettleSessionParams) (int64, error) {
+	value, err := p.q.SettleSession(ctx, postgres.SettleSessionParams(arg))
+	return value, err
+}
+
 func (p postgresQueries) ShareAgent(ctx context.Context, arg db.ShareAgentParams) error {
 	return p.q.ShareAgent(ctx, postgres.ShareAgentParams(arg))
 }
@@ -1324,6 +1354,11 @@ func (p postgresQueries) TransitionSandbox(ctx context.Context, arg db.Transitio
 
 func (p postgresQueries) TrimPreviewSessions(ctx context.Context, arg db.TrimPreviewSessionsParams) error {
 	return p.q.TrimPreviewSessions(ctx, postgres.TrimPreviewSessionsParams(arg))
+}
+
+func (p postgresQueries) UnsettleSession(ctx context.Context, arg db.UnsettleSessionParams) (int64, error) {
+	value, err := p.q.UnsettleSession(ctx, postgres.UnsettleSessionParams(arg))
+	return value, err
 }
 
 func (p postgresQueries) UnshareAgent(ctx context.Context, arg db.UnshareAgentParams) (int64, error) {

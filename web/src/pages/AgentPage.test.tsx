@@ -256,7 +256,7 @@ class FakeSocket {
   close() {}
 }
 
-it('lands in the most recent chat across agents', async () => {
+it('lands in the most recent thread across agents', async () => {
   vi.stubGlobal('WebSocket', FakeSocket);
   mockApi({
     'GET /me': me,
@@ -281,7 +281,7 @@ it('lands in the most recent chat across agents', async () => {
   });
   const { router } = renderApp('/');
   await vi.waitFor(() => expect(router.state.location.href).toBe('/a/a2?s=s2'));
-  const chats = await screen.findByRole('list', { name: 'Chats' });
+  const chats = await screen.findByRole('list', { name: 'Threads' });
   const rows = within(chats).getAllByRole('link');
   expect(rows.map((r) => r.textContent)).toEqual([
     expect.stringContaining('Newest'),
@@ -289,12 +289,11 @@ it('lands in the most recent chat across agents', async () => {
   ]);
   expect(rows[0]).toHaveAttribute('aria-current', 'page');
   expect(within(rows[0]).getByRole('img', { name: 'running' })).toBeVisible();
-  // The running chat is also surfaced in the Working group.
-  const working = screen.getByRole('list', { name: 'Working' });
-  expect(within(working).getByText('Newest')).toBeVisible();
-  // The sidebar search filters chats.
+  // The running thread says so on its card.
+  expect(within(rows[0]).getByText('Working…')).toBeVisible();
+  // The sidebar search filters threads.
   await userEvent.type(
-    screen.getByRole('searchbox', { name: 'Search chats and agents' }),
+    screen.getByRole('searchbox', { name: 'Search threads and agents' }),
     'old',
   );
   expect(within(chats).getAllByRole('link')).toHaveLength(1);
@@ -324,11 +323,11 @@ it('does not land in an agent that is being deleted', async () => {
   });
   const { router } = renderApp('/');
   await vi.waitFor(() => expect(router.state.location.href).toBe('/a/a1?s=s1'));
-  const chats = await screen.findByRole('list', { name: 'Chats' });
+  const chats = await screen.findByRole('list', { name: 'Threads' });
   expect(within(chats).queryByText('Newest')).not.toBeInTheDocument();
 });
 
-it('starts a chat from the draft composer', async () => {
+it('starts a thread from the draft composer', async () => {
   vi.stubGlobal('WebSocket', FakeSocket);
   const { calls } = mockApi({
     'GET /me': me,
@@ -345,7 +344,7 @@ it('starts a chat from the draft composer', async () => {
   });
   const { router } = renderApp('/a/a1');
   expect(
-    await screen.findByRole('heading', { name: /Start a chat with builder/ }),
+    await screen.findByRole('heading', { name: /Start a thread with builder/ }),
   ).toBeVisible();
   // The composer shows the harness (its logo, named in the title) and model.
   const picker = await screen.findByRole('button', {
@@ -364,7 +363,7 @@ it('starts a chat from the draft composer', async () => {
   );
 });
 
-it('toggles the agent panel with its chats and manage links', async () => {
+it('toggles the agent panel with its threads and manage links', async () => {
   vi.stubGlobal('WebSocket', FakeSocket);
   mockApi({
     'GET /me': me,
@@ -380,7 +379,7 @@ it('toggles the agent panel with its chats and manage links', async () => {
     name: 'Agent panel',
   });
   expect(router.state.location.search).toEqual({ s: 's1', panel: 'overview' });
-  const list = within(panel).getByRole('list', { name: 'Sessions' });
+  const list = within(panel).getByRole('list', { name: 'Threads' });
   expect(within(list).getByText('Fix the build')).toBeVisible();
   expect(within(panel).getByRole('link', { name: /Secrets/ })).toHaveAttribute(
     'href',
@@ -394,7 +393,7 @@ it('toggles the agent panel with its chats and manage links', async () => {
   ).toBeNull();
 });
 
-it('a new chat starts with the model picked in the composer', async () => {
+it('a new thread starts with the model picked in the composer', async () => {
   const { calls } = mockApi({
     'GET /me': me,
     'GET /agents/a1': agent({ role: 'owner', state: 'running' }),
@@ -733,7 +732,7 @@ const repo = (over: Partial<GitRepo> = {}): GitRepo => ({
   ...over,
 });
 
-it('the sidebar shows project and branch of a chat, and nothing for one without', async () => {
+it('the sidebar shows project and branch of a thread, and nothing for one without', async () => {
   vi.stubGlobal('WebSocket', FakeSocket);
   mockApi({
     'GET /me': me,
@@ -752,7 +751,7 @@ it('the sidebar shows project and branch of a chat, and nothing for one without'
     ],
   });
   renderApp('/a/a1?s=s2');
-  const chats = await screen.findByRole('list', { name: 'Chats' });
+  const chats = await screen.findByRole('list', { name: 'Threads' });
   const [withGit, plain] = await vi.waitFor(() => {
     const rows = within(chats).getAllByRole('link');
     expect(rows).toHaveLength(2);
@@ -765,7 +764,7 @@ it('the sidebar shows project and branch of a chat, and nothing for one without'
   expect(within(plain).queryByTestId('chat-git')).toBeNull();
 });
 
-it('the sidebar search matches chats by project and branch', async () => {
+it('the sidebar search matches threads by project and branch', async () => {
   vi.stubGlobal('WebSocket', FakeSocket);
   mockApi({
     'GET /me': me,
@@ -789,12 +788,12 @@ it('the sidebar search matches chats by project and branch', async () => {
     ],
   });
   renderApp('/a/a1?s=s1');
-  const chats = await screen.findByRole('list', { name: 'Chats' });
+  const chats = await screen.findByRole('list', { name: 'Threads' });
   await vi.waitFor(() =>
     expect(within(chats).getAllByRole('link')).toHaveLength(2),
   );
   const search = screen.getByRole('searchbox', {
-    name: 'Search chats and agents',
+    name: 'Search threads and agents',
   });
   await userEvent.type(search, 'storefr');
   expect(within(chats).getAllByRole('link')).toHaveLength(1);

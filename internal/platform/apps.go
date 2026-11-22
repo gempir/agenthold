@@ -152,6 +152,9 @@ type toolArgs struct {
 	MemoryMB  int64             `json:"memory_mb"`
 	CPUs      float64           `json:"cpus"`
 	Timeout   int               `json:"timeout"`
+	ThreadID  string            `json:"thread_id"`
+	// IncludeSettled: list_threads also lists settled threads.
+	IncludeSettled bool `json:"include_settled"`
 }
 
 func (p *Service) agentAudit(ctx context.Context, caller db.Agent, machineID, action, target string, details map[string]any) {

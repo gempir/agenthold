@@ -68,6 +68,9 @@ type AgentSession struct {
 	GitProject      string
 	GitBranch       string
 	GitRepoPath     string
+	SettledAt       sql.NullInt64
+	SettledBy       string
+	UnsettledAt     sql.NullInt64
 }
 
 type AgentSessionEvent struct {
@@ -401,15 +404,16 @@ type SlackUser struct {
 }
 
 type User struct {
-	ID            string
-	Email         string
-	EmailVerified int64
-	Name          string
-	AvatarUrl     string
-	CreatedAt     int64
-	UpdatedAt     int64
-	Role          string
-	RoleOverride  string
+	ID                   string
+	Email                string
+	EmailVerified        int64
+	Name                 string
+	AvatarUrl            string
+	CreatedAt            int64
+	UpdatedAt            int64
+	Role                 string
+	RoleOverride         string
+	ThreadAutoSettleDays int64
 }
 
 type UserGitConfig struct {

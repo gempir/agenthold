@@ -44,7 +44,7 @@ func (s *Service) publishHome(ctx context.Context, team, slackUser string) {
 		}
 		chats := s.recentChats(uctx, agents, 10)
 		if len(chats) > 0 {
-			blocks = append(blocks, slackgo.NewDividerBlock(), sectionBlock("*Recent chats*"))
+			blocks = append(blocks, slackgo.NewDividerBlock(), sectionBlock("*Recent threads*"))
 			for _, ch := range chats {
 				blocks = append(blocks, chatBlocks(s, ch)...)
 			}
@@ -80,7 +80,7 @@ func (s *Service) Manifest() map[string]any {
 		"display_information": map[string]any{
 			"name":             "agenthold",
 			"description":      desc,
-			"long_description": "Chat with your agenthold agents from Slack: message the app or mention it in a channel to start a chat in a thread. Every action runs as your linked agenthold account, with its access. Answers stream into the thread, with tool calls, plans and permission requests.",
+			"long_description": "Chat with your agenthold agents from Slack: message the app or mention it in a channel to start a thread. Every action runs as your linked agenthold account, with its access. Answers stream into the thread, with tool calls, plans and permission requests.",
 			"background_color": "#18181b",
 		},
 		"features": map[string]any{
@@ -90,7 +90,7 @@ func (s *Service) Manifest() map[string]any {
 			"bot_user": map[string]any{"display_name": "agenthold", "always_online": true},
 			"slash_commands": []any{map[string]any{
 				"command": "/agenthold", "description": "Chat with your agenthold agents",
-				"usage_hint": "help | agents | use <agent> | new [agent] [message] | chats [agent] | link | unlink", "should_escape": false,
+				"usage_hint": "help | agents | use <agent> | new [agent] [message] | threads [agent] | link | unlink", "should_escape": false,
 			}},
 		},
 		"oauth_config": map[string]any{"scopes": map[string]any{"bot": append([]string(nil), botScopes...)}},

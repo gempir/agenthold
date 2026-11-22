@@ -38,7 +38,7 @@ const TerminalTab = lazy(() =>
   import('@/components/TerminalTab').then((m) => ({ default: m.TerminalTab })),
 );
 
-/** Everything about an agent that is not the chat, one section at a time. */
+/** Everything about an agent that is not a thread, one section at a time. */
 export function AgentSettingsPage({
   agentId,
   tab = 'general',
@@ -95,7 +95,7 @@ export function AgentSettingsPage({
         >
           <Link to="/a/$agentId" params={{ agentId }}>
             <MessageSquare className="size-4" />
-            Back to chat
+            Back to thread
           </Link>
         </Button>
       }

@@ -8,6 +8,7 @@ type Querier interface {
 	AttachMCPServer(ctx context.Context, arg AttachMCPServerParams) error
 	AttachSecret(ctx context.Context, arg AttachSecretParams) error
 	AttachSkill(ctx context.Context, arg AttachSkillParams) error
+	AutoSettleSession(ctx context.Context, arg AutoSettleSessionParams) (int64, error)
 	ClaimExposureName(ctx context.Context, name string) error
 	ClearDefaultImages(ctx context.Context) error
 	CompleteImageBuild(ctx context.Context, arg CompleteImageBuildParams) error
@@ -146,6 +147,7 @@ type Querier interface {
 	ListAgentsByLoginUser(ctx context.Context, loginUserID string) ([]Agent, error)
 	ListAllImageBuilds(ctx context.Context) ([]ImageBuild, error)
 	ListAllMachines(ctx context.Context) ([]ListAllMachinesRow, error)
+	ListAutoSettleCandidates(ctx context.Context, now int64) ([]ListAutoSettleCandidatesRow, error)
 	ListExposures(ctx context.Context, agentID string) ([]Exposure, error)
 	ListGitCredentials(ctx context.Context, userID string) ([]GitCredential, error)
 	ListIdentities(ctx context.Context) ([]ListIdentitiesRow, error)
@@ -175,6 +177,7 @@ type Querier interface {
 	LockUser(ctx context.Context, id string) error
 	MakeAppClone(ctx context.Context, id string) error
 	MarkCredentialsInSandbox(ctx context.Context, id string) error
+	MarkSessionRunning(ctx context.Context, arg MarkSessionRunningParams) error
 	MarkStaleImageBuildsFailed(ctx context.Context, now int64) error
 	MaxImageRevision(ctx context.Context, imageID string) (int64, error)
 	MaxSessionSeq(ctx context.Context, sessionID string) (int64, error)
@@ -219,6 +222,8 @@ type Querier interface {
 	SetSlackThreadHeader(ctx context.Context, arg SetSlackThreadHeaderParams) error
 	SetUserRole(ctx context.Context, arg SetUserRoleParams) error
 	SetUserRoleOverride(ctx context.Context, arg SetUserRoleOverrideParams) error
+	SetUserThreadAutoSettleDays(ctx context.Context, arg SetUserThreadAutoSettleDaysParams) error
+	SettleSession(ctx context.Context, arg SettleSessionParams) (int64, error)
 	ShareAgent(ctx context.Context, arg ShareAgentParams) error
 	StartImageBuild(ctx context.Context, arg StartImageBuildParams) error
 	StoreRefreshedLogin(ctx context.Context, arg StoreRefreshedLoginParams) (int64, error)
@@ -230,6 +235,7 @@ type Querier interface {
 	TouchProviderLogin(ctx context.Context, arg TouchProviderLoginParams) error
 	TransitionSandbox(ctx context.Context, arg TransitionSandboxParams) (int64, error)
 	TrimPreviewSessions(ctx context.Context, arg TrimPreviewSessionsParams) error
+	UnsettleSession(ctx context.Context, arg UnsettleSessionParams) (int64, error)
 	UnshareAgent(ctx context.Context, arg UnshareAgentParams) (int64, error)
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
 	UpdateAgentRepoBranch(ctx context.Context, arg UpdateAgentRepoBranchParams) error

@@ -42,7 +42,7 @@ export const panelTabNeedsUse = (t: PanelTab) =>
   t === 'terminal' || t === 'activity';
 
 /**
- * The floating right-hand panel next to a chat: the agent's status, its other
+ * The floating right-hand panel next to a thread: the agent's status, its other
  * conversations, quick files, terminal and live activity, and the way into
  * its settings.
  */
@@ -245,10 +245,10 @@ function Overview({
         )}
       </Block>
 
-      <Block title="Chats">
+      <Block title="Threads">
         {sessions.isPending && <Loading />}
         <ErrorText error={sessions.error} />
-        <ul aria-label="Sessions" className="-mx-2 grid grid-cols-1 gap-px">
+        <ul aria-label="Threads" className="-mx-2 grid grid-cols-1 gap-px">
           {access.canUse && (
             <li>
               <Link
@@ -258,13 +258,13 @@ function Overview({
                 className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/60 hover:text-foreground"
               >
                 <Plus className="size-3.5" aria-hidden />
-                New chat
+                New thread
               </Link>
             </li>
           )}
           {sessions.data?.length === 0 && (
             <li className="px-2 py-1 text-sm text-muted-foreground">
-              No sessions yet.
+              No threads yet.
             </li>
           )}
           {sessions.data?.map((s) => (
@@ -280,7 +280,7 @@ function Overview({
                 )}
               >
                 <span className="grid min-w-0 flex-1">
-                  <span className="truncate">{s.title || 'New session'}</span>
+                  <span className="truncate">{s.title || 'New thread'}</span>
                   {(s.git?.project || s.git?.branch) && (
                     <span
                       title={[s.git.project, s.git.branch]

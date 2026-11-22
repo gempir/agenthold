@@ -236,6 +236,7 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	e.store = st
 	e.sessions = session.NewManager(st, nil, activityLog)
 	e.sessions.SetLogins(e.logins)
+	e.sessions.SetAudit(&audit.Log{Store: st})
 	e.logins.Restart = e.sessions.Restart
 	e.sessions.SetTools(tools.Provider{Store: st, PlatformCommand: sandboxdBin})
 	e.preview = &preview.Service{Store: st, Hosts: preview.NewHosts(".apps.test", srv.URL)}

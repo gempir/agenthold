@@ -14,7 +14,7 @@ import {
 } from '@/components/layout/shell';
 
 /**
- * Full-viewport frame: the chat sidebar on the left and the routed view in
+ * Full-viewport frame: the threads sidebar on the left and the routed view in
  * the middle. Below the md breakpoint the sidebar becomes a drawer.
  */
 export function AppShell() {

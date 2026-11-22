@@ -364,8 +364,8 @@ func (t *thread) unbind(ctx context.Context) {
 	if u, err := t.s.o.Store.GetUser(ctx, t.row.CreatedBy); err == nil && u.Name != "" {
 		name = "*" + escape(u.Name) + "*"
 	}
-	text := ":lock: This thread no longer follows its chat: " + name + " lost access to it, or disconnected Slack. Mention me to start a new chat."
-	_, _ = t.s.post(ctx, t.key.channel, t.key.ts, "This thread no longer follows its chat", []slackgo.Block{contextBlock(text)})
+	text := ":lock: This Slack thread no longer follows its agenthold thread: " + name + " lost access to it, or disconnected Slack. Mention me to start a new one."
+	_, _ = t.s.post(ctx, t.key.channel, t.key.ts, "This Slack thread no longer follows its agenthold thread", []slackgo.Block{contextBlock(text)})
 }
 
 func (t *thread) apply(ctx context.Context, ev session.Event) {

@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router';
 import { ApiError, errorMessage } from '@/api/client';
 import { Button } from '@/components/ui/button';
 
-/** Shown in place of an agent's chat or settings when it cannot load. */
+/** Shown in place of an agent's thread or settings when it cannot load. */
 export function AgentLoadError({ error }: { error: unknown }) {
   const missing = error instanceof ApiError && error.status === 404;
   return (
@@ -19,7 +19,7 @@ export function AgentLoadError({ error }: { error: unknown }) {
           : errorMessage(error)}
       </p>
       <Button asChild variant="outline" size="sm" className="mt-2">
-        <Link to="/new">Start a new chat</Link>
+        <Link to="/new">Start a new thread</Link>
       </Button>
     </div>
   );

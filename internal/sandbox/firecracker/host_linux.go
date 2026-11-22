@@ -12,7 +12,12 @@ import (
 // hostRoot is where the host's /proc and /sys are read from (tests).
 var hostRoot = "/"
 
-const thpEnabled = "sys/kernel/mm/transparent_hugepage/enabled"
+const (
+	thpEnabled            = "sys/kernel/mm/transparent_hugepage/enabled"
+	thpDefrag             = "sys/kernel/mm/transparent_hugepage/defrag"
+	thpScanSleepMillisecs = "sys/kernel/mm/transparent_hugepage/khugepaged/scan_sleep_millisecs"
+	thpAllocSleepMillis   = "sys/kernel/mm/transparent_hugepage/khugepaged/alloc_sleep_millisecs"
+)
 
 // EnableHugePages switches the host's transparent huge pages to "always" and
 // returns the mode it found. Firecracker does not madvise guest memory, so in
@@ -20,6 +25,11 @@ const thpEnabled = "sys/kernel/mm/transparent_hugepage/enabled"
 // nested virtualization every such fault costs tens of microseconds: on the
 // demo host a 4 GiB guest needed 25 s to reach init and its harness minutes
 // to answer, against 0.13 s with huge pages.
+//
+// It also switches defrag from "madvise"/"never" to "defer+madvise" (waking
+// kcompactd asynchronously on fallback without stalling faults synchronously)
+// and shortens khugepaged's sleep intervals best-effort so fragmented hosts
+// recover 2 MiB pages quickly.
 func EnableHugePages() (previous string, err error) {
 	path := filepath.Join(hostRoot, thpEnabled)
 	data, err := os.ReadFile(path)
@@ -27,13 +37,35 @@ func EnableHugePages() (previous string, err error) {
 		return "", fmt.Errorf("transparent huge pages: %w", err)
 	}
 	previous = selectedMode(string(data))
-	if previous == "always" {
-		return previous, nil
+	if previous != "always" {
+		if err = os.WriteFile(path, []byte("always"), 0); err != nil {
+			return previous, fmt.Errorf("transparent huge pages: set always (now %s): %w", previous, err)
+		}
 	}
-	if err = os.WriteFile(path, []byte("always"), 0); err != nil {
-		return previous, fmt.Errorf("transparent huge pages: set always (now %s): %w", previous, err)
+	// Best-effort defrag and khugepaged tuning: under Ubuntu's default
+	// defrag=madvise, non-madvised Firecracker VMAs never wake kcompactd when
+	// page cache fragments order-9 blocks, causing silent 4 KiB fallbacks.
+	defragPath := filepath.Join(hostRoot, thpDefrag)
+	if b, derr := os.ReadFile(defragPath); derr == nil {
+		if cur := selectedMode(string(b)); cur == "madvise" || cur == "never" {
+			_ = os.WriteFile(defragPath, []byte("defer+madvise"), 0)
+		}
 	}
+	capSysfsInt(filepath.Join(hostRoot, thpScanSleepMillisecs), 1000)
+	capSysfsInt(filepath.Join(hostRoot, thpAllocSleepMillis), 5000)
 	return previous, nil
+}
+
+func capSysfsInt(path string, maxVal int) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var cur int
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(b)), "%d", &cur); err != nil || cur <= maxVal {
+		return
+	}
+	_ = os.WriteFile(path, []byte(fmt.Sprintf("%d", maxVal)), 0)
 }
 
 // selectedMode returns the bracketed choice of a sysfs mode list such as

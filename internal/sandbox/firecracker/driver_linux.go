@@ -47,6 +47,11 @@ type Driver struct {
 	suspending map[sandbox.ID]chan struct{}
 	// destinations are the ids a Clone is currently writing (see claimDestination).
 	destinations map[sandbox.ID]chan struct{}
+
+	// hugeWatching tracks live watchHugePages goroutines per sandbox so
+	// Start and Attach never run duplicate watchers for the same VMM process.
+	hugeMu       sync.Mutex
+	hugeWatching map[sandbox.ID]process
 }
 
 var (
@@ -517,8 +522,12 @@ func (d *Driver) Attach(ctx context.Context, id sandbox.ID) error {
 		return err
 	}
 	if d.cfg.RegisterNetwork != nil {
-		return d.cfg.RegisterNetwork(ctx, TapName(id), m.Subnet.Addr().Next().Next())
+		if err = d.cfg.RegisterNetwork(ctx, TapName(id), m.Subnet.Addr().Next().Next()); err != nil {
+			return err
+		}
 	}
+	_, mem, _ := resources(m)
+	d.watchHugePages(id, m.Process, mem, true)
 	return nil
 }
 

@@ -220,7 +220,7 @@ func newDriver(ctx context.Context, cfg *config.Config, name string, fw *egress.
 			Shutdown: cb.shutdown, RegisterNetwork: fw.Register, UnregisterNetwork: fw.Unregister,
 			Snapshots: snapshots, Suspend: cb.suspend, WaitConnected: cb.connected,
 			SnapshotMaxBytes: fc.SnapshotMaxGB << 30, SnapshotReserveBytes: fc.SnapshotReserveGB << 30,
-			Balloon: fc.BalloonEnabled(), Log: logger,
+			Balloon: fc.BalloonEnabled(), KeepHugePages: fc.TransparentHugepages == "keep", Log: logger,
 		})
 	default:
 		return nil, fmt.Errorf("unknown sandbox driver %q", name)

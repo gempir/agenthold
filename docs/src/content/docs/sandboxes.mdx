@@ -172,9 +172,13 @@ the outer hypervisor. Measured on the demo box (4 GiB guest): allocating 1 GiB t
 17 to 150 s after a resume, and a resumed Claude Code needed 111 s to start. A cold boot there reaches sandboxd
 in about 0.4 s. Set `snapshots: true` to use them anyway.
 
-**Huge pages.** The node switches the host's transparent huge pages to `always` at start (Firecracker does not
-mark guest memory for them, so the common `madvise` mode leaves guest RAM in 4 KiB pages). On the demo box this
-took a 4 GiB guest's boot from 25 s to 0.13 s until init. `transparent_hugepages: keep` leaves the host setting.
+**Huge pages.** The node switches the host's transparent huge pages to `always` and `defrag` to `defer+madvise` at
+start, and tunes `khugepaged` to scan faster (Firecracker does not mark guest memory with `MADV_HUGEPAGE`, so the
+common `madvise` mode leaves guest RAM in 4 KiB pages, and `defrag=madvise` never wakes `kcompactd` when host page
+cache fragments 2 MiB blocks). For running microVMs, the node also collapses any 4 KiB fallback pages back into 2 MiB
+huge pages via `process_madvise(MADV_COLLAPSE)` (Linux 6.1+). On the demo box this took a 4 GiB guest's boot from 25 s
+to 0.13 s until init and cut cold Claude Code session startup from ~30 s to ~1 s even on a memory-fragmented host.
+`transparent_hugepages: keep` leaves the host settings and disables huge-page collapsing.
 
 **Cold boot fallback.** Anything unexpected makes the wake a normal boot from the disks, which are then as a
 power cut left them (sandboxd flushed them before the snapshot was taken, and the journal is replayed):

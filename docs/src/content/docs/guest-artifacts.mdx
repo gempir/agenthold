@@ -40,10 +40,12 @@ The scripts cache verified downloads and the provisioned rootfs tree in
 
 | Input | Pin |
 | --- | --- |
-| Base version | `2026.11.22-1` |
+| Base version | `2026.11.23-1` |
 | Debian | `trixie`, snapshot `20261110T000000Z`, including updates and security |
 | Debian archive keyring | `2025.1`, downloaded package checked by sha256 |
 | Bun | `1.4.5`, official architecture-specific ZIP archives checked by SHA-256 |
+| Go | `1.26.11`, official `linux-arm64` and `linux-amd64` archives from go.dev checked by sha256 (`scripts/guest/install-go.sh`), unpacked into `/usr/local/go` |
+| GitHub CLI | Debian's `gh` package from the same snapshot |
 | Harnesses | `@anthropic-ai/claude-code`, `@openai/codex` and `opencode-ai`, versions in `images/harnesses/package.json` (built as their own read-only ext4 layer) |
 | Antigravity CLI | `1.5.14`, Google's architecture-specific release tarballs checked by sha256 in `images/harnesses/versions.env` (built into the harnesses layer) |
 | Linux | `6.1.188`, upstream tarball checked by sha256 |
@@ -57,15 +59,15 @@ separate read-only harnesses layer mounted over it in overlayfs. Debian packages
 packages for each architecture, and the pinned Antigravity CLI tarball is verified by sha256. Because the harnesses sit
 in their own layer (`scripts/guest/harnesses-key.sh`), bumping Claude Code, Codex, OpenCode, or Antigravity rebuilds
 only the harnesses ext4 in seconds without rebuilding the Debian base image. The runtime apt sources use the live
-Debian archive so the agent can install updates. The base image includes Chromium, Python, Bun, a compiler
-toolchain, and Git. The `node` command points to Bun so npm registry packages with a Node shebang can start.
+Debian archive so the agent can install updates. The base image includes Chromium, Python, Bun, Go, a compiler
+toolchain, Git and the GitHub CLI, enough for an agent to [develop agenthold itself](/self-development/). The `node` command points to Bun so npm registry packages with a Node shebang can start.
 Docker is installed only by the optional boot test, rather than in the base.
 
 The builds fix filesystem UUID/hash seed, kernel build metadata and Go paths, and pin every
 timestamp in the image: file mtimes in the tree, the atime and ctime of every inode (mke2fs copies
 those from the tree, where they are the time of the build), and the superblock's mount, check and
 write times and write counter in the primary and all backup superblocks. The manifest records
-`inputs.baseKey` (`scripts/guest/base-key.sh`: a hash of `images/base` and the base build scripts). Release builds rebuild the base only when that key changes, so a release that changes only
+`inputs.go` and `inputs.baseKey` (`scripts/guest/base-key.sh`: a hash of `images/base` and the base build scripts, including `install-go.sh`). Release builds rebuild the base only when that key changes, so a release that changes only
 Go code ships the previous base byte for byte, and a rebuild from the same inputs gives the same
 sha256. Keep the Go compiler, GCC, e2fsprogs and mmdebstrap versions fixed when comparing output
 bytes; the kernel manifest records GCC. These pins do not imply that different build toolchains

@@ -35,5 +35,6 @@ for artifact preparation, testing and the development-only local administrator.
 ## Documentation
 
 Documentation lives in [`docs/`](docs), including [authentication](https://agenthold.dev/auth/),
+[git and GitHub](https://agenthold.dev/git/), [developing agenthold in agenthold](https://agenthold.dev/self-development/),
 [sandbox isolation](https://agenthold.dev/sandboxes/), [secrets](https://agenthold.dev/egress/),
 [sharing](https://agenthold.dev/sharing/) and [security](https://agenthold.dev/security/).

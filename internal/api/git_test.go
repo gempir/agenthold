@@ -2,6 +2,9 @@ package api_test
 
 import (
 	"encoding/base64"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +14,8 @@ import (
 	"time"
 
 	"github.com/gempir/agenthold/internal/api/gen"
+	"github.com/gempir/agenthold/internal/config"
+	"github.com/gempir/agenthold/internal/git"
 )
 
 // runGit runs git in dir with a fixed identity and no user or system config.
@@ -109,6 +114,10 @@ func TestGitSettings(t *testing.T) {
 	if g.AuthorName != "" || g.AuthorEmail != "" || g.DefaultAuthorName != "Alice" || g.DefaultAuthorEmail != "a@example.com" || g.Credentials == nil || len(g.Credentials) != 0 {
 		t.Fatalf("defaults %+v", g)
 	}
+	if g.Github.Enabled {
+		t.Fatalf("GitHub connect enabled without configuration: %+v", g.Github)
+	}
+	expect(t, "connect disabled", alice.do("POST", "/me/git/github/device", nil, nil), 503)
 
 	// The identity is validated and pushed into the running machine.
 	expect(t, "bad email", alice.do("PUT", "/me/git", map[string]string{"authorName": "A", "authorEmail": "not an <email>"}, nil), 400)
@@ -263,6 +272,35 @@ func TestGitRepos(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Push: a local commit on a new branch sets its upstream on origin.
+	expect(t, "checkout -c push", alice.do("POST", "/agents/"+ag.Id+"/git/checkout", map[string]any{"path": "projects/demo", "branch": "feature/push", "create": true}, &repo), 200)
+	local := filepath.Join(e.home(ag.Id), "projects/demo")
+	if err := os.WriteFile(filepath.Join(local, "PUSHED.md"), []byte("p\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, local, "add", ".")
+	runGit(t, local, "commit", "-q", "-m", "pushed")
+	expect(t, "bob push", bob.do("POST", "/agents/"+ag.Id+"/git/push", map[string]any{"path": "projects/demo"}, nil), 404)
+	expect(t, "push", alice.do("POST", "/agents/"+ag.Id+"/git/push", map[string]any{"path": "projects/demo"}, &repo), 200)
+	if repo.Branch != "feature/push" || repo.Ahead != 0 {
+		t.Fatalf("after push %+v", repo)
+	}
+	runGit(t, work, "fetch", "-q", "origin")
+	if out := runGit(t, work, "log", "-1", "--format=%s", "origin/feature/push"); strings.TrimSpace(out) != "pushed" {
+		t.Fatalf("origin has %q", out)
+	}
+
+	// Remove the worktree (the main repository cannot be removed this way).
+	expect(t, "remove main", alice.do("POST", "/agents/"+ag.Id+"/git/worktrees/remove", map[string]any{"path": "projects/demo"}, nil), 400)
+	expect(t, "remove home", alice.do("POST", "/agents/"+ag.Id+"/git/worktrees/remove", map[string]any{"path": ""}, nil), 400)
+	expect(t, "remove worktree", alice.do("POST", "/agents/"+ag.Id+"/git/worktrees/remove", map[string]any{"path": ".worktrees/demo/wt"}, &repo), 200)
+	if repo.Path != "projects/demo" || repo.IsWorktree {
+		t.Fatalf("after removing the worktree %+v", repo)
+	}
+	if _, err := os.Stat(filepath.Join(e.home(ag.Id), ".worktrees/demo/wt")); !os.IsNotExist(err) {
+		t.Fatalf("worktree still there: %v", err)
+	}
+
 	// Changing actions need prompt access; they are audited.
 	expect(t, "bob checkout", bob.do("POST", "/agents/"+ag.Id+"/git/checkout", map[string]any{"path": "projects/demo", "branch": "main"}, nil), 404)
 	var audit []gen.AuditEntry
@@ -271,7 +309,7 @@ func TestGitRepos(t *testing.T) {
 	for _, a := range audit {
 		actions = append(actions, a.Action)
 	}
-	for _, want := range []string{"git.clone", "git.checkout", "git.worktree_add", "git.pull"} {
+	for _, want := range []string{"git.clone", "git.checkout", "git.worktree_add", "git.pull", "git.push", "git.worktree_remove"} {
 		if !slices.Contains(actions, want) {
 			t.Fatalf("audit %v misses %s", actions, want)
 		}
@@ -483,4 +521,74 @@ func TestGitUpdateSession(t *testing.T) {
 	if p, b, _ := sessionGit(e.getSession(alice, sess.Id)); p != "demo" || b != "elsewhere" {
 		t.Fatalf("after the turn: %q %q", p, b)
 	}
+}
+
+// Connecting GitHub through the device flow: the flow is the user's own, the
+// browser never sees the device code or the token, and the connected token
+// is injected for the user's agents.
+func TestGitHubConnect(t *testing.T) {
+	e := newEnv(t)
+	alice := e.login("alice", "Alice", "a@example.com")
+	bob := e.login("bob", "Bob", "b@example.com")
+	ag := e.fakeAgent(alice, "")
+
+	approved := false
+	mux := http.NewServeMux()
+	reply := func(w http.ResponseWriter, v any) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(v)
+	}
+	var srv *httptest.Server
+	mux.HandleFunc("POST /login/device/code", func(w http.ResponseWriter, r *http.Request) {
+		reply(w, map[string]any{"device_code": "dev-secret", "user_code": "WXYZ-0001", "verification_uri": srv.URL + "/login/device", "expires_in": 900, "interval": 5})
+	})
+	mux.HandleFunc("POST /login/oauth/access_token", func(w http.ResponseWriter, r *http.Request) {
+		if !approved {
+			reply(w, map[string]any{"error": "authorization_pending"})
+			return
+		}
+		reply(w, map[string]any{"access_token": "gho_connected", "token_type": "bearer", "scope": "repo"})
+	})
+	mux.HandleFunc("GET /user", func(w http.ResponseWriter, r *http.Request) { reply(w, map[string]any{"login": "alice-gh"}) })
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	cfg := &config.Config{Git: config.Git{GitHub: config.GitHubConnect{ClientID: "Iv1.x", URL: srv.URL, APIURL: srv.URL}}}
+	config.ApplyDefaults(cfg)
+	e.git.GitHub = &git.Connector{Config: cfg.Git.GitHub, HTTP: srv.Client()}
+	e.git.Now = e.clock.Now
+
+	var g gen.GitSettings
+	expect(t, "settings", alice.do("GET", "/me/git", nil, &g), 200)
+	if !g.Github.Enabled || g.Github.Host != "127.0.0.1" {
+		t.Fatalf("github info %+v", g.Github)
+	}
+	var flow gen.GitHubDeviceFlow
+	code, body := alice.rawJSON("POST", "/me/git/github/device", nil)
+	if code != 201 || strings.Contains(body, "dev-secret") {
+		t.Fatalf("start: %d %s", code, body)
+	}
+	if err := json.Unmarshal([]byte(body), &flow); err != nil || flow.UserCode != "WXYZ-0001" || flow.Interval != 5 {
+		t.Fatalf("flow %+v %v", flow, err)
+	}
+	var poll gen.GitHubDevicePoll
+	expect(t, "bob poll", bob.do("POST", "/me/git/github/device/"+flow.Id, nil, nil), 404)
+	expect(t, "poll early", alice.do("POST", "/me/git/github/device/"+flow.Id, nil, &poll), 200)
+	if poll.Status != gen.Pending {
+		t.Fatalf("poll %+v", poll)
+	}
+	approved = true
+	e.clock.Advance(5 * time.Second)
+	code, body = alice.rawJSON("POST", "/me/git/github/device/"+flow.Id, nil)
+	if code != 200 || strings.Contains(body, "gho_connected") {
+		t.Fatalf("poll: %d %s", code, body)
+	}
+	if err := json.Unmarshal([]byte(body), &poll); err != nil || poll.Status != gen.Connected || poll.Credential == nil ||
+		poll.Credential.Source != gen.GitCredentialSourceGithub || poll.Credential.Account == nil || *poll.Credential.Account != "alice-gh" {
+		t.Fatalf("connected %+v %v", poll, err)
+	}
+	if got := e.egressInjection(ag.Id, "127.0.0.1"); got != "Basic "+base64.StdEncoding.EncodeToString([]byte("x-access-token:gho_connected")) {
+		t.Fatalf("injection %q", got)
+	}
+	expect(t, "poll used", alice.do("POST", "/me/git/github/device/"+flow.Id, nil, nil), 404)
+	expect(t, "cancel", alice.do("DELETE", "/me/git/github/device/"+flow.Id, nil, nil), 204)
 }

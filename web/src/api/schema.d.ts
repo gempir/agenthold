@@ -2067,6 +2067,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/git/github/device": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Start connecting your GitHub account with GitHub's device flow. Open verificationUri, enter userCode, then poll until the status is connected. The device code and the resulting token stay on the server. */
+        post: operations["startGitHubConnect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/git/github/device/{flowId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                flowId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Check whether you approved the connection at GitHub. agenthold asks GitHub at most once per interval; on approval the account is stored as your github.com credential (replacing a token stored for it). */
+        post: operations["pollGitHubConnect"];
+        delete: operations["cancelGitHubConnect"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agentId}/git/repos": {
         parameters: {
             query?: never;
@@ -2184,6 +2220,46 @@ export interface paths {
         put?: never;
         /** @description Fetch or pull updates in a repository inside a running agent. */
         post: operations["pullAgentGitRepo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/push": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Push the branch a repository inside a running agent is on. A branch without an upstream is pushed to origin (or the only remote) and tracks it. force uses --force-with-lease. */
+        post: operations["pushAgentGitRepo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/worktrees/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Remove a linked worktree inside a running agent (its branch stays). force removes it even with uncommitted changes. Returns the state of its main repository. */
+        post: operations["removeAgentGitWorktree"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3445,12 +3521,47 @@ export interface components {
             host: string;
             username: string;
             label: string;
+            /**
+             * @description token: pasted. github: a GitHub account connected through the device flow.
+             * @enum {string}
+             */
+            source: "token" | "github";
+            /** @description The connected GitHub login. */
+            account?: string;
+            /** @description Scopes GitHub granted the connected token (empty for GitHub Apps). */
+            scopes?: string;
+            /**
+             * Format: date-time
+             * @description When the token expires; agenthold refreshes refreshable tokens before then.
+             */
+            expiresAt?: string;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
         };
+        GitHubConnectInfo: {
+            /** @description Whether this server can connect GitHub accounts (git.github.client_id). */
+            enabled: boolean;
+            /** @description The git host connected accounts are stored for. */
+            host: string;
+        };
+        GitHubDeviceFlow: {
+            id: string;
+            userCode: string;
+            verificationUri: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** @description Seconds to wait between polls. */
+            interval: number;
+        };
+        GitHubDevicePoll: {
+            /** @enum {string} */
+            status: "pending" | "connected" | "denied" | "expired";
+            credential?: components["schemas"]["GitCredential"];
+        };
         GitSettings: {
+            github: components["schemas"]["GitHubConnectInfo"];
             authorName: string;
             authorEmail: string;
             defaultAuthorName: string;
@@ -7270,6 +7381,73 @@ export interface operations {
             404: components["responses"]["Error"];
         };
     };
+    startGitHubConnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The code to enter at GitHub. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubDeviceFlow"];
+                };
+            };
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    pollGitHubConnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                flowId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The state of the connection attempt. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubDevicePoll"];
+                };
+            };
+            404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    cancelGitHubConnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                flowId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancelled. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listAgentGitRepos: {
         parameters: {
             query?: never;
@@ -7456,6 +7634,75 @@ export interface operations {
         };
         responses: {
             /** @description Updated repository state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    pushAgentGitRepo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    path: string;
+                    force?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Repository state after the push. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    removeAgentGitWorktree: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Worktree path relative to home. */
+                    path: string;
+                    force?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description The worktree's main repository. */
             200: {
                 headers: {
                     [name: string]: unknown;

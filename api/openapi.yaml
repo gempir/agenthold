@@ -2540,6 +2540,49 @@ paths:
         "204": { description: Deleted. }
         "404": { $ref: "#/components/responses/Error" }
 
+  /me/git/github/device:
+    post:
+      operationId: startGitHubConnect
+      tags: [git]
+      description: >-
+        Start connecting your GitHub account with GitHub's device flow. Open verificationUri, enter userCode,
+        then poll until the status is connected. The device code and the resulting token stay on the server.
+      responses:
+        "201":
+          description: The code to enter at GitHub.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitHubDeviceFlow" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /me/git/github/device/{flowId}:
+    parameters:
+      - name: flowId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: pollGitHubConnect
+      tags: [git]
+      description: >-
+        Check whether you approved the connection at GitHub. agenthold asks GitHub at most once per interval;
+        on approval the account is stored as your github.com credential (replacing a token stored for it).
+      responses:
+        "200":
+          description: The state of the connection attempt.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitHubDevicePoll" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: cancelGitHubConnect
+      tags: [git]
+      responses:
+        "204": { description: Cancelled. }
+
   /agents/{agentId}/git/repos:
     parameters:
       - $ref: "#/components/parameters/AgentId"
@@ -2685,6 +2728,66 @@ paths:
       responses:
         "200":
           description: Updated repository state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitRepo" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/git/push:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: pushAgentGitRepo
+      tags: [git]
+      description: >-
+        Push the branch a repository inside a running agent is on. A branch without an upstream is pushed to
+        origin (or the only remote) and tracks it. force uses --force-with-lease.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string, maxLength: 4096 }
+                force: { type: boolean }
+      responses:
+        "200":
+          description: Repository state after the push.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitRepo" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/git/worktrees/remove:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: removeAgentGitWorktree
+      tags: [git]
+      description: >-
+        Remove a linked worktree inside a running agent (its branch stays). force removes it even with
+        uncommitted changes. Returns the state of its main repository.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string, maxLength: 4096, description: "Worktree path relative to home." }
+                force: { type: boolean }
+      responses:
+        "200":
+          description: The worktree's main repository.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/GitRepo" }
@@ -4082,19 +4185,51 @@ components:
 
     GitCredential:
       type: object
-      required: [id, host, username, label, createdAt, updatedAt]
+      required: [id, host, username, label, source, createdAt, updatedAt]
       properties:
         id: { type: string }
         host: { type: string }
         username: { type: string }
         label: { type: string }
+        source:
+          type: string
+          enum: [token, github]
+          description: "token: pasted. github: a GitHub account connected through the device flow."
+        account: { type: string, description: "The connected GitHub login." }
+        scopes: { type: string, description: "Scopes GitHub granted the connected token (empty for GitHub Apps)." }
+        expiresAt: { type: string, format: date-time, description: "When the token expires; agenthold refreshes refreshable tokens before then." }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
 
+    GitHubConnectInfo:
+      type: object
+      required: [enabled, host]
+      properties:
+        enabled: { type: boolean, description: "Whether this server can connect GitHub accounts (git.github.client_id)." }
+        host: { type: string, description: "The git host connected accounts are stored for." }
+
+    GitHubDeviceFlow:
+      type: object
+      required: [id, userCode, verificationUri, expiresAt, interval]
+      properties:
+        id: { type: string }
+        userCode: { type: string }
+        verificationUri: { type: string }
+        expiresAt: { type: string, format: date-time }
+        interval: { type: integer, description: "Seconds to wait between polls." }
+
+    GitHubDevicePoll:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [pending, connected, denied, expired] }
+        credential: { $ref: "#/components/schemas/GitCredential" }
+
     GitSettings:
       type: object
-      required: [authorName, authorEmail, defaultAuthorName, defaultAuthorEmail, credentials]
+      required: [authorName, authorEmail, defaultAuthorName, defaultAuthorEmail, credentials, github]
       properties:
+        github: { $ref: "#/components/schemas/GitHubConnectInfo" }
         authorName: { type: string }
         authorEmail: { type: string }
         defaultAuthorName: { type: string }

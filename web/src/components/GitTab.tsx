@@ -9,6 +9,8 @@ import {
   GitFork,
   Loader2,
   SquarePen,
+  Trash2,
+  Upload,
 } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
 import {
@@ -30,8 +32,8 @@ export const repoBranch = (r: Pick<GitRepo, 'branch' | 'detached'>) =>
 
 /**
  * Git inside the agent: the repositories and worktrees found in its home,
- * with the actions to start a thread in one, pull, switch branches, add a
- * worktree and clone another repository.
+ * with the actions to start a thread in one, pull, push, switch branches,
+ * add or remove a worktree and clone another repository.
  */
 export function GitTab({
   agentId,
@@ -105,6 +107,26 @@ function RepoCard({
         api.POST('/agents/{agentId}/git/pull', {
           params: { path: { agentId } },
           body: { path: repo.path },
+        }),
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: gitKey(agentId) }),
+  });
+  const push = useMutation({
+    mutationFn: () =>
+      unwrap(
+        api.POST('/agents/{agentId}/git/push', {
+          params: { path: { agentId } },
+          body: { path: repo.path },
+        }),
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: gitKey(agentId) }),
+  });
+  const remove = useMutation({
+    mutationFn: (force: boolean) =>
+      unwrap(
+        api.POST('/agents/{agentId}/git/worktrees/remove', {
+          params: { path: { agentId } },
+          body: { path: repo.path, ...(force && { force: true }) },
         }),
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: gitKey(agentId) }),
@@ -183,6 +205,21 @@ function RepoCard({
             )}
             Pull
           </Button>
+          {!repo.detached && repo.remoteUrl && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={push.isPending}
+              onClick={() => push.mutate()}
+            >
+              {push.isPending ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Upload className="size-3.5" aria-hidden />
+              )}
+              Push
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -207,9 +244,26 @@ function RepoCard({
             <GitFork className="size-3.5" aria-hidden />
             New worktree
           </Button>
+          {repo.isWorktree && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={remove.isPending}
+              aria-label={`Remove worktree ${repo.path}`}
+              onClick={() => {
+                const msg = repo.dirty
+                  ? `~/${repo.path} has uncommitted changes. Remove the worktree and discard them? The branch ${repo.branch} stays.`
+                  : `Remove the worktree ~/${repo.path}? The branch ${repo.branch} stays.`;
+                if (confirm(msg)) remove.mutate(repo.dirty);
+              }}
+            >
+              <Trash2 className="size-3.5" aria-hidden />
+              Remove worktree
+            </Button>
+          )}
         </div>
       )}
-      <ErrorText error={pull.error} />
+      <ErrorText error={pull.error ?? push.error ?? remove.error} />
       {canUse && panel === 'branches' && (
         <BranchPanel agentId={agentId} repo={repo} />
       )}
@@ -494,9 +548,9 @@ function CloneForm({ agentId }: { agentId: string }) {
         </label>
       </div>
       <p className="text-xs text-muted-foreground">
-        Private repositories need a token:{' '}
+        Private repositories need a credential:{' '}
         <Link to="/settings/git" className="underline underline-offset-2">
-          add an HTTPS credential
+          connect GitHub or add an HTTPS token
         </Link>
         .
       </p>

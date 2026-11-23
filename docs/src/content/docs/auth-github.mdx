@@ -6,6 +6,10 @@ description: "GitHub sign-in uses plain OAuth2, not OpenID Connect: the server e
 GitHub sign-in uses plain OAuth2, not OpenID Connect: the server exchanges the code for an access token and
 then reads the user and their emails from the GitHub API.
 
+Signing in with GitHub gives agents no access to repositories: the sign-in token is not kept. To let agents
+clone, push and use the GitHub CLI, users connect their GitHub account in **Settings → Git**, through a separate
+app the operator configures under `git.github` ([Set up Connect GitHub](/git/#set-up-connect-github)).
+
 ## Create an OAuth App
 
 1. GitHub: Settings, Developer settings, OAuth Apps, New OAuth App (or the same under an organization).

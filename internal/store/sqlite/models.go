@@ -155,14 +155,20 @@ type ExposureReleasedName struct {
 }
 
 type GitCredential struct {
-	ID         string
-	UserID     string
-	Host       string
-	Username   string
-	Ciphertext []byte
-	Label      string
-	CreatedAt  int64
-	UpdatedAt  int64
+	ID                string
+	UserID            string
+	Host              string
+	Username          string
+	Ciphertext        []byte
+	Label             string
+	CreatedAt         int64
+	UpdatedAt         int64
+	Source            string
+	Account           string
+	Scopes            string
+	RefreshCiphertext []byte
+	ExpiresAt         int64
+	RefreshExpiresAt  int64
 }
 
 type Identity struct {

@@ -20,6 +20,17 @@ mkdir -p /opt/agenthold/tools
 
 ln -sf /usr/bin/fdfind /usr/local/bin/fd
 
+# Go, for agents that build Go projects (agenthold develops itself in agents). GOTOOLCHAIN stays
+# auto, so a go.mod that asks for a newer toolchain downloads it through the egress proxy.
+rm -rf /usr/local/go
+tar -C /usr/local -xzf "$here/go.tar.gz"
+ln -sf /usr/local/go/bin/go /usr/local/bin/go
+ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+test "$(go env GOVERSION)" = "go$GO_VERSION"
+
+# GitHub CLI (Debian package): the egress proxy authenticates its API calls and git over HTTPS.
+gh --version >/dev/null
+
 # Git defaults: system-level so ~/.gitconfig and repo .git/config still win.
 git lfs install --system --skip-repo
 git config --system init.defaultBranch main

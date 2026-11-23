@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrap } from '@/api/client';
 import {
@@ -37,6 +37,9 @@ export function GitSettingsPage() {
       {settings.data && (
         <div className="grid max-w-3xl gap-6">
           <AuthorCard settings={settings.data} />
+          {settings.data.github.enabled && (
+            <GitHubCard settings={settings.data} />
+          )}
           <CredentialsCard settings={settings.data} />
         </div>
       )}
@@ -116,6 +119,201 @@ function AuthorCard({ settings }: { settings: GitSettings }) {
   );
 }
 
+type DeviceFlow = {
+  id: string;
+  userCode: string;
+  verificationUri: string;
+  expiresAt: string;
+  interval: number;
+};
+
+/**
+ * Connect GitHub with GitHub's device flow: the user enters a short code at
+ * GitHub, the server polls GitHub and stores the token. Neither the device
+ * code nor the token ever reaches the browser.
+ */
+function GitHubCard({ settings }: { settings: GitSettings }) {
+  const qc = useQueryClient();
+  const host = settings.github.host;
+  const connected = settings.credentials.find(
+    (c) => c.host === host && c.source === 'github',
+  );
+  const pasted = settings.credentials.find(
+    (c) => c.host === host && c.source !== 'github',
+  );
+  const [flow, setFlow] = useState<DeviceFlow | null>(null);
+  const [outcome, setOutcome] = useState<string | null>(null);
+  const [pollError, setPollError] = useState<unknown>(null);
+  const start = useMutation({
+    mutationFn: () => unwrap(api.POST('/me/git/github/device')),
+    onSuccess: (f) => {
+      setOutcome(null);
+      setPollError(null);
+      setFlow(f);
+    },
+  });
+  const disconnect = useMutation({
+    mutationFn: (id: string) =>
+      unwrap(
+        api.DELETE('/me/git/credentials/{credentialId}', {
+          params: { path: { credentialId: id } },
+        }),
+      ),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: gitSettingsQuery.queryKey }),
+  });
+
+  useEffect(() => {
+    if (!flow) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const r = await unwrap(
+          api.POST('/me/git/github/device/{flowId}', {
+            params: { path: { flowId: flow.id } },
+          }),
+        );
+        if (stopped) return;
+        if (r.status === 'pending') {
+          timer = setTimeout(poll, flow.interval * 1000);
+          return;
+        }
+        setFlow(null);
+        if (r.status === 'connected') {
+          setOutcome(null);
+          await qc.invalidateQueries({ queryKey: gitSettingsQuery.queryKey });
+        } else if (r.status === 'denied') {
+          setOutcome('The request was denied at GitHub.');
+        } else {
+          setOutcome('The code expired before it was entered. Start again.');
+        }
+      } catch (err) {
+        if (stopped) return;
+        setFlow(null);
+        setPollError(err);
+      }
+    };
+    timer = setTimeout(poll, flow.interval * 1000);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [flow, qc]);
+
+  const cancel = () => {
+    if (flow) {
+      void api.DELETE('/me/git/github/device/{flowId}', {
+        params: { path: { flowId: flow.id } },
+      });
+    }
+    setFlow(null);
+  };
+
+  return (
+    <section aria-label="GitHub" className="grid gap-3 rounded-lg border p-4">
+      <div>
+        <h2 className="text-sm font-semibold">GitHub</h2>
+        <p className="text-sm text-muted-foreground">
+          Connect your GitHub account so your agents can clone, push and use the
+          GitHub CLI (<code>gh</code>) on {host}. The token stays on this
+          server: the egress proxy adds it to your agents&apos; requests to
+          GitHub and it never enters a sandbox.
+        </p>
+      </div>
+      {connected && !flow && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          <span>
+            Connected as{' '}
+            <span className="font-medium">
+              {connected.account ?? connected.label}
+            </span>
+          </span>
+          {connected.scopes && (
+            <span className="text-xs text-muted-foreground">
+              scopes {connected.scopes}
+            </span>
+          )}
+          {connected.expiresAt && (
+            <span className="text-xs text-muted-foreground">
+              token renews before{' '}
+              {new Date(connected.expiresAt).toLocaleString()}
+            </span>
+          )}
+        </div>
+      )}
+      {flow ? (
+        <div role="status" className="grid gap-2 rounded-md bg-muted p-3">
+          <p className="text-sm">
+            Enter this code at GitHub to approve the connection:
+          </p>
+          <p
+            className="font-mono text-2xl font-semibold tracking-widest"
+            aria-label="GitHub device code"
+          >
+            {flow.userCode}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild size="sm">
+              <a href={flow.verificationUri} target="_blank" rel="noreferrer">
+                Open GitHub
+              </a>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void navigator.clipboard?.writeText(flow.userCode)}
+            >
+              Copy code
+            </Button>
+            <Button size="sm" variant="ghost" onClick={cancel}>
+              Cancel
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Waiting for approval. The code expires at{' '}
+            {new Date(flow.expiresAt).toLocaleTimeString()}.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            disabled={start.isPending}
+            onClick={() => start.mutate()}
+          >
+            {connected ? 'Reconnect GitHub' : 'Connect GitHub'}
+          </Button>
+          {connected && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={disconnect.isPending}
+              onClick={() => {
+                if (
+                  confirm(
+                    'Disconnect GitHub? Your agents lose access to private repositories and the GitHub CLI.',
+                  )
+                )
+                  disconnect.mutate(connected.id);
+              }}
+            >
+              Disconnect
+            </Button>
+          )}
+        </div>
+      )}
+      {pasted && !connected && (
+        <p className="text-xs text-muted-foreground">
+          Connecting replaces the token stored for {host} below.
+        </p>
+      )}
+      {outcome && <p className="text-sm text-muted-foreground">{outcome}</p>}
+      <ErrorText error={start.error ?? pollError ?? disconnect.error} />
+    </section>
+  );
+}
+
 function CredentialsCard({ settings }: { settings: GitSettings }) {
   const qc = useQueryClient();
   const del = useMutation({
@@ -175,6 +373,11 @@ function CredentialRow({
       <span className="font-medium">{c.host}</span>
       <span className="text-muted-foreground">{c.username}</span>
       {c.label && <span className="text-muted-foreground">{c.label}</span>}
+      {c.source === 'github' && (
+        <span className="rounded bg-muted px-1.5 py-0.5 text-xs">
+          connected account
+        </span>
+      )}
       <span className="text-xs text-muted-foreground">
         updated {new Date(c.updatedAt).toLocaleDateString()}
       </span>

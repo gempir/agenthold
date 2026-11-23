@@ -62,16 +62,34 @@ type Service struct {
 	// cache and the controller configuration).
 	Invalidate func()
 	Now        func() time.Time
+	// GitHub connects GitHub accounts through the device flow (nil: off).
+	GitHub *Connector
 }
+
+// Credential sources.
+const (
+	// SourceToken: a token the user pasted.
+	SourceToken = "token"
+	// SourceGitHub: a GitHub account connected through the device flow.
+	SourceGitHub = "github"
+)
 
 // Credential describes a stored credential; the token is never returned.
 type Credential struct {
-	ID        string `json:"id"`
-	Host      string `json:"host"`
-	Username  string `json:"username"`
-	Label     string `json:"label"`
-	CreatedAt int64  `json:"createdAt"`
-	UpdatedAt int64  `json:"updatedAt"`
+	ID       string `json:"id"`
+	Host     string `json:"host"`
+	Username string `json:"username"`
+	Label    string `json:"label"`
+	// Source is SourceToken or SourceGitHub; Account (the GitHub login) and
+	// Scopes are set for connected accounts.
+	Source  string `json:"source"`
+	Account string `json:"account,omitempty"`
+	Scopes  string `json:"scopes,omitempty"`
+	// ExpiresAt is when the token expires (0: it does not); a refreshable
+	// connected token is renewed before then.
+	ExpiresAt int64 `json:"expiresAt,omitempty"`
+	CreatedAt int64 `json:"createdAt"`
+	UpdatedAt int64 `json:"updatedAt"`
 }
 
 // Settings are a user's git settings. AuthorName and AuthorEmail are what
@@ -98,7 +116,14 @@ func (s *Service) invalidate() {
 }
 
 func toCredential(c db.GitCredential) Credential {
-	return Credential{ID: c.ID, Host: c.Host, Username: c.Username, Label: c.Label, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt}
+	source := c.Source
+	if source == "" {
+		source = SourceToken
+	}
+	return Credential{
+		ID: c.ID, Host: c.Host, Username: c.Username, Label: c.Label, Source: source, Account: c.Account,
+		Scopes: c.Scopes, ExpiresAt: c.ExpiresAt, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+	}
 }
 
 // GetSettings returns user's git settings.
@@ -231,49 +256,99 @@ func (s *Service) UpsertCredential(ctx context.Context, userID, host, username, 
 		return Credential{}, err
 	}
 
+	c, err := s.put(ctx, userID, stored{host: host, username: username, label: label, source: SourceToken, token: token})
+	if err != nil {
+		return Credential{}, err
+	}
+	s.Audit.Record(ctx, audit.Entry{
+		UserID: userID, Action: audit.GitCredentialPut, Target: c.ID,
+		Details: map[string]any{"host": host, "username": username, "label": label},
+	})
+	return c, nil
+}
+
+// stored is a credential to store.
+type stored struct {
+	host, username, label   string
+	source, account, scopes string
+	token, refresh          string
+	expiresAt, refreshExp   int64
+}
+
+// put stores c as the user's credential for its host, replacing the one
+// they have (and whatever it was connected with).
+func (s *Service) put(ctx context.Context, userID string, c stored) (Credential, error) {
 	now := s.now().Unix()
-	existing, err := s.Store.GetGitCredentialByHost(ctx, db.GetGitCredentialByHostParams{UserID: userID, Host: host})
+	seal := func(credID string) (ct, rct []byte, err error) {
+		if ct, err = s.Box.Seal([]byte(c.token), []byte(credID)); err != nil {
+			return nil, nil, err
+		}
+		rct = []byte{}
+		if c.refresh != "" {
+			if rct, err = s.Box.Seal([]byte(c.refresh), refreshAAD(credID)); err != nil {
+				return nil, nil, err
+			}
+		}
+		return ct, rct, nil
+	}
+	existing, err := s.Store.GetGitCredentialByHost(ctx, db.GetGitCredentialByHostParams{UserID: userID, Host: c.host})
 	switch {
 	case err == nil:
-		ct, err := s.Box.Seal([]byte(token), []byte(existing.ID))
+		ct, rct, err := seal(existing.ID)
 		if err != nil {
 			return Credential{}, err
 		}
+		// Always move updated_at forward: a token refresh that read the row
+		// before this write must not overwrite it (it compares updated_at).
+		now = max(now, existing.UpdatedAt+1)
 		if err := s.Store.UpdateGitCredential(ctx, db.UpdateGitCredentialParams{
-			Username: username, Ciphertext: ct, Label: label, UpdatedAt: now, ID: existing.ID,
+			Username: c.username, Ciphertext: ct, Label: c.label, Source: c.source, Account: c.account,
+			Scopes: c.scopes, RefreshCiphertext: rct, ExpiresAt: c.expiresAt, RefreshExpiresAt: c.refreshExp,
+			UpdatedAt: now, ID: existing.ID,
 		}); err != nil {
 			return Credential{}, err
 		}
-		existing.Username, existing.Ciphertext, existing.Label, existing.UpdatedAt = username, ct, label, now
+		// A replaced connected token is revoked at GitHub (best effort).
+		if existing.Source == SourceGitHub && s.GitHub != nil {
+			if old, err := s.Box.Open(existing.Ciphertext, []byte(existing.ID)); err == nil && string(old) != c.token {
+				s.GitHub.revoke(ctx, string(old))
+			}
+		}
 	case errors.Is(err, sql.ErrNoRows):
 		credID := id.New("gcr")
-		ct, err := s.Box.Seal([]byte(token), []byte(credID))
+		ct, rct, err := seal(credID)
 		if err != nil {
 			return Credential{}, err
 		}
-		existing = db.GitCredential{
-			ID: credID, UserID: userID, Host: host, Username: username, Ciphertext: ct,
-			Label: label, CreatedAt: now, UpdatedAt: now,
-		}
 		if err := s.Store.CreateGitCredential(ctx, db.CreateGitCredentialParams{
-			ID: credID, UserID: userID, Host: host, Username: username, Ciphertext: ct, Label: label,
-			CreatedAt: now, UpdatedAt: now,
+			ID: credID, UserID: userID, Host: c.host, Username: c.username, Ciphertext: ct, Label: c.label,
+			Source: c.source, Account: c.account, Scopes: c.scopes, RefreshCiphertext: rct,
+			ExpiresAt: c.expiresAt, RefreshExpiresAt: c.refreshExp, CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
 			return Credential{}, err
 		}
+		existing = db.GitCredential{ID: credID, CreatedAt: now}
 	default:
 		return Credential{}, err
 	}
 	s.invalidate()
-	s.Audit.Record(ctx, audit.Entry{
-		UserID: userID, Action: audit.GitCredentialPut, Target: existing.ID,
-		Details: map[string]any{"host": host, "username": username, "label": label},
-	})
-	return toCredential(existing), nil
+	return Credential{
+		ID: existing.ID, Host: c.host, Username: c.username, Label: c.label, Source: c.source,
+		Account: c.account, Scopes: c.scopes, ExpiresAt: c.expiresAt, CreatedAt: existing.CreatedAt, UpdatedAt: now,
+	}, nil
 }
 
-// DeleteCredential removes one of the user's credentials.
+// refreshAAD binds a sealed refresh token to its credential, apart from the token.
+func refreshAAD(credID string) []byte { return []byte(credID + ":refresh") }
+
+// DeleteCredential removes one of the user's credentials. A connected GitHub
+// token is revoked at GitHub too when the server can (best effort).
 func (s *Service) DeleteCredential(ctx context.Context, userID, credID string) error {
+	if c, err := s.Store.GetGitCredential(ctx, credID); err == nil && c.UserID == userID && c.Source == SourceGitHub && s.GitHub != nil {
+		if token, err := s.Box.Open(c.Ciphertext, []byte(c.ID)); err == nil {
+			s.GitHub.revoke(ctx, string(token))
+		}
+	}
 	n, err := s.Store.DeleteGitCredential(ctx, db.DeleteGitCredentialParams{ID: credID, UserID: userID})
 	if err != nil {
 		return err
@@ -289,8 +364,10 @@ func (s *Service) DeleteCredential(ctx context.Context, userID, credID string) e
 // credentialHosts are the hosts a credential for host is sent to.
 func credentialHosts(host string) []string {
 	if host == "github.com" {
-		// The GitHub API takes the same tokens (gh, API calls from scripts).
-		return []string{host, "api.github.com"}
+		// The GitHub API takes the same tokens (gh, API calls from scripts),
+		// and release assets are uploaded to uploads.github.com. (GitHub
+		// Enterprise Server serves both under its own host.)
+		return []string{host, "api.github.com", "uploads.github.com"}
 	}
 	return []string{host}
 }

@@ -19,11 +19,24 @@ SELECT * FROM git_credentials WHERE id = ?;
 SELECT * FROM git_credentials WHERE user_id = ? AND host = ?;
 
 -- name: CreateGitCredential :exec
-INSERT INTO git_credentials (id, user_id, host, username, ciphertext, label, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO git_credentials (id, user_id, host, username, ciphertext, label, source, account, scopes,
+    refresh_ciphertext, expires_at, refresh_expires_at, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: UpdateGitCredential :exec
-UPDATE git_credentials SET username = ?, ciphertext = ?, label = ?, updated_at = ? WHERE id = ?;
+UPDATE git_credentials SET username = ?, ciphertext = ?, label = ?, source = ?, account = ?, scopes = ?,
+    refresh_ciphertext = ?, expires_at = ?, refresh_expires_at = ?, updated_at = ?
+WHERE id = ?;
+
+-- name: RefreshGitCredential :execrows
+UPDATE git_credentials SET ciphertext = sqlc.arg(ciphertext), refresh_ciphertext = sqlc.arg(refresh_ciphertext),
+    expires_at = sqlc.arg(expires_at), refresh_expires_at = sqlc.arg(refresh_expires_at), updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id) AND updated_at = sqlc.arg(prev_updated_at);
+
+-- name: ListRefreshableGitCredentials :many
+SELECT * FROM git_credentials
+WHERE source = 'github' AND expires_at > 0 AND expires_at < ? AND length(refresh_ciphertext) > 0
+ORDER BY expires_at;
 
 -- name: DeleteGitCredential :execrows
 DELETE FROM git_credentials WHERE id = ? AND user_id = ?;

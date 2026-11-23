@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/http"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -155,6 +157,9 @@ func (d *Directory) Agent(ctx context.Context, agentID string) (*Agent, error) {
 		out.Injections = append(out.Injections, injs...)
 		out.Responders = append(out.Responders, resp...)
 	}
+	if !coveredHosts(out.Injections, []string{githubAPIHost}) {
+		out.Responders = append(out.Responders, Responder{Host: githubAPIHost, Handle: answerUnconnectedGitHub})
+	}
 	d.mu.Lock()
 	if d.agents == nil {
 		d.agents = map[string]cachedAgent{}
@@ -162,6 +167,26 @@ func (d *Directory) Agent(ctx context.Context, agentID string) (*Agent, error) {
 	d.agents[agentID] = cachedAgent{agent: out, at: time.Now()}
 	d.mu.Unlock()
 	return out, nil
+}
+
+const githubAPIHost = "api.github.com"
+
+// answerUnconnectedGitHub answers GitHub API requests that carry the GitHub
+// CLI's token marker when nothing would authenticate them: GitHub would only
+// say "Bad credentials". gh prints the message.
+func answerUnconnectedGitHub(w http.ResponseWriter, r *http.Request) bool {
+	if !strings.Contains(r.Header.Get("Authorization"), GitHubTokenMarker) {
+		return false
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusUnauthorized)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"message": "agenthold: this agent's owner has not connected a GitHub account. " +
+			"Connect one in agenthold under Settings → Git (or add a github.com token there), then retry. " +
+			"The token is added to requests by the egress proxy and never enters the sandbox.",
+		"documentation_url": "https://agenthold.dev/git/#github-cli",
+	})
+	return true
 }
 
 // coveredHosts reports whether one of injs (header-adding secrets) already

@@ -122,6 +122,7 @@ type PutSlackInstallationParams = sqlite.PutSlackInstallationParams
 type PutSlackUserParams = sqlite.PutSlackUserParams
 type RecordScheduleRunParams = sqlite.RecordScheduleRunParams
 type RecordWebhookDeliveryParams = sqlite.RecordWebhookDeliveryParams
+type RefreshGitCredentialParams = sqlite.RefreshGitCredentialParams
 type ReleaseExposureNameParams = sqlite.ReleaseExposureNameParams
 type RenameSessionParams = sqlite.RenameSessionParams
 type ReplaceProviderLoginParams = sqlite.ReplaceProviderLoginParams

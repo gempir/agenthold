@@ -1,0 +1,76 @@
+---
+title: "Developing agenthold in agenthold"
+description: "Use an agenthold agent to work on agenthold itself: the toolchain in the base image, GitHub access, one worktree per thread, tests that run without KVM, and pull requests with the GitHub CLI."
+---
+
+The base image has everything needed to build and test agenthold without KVM, so an agent can work on agenthold
+itself, or on any Go and Bun project, the same way a developer does on a laptop: clone, branch, test, push and
+open a pull request.
+
+## What the base image provides
+
+| Tool | Version | Notes |
+| --- | --- | --- |
+| Go | `1.26.11` in `/usr/local/go` | `GOTOOLCHAIN=auto` stays on, so a `go.mod` that asks for a newer toolchain downloads it through the egress proxy. `~/go/bin` is on `PATH` |
+| Bun | `1.4.5` | the version `web/package.json` asks for. `node` points to Bun |
+| C toolchain | `build-essential` | for `CGO_ENABLED=1` and the race detector used by `make test-go` |
+| `make`, `git`, `git-lfs`, `gh`, `sqlite3`, `jq`, `ripgrep` | Debian `trixie` snapshot | see [Git and GitHub](/git/) for how `git` and `gh` are authenticated |
+
+Nothing here is specific to agenthold. Pins are in `images/base/versions.env` and `images/base/packages.txt`; see
+[guest artifacts](/guest-artifacts/#pinned-inputs).
+
+## Set up an agent
+
+1. **Connect GitHub** in **Settings → Git** ([Connect GitHub](/git/#connect-github)), or paste a token for
+   `github.com`. The agent can then clone private forks, push branches and use `gh`, and the token never enters
+   the sandbox.
+2. **Create an agent** with room for the Go race tests: 4 vCPUs and 8 GB of memory are comfortable, the 2 vCPU
+   / 4 GB default works but is slow. The module and build caches live in the home directory
+   (`~/go/pkg/mod`, `~/.cache/go-build`, `~/.bun`), so they survive sleep and later runs are fast.
+3. **Clone the repository** from the agent's **Git** tab (`https://github.com/<owner>/agenthold.git`, folder
+   `projects/agenthold`) or ask the agent to run `gh repo clone <owner>/agenthold ~/projects/agenthold`.
+
+Do not share an agent that holds your GitHub credential with people you would not give that access. Anyone
+who can prompt it can push as you ([who can use your credentials](/git/#who-can-use-your-credentials)).
+
+## One worktree per thread
+
+Give each change its own branch and worktree, so threads can work in parallel without stepping on each other.
+From the Git tab, use **New worktree** with "Start a thread in the worktree" checked. From the API, create the
+thread with `cwd: "projects/agenthold"`, `gitBranch` and `createWorktree: true`
+([projects and branches on threads](/git/#projects-and-branches-on-threads)). The worktree lands in
+`~/.worktrees/agenthold/<branch>`, and the sidebar shows the thread's branch.
+
+When the change is merged, **Remove worktree** deletes the checkout and keeps the branch.
+
+## The loop inside the agent
+
+```sh
+cd ~/.worktrees/agenthold/fix-login
+make test-go          # Go tests with -race, plus the API suite against a remote edge node
+make test-web         # web tests (installs the web dependencies with Bun)
+make generate         # after changing SQL queries or api/openapi.yaml
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2   # once; the version CI uses
+make lint
+git commit -am "Fix the login redirect"
+git push              # the first push sets the upstream
+gh pr create --fill
+gh pr checks --watch
+gh pr merge --merge   # after required reviews and checks pass, if the repository allows merge commits
+```
+
+Remind the agent to pass flags to `gh`: prompts are disabled in sandboxes (`GH_PROMPT_DISABLED=1`), so
+`gh pr create` without `--fill` or `--title` and `--body` fails instead of waiting.
+
+## What does not run in an agent
+
+- **KVM tests.** `make test-kvm`, `make test-guest` and `scripts/e2e/edge.sh` boot Firecracker microVMs and need
+  `/dev/kvm`, which a microVM does not have. Run them on a KVM host or in the Lima VM described in
+  [Development](/development/).
+- **Guest artifacts.** Building the kernel and the base image (`make guest-kernel guest-base`) needs root on a
+  Linux host with `mmdebstrap`. Build them outside agents too.
+- **`make dev`.** It runs the server with the Firecracker driver. For UI work, the web tests and the fake-driver
+  browser tests in [Development](/development/) run without KVM.
+
+CI on GitHub runs the same `make test-go`, `make lint` and web checks on every pull request, and the demo host
+runs the KVM tests for each new `main` commit.

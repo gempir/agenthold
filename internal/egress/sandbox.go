@@ -51,12 +51,28 @@ func (c *CA) BootFiles() map[string][]byte {
 	return map[string][]byte{SandboxCAFile: c.certPEM, SandboxBundleFile: bundle}
 }
 
-// SpecFunc builds sandbox specs: the agent's settings, the proxy environment
-// and the placeholders of attached secrets.
+// GitHubTokenMarker is the GitHub CLI's token in every sandbox (GH_TOKEN,
+// GH_ENTERPRISE_TOKEN). It is not a secret: gh only needs some token to send
+// requests, and the proxy replaces its Authorization header with the owner's
+// GitHub credential. Without one the proxy answers such requests itself and
+// says how to connect GitHub.
+const GitHubTokenMarker = "agenthold-proxy-github-token"
+
+// GitHubCLIEnv is the GitHub CLI's environment in a sandbox. Unlike
+// SandboxEnv, a secret attached to the agent may set these variables.
+func GitHubCLIEnv() map[string]string {
+	return map[string]string{"GH_TOKEN": GitHubTokenMarker, "GH_ENTERPRISE_TOKEN": GitHubTokenMarker}
+}
+
+// SpecFunc builds sandbox specs: the agent's settings, the proxy environment,
+// the GitHub CLI's token marker and the placeholders of attached secrets.
 func SpecFunc(st *store.Store, explicitPort int) sandbox.SpecFunc {
 	return func(a db.Agent) sandbox.Spec {
 		s := sandbox.BaseSpec(a)
 		s.Env = SandboxEnv(strconv.Itoa(explicitPort))
+		for k, v := range GitHubCLIEnv() {
+			s.Env[k] = v
+		}
 		if rows, err := st.ListAgentSecrets(context.Background(), a.ID); err == nil {
 			for _, r := range rows {
 				if r.EnvVar != "" {

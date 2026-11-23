@@ -928,6 +928,18 @@ func (p postgresQueries) ListProviderLogins(ctx context.Context) ([]db.ProviderL
 	return result, nil
 }
 
+func (p postgresQueries) ListRefreshableGitCredentials(ctx context.Context, expiresAt int64) ([]db.GitCredential, error) {
+	value, err := p.q.ListRefreshableGitCredentials(ctx, expiresAt)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.GitCredential, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.GitCredential(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListSandboxSubnets(ctx context.Context) ([]db.ListSandboxSubnetsRow, error) {
 	value, err := p.q.ListSandboxSubnets(ctx)
 	if err != nil {
@@ -1180,6 +1192,11 @@ func (p postgresQueries) RecordScheduleRun(ctx context.Context, arg db.RecordSch
 
 func (p postgresQueries) RecordWebhookDelivery(ctx context.Context, arg db.RecordWebhookDeliveryParams) error {
 	return p.q.RecordWebhookDelivery(ctx, postgres.RecordWebhookDeliveryParams(arg))
+}
+
+func (p postgresQueries) RefreshGitCredential(ctx context.Context, arg db.RefreshGitCredentialParams) (int64, error) {
+	value, err := p.q.RefreshGitCredential(ctx, postgres.RefreshGitCredentialParams(arg))
+	return value, err
 }
 
 func (p postgresQueries) ReleaseExposureName(ctx context.Context, arg db.ReleaseExposureNameParams) error {

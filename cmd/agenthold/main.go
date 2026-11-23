@@ -178,6 +178,10 @@ func run() error {
 	loginSvc := &logins.Service{Store: st, Box: box, Audit: auditLog, Log: logger, Invalidate: directory.Invalidate}
 	directory.Logins = loginSvc
 	gitSvc := &git.Service{Store: st, Box: box, Audit: auditLog, Invalidate: directory.Invalidate}
+	if cfg.Git.GitHub.Enabled() {
+		// Users connect GitHub accounts in Settings → Git; tokens stay here.
+		gitSvc.GitHub = &git.Connector{Config: cfg.Git.GitHub, Log: logger}
+	}
 	directory.Git = gitSvc
 
 	// The built-in node exists only when this host runs VMs (or uses the fake driver).
@@ -302,6 +306,7 @@ func run() error {
 	go (&session.AutoSettler{Store: st, Audit: auditLog, Log: logger}).Run(ctx)
 	loginSvc.Restart = sessions.Restart
 	go loginSvc.Run(ctx)
+	go gitSvc.Run(ctx)
 	runner := &trigger.Runner{Store: st, Sessions: sessions, Audit: auditLog}
 	go (&trigger.Scheduler{Runner: runner, Log: logger}).Run(ctx)
 	platformTools := tools.Provider{Store: st, PlatformCommand: sandbox.SandboxdDir + "/sandboxd"}

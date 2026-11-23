@@ -5,6 +5,8 @@ curl
 wget
 git
 git-lfs
+# GitHub CLI; authenticated by the egress proxy with the owner's GitHub credential.
+gh
 openssh-client
 gnupg
 less
@@ -27,6 +29,8 @@ fd-find
 tree
 file
 make
+# Self-development: agenthold's own tooling (Go comes from versions.env, Bun is preinstalled).
+sqlite3
 build-essential
 pkg-config
 python3

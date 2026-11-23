@@ -10,19 +10,26 @@ import (
 )
 
 const createGitCredential = `-- name: CreateGitCredential :exec
-INSERT INTO git_credentials (id, user_id, host, username, ciphertext, label, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO git_credentials (id, user_id, host, username, ciphertext, label, source, account, scopes,
+    refresh_ciphertext, expires_at, refresh_expires_at, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 `
 
 type CreateGitCredentialParams struct {
-	ID         string
-	UserID     string
-	Host       string
-	Username   string
-	Ciphertext []byte
-	Label      string
-	CreatedAt  int64
-	UpdatedAt  int64
+	ID                string
+	UserID            string
+	Host              string
+	Username          string
+	Ciphertext        []byte
+	Label             string
+	Source            string
+	Account           string
+	Scopes            string
+	RefreshCiphertext []byte
+	ExpiresAt         int64
+	RefreshExpiresAt  int64
+	CreatedAt         int64
+	UpdatedAt         int64
 }
 
 func (q *Queries) CreateGitCredential(ctx context.Context, arg CreateGitCredentialParams) error {
@@ -33,6 +40,12 @@ func (q *Queries) CreateGitCredential(ctx context.Context, arg CreateGitCredenti
 		arg.Username,
 		arg.Ciphertext,
 		arg.Label,
+		arg.Source,
+		arg.Account,
+		arg.Scopes,
+		arg.RefreshCiphertext,
+		arg.ExpiresAt,
+		arg.RefreshExpiresAt,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -57,7 +70,7 @@ func (q *Queries) DeleteGitCredential(ctx context.Context, arg DeleteGitCredenti
 }
 
 const getGitCredential = `-- name: GetGitCredential :one
-SELECT id, user_id, host, username, ciphertext, label, created_at, updated_at FROM git_credentials WHERE id = $1
+SELECT id, user_id, host, username, ciphertext, label, created_at, updated_at, source, account, scopes, refresh_ciphertext, expires_at, refresh_expires_at FROM git_credentials WHERE id = $1
 `
 
 func (q *Queries) GetGitCredential(ctx context.Context, id string) (GitCredential, error) {
@@ -72,12 +85,18 @@ func (q *Queries) GetGitCredential(ctx context.Context, id string) (GitCredentia
 		&i.Label,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Source,
+		&i.Account,
+		&i.Scopes,
+		&i.RefreshCiphertext,
+		&i.ExpiresAt,
+		&i.RefreshExpiresAt,
 	)
 	return i, err
 }
 
 const getGitCredentialByHost = `-- name: GetGitCredentialByHost :one
-SELECT id, user_id, host, username, ciphertext, label, created_at, updated_at FROM git_credentials WHERE user_id = $1 AND host = $2
+SELECT id, user_id, host, username, ciphertext, label, created_at, updated_at, source, account, scopes, refresh_ciphertext, expires_at, refresh_expires_at FROM git_credentials WHERE user_id = $1 AND host = $2
 `
 
 type GetGitCredentialByHostParams struct {
@@ -97,6 +116,12 @@ func (q *Queries) GetGitCredentialByHost(ctx context.Context, arg GetGitCredenti
 		&i.Label,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Source,
+		&i.Account,
+		&i.Scopes,
+		&i.RefreshCiphertext,
+		&i.ExpiresAt,
+		&i.RefreshExpiresAt,
 	)
 	return i, err
 }
@@ -118,7 +143,7 @@ func (q *Queries) GetUserGitConfig(ctx context.Context, userID string) (UserGitC
 }
 
 const listGitCredentials = `-- name: ListGitCredentials :many
-SELECT id, user_id, host, username, ciphertext, label, created_at, updated_at FROM git_credentials WHERE user_id = $1 ORDER BY host
+SELECT id, user_id, host, username, ciphertext, label, created_at, updated_at, source, account, scopes, refresh_ciphertext, expires_at, refresh_expires_at FROM git_credentials WHERE user_id = $1 ORDER BY host
 `
 
 func (q *Queries) ListGitCredentials(ctx context.Context, userID string) ([]GitCredential, error) {
@@ -139,6 +164,12 @@ func (q *Queries) ListGitCredentials(ctx context.Context, userID string) ([]GitC
 			&i.Label,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Source,
+			&i.Account,
+			&i.Scopes,
+			&i.RefreshCiphertext,
+			&i.ExpiresAt,
+			&i.RefreshExpiresAt,
 		); err != nil {
 			return nil, err
 		}
@@ -153,16 +184,100 @@ func (q *Queries) ListGitCredentials(ctx context.Context, userID string) ([]GitC
 	return items, nil
 }
 
+const listRefreshableGitCredentials = `-- name: ListRefreshableGitCredentials :many
+SELECT id, user_id, host, username, ciphertext, label, created_at, updated_at, source, account, scopes, refresh_ciphertext, expires_at, refresh_expires_at FROM git_credentials
+WHERE source = 'github' AND expires_at > 0 AND expires_at < $1 AND octet_length(refresh_ciphertext) > 0
+ORDER BY expires_at
+`
+
+func (q *Queries) ListRefreshableGitCredentials(ctx context.Context, expiresAt int64) ([]GitCredential, error) {
+	rows, err := q.db.QueryContext(ctx, listRefreshableGitCredentials, expiresAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GitCredential{}
+	for rows.Next() {
+		var i GitCredential
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Host,
+			&i.Username,
+			&i.Ciphertext,
+			&i.Label,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Source,
+			&i.Account,
+			&i.Scopes,
+			&i.RefreshCiphertext,
+			&i.ExpiresAt,
+			&i.RefreshExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const refreshGitCredential = `-- name: RefreshGitCredential :execrows
+UPDATE git_credentials SET ciphertext = $1, refresh_ciphertext = $2,
+    expires_at = $3, refresh_expires_at = $4, updated_at = $5
+WHERE id = $6 AND updated_at = $7
+`
+
+type RefreshGitCredentialParams struct {
+	Ciphertext        []byte
+	RefreshCiphertext []byte
+	ExpiresAt         int64
+	RefreshExpiresAt  int64
+	UpdatedAt         int64
+	ID                string
+	PrevUpdatedAt     int64
+}
+
+func (q *Queries) RefreshGitCredential(ctx context.Context, arg RefreshGitCredentialParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, refreshGitCredential,
+		arg.Ciphertext,
+		arg.RefreshCiphertext,
+		arg.ExpiresAt,
+		arg.RefreshExpiresAt,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.PrevUpdatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const updateGitCredential = `-- name: UpdateGitCredential :exec
-UPDATE git_credentials SET username = $1, ciphertext = $2, label = $3, updated_at = $4 WHERE id = $5
+UPDATE git_credentials SET username = $1, ciphertext = $2, label = $3, source = $4, account = $5, scopes = $6,
+    refresh_ciphertext = $7, expires_at = $8, refresh_expires_at = $9, updated_at = $10
+WHERE id = $11
 `
 
 type UpdateGitCredentialParams struct {
-	Username   string
-	Ciphertext []byte
-	Label      string
-	UpdatedAt  int64
-	ID         string
+	Username          string
+	Ciphertext        []byte
+	Label             string
+	Source            string
+	Account           string
+	Scopes            string
+	RefreshCiphertext []byte
+	ExpiresAt         int64
+	RefreshExpiresAt  int64
+	UpdatedAt         int64
+	ID                string
 }
 
 func (q *Queries) UpdateGitCredential(ctx context.Context, arg UpdateGitCredentialParams) error {
@@ -170,6 +285,12 @@ func (q *Queries) UpdateGitCredential(ctx context.Context, arg UpdateGitCredenti
 		arg.Username,
 		arg.Ciphertext,
 		arg.Label,
+		arg.Source,
+		arg.Account,
+		arg.Scopes,
+		arg.RefreshCiphertext,
+		arg.ExpiresAt,
+		arg.RefreshExpiresAt,
 		arg.UpdatedAt,
 		arg.ID,
 	)

@@ -48,6 +48,45 @@ type Config struct {
 	Preview Preview `yaml:"preview"`
 	// Apps limits the apps agents create with deploy_app.
 	Apps Apps `yaml:"apps"`
+	// Git configures account-level git integrations.
+	Git Git `yaml:"git"`
+}
+
+// Git configures account-level git integrations.
+type Git struct {
+	// GitHub lets users connect their GitHub account in Settings → Git with
+	// GitHub's device flow instead of pasting a personal access token.
+	GitHub GitHubConnect `yaml:"github"`
+}
+
+// GitHubConnect is the OAuth App or GitHub App users connect their GitHub
+// account through. Its device flow must be enabled in the app's settings.
+type GitHubConnect struct {
+	// ClientID of the app. Empty turns "Connect GitHub" off.
+	ClientID string `yaml:"client_id"`
+	// ClientSecret is optional. With it the server refreshes the expiring
+	// user tokens of a GitHub App and revokes a token when its user
+	// disconnects. Without it, expiring tokens must be reconnected.
+	ClientSecret string `yaml:"client_secret"`
+	// Scopes an OAuth App asks for (GitHub Apps ignore them: their
+	// permissions are set on the app). Default repo, read:org, workflow, gist.
+	Scopes []string `yaml:"scopes"`
+	// URL and APIURL override github.com for GitHub Enterprise Server
+	// (https://ghe.example.com and https://ghe.example.com/api/v3).
+	URL    string `yaml:"url"`
+	APIURL string `yaml:"api_url"`
+}
+
+// Enabled reports whether users can connect GitHub accounts.
+func (g GitHubConnect) Enabled() bool { return g.ClientID != "" }
+
+// Host is the git host connected credentials are stored for.
+func (g GitHubConnect) Host() string {
+	u, err := url.Parse(g.URL)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
 }
 
 // Apps limits apps created by agents (users creating apps get the sandbox limits).
@@ -644,6 +683,23 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.Auth.UserMaxAgents == nil {
 		cfg.Auth.UserMaxAgents = intPtr(2)
 	}
+	if gh := &cfg.Git.GitHub; gh.Enabled() {
+		if len(gh.Scopes) == 0 {
+			gh.Scopes = []string{"repo", "read:org", "workflow", "gist"}
+		}
+		if gh.URL == "" {
+			gh.URL = "https://github.com"
+		}
+		gh.URL = strings.TrimRight(gh.URL, "/")
+		if gh.APIURL == "" {
+			if gh.URL == "https://github.com" {
+				gh.APIURL = "https://api.github.com"
+			} else {
+				gh.APIURL = gh.URL + "/api/v3"
+			}
+		}
+		gh.APIURL = strings.TrimRight(gh.APIURL, "/")
+	}
 	for i := range cfg.Auth.Providers {
 		p := &cfg.Auth.Providers[i]
 		if p.Name == "" {
@@ -807,7 +863,36 @@ func (c *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("auth.local.password_hash: %w", err))
 		}
 	}
+	if gh := c.Git.GitHub; gh.Enabled() {
+		for field, raw := range map[string]string{"url": gh.URL, "api_url": gh.APIURL} {
+			if err := secureURL(raw); err != nil {
+				errs = append(errs, fmt.Errorf("git.github.%s: %w", field, err))
+			}
+		}
+		if strings.ContainsAny(gh.ClientID, " \t\r\n") {
+			errs = append(errs, errors.New("git.github.client_id: must not contain whitespace"))
+		}
+	}
 	return errors.Join(errs...)
+}
+
+// secureURL accepts an https URL with a host, or http to a loopback host
+// (tests and local development): tokens travel to it.
+func secureURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("%q is not an absolute URL", raw)
+	}
+	switch {
+	case u.Scheme == "https":
+	case u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1"):
+	default:
+		return fmt.Errorf("%q must use https", raw)
+	}
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("%q must not carry credentials, a query or a fragment", raw)
+	}
+	return nil
 }
 
 // validateGitHubRoles checks github_roles and github_allowed_ids: numeric

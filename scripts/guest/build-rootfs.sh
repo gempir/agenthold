@@ -95,11 +95,12 @@ KEYRING="$WORK/keyring/usr/share/keyrings/debian-archive-keyring.gpg"
 # --- tree (cached: only rebuilt when images/base changes) ---------------------------------------------
 # Bump TREE_FORMAT when the mmdebstrap invocation below changes.
 TREE_FORMAT=3
-tree_key="$( (echo "$TREE_FORMAT $ARCH"; cat "$IMG_DIR/versions.env" "$IMG_DIR/packages.txt" "$IMG_DIR/provision.sh" "$IMG_DIR/image.env" "$REPO_ROOT/scripts/guest/install-bun.sh") | sha256sum | cut -c1-16)"
+tree_key="$( (echo "$TREE_FORMAT $ARCH"; cat "$IMG_DIR/versions.env" "$IMG_DIR/packages.txt" "$IMG_DIR/provision.sh" "$IMG_DIR/image.env" "$REPO_ROOT/scripts/guest/install-bun.sh" "$REPO_ROOT/scripts/guest/install-go.sh") | sha256sum | cut -c1-16)"
 TREE="$CACHE/tree-$ARCH-$tree_key"
 if [[ ! -f "$TREE.done" ]]; then
   rm -rf "$CACHE/tree-$ARCH-"*
   bash "$REPO_ROOT/scripts/guest/install-bun.sh" "$WORK" "$CACHE"
+  bash "$REPO_ROOT/scripts/guest/install-go.sh" "$WORK" "$CACHE"
   log "mmdebstrap $DEBIAN_SUITE ($ARCH) from snapshot $DEBIAN_SNAPSHOT"
   packages="$(grep -vE '^\s*(#|$)' "$IMG_DIR/packages.txt" | paste -sd, -)"
   snap="http://snapshot.debian.org/archive"
@@ -118,7 +119,7 @@ if [[ ! -f "$TREE.done" ]]; then
     --dpkgopt='path-exclude=/usr/share/locale/*' \
     --dpkgopt='path-include=/usr/share/locale/locale.alias' \
     --customize-hook='mkdir -p "$1/tmp/agenthold-base"' \
-    --customize-hook="copy-in $IMG_DIR/versions.env $IMG_DIR/image.env $IMG_DIR/provision.sh $WORK/bun /tmp/agenthold-base" \
+    --customize-hook="copy-in $IMG_DIR/versions.env $IMG_DIR/image.env $IMG_DIR/provision.sh $WORK/bun $WORK/go.tar.gz /tmp/agenthold-base" \
     --customize-hook='chroot "$1" /bin/bash /tmp/agenthold-base/provision.sh' \
     --customize-hook='rm -rf "$1/tmp/agenthold-base" "$1/etc/resolv.conf" && touch "$1/etc/resolv.conf"' \
     "$DEBIAN_SUITE" "$TREE" \
@@ -203,12 +204,12 @@ fi
 base_key="$(bash "$REPO_ROOT/scripts/guest/base-key.sh")"
 jq -n --arg version "$BASE_VERSION" --arg arch "$ARCH" --arg file "$NAME.ext4" --argjson size "$size" \
   --arg sha256 "$sha" --argjson zstdSize "$zsize" --argjson zstdSha256 "$zsha" --argjson squashfsSize "$sqsize" \
-  --arg fsUuid "$FS_UUID" --arg debian "$DEBIAN_SUITE@$DEBIAN_SNAPSHOT" --arg bun "$BUN_VERSION" \
+  --arg fsUuid "$FS_UUID" --arg debian "$DEBIAN_SUITE@$DEBIAN_SNAPSHOT" --arg bun "$BUN_VERSION" --arg go "$GO_VERSION" \
   --arg baseKey "$base_key" --argjson treeMiB "$tree_mb" --argjson sde "$SOURCE_DATE_EPOCH" \
   '{version: $version, arch: $arch, format: "ext4", file: $file, size: $size, sha256: $sha256,
     zstd: (if $zstdSize == null then null else {file: ($file + ".zst"), size: $zstdSize, sha256: $zstdSha256} end),
     squashfsSize: $squashfsSize, fsUuid: $fsUuid, treeMiB: $treeMiB, sourceDateEpoch: $sde,
-    inputs: {debian: $debian, bun: $bun, baseKey: $baseKey}}' >"$OUT/$NAME.manifest.json"
+    inputs: {debian: $debian, bun: $bun, go: $go, baseKey: $baseKey}}' >"$OUT/$NAME.manifest.json"
 
 # Hand the outputs to the invoking user when run through sudo (the repo is theirs).
 if [[ -n "${SUDO_UID:-}" ]]; then chown -R "$SUDO_UID:${SUDO_GID:-$SUDO_UID}" "$OUT"; fi

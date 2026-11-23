@@ -264,6 +264,12 @@ const (
 	GitWorktreeAdd = "worktree_add" // add a worktree of Path for Branch at WorktreePath
 	GitPull        = "pull"         // fast-forward pull (FetchOnly: fetch --prune)
 	GitConfig      = "config"       // write the agent's commit identity
+	// GitPush pushes the branch Path is on (Force: --force-with-lease),
+	// setting its upstream on the first push.
+	GitPush = "push"
+	// GitWorktreeRemove removes the worktree at Path (Force: even when it
+	// has changes); the reply describes its main repository.
+	GitWorktreeRemove = "worktree_remove"
 )
 
 // GitRequest is the body of an OpGit stream. Paths are relative to the home
@@ -277,6 +283,7 @@ type GitRequest struct {
 	FromRef      string `json:"fromRef,omitempty"`
 	WorktreePath string `json:"worktreePath,omitempty"`
 	FetchOnly    bool   `json:"fetchOnly,omitempty"`
+	Force        bool   `json:"force,omitempty"`
 	AuthorName   string `json:"authorName,omitempty"`
 	AuthorEmail  string `json:"authorEmail,omitempty"`
 }

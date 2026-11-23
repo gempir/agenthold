@@ -75,6 +75,10 @@ func (d *Daemon) git(ctx context.Context, st net.Conn, o tunnel.Open) error {
 		reply, err = d.gitWorktreeAdd(ctx, req)
 	case tunnel.GitPull:
 		reply, err = d.gitPull(ctx, req)
+	case tunnel.GitPush:
+		reply, err = d.gitPush(ctx, req)
+	case tunnel.GitWorktreeRemove:
+		reply, err = d.gitWorktreeRemove(ctx, req)
 	case tunnel.GitConfig:
 		err = d.gitConfig(req)
 	default:
@@ -646,6 +650,86 @@ func (d *Daemon) gitPull(ctx context.Context, req tunnel.GitRequest) (tunnel.Git
 		return tunnel.GitReply{}, err
 	}
 	return d.repoReply(ctx, top, out)
+}
+
+func (d *Daemon) gitPush(ctx context.Context, req tunnel.GitRequest) (tunnel.GitReply, error) {
+	top, err := d.repoAt(ctx, req.Path)
+	if err != nil {
+		return tunnel.GitReply{}, err
+	}
+	if _, err := d.runGit(ctx, gitShortTimeout, top, "symbolic-ref", "-q", "HEAD"); err != nil {
+		return tunnel.GitReply{}, errors.New("push: HEAD is detached; switch to a branch first")
+	}
+	args := []string{"push"}
+	if req.Force {
+		args = append(args, "--force-with-lease")
+	}
+	if _, err := d.runGit(ctx, gitShortTimeout, top, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"); err != nil {
+		// No upstream yet: push to origin (or the only remote) and track it.
+		remote, err := d.pushRemote(ctx, top)
+		if err != nil {
+			return tunnel.GitReply{}, err
+		}
+		args = append(args, "--set-upstream", remote, "HEAD")
+	}
+	out, err := d.runGit(ctx, gitLongTimeout, top, args...)
+	if err != nil {
+		return tunnel.GitReply{}, err
+	}
+	return d.repoReply(ctx, top, out)
+}
+
+// pushRemote is the remote a branch without an upstream is pushed to:
+// origin, or the repository's only remote.
+func (d *Daemon) pushRemote(ctx context.Context, top string) (string, error) {
+	out, err := d.runGit(ctx, gitShortTimeout, top, "remote")
+	if err != nil {
+		return "", err
+	}
+	var remotes []string
+	for _, r := range strings.Fields(out) {
+		if r == "origin" {
+			return r, nil
+		}
+		if !strings.HasPrefix(r, "-") {
+			remotes = append(remotes, r)
+		}
+	}
+	switch len(remotes) {
+	case 0:
+		return "", errors.New("push: the repository has no remote")
+	case 1:
+		return remotes[0], nil
+	}
+	return "", fmt.Errorf("push: the branch has no upstream and there is no origin among the remotes %s; push once with git push -u <remote>", strings.Join(remotes, ", "))
+}
+
+func (d *Daemon) gitWorktreeRemove(ctx context.Context, req tunnel.GitRequest) (tunnel.GitReply, error) {
+	top, err := d.repoAt(ctx, req.Path)
+	if err != nil {
+		return tunnel.GitReply{}, err
+	}
+	repo, err := d.inspect(ctx, top)
+	if err != nil {
+		return tunnel.GitReply{}, err
+	}
+	if !repo.IsWorktree || repo.MainPath == "" {
+		return tunnel.GitReply{}, fmt.Errorf("worktree: %s is not a linked worktree of a repository in the home", top)
+	}
+	main, err := d.homePath(repo.MainPath)
+	if err != nil {
+		return tunnel.GitReply{}, err
+	}
+	args := []string{"worktree", "remove"}
+	if req.Force {
+		args = append(args, "--force")
+	}
+	args = append(args, "--", top)
+	out, err := d.runGit(ctx, gitShortTimeout, main, args...)
+	if err != nil {
+		return tunnel.GitReply{}, err
+	}
+	return d.repoReply(ctx, realPath(main), out)
 }
 
 // gitConfigValue quotes an INI value for a git config file.

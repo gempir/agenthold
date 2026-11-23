@@ -5,4 +5,4 @@
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
-{ sha256sum scripts/guest/build-rootfs.sh scripts/guest/install-bun.sh; find images/base -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -c1-32
+{ sha256sum scripts/guest/build-rootfs.sh scripts/guest/install-bun.sh scripts/guest/install-go.sh; find images/base -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -c1-32

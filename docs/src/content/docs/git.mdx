@@ -1,63 +1,175 @@
 ---
-title: "Git"
-description: "Git in agents: the base image's defaults, author identity, HTTPS credentials injected by the proxy, repositories and worktrees, and project and branch tracking on threads."
+title: "Git and GitHub"
+description: "Git and the GitHub CLI in agents: connecting your GitHub account, HTTPS credentials injected by the proxy, who can use them, repositories, branches and worktrees, and project and branch tracking on threads."
 ---
 
-Agents work in git repositories the way a developer does: they clone, switch branches, create worktrees and
-pull inside their home directory. The sandbox never holds a credential for a git host. Author identity and
-HTTPS tokens are set by the account and injected at the edge, so a repository can be pushed to without the
-agent ever seeing the token.
+Agents work in git repositories the way a developer does. They clone, switch branches, create worktrees, push
+and open pull requests with the GitHub CLI, all inside their home directory. The sandbox never holds a
+credential for a git host. Your account holds the author identity and the tokens, and the egress proxy adds
+the tokens to requests as they leave the sandbox. An agent can push to a repository and open a pull request
+without ever seeing the token.
 
-## Git in the base image
+## Git and the GitHub CLI in the base image
 
-The base image ships `git`, `git-lfs` and `openssh-client`. Their system-level defaults live in `/etc/gitconfig`,
-set when the image is built:
+The base image ships `git`, `git-lfs`, `openssh-client` and the GitHub CLI `gh` (Debian's package). The git
+defaults are in `/etc/gitconfig`, which is written when the image is built:
 
 - `init.defaultBranch main`, `push.autoSetupRemote true`, `advice.detachedHead false`, `core.autocrlf input`
-  and `safe.directory '*'`, so repositories owned by another user in the sandbox still work.
+  and `safe.directory '*'`. The last one keeps repositories that another user in the sandbox owns working.
 - `git lfs` is installed system-wide.
-- `include.path /etc/agenthold/gitconfig` and `/home/agent/.config/agenthold/gitconfig`, which hold the
-  author identity described below (delivered at boot and updated live on running agents). The image does not
-  ship those files.
+- `include.path /etc/agenthold/gitconfig` and `/home/agent/.config/agenthold/gitconfig` hold the
+  author identity described below. They are delivered at boot and updated live on running agents. The image
+  does not ship those files.
 
-Because these are system defaults, a user's `~/.gitconfig` and a repository's `.git/config` still override
-them. `GIT_TERMINAL_PROMPT=0` is set in every sandbox: git fails instead of waiting for a username or password
-at a terminal prompt, so a missing credential shows up as an error, not a hang.
+These are system defaults, so a user's `~/.gitconfig` and a repository's `.git/config` still override them.
+
+The environment of every sandbox sets a few more variables:
+
+| Variable | Value | Why |
+| --- | --- | --- |
+| `GIT_TERMINAL_PROMPT` | `0` | git fails instead of waiting for a username or password, so a missing credential shows up as an error, not a hang |
+| `GH_TOKEN`, `GH_ENTERPRISE_TOKEN` | `agenthold-proxy-github-token` | a marker, not a secret: `gh` needs a token before it sends anything, and the proxy replaces the marker (see [GitHub CLI](#github-cli)) |
+| `GH_PROMPT_DISABLED` | `1` | `gh` never asks interactive questions that an agent cannot answer. Pass flags instead, for example `gh pr create --title … --body …` |
+| `GH_NO_UPDATE_NOTIFIER`, `GH_NO_EXTENSION_UPDATE_NOTIFIER` | `1` | no update notices in agent output |
+
+A secret attached to the agent may set `GH_TOKEN` itself (see [precedence](#who-can-use-your-credentials)).
 
 ## Author identity
 
-**Settings → Git** sets the name and email that commits in your agents carry (`GET` and `PUT /api/v1/me/git`).
-Empty values fall back to your agenthold profile name and email. The effective identity is delivered to
-`/etc/agenthold/gitconfig` in the sandbox.
+**Settings → Git** sets the name and email on commits made in your agents (`GET` and `PUT /api/v1/me/git`).
+An empty value falls back to the name or email in your agenthold profile. agenthold writes the resulting
+identity to `/etc/agenthold/gitconfig` in the sandbox.
+
+## Connect GitHub
+
+When the server has a GitHub app configured ([for operators](#set-up-connect-github)), **Settings → Git**
+shows a **GitHub** card:
+
+1. Select **Connect GitHub**. agenthold asks GitHub for a sign-in code and shows it, for example `WXYZ-0001`.
+2. Select **Open GitHub**, sign in if needed, enter the code and approve the access.
+3. The page notices the approval within a few seconds and shows **Connected as** with your GitHub login.
+
+This is GitHub's [device flow](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow).
+agenthold, not your browser, polls GitHub. The browser gets only the short user code. The device code stays
+on the server, and only you can poll or cancel a connection attempt you started. A code expires after 15
+minutes, and a new attempt replaces the previous one.
+
+The token GitHub issues is stored like a pasted token: as your credential for `github.com` (or the server's
+GitHub Enterprise host), encrypted at rest with the master key and never returned by the API. Connecting
+replaces a token you stored for that host before, and pasting a token later replaces the connection. When
+the server has the app's client secret, a connected token that gets replaced (by reconnecting or by a pasted
+token) is revoked at GitHub.
+
+- **Expiring tokens.** If the server uses a GitHub App with expiring user tokens, agenthold refreshes the
+  token on the server about 15 minutes before it expires. The refresh token is sealed like the token and never
+  reaches a sandbox. If a refresh fails, the audit log records `git.github.refresh_failed` and the token keeps
+  working until it expires. After that, select **Reconnect GitHub**.
+- **Disconnect** deletes the credential. When the server has the app's client secret, it also revokes the
+  token at GitHub, so the token stops working everywhere, not only in agenthold.
+- The audit log records `git.github.connect` with the account, the granted scopes and whether the token
+  expires.
+
+The API equivalents are `POST /api/v1/me/git/github/device` (start), `POST /api/v1/me/git/github/device/{flowId}`
+(poll: `pending`, `connected`, `denied` or `expired`) and `DELETE` on the same path (cancel). `GET /api/v1/me/git`
+reports under `github` whether the server can connect accounts, and for which host.
 
 ## Credentials for HTTPS hosts
 
-**Settings → Git** also stores HTTPS credentials per host (`POST /api/v1/me/git/credentials`): a token for
-GitHub, GitLab or a custom Git host, with an optional label and username. The token is encrypted at rest with the
-master key, like other [secrets](/egress/#secrets).
+**Settings → Git** also stores pasted HTTPS credentials per host (`POST /api/v1/me/git/credentials`). Use
+this for a GitHub token when the server has no GitHub app, or for GitLab or a custom git host. A credential is a
+token with an optional label and username, encrypted at rest with the master key like other
+[secrets](/egress/#secrets).
 
-The egress proxy injects the credential into the HTTPS requests git sends to that host (and `api.github.com`
-for `github.com`). Presets set the HTTP Basic username (`x-access-token` for GitHub, `oauth2` for GitLab,
-`git` otherwise), and you can override it. The token never enters the sandbox, and the proxy adds the
-`Authorization` header only for requests to the configured host.
+The egress proxy adds the credential as HTTP Basic auth to HTTPS requests for that host. For `github.com` it
+also covers `api.github.com` and `uploads.github.com`, where `gh` and scripts send API calls and release
+uploads. The presets set the username: `x-access-token` for GitHub, `oauth2` for GitLab and `git` for other
+hosts. You can override it. The token never enters the sandbox, and the proxy adds the `Authorization` header
+only to requests for the credential's hosts. It never adds it to plain HTTP.
 
-An explicit secret attached to the agent for the same host takes precedence over an account credential. Remove a
-credential with `DELETE /api/v1/me/git/credentials/{credentialId}`.
+Remove a credential with `DELETE /api/v1/me/git/credentials/{credentialId}`.
+
+## GitHub CLI
+
+`gh` works in every agent without `gh auth login`:
+
+```sh
+gh auth status                       # shows the connected account
+gh repo clone owner/repo
+gh pr create --fill                  # or --title … --body …
+gh pr checks --watch
+gh api repos/owner/repo/issues
+```
+
+`gh` sends the marker from `GH_TOKEN` in its `Authorization` header. When the agent's owner has a credential for
+`github.com`, the proxy replaces the whole header with that credential, so GitHub sees the owner's token. When
+there is none, the proxy answers the request itself with `401` and a message that says to connect GitHub in
+**Settings → Git**. GitHub itself would only answer "Bad credentials". Git over HTTPS uses the same credential, so
+`git push` and `gh pr create` act as the same account. `gh` uses HTTPS for git by default. Keep it that way: SSH
+remotes get no credential from agenthold.
+
+Two cases need a change inside the sandbox:
+
+- **Your own login inside the sandbox.** If you prefer `gh auth login` there, run `unset GH_TOKEN` first,
+  because `gh` uses `GH_TOKEN` when it is set. The token then lives in the agent's home and the agent can read
+  it. If the owner also has a `github.com` credential, the proxy still replaces the header with that credential.
+- **GitHub Enterprise Server.** Set `GH_HOST=ghe.example.com` (or pass `--hostname`). `GH_ENTERPRISE_TOKEN`
+  already holds the marker, and the proxy injects the credential for that host, both for git and for its
+  `/api/v3` API.
+
+## Who can use your credentials
+
+Credentials belong to one user and only serve the agents that user **owns**:
+
+- The proxy adds your GitHub or HTTPS credential only to requests from agents whose owner is you. Other users'
+  agents never get it, even on the same node.
+- **Sharing gives your access to whoever can prompt the agent.** Someone you share an agent with can ask it to
+  push, open pull requests or call the GitHub API, and those requests carry *your* token. Share agents that hold
+  credentials only with people you would trust with that access, or give the agent a narrower token (see below).
+- An [explicit secret](/egress/#secrets) attached to the agent for the same host wins over your account
+  credential. Use one to give a single agent a narrower token, for example a fine-grained personal access token
+  limited to one repository. If the secret sets the `GH_TOKEN` environment variable, `gh` sends its placeholder
+  instead of the marker.
+- Prefer narrow grants. A GitHub App lets you pick the repositories at install time, and its tokens expire. An
+  OAuth App token can reach everything your account can, within its scopes. A pasted token can be a
+  fine-grained token limited to some repositories.
+- Anything an agent can reach with the token, it can also change, and a prompt-injected agent can misuse it.
+  The proxy keeps the token out of the sandbox, so it cannot be copied out and reused elsewhere. It does not
+  limit what the agent does with GitHub while it runs.
 
 ## Repositories, branches and worktrees
 
-Open an agent and use the **Git** tab in the agent panel, or the Git section of agent settings. It shows what is
-in the agent's home directory:
+Open an agent and use the **Git** tab in the agent panel, or the Git section of the agent settings. It shows the
+repositories in the agent's home directory:
 
-- **Discovery.** agenthold lists the git repositories and worktrees under `/home/agent`, with their branch, whether
-  they are detached, dirty, or ahead and behind their remote (`GET /api/v1/agents/{agentId}/git/repos`). The
-  list needs a running agent.
-- **Clone.** Clone a repository into the home directory by URL (`POST .../git/clone`).
+- **Discovery.** agenthold lists the git repositories and worktrees under `/home/agent` with their branch and
+  whether each is detached, dirty, or ahead of or behind its remote (`GET /api/v1/agents/{agentId}/git/repos`).
+  The list needs a running agent.
+- **Clone.** Clone a repository by URL into the home directory (`POST .../git/clone`). The default folder is
+  `projects/<name>`.
 - **Branches.** Switch to an existing branch or create a new one (`POST .../git/checkout`). The status of a
   directory lists its branches (`GET .../git/status`).
-- **Worktrees.** Create a git worktree on a branch of a repository in the agent (`POST .../git/worktrees`), so
-  several threads can work on different branches of one clone.
-- **Pull.** Fast-forward a repository from its remote (`POST .../git/pull`).
+- **Worktrees.** Create a git worktree of a repository on a branch (`POST .../git/worktrees`). The default
+  location is `.worktrees/<repo>/<branch>`, so several threads can work on different branches of one clone.
+  **Remove worktree** deletes a linked worktree and keeps its branch (`POST .../git/worktrees/remove`). A
+  worktree with uncommitted changes is removed only after you confirm (`force`), which discards those changes.
+- **Pull.** Fast-forward a repository from its remote, or only fetch (`POST .../git/pull`).
+- **Push.** Push the current branch (`POST .../git/push`). A branch without an upstream is pushed to `origin`
+  (or to the only remote) and then tracks it. `force` pushes with `--force-with-lease`. Detached HEADs are
+  refused.
+
+Changing actions need prompt access to the agent, and the audit log records them (`git.clone`, `git.checkout`,
+`git.worktree_add`, `git.worktree_remove`, `git.pull`, `git.push`). The agent uses the same commands in its
+shell. A typical parallel workflow inside the agent is:
+
+```sh
+cd ~/projects/app
+git worktree add -b fix/login ../../.worktrees/app/fix-login origin/main
+cd ~/.worktrees/app/fix-login
+# … change, test, commit …
+git push                               # push.autoSetupRemote sets the upstream
+gh pr create --fill
+git -C ~/projects/app worktree remove ~/.worktrees/app/fix-login
+```
 
 ## Projects and branches on threads
 
@@ -65,8 +177,46 @@ A thread can start in a repository. When you create a thread (`POST /api/v1/agen
 the repository, a `gitBranch` (with `createBranch` to create it if it does not exist) and `createWorktree` to give
 the thread its own worktree on that branch.
 
-agenthold detects the thread's project and branch from the running sandbox after each turn, so the branch shown
+After each turn, agenthold reads the thread's project and branch from the running sandbox, so the branch shown
 follows what the agent actually checked out. `PATCH /api/v1/sessions/{sessionId}/git` changes the thread's working
-directory or re-detects the project and branch on demand.
+directory or reads the project and branch again on demand.
 
 The sidebar shows each thread's project and branch, and you can search by either.
+
+## Set up Connect GitHub
+
+Connect GitHub needs an app on GitHub with the device flow enabled. agenthold uses no callback URL for it, so
+the app can be separate from the one used for [GitHub sign-in](/auth-github/).
+
+**A GitHub App (recommended).** Its tokens act for the user but are limited to the repositories where the app
+is installed and to the permissions you give the app, and they expire.
+
+1. GitHub: Settings → Developer settings → GitHub Apps → New GitHub App (or the same under an organization).
+2. Homepage URL: your `public_url`. Callback URL: leave it empty. Turn off **Webhook**.
+3. Check **Enable Device Flow**. Leave **Expire user authorization tokens** on.
+4. Repository permissions: *Contents* read and write, *Pull requests* read and write, *Metadata* read, plus
+   *Issues*, *Workflows* or *Actions* as your agents need them.
+5. Create the app, note its **Client ID** and generate a **client secret**. The secret lets agenthold refresh the
+   expiring tokens and revoke them on disconnect. Without it, users reconnect when a token expires, after about
+   8 hours.
+6. Install the app on the accounts and repositories your agents should reach. Users can install it from the
+   app's public page.
+
+**An OAuth App.** It is simpler, but its tokens do not expire and reach every repository the user can reach, within
+the scopes. Create it under Developer settings → OAuth Apps, enter any callback URL (the device flow does not
+use it) and check **Enable Device Flow**. agenthold asks for `repo`, `read:org`, `workflow` and `gist` unless
+you set `scopes`.
+
+```yaml
+git:
+  github:
+    client_id: ${GITHUB_CONNECT_CLIENT_ID}
+    client_secret: ${GITHUB_CONNECT_CLIENT_SECRET}  # optional: refresh and revoke
+    # scopes: [repo, read:org, workflow]           # OAuth Apps only; GitHub Apps ignore scopes
+    # GitHub Enterprise Server:
+    # url: https://ghe.example.com                 # api_url defaults to <url>/api/v3
+```
+
+`url` and `api_url` must use HTTPS. Connected credentials are stored for the host of `url`, so a GitHub
+Enterprise connection covers that host and its API. Without `client_id`, the GitHub card is hidden and pasted
+tokens work as before.

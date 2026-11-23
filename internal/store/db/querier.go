@@ -163,6 +163,7 @@ type Querier interface {
 	ListNodeSandboxes(ctx context.Context, nodeID string) ([]Sandbox, error)
 	ListNodes(ctx context.Context) ([]Node, error)
 	ListProviderLogins(ctx context.Context) ([]ProviderLogin, error)
+	ListRefreshableGitCredentials(ctx context.Context, expiresAt int64) ([]GitCredential, error)
 	ListSandboxSubnets(ctx context.Context) ([]ListSandboxSubnetsRow, error)
 	ListSandboxes(ctx context.Context) ([]Sandbox, error)
 	ListServices(ctx context.Context, agentID string) ([]Service, error)
@@ -192,6 +193,7 @@ type Querier interface {
 	PutSlackUser(ctx context.Context, arg PutSlackUserParams) error
 	RecordScheduleRun(ctx context.Context, arg RecordScheduleRunParams) error
 	RecordWebhookDelivery(ctx context.Context, arg RecordWebhookDeliveryParams) error
+	RefreshGitCredential(ctx context.Context, arg RefreshGitCredentialParams) (int64, error)
 	ReleaseExposureName(ctx context.Context, arg ReleaseExposureNameParams) error
 	RenameSession(ctx context.Context, arg RenameSessionParams) error
 	ReplaceProviderLogin(ctx context.Context, arg ReplaceProviderLoginParams) error

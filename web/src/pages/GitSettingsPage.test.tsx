@@ -14,6 +14,7 @@ const cred = (over: Partial<GitCredential> = {}): GitCredential => ({
   host: 'github.com',
   username: 'x-access-token',
   label: 'work',
+  source: 'token',
   createdAt: '2030-01-01T00:00:00Z',
   updatedAt: '2030-01-02T00:00:00Z',
   ...over,
@@ -24,6 +25,7 @@ const settings = (over: Partial<GitSettings> = {}): GitSettings => ({
   defaultAuthorName: 'Alice',
   defaultAuthorEmail: 'a@x.io',
   credentials: [],
+  github: { enabled: false, host: '' },
   ...over,
 });
 
@@ -218,7 +220,9 @@ it('the Git tab clones a repository and links to the credentials', async () => {
   renderApp('/a/a1/settings?tab=git');
   const form = await screen.findByRole('form', { name: 'Clone repository' });
   expect(
-    within(form).getByRole('link', { name: 'add an HTTPS credential' }),
+    within(form).getByRole('link', {
+      name: 'connect GitHub or add an HTTPS token',
+    }),
   ).toHaveAttribute('href', '/settings/git');
   const user = userEvent.setup();
   await user.type(
@@ -290,5 +294,130 @@ it('the Git tab switches branches and creates a worktree', async () => {
       create: true,
       fromRef: 'main',
     }),
+  );
+});
+
+it('hides Connect GitHub when the server has no GitHub app', async () => {
+  mockApi({ 'GET /me': me, 'GET /me/git': settings() });
+  renderApp('/settings/git');
+  await screen.findByRole('region', { name: 'Author identity' });
+  expect(screen.queryByRole('region', { name: 'GitHub' })).toBeNull();
+});
+
+it('connects GitHub with the device flow and disconnects it', async () => {
+  let creds: GitCredential[] = [];
+  let polls = 0;
+  let approved = false;
+  stubGlobal('confirm', () => true);
+  const { calls } = mockApi({
+    'GET /me': me,
+    'GET /me/git': () => ({
+      body: settings({
+        credentials: creds,
+        github: { enabled: true, host: 'github.com' },
+      }),
+    }),
+    'POST /me/git/github/device': () => ({
+      status: 201,
+      body: {
+        id: 'ghf_1',
+        userCode: 'WXYZ-0001',
+        verificationUri: 'https://github.com/login/device',
+        expiresAt: '2030-01-01T00:15:00Z',
+        interval: 0,
+      },
+    }),
+    'POST /me/git/github/device/ghf_1': () => {
+      polls++;
+      if (!approved) return { body: { status: 'pending' } };
+      creds = [
+        cred({
+          id: 'gh1',
+          source: 'github',
+          account: 'ada-gh',
+          label: '@ada-gh',
+          scopes: 'repo',
+        }),
+      ];
+      return { body: { status: 'connected', credential: creds[0] } };
+    },
+    'DELETE /me/git/credentials/gh1': () => {
+      creds = [];
+      return { status: 204 };
+    },
+  });
+  renderApp('/settings/git');
+  const card = await screen.findByRole('region', { name: 'GitHub' });
+  const user = userEvent.setup();
+  await user.click(
+    within(card).getByRole('button', { name: 'Connect GitHub' }),
+  );
+  expect(await within(card).findByText('WXYZ-0001')).toBeVisible();
+  expect(
+    within(card).getByRole('link', { name: 'Open GitHub' }),
+  ).toHaveAttribute('href', 'https://github.com/login/device');
+  await waitFor(() => expect(polls).toBeGreaterThan(0));
+  approved = true;
+  expect(await within(card).findByText('ada-gh')).toBeVisible();
+  expect(within(card).queryByText('WXYZ-0001')).toBeNull();
+  expect(
+    within(card).getByRole('button', { name: 'Reconnect GitHub' }),
+  ).toBeVisible();
+
+  await user.click(within(card).getByRole('button', { name: 'Disconnect' }));
+  await waitFor(() =>
+    expect(calls.some((c) => c.key === 'DELETE /me/git/credentials/gh1')).toBe(
+      true,
+    ),
+  );
+  expect(
+    await within(card).findByRole('button', { name: 'Connect GitHub' }),
+  ).toBeVisible();
+});
+
+it('the Git tab pushes a branch and removes a worktree', async () => {
+  stubGlobal('confirm', () => true);
+  const { calls } = mockApi({
+    'GET /me': me,
+    'GET /agents/a1': agent(),
+    'GET /agents/a1/git/repos': {
+      connected: true,
+      repos: [
+        repo({ remoteUrl: 'https://github.com/o/web.git', ahead: 1 }),
+        repo({
+          path: '.worktrees/web/feat-x',
+          branch: 'feat/x',
+          isWorktree: true,
+          dirty: true,
+          mainPath: 'projects/web',
+          remoteUrl: 'https://github.com/o/web.git',
+        }),
+      ],
+    },
+    'POST /agents/a1/git/push': repo(),
+    'POST /agents/a1/git/worktrees/remove': repo(),
+  });
+  renderApp('/a/a1/settings?tab=git');
+  const main = await screen.findByRole('article', { name: 'projects/web' });
+  expect(
+    within(main).queryByRole('button', { name: /Remove worktree/ }),
+  ).toBeNull();
+  const user = userEvent.setup();
+  await user.click(within(main).getByRole('button', { name: 'Push' }));
+  await waitFor(() =>
+    expect(
+      calls.find((c) => c.key === 'POST /agents/a1/git/push')?.body,
+    ).toEqual({ path: 'projects/web' }),
+  );
+  const wt = screen.getByRole('article', { name: '.worktrees/web/feat-x' });
+  await user.click(
+    within(wt).getByRole('button', {
+      name: 'Remove worktree .worktrees/web/feat-x',
+    }),
+  );
+  await waitFor(() =>
+    expect(
+      calls.find((c) => c.key === 'POST /agents/a1/git/worktrees/remove')?.body,
+    ).toEqual({ path: '.worktrees/web/feat-x', force: true }),
   );
 });

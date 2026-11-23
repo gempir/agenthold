@@ -31,15 +31,38 @@ func gitError(err error) error {
 		return badRequest(err.Error())
 	case errors.Is(err, git.ErrNotFound):
 		return errNotFound
+	case errors.Is(err, git.ErrFlowNotFound):
+		return errStatus(http.StatusNotFound, err.Error())
+	case errors.Is(err, git.ErrGitHubDisabled):
+		return errStatus(http.StatusServiceUnavailable, err.Error())
 	}
 	return err
 }
 
+// githubError turns a failure talking to GitHub into a 502 the user can read.
+func githubError(err error) error {
+	if errors.Is(err, git.ErrFlowNotFound) || errors.Is(err, git.ErrGitHubDisabled) || errors.Is(err, git.ErrInvalid) {
+		return gitError(err)
+	}
+	return errStatus(http.StatusBadGateway, err.Error())
+}
+
 func apiGitCredential(c git.Credential) gen.GitCredential {
-	return gen.GitCredential{
-		Id: c.ID, Host: c.Host, Username: c.Username, Label: c.Label,
+	out := gen.GitCredential{
+		Id: c.ID, Host: c.Host, Username: c.Username, Label: c.Label, Source: gen.GitCredentialSource(c.Source),
 		CreatedAt: ts(c.CreatedAt), UpdatedAt: ts(c.UpdatedAt),
 	}
+	if c.Account != "" {
+		out.Account = &c.Account
+	}
+	if c.Scopes != "" {
+		out.Scopes = &c.Scopes
+	}
+	if c.ExpiresAt > 0 {
+		e := ts(c.ExpiresAt)
+		out.ExpiresAt = &e
+	}
+	return out
 }
 
 func apiGitRepo(r tunnel.GitRepo) gen.GitRepo {
@@ -110,6 +133,10 @@ func (a *API) gitSettings(ctx context.Context) (gen.GitSettings, error) {
 		AuthorName: s.AuthorName, AuthorEmail: s.AuthorEmail,
 		DefaultAuthorName: s.DefaultAuthorName, DefaultAuthorEmail: s.DefaultAuthorEmail,
 		Credentials: []gen.GitCredential{},
+		Github:      gen.GitHubConnectInfo{},
+	}
+	if gh := a.Git.GitHub; gh != nil && gh.Config.Enabled() {
+		out.Github = gen.GitHubConnectInfo{Enabled: true, Host: gh.Config.Host()}
 	}
 	for _, c := range s.Credentials {
 		out.Credentials = append(out.Credentials, apiGitCredential(c))
@@ -190,6 +217,46 @@ func (a *API) DeleteGitCredential(ctx context.Context, req gen.DeleteGitCredenti
 		return nil, gitError(err)
 	}
 	return gen.DeleteGitCredential204Response{}, nil
+}
+
+// StartGitHubConnect implements gen.StrictServerInterface.
+func (a *API) StartGitHubConnect(ctx context.Context, _ gen.StartGitHubConnectRequestObject) (gen.StartGitHubConnectResponseObject, error) {
+	if a.Git == nil {
+		return nil, errGitUnavailable
+	}
+	f, err := a.Git.StartGitHub(ctx, me(ctx).ID)
+	if err != nil {
+		return nil, githubError(err)
+	}
+	return gen.StartGitHubConnect201JSONResponse{
+		Id: f.ID, UserCode: f.UserCode, VerificationUri: f.VerificationURI, ExpiresAt: ts(f.ExpiresAt), Interval: f.Interval,
+	}, nil
+}
+
+// PollGitHubConnect implements gen.StrictServerInterface.
+func (a *API) PollGitHubConnect(ctx context.Context, req gen.PollGitHubConnectRequestObject) (gen.PollGitHubConnectResponseObject, error) {
+	if a.Git == nil {
+		return nil, errGitUnavailable
+	}
+	r, err := a.Git.PollGitHub(ctx, me(ctx).ID, req.FlowId)
+	if err != nil {
+		return nil, githubError(err)
+	}
+	out := gen.PollGitHubConnect200JSONResponse{Status: gen.GitHubDevicePollStatus(r.Status)}
+	if r.Credential != nil {
+		c := apiGitCredential(*r.Credential)
+		out.Credential = &c
+	}
+	return out, nil
+}
+
+// CancelGitHubConnect implements gen.StrictServerInterface.
+func (a *API) CancelGitHubConnect(ctx context.Context, req gen.CancelGitHubConnectRequestObject) (gen.CancelGitHubConnectResponseObject, error) {
+	if a.Git == nil {
+		return nil, errGitUnavailable
+	}
+	a.Git.CancelGitHub(me(ctx).ID, req.FlowId)
+	return gen.CancelGitHubConnect204Response{}, nil
 }
 
 // ListAgentGitRepos implements gen.StrictServerInterface.
@@ -360,6 +427,45 @@ func (a *API) PullAgentGitRepo(ctx context.Context, req gen.PullAgentGitRepoRequ
 		return nil, err
 	}
 	return gen.PullAgentGitRepo200JSONResponse(apiGitRepo(repo)), nil
+}
+
+// PushAgentGitRepo implements gen.StrictServerInterface.
+func (a *API) PushAgentGitRepo(ctx context.Context, req gen.PushAgentGitRepoRequestObject) (gen.PushAgentGitRepoResponseObject, error) {
+	if req.Body == nil {
+		return nil, badRequest("body is required")
+	}
+	p, err := cleanRelPath("path", req.Body.Path)
+	if err != nil {
+		return nil, err
+	}
+	repo, err := a.gitAction(ctx, req.AgentId, audit.GitPush, tunnel.GitRequest{
+		Action: tunnel.GitPush, Path: p, Force: deref(req.Body.Force),
+	}, map[string]any{"force": deref(req.Body.Force)})
+	if err != nil {
+		return nil, err
+	}
+	return gen.PushAgentGitRepo200JSONResponse(apiGitRepo(repo)), nil
+}
+
+// RemoveAgentGitWorktree implements gen.StrictServerInterface.
+func (a *API) RemoveAgentGitWorktree(ctx context.Context, req gen.RemoveAgentGitWorktreeRequestObject) (gen.RemoveAgentGitWorktreeResponseObject, error) {
+	if req.Body == nil {
+		return nil, badRequest("body is required")
+	}
+	p, err := cleanRelPath("path", req.Body.Path)
+	if err != nil {
+		return nil, err
+	}
+	if p == "" {
+		return nil, badRequest("path must name a worktree")
+	}
+	repo, err := a.gitAction(ctx, req.AgentId, audit.GitWorktreeRemove, tunnel.GitRequest{
+		Action: tunnel.GitWorktreeRemove, Path: p, Force: deref(req.Body.Force),
+	}, map[string]any{"worktree": p, "force": deref(req.Body.Force)})
+	if err != nil {
+		return nil, err
+	}
+	return gen.RemoveAgentGitWorktree200JSONResponse(apiGitRepo(repo)), nil
 }
 
 // UpdateSessionGit implements gen.StrictServerInterface.

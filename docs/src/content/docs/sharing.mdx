@@ -28,6 +28,9 @@ effect at once, including for live session streams.
 
 Shared users have a terminal, so they can read everything inside the sandbox, including a harness login made
 there. They never see secret values or the owner's provider login credentials: those stay on the server.
+They do act with them, though: the agent's requests carry the owner's secrets and the owner's
+[git and GitHub credentials](/git/#who-can-use-your-credentials), so a shared user can have it push or open pull
+requests as the owner.
 
 ## Provider logins of shared agents
 

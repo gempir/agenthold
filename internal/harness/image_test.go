@@ -6,6 +6,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -140,7 +141,7 @@ func TestBaseImageIncludesGit(t *testing.T) {
 		}
 		have[line] = true
 	}
-	for _, p := range []string{"git", "git-lfs"} {
+	for _, p := range []string{"git", "git-lfs", "gh", "build-essential", "make"} {
 		if !have[p] {
 			t.Errorf("images/base/packages.txt does not install %s", p)
 		}
@@ -150,8 +151,21 @@ func TestBaseImageIncludesGit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(strings.Split(string(env), "\n"), "GIT_TERMINAL_PROMPT=0") {
-		t.Error("images/base/image.env does not set GIT_TERMINAL_PROMPT=0")
+	lines := strings.Split(string(env), "\n")
+	for _, want := range []string{"GIT_TERMINAL_PROMPT=0", "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1"} {
+		if !slices.Contains(lines, want) {
+			t.Errorf("images/base/image.env does not set %s", want)
+		}
+	}
+	for _, l := range lines {
+		// The GitHub CLI's token is a per-sandbox marker from the server
+		// (egress.GitHubCLIEnv), never a value baked into the image.
+		if strings.HasPrefix(l, "GH_TOKEN=") || strings.HasPrefix(l, "GH_ENTERPRISE_TOKEN=") {
+			t.Errorf("images/base/image.env sets %s", l)
+		}
+		if p, ok := strings.CutPrefix(l, "PATH="); ok && !slices.Contains(strings.Split(p, ":"), "/usr/local/go/bin") {
+			t.Errorf("images/base/image.env PATH misses Go: %s", p)
+		}
 	}
 
 	prov, err := os.ReadFile("../../images/base/provision.sh")
@@ -161,6 +175,56 @@ func TestBaseImageIncludesGit(t *testing.T) {
 	if !strings.Contains(string(prov), "git config --system include.path /etc/agenthold/gitconfig") {
 		t.Error("images/base/provision.sh does not include /etc/agenthold/gitconfig in the system git config")
 	}
+}
+
+// Go is pinned for both architectures, at least at the go.mod's language
+// version, so agents can build the projects they work on (agenthold too).
+func TestBaseImagePinsGo(t *testing.T) {
+	versions := readText(t, "../../images/base/versions.env")
+	vals := map[string]string{}
+	for line := range strings.SplitSeq(versions, "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok && !strings.HasPrefix(k, "#") {
+			vals[k] = v
+		}
+	}
+	for _, k := range []string{"GO_SHA256_ARM64", "GO_SHA256_X64"} {
+		if len(vals[k]) != 64 {
+			t.Errorf("versions.env %s = %q, want a sha256", k, vals[k])
+		}
+	}
+	goMod := readText(t, "../../go.mod")
+	var want string
+	for line := range strings.SplitSeq(goMod, "\n") {
+		if v, ok := strings.CutPrefix(line, "go "); ok {
+			want = strings.TrimSpace(v)
+		}
+	}
+	if vals["GO_VERSION"] == "" || semverLess(vals["GO_VERSION"], want) {
+		t.Errorf("versions.env GO_VERSION = %q, older than go.mod's go %s", vals["GO_VERSION"], want)
+	}
+	for _, f := range []string{"../../scripts/guest/build-rootfs.sh", "../../scripts/guest/base-key.sh"} {
+		if !strings.Contains(readText(t, f), "install-go.sh") {
+			t.Errorf("%s does not use install-go.sh", f)
+		}
+	}
+}
+
+// semverLess compares dotted numeric versions.
+func semverLess(a, b string) bool {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < max(len(as), len(bs)); i++ {
+		var x, y int
+		if i < len(as) {
+			x, _ = strconv.Atoi(as[i])
+		}
+		if i < len(bs) {
+			y, _ = strconv.Atoi(bs[i])
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
 }
 
 func readJSON(t *testing.T, path string, v any) {

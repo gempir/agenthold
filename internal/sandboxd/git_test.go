@@ -343,3 +343,67 @@ func TestGitConfig(t *testing.T) {
 		t.Fatalf("config not removed: %v", err)
 	}
 }
+
+func TestGitPushAndWorktreeRemove(t *testing.T) {
+	requireGit(t)
+	s, home := setup(t)
+	origin := newOrigin(t)
+	gitReq(t, s, tunnel.GitRequest{Action: tunnel.GitClone, URL: origin})
+	repo := filepath.Join(home, "projects/origin")
+
+	// a new branch has no upstream: the first push sets it on origin
+	gitReq(t, s, tunnel.GitRequest{Action: tunnel.GitCheckout, Path: "projects/origin", Branch: "feature/push", Create: true})
+	commit(t, repo, "pushed.txt", "p")
+	r := gitReq(t, s, tunnel.GitRequest{Action: tunnel.GitPush, Path: "projects/origin"})
+	if r.Repo == nil || r.Repo.Branch != "feature/push" || r.Repo.Ahead != 0 {
+		t.Fatalf("push = %+v", r.Repo)
+	}
+	if got := strings.TrimSpace(gitT(t, origin, "rev-parse", "feature/push")); got != strings.TrimSpace(gitT(t, repo, "rev-parse", "HEAD")) {
+		t.Fatalf("origin has %s for the pushed branch", got)
+	}
+	// later pushes use the upstream
+	commit(t, repo, "again.txt", "a")
+	if r = gitReq(t, s, tunnel.GitRequest{Action: tunnel.GitPush, Path: "projects/origin"}); r.Repo.Ahead != 0 {
+		t.Fatalf("second push = %+v", r.Repo)
+	}
+	// a rewritten branch needs Force (--force-with-lease)
+	gitT(t, repo, "commit", "-q", "--amend", "-m", "rewritten")
+	if _, err := s.Git(t.Context(), tunnel.GitRequest{Action: tunnel.GitPush, Path: "projects/origin"}); err == nil {
+		t.Fatal("non-fast-forward push succeeded without force")
+	}
+	gitReq(t, s, tunnel.GitRequest{Action: tunnel.GitPush, Path: "projects/origin", Force: true})
+	// detached HEAD is refused
+	gitT(t, repo, "checkout", "-q", "--detach")
+	if _, err := s.Git(t.Context(), tunnel.GitRequest{Action: tunnel.GitPush, Path: "projects/origin"}); err == nil || !strings.Contains(err.Error(), "detached") {
+		t.Fatalf("detached push: %v", err)
+	}
+	gitT(t, repo, "checkout", "-q", "main")
+
+	// worktrees: removing the main repository is refused; a dirty worktree needs Force
+	gitReq(t, s, tunnel.GitRequest{Action: tunnel.GitWorktreeAdd, Path: "projects/origin", Branch: "wt/rm", Create: true})
+	if _, err := s.Git(t.Context(), tunnel.GitRequest{Action: tunnel.GitWorktreeRemove, Path: "projects/origin"}); err == nil {
+		t.Fatal("removing the main repository as a worktree succeeded")
+	}
+	wt := filepath.Join(home, ".worktrees/origin/wt-rm")
+	if err := os.WriteFile(filepath.Join(wt, "dirty.txt"), []byte("d"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Git(t.Context(), tunnel.GitRequest{Action: tunnel.GitWorktreeRemove, Path: ".worktrees/origin/wt-rm"}); err == nil {
+		t.Fatal("removing a dirty worktree succeeded without force")
+	}
+	r = gitReq(t, s, tunnel.GitRequest{Action: tunnel.GitWorktreeRemove, Path: ".worktrees/origin/wt-rm", Force: true})
+	if r.Repo == nil || r.Repo.Path != "projects/origin" || r.Repo.IsWorktree {
+		t.Fatalf("worktree remove = %+v", r.Repo)
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Fatalf("worktree still exists: %v", err)
+	}
+	// the branch stays
+	found := false
+	for _, b := range r.Branches {
+		found = found || b == "wt/rm"
+	}
+	if !found {
+		t.Fatalf("branches after removing the worktree = %v", r.Branches)
+	}
+}

@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -321,7 +323,7 @@ func TestEgress(t *testing.T) {
 	check("github.com", "x-access-token", "ghp")
 	check("gitlab.com", "oauth2", "glpat")
 	check("git.example.com", "me", "tok")
-	if hosts := byHost["github.com"].Rule.Hosts; len(hosts) != 2 || hosts[1] != "api.github.com" {
+	if hosts := byHost["github.com"].Rule.Hosts; strings.Join(hosts, ",") != "github.com,api.github.com,uploads.github.com" {
 		t.Fatalf("github hosts = %v", hosts)
 	}
 	if hosts := byHost["gitlab.com"].Rule.Hosts; len(hosts) != 1 {
@@ -334,7 +336,8 @@ func TestEgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := f.st.UpdateGitCredential(ctx, db.UpdateGitCredentialParams{
-		Username: glRow.Username, Ciphertext: []byte("garbage-garbage-garbage-garbage"), Label: glRow.Label, UpdatedAt: glRow.UpdatedAt, ID: glRow.ID,
+		Username: glRow.Username, Ciphertext: []byte("garbage-garbage-garbage-garbage"), Label: glRow.Label, Source: glRow.Source,
+		RefreshCiphertext: []byte{}, UpdatedAt: glRow.UpdatedAt, ID: glRow.ID,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -382,5 +385,57 @@ func TestDirectoryPrecedence(t *testing.T) {
 	}
 	if len(ids) != 2 || ids[0] != "sec_1" || !strings.HasPrefix(ids[1], "git:") {
 		t.Fatalf("injections = %v", ids)
+	}
+}
+
+// The GitHub CLI's token marker: with no credential for api.github.com the
+// proxy answers gh itself (how to connect GitHub); with one it injects it.
+func TestDirectoryGitHubCLIMarker(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	dir := &egress.Directory{Store: f.st, Box: f.box, Git: f.svc}
+	answer := func() (*http.Response, bool) {
+		t.Helper()
+		ag, err := dir.Agent(ctx, "agt_1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range ag.Responders {
+			if r.Host != "api.github.com" {
+				continue
+			}
+			req := httptest.NewRequest(http.MethodGet, "https://api.github.com/user", nil)
+			req.Header.Set("Authorization", "token "+egress.GitHubTokenMarker)
+			rec := httptest.NewRecorder()
+			if r.Handle(rec, req) {
+				return rec.Result(), true
+			}
+			// Requests with a real token of their own go through.
+			other := httptest.NewRequest(http.MethodGet, "https://api.github.com/user", nil)
+			other.Header.Set("Authorization", "token ghp_mine")
+			if r.Handle(httptest.NewRecorder(), other) {
+				t.Fatal("answered a request with its own token")
+			}
+		}
+		return nil, false
+	}
+	res, ok := answer()
+	if !ok || res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no credential: answered %v (%v)", ok, res)
+	}
+	body, _ := io.ReadAll(res.Body)
+	if !strings.Contains(string(body), "Settings → Git") {
+		t.Fatalf("body = %s", body)
+	}
+	if env := egress.GitHubCLIEnv(); env["GH_TOKEN"] != egress.GitHubTokenMarker {
+		t.Fatalf("gh env = %v", env)
+	}
+
+	if _, err := f.svc.UpsertCredential(ctx, "usr_1", "github.com", "", "ghp_account", ""); err != nil {
+		t.Fatal(err)
+	}
+	dir.Invalidate()
+	if _, ok := answer(); ok {
+		t.Fatal("answered although a github.com credential is injected")
 	}
 }

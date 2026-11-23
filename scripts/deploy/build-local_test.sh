@@ -264,6 +264,8 @@ run_build AGENTHOLD_BUILD_RELEASES=local -- --tag v0.2.0-rc.1 || fail '--tag v0.
 grep -qx "local-built:v0.2.0-rc.1" "$work/events.log" || fail '--tag local did not build locally'
 [[ "$(jq -er .version "$work/store/channel.json")" == "v0.2.0-rc.1" ]] || fail 'channel for v0.2.0-rc.1'
 verify_pull_check "v0.2.0-rc.1"
+run_build || fail 'main timer after release'
+[[ "$(jq -er .version "$work/store/channel.json")" == "v0.2.0-rc.1" ]] || fail 'main timer replaced the tag on the same commit'
 
 # 5. AGENTHOLD_BUILD_FOLLOW following a sha-<commit> controller defaults to local build.
 reset_env

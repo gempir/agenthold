@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -344,7 +345,8 @@ func TestRotatingLoginRefreshedCentrally(t *testing.T) {
 		t.Fatalf("calls %d", calls.Load())
 	}
 	a := e.injections(ag.Id)
-	if len(a.Injections) != 1 || a.Injections[0].Value != "A2" || len(a.Responders) != 1 {
+	idx := slices.IndexFunc(a.Responders, func(r egress.Responder) bool { return r.Host == fakeharness.AuthHost })
+	if len(a.Injections) != 1 || a.Injections[0].Value != "A2" || idx < 0 {
 		t.Fatalf("after refresh %+v", a)
 	}
 	e.logins.RefreshDue(t.Context()) // not due anymore
@@ -367,7 +369,7 @@ func TestRotatingLoginRefreshedCentrally(t *testing.T) {
 			defer wg.Done()
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "https://"+fakeharness.AuthHost+"/token", strings.NewReader("refresh="+placeholderRefresh))
-			if !a.Responders[0].Handle(rec, req) || rec.Code != 200 || strings.Contains(rec.Body.String(), "A2") || strings.Contains(rec.Body.String(), "R2") {
+			if !a.Responders[idx].Handle(rec, req) || rec.Code != 200 || strings.Contains(rec.Body.String(), "A2") || strings.Contains(rec.Body.String(), "R2") {
 				t.Errorf("intercept: %d %q", rec.Code, rec.Body.String())
 			}
 		}()
@@ -378,7 +380,7 @@ func TestRotatingLoginRefreshedCentrally(t *testing.T) {
 	}
 	// Someone else's refresh token passes through untouched.
 	other := httptest.NewRequest(http.MethodPost, "https://"+fakeharness.AuthHost+"/token", strings.NewReader("refresh=own"))
-	if a.Responders[0].Handle(httptest.NewRecorder(), other) {
+	if a.Responders[idx].Handle(httptest.NewRecorder(), other) {
 		t.Fatal("answered a request that was not ours")
 	}
 	if b, _ := io.ReadAll(other.Body); string(b) != "refresh=own" {
@@ -393,7 +395,7 @@ func TestRotatingLoginRefreshedCentrally(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
-	a.Responders[0].Handle(rec, httptest.NewRequest(http.MethodPost, "https://"+fakeharness.AuthHost+"/token", strings.NewReader("refresh="+placeholderRefresh)))
+	a.Responders[idx].Handle(rec, httptest.NewRequest(http.MethodPost, "https://"+fakeharness.AuthHost+"/token", strings.NewReader("refresh="+placeholderRefresh)))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("revoked: %d", rec.Code)
 	}

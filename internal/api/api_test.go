@@ -309,11 +309,25 @@ type edgeNode struct {
 	t         *testing.T
 	ctx       context.Context
 	cluster   *node.Cluster
-	backend   *node.Local
+	backend   *fixedCapacityNode
 	state     *enrollment.State
 	connected chan string
 	stop      context.CancelFunc
 	served    chan struct{}
+}
+
+// fixedCapacityNode is the edge node's backend. The fake sandboxes use no
+// memory, so it reports a fixed capacity: the free memory of the machine
+// running the tests must not decide whether a default-sized agent fits.
+type fixedCapacityNode struct{ *node.Local }
+
+func (n *fixedCapacityNode) Capacity(ctx context.Context) (node.Capacity, error) {
+	c, err := n.Local.Capacity(ctx)
+	if err != nil {
+		return c, err
+	}
+	c.MemoryBytes, c.MemoryTotalBytes = 64<<30, 64<<30
+	return c, nil
 }
 
 // serve runs the node side of conn until down is called.
@@ -403,7 +417,7 @@ func joinEdgeNode(t *testing.T, st *store.Store, backend *node.Local, ca *egress
 	if state.DownloadURL != "https://controller.example/dl/" || state.ControllerVersion != "v-test" {
 		t.Fatalf("a joined node must learn where its controller serves downloads: %+v", state)
 	}
-	n := &edgeNode{t: t, ctx: ctx, cluster: cluster, backend: backend, state: state, connected: connected}
+	n := &edgeNode{t: t, ctx: ctx, cluster: cluster, backend: &fixedCapacityNode{backend}, state: state, connected: connected}
 	n.serve(conn)
 	return n
 }

@@ -87,7 +87,15 @@ case "$url" in
  */healthz) exit 0;;
  */api/v1/version)
   active="$(basename "$(readlink -f "$AGENTHOLD_DEPLOY_ROOT/current")")"
-  if [[ "$active" != "$MOCK_NEW" ]]; then printf '{"version":"old"}\n'; elif [[ "${MOCK_MODE:-}" == healthfail ]]; then printf '{"version":"wrong"}\n'; else printf '{"version":"sha-%s"}\n' "$MOCK_NEW"; fi; exit 0;;
+  if [[ "$active" != "$MOCK_NEW" ]]; then
+    ver="$("$AGENTHOLD_DEPLOY_ROOT/current/agenthold" --version | awk '{print $2}')"
+    printf '{"version":"%s"}\n' "$ver"
+  elif [[ "${MOCK_MODE:-}" == healthfail ]]; then
+    printf '{"version":"wrong"}\n'
+  else
+    printf '{"version":"%s"}\n' "${MOCK_NEW_VERSION:-sha-$MOCK_NEW}"
+  fi
+  exit 0;;
  https://dl.example/dl/*)
   rel="${url#https://dl.example/dl/}"
   [[ -f "$MOCK_DIR/src/$rel" ]] || exit 22
@@ -105,8 +113,8 @@ cat > "$work/bin/journalctl" <<'MOCK'
 #!/usr/bin/env bash
 active="$(basename "$(readlink -f "$AGENTHOLD_DEPLOY_ROOT/current")")"
 [[ " $* " == *" _SYSTEMD_INVOCATION_ID=invocation-$active "* ]] || exit 1
-ver=old
-[[ "$active" == "$MOCK_NEW" ]] && ver="sha-$MOCK_NEW"
+ver="$("$AGENTHOLD_DEPLOY_ROOT/current/agenthold" --version | awk '{print $2}')"
+[[ "$active" == "$MOCK_NEW" ]] && ver="${MOCK_NEW_VERSION:-sha-$MOCK_NEW}"
 [[ "$active" == "$MOCK_NEW" && "${MOCK_MODE:-}" == healthfail ]] && ver=wrong
 printf '{"level":"INFO","msg":"edge node starting","version":"%s","driver":"firecracker"}\n' "$ver"
 [[ "${MOCK_MODE:-}" == unreachable && "$active" == "$MOCK_NEW" ]] || printf '{"level":"INFO","msg":"connected to controller"}\n'
@@ -115,6 +123,9 @@ chmod +x "$work/bin/uname" "$work/bin/systemctl" "$work/bin/curl" "$work/bin/df"
 
 reset() {
   rm -rf "$work/opt/releases/$new" "$work/data/base" "$work/data/harnesses" "$work/data/kernel" "$work/data/assets" "$work/data/dl" "$work/restarts" "$work/restart-started" "$work/src" "$work/fetched"
+  mkdir -p "$work/opt/releases/$old"
+  printf '#!/usr/bin/env bash\necho "agenthold old (old)"\n' > "$work/opt/releases/$old/agenthold"
+  chmod +x "$work/opt/releases/$old/agenthold"
   cp -a "$work/fixture" "$work/src"
   ln -sfn "$work/opt/releases/$old" "$work/opt/current"
 }
@@ -338,4 +349,97 @@ kill -TERM "$pid"
 if wait "$pid"; then fail 'interrupted deployment unexpectedly succeeded'; fi
 [[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/$old" ]] || fail 'interrupt rollback'
 [[ "$(wc -l < "$work/restarts")" == 2 ]] || fail 'interrupt restart count'
+
+# --- semver releases (v0.1.0, prereleases, same-commit sha -> semver transition, mixed pruning) ---
+make_semver_store() { # make_semver_store <store dir> <version> <commit>
+  local s="$1" ver="$2" c="$3"
+  rm -rf "$s"
+  mkdir -p "$s/$ver" "$s/assets/arm64"
+  cp "$A/base-$bkey.zst" "$A/kernel-$kkey.zst" "$A/harnesses-$hkey.zst" "$s/assets/arm64/"
+  asset "$s" base "$bkey" "$work/fixture/base"
+  asset "$s" kernel "$kkey" "$work/fixture/kernel"
+  asset "$s" harnesses "$hkey" "$work/fixture/harnesses"
+  printf '#!/usr/bin/env bash\necho "agenthold %s (%s)"\n' "$ver" "${c:0:12}" > "$s/$ver/agenthold-linux-arm64"
+  chmod +x "$s/$ver/agenthold-linux-arm64"
+  jq -n --arg version "$ver" --arg k "$kkey" --arg b "$bkey" --arg h "$hkey" '{format:2,arch:"arm64",version:$version,files:{},kernel:{key:$k},base:{key:$b},harnesses:{key:$h}}' > "$s/$ver/runtime-linux-arm64.manifest.json"
+  (cd "$s/$ver" && sha256sum agenthold-linux-arm64 runtime-linux-arm64.manifest.json > SHA256SUMS)
+  jq -n --arg commit "$c" --arg v "$ver" --arg b "$(sha256sum "$s/$ver/agenthold-linux-arm64" | cut -d' ' -f1)" \
+    --arg m "$(sha256sum "$s/$ver/runtime-linux-arm64.manifest.json" | cut -d' ' -f1)" --arg sum "$(sha256sum "$s/$ver/SHA256SUMS" | cut -d' ' -f1)" \
+    --arg kk "$kkey" --arg ks "$(sha256sum "$s/assets/arm64/kernel-$kkey.json" | cut -d' ' -f1)" \
+    --arg bk "$bkey" --arg bs "$(sha256sum "$s/assets/arm64/base-$bkey.json" | cut -d' ' -f1)" \
+    --arg hk "$hkey" --arg hs "$(sha256sum "$s/assets/arm64/harnesses-$hkey.json" | cut -d' ' -f1)" \
+    '{format:3,arch:"arm64",commit:$commit,version:$v,binary:{path:($v+"/agenthold-linux-arm64"),sha256:$b},
+      runtime_manifest:{path:($v+"/runtime-linux-arm64.manifest.json"),sha256:$m},sums:{path:($v+"/SHA256SUMS"),sha256:$sum},
+      kernel:{key:$kk,manifest:{path:("assets/arm64/kernel-"+$kk+".json"),sha256:$ks}},
+      base:{key:$bk,manifest:{path:("assets/arm64/base-"+$bk+".json"),sha256:$bs}},
+      harnesses:{key:$hk,manifest:{path:("assets/arm64/harnesses-"+$hk+".json"),sha256:$hs}}}' > "$s/channel.json"
+}
+
+# Deploy v0.1.0 from a local store and verify idempotency, --check, and HTTPS /dl/ deploy.
+reset
+make_semver_store "$work/src" v0.1.0 "$new"
+MOCK_NEW=v0.1.0 MOCK_NEW_VERSION=v0.1.0 run success --check || fail 'semver check'
+grep -q 'check passed: v0.1.0' "$work/run.log" || fail 'semver check output'
+MOCK_NEW=v0.1.0 MOCK_NEW_VERSION=v0.1.0 run success || fail 'semver local deploy'
+[[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/v0.1.0" ]] || fail 'semver current link'
+cmp -s "$work/data/dl/v0.1.0/SHA256SUMS" "$work/src/v0.1.0/SHA256SUMS" || fail 'semver dl SHA256SUMS'
+MOCK_NEW=v0.1.0 MOCK_NEW_VERSION=v0.1.0 run success || fail 'semver second run'
+grep -q 'already running v0.1.0' "$work/run.log" || fail 'semver already running'
+[[ "$(wc -l < "$work/restarts")" == 1 ]] || fail 'semver second run restarted'
+
+# Deploy a semver prerelease (v0.1.0-rc.1) over HTTPS.
+reset
+rm -rf "$work/opt/releases/v0.1.0-rc.1"
+make_semver_store "$work/src" v0.1.0-rc.1 "$new"
+AGENTHOLD_DEPLOY_SOURCE=https://dl.example/dl/ MOCK_NEW=v0.1.0-rc.1 MOCK_NEW_VERSION=v0.1.0-rc.1 run success || fail 'semver prerelease https deploy'
+[[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/v0.1.0-rc.1" ]] || fail 'semver prerelease current link'
+
+# Transition from sha-<commit> to v0.1.0 on the EXACT same commit, and roll back cleanly on failure.
+reset
+rm -rf "$work/opt/releases/v0.1.0"
+run success || fail 'sha pre-transition deploy'
+[[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/$new" ]] || fail 'sha current before transition'
+make_semver_store "$work/src" v0.1.0 "$new"
+if MOCK_NEW=v0.1.0 MOCK_NEW_VERSION=v0.1.0 run healthfail; then fail 'same-commit semver healthfail succeeded'; fi
+[[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/$new" ]] || fail 'same-commit semver rollback failed'
+MOCK_NEW=v0.1.0 MOCK_NEW_VERSION=v0.1.0 run success || fail 'same-commit sha -> v0.1.0 deploy'
+[[ "$(readlink -f "$work/opt/current")" == "$work/opt/releases/v0.1.0" ]] || fail 'same-commit semver switch'
+[[ -d "$work/data/dl/v0.1.0" && ! -e "$work/data/dl/$v" ]] || fail 'same-commit semver dl prune'
+
+# Invalid semver / mismatched sha versions in channel.json are refused.
+for badver in v01.0.0 v0.1 v0.1.0- v0.1.0..1 "sha-$old"; do
+  reset
+  make_semver_store "$work/src" v0.1.0 "$new"
+  jq --arg v "$badver" '.version = $v | .binary.path = ($v + "/agenthold-linux-arm64") | .runtime_manifest.path = ($v + "/runtime-linux-arm64.manifest.json") | .sums.path = ($v + "/SHA256SUMS")' \
+    "$work/src/channel.json" > "$work/src/c" && mv "$work/src/c" "$work/src/channel.json"
+  if MOCK_NEW="$badver" MOCK_NEW_VERSION="$badver" run success; then fail "invalid version $badver accepted"; fi
+  unchanged "invalid version $badver"
+done
+
+# Mixed semver + sha pruning: keeps newest releases/store versions, preserves previous semver version
+# and store assets referenced by semver versions in $SOURCE.
+reset
+rm -rf "$work/opt/releases/"v* "$work/opt/releases/"{3,4,5,6}*
+make_semver_store "$work/src" v0.1.0 "$old"
+MOCK_NEW=v0.1.0 MOCK_NEW_VERSION=v0.1.0 run success || fail 'seed v0.1.0'
+make_semver_store "$work/src" v0.2.0 "$new"
+# Add older semver + sha dirs in releases, store, and /dl/, plus an unreferenced store asset.
+mkdir -p "$work/opt/releases/v0.0.1" "$work/opt/releases/v0.0.2" "$work/opt/releases/$(rel 3)"
+touch -d '2020-01-01' "$work/opt/releases/v0.0.1"
+touch -d '2020-01-02' "$work/opt/releases/v0.0.2"
+touch -d '2020-01-03' "$work/opt/releases/$(rel 3)"
+touch -d '2021-01-01' "$work/opt/releases/v0.1.0"
+mkdir -p "$work/src/v0.0.1" "$work/src/v0.0.2" "$work/src/v0.1.0"
+touch -d '2020-01-01' "$work/src/v0.0.1"
+touch -d '2020-01-02' "$work/src/v0.0.2"
+touch -d '2019-01-01' "$work/src/v0.1.0"
+mkdir -p "$work/data/dl/v0.0.1"
+printf 'stale' > "$work/src/assets/arm64/base-$(printf '%032d' 0 | tr 0 f).zst"
+MOCK_NEW=v0.2.0 MOCK_NEW_VERSION=v0.2.0 run success || fail 'mixed prune deploy v0.2.0'
+[[ -d "$work/opt/releases/v0.2.0" && -d "$work/opt/releases/v0.1.0" && -d "$work/opt/releases/$old" ]] || fail 'mixed kept releases'
+[[ ! -e "$work/opt/releases/v0.0.1" && ! -e "$work/opt/releases/v0.0.2" ]] || fail 'mixed old semver releases not pruned'
+[[ -d "$work/src/v0.2.0" && -d "$work/src/v0.1.0" && ! -e "$work/src/v0.0.1" ]] || fail 'mixed store versions'
+[[ -d "$work/data/dl/v0.2.0" && ! -e "$work/data/dl/v0.1.0" && ! -e "$work/data/dl/v0.0.1" ]] || fail 'mixed dl prune'
+[[ -f "$work/src/assets/arm64/base-$bkey.zst" && -f "$work/src/assets/arm64/kernel-$kkey.json" && ! -e "$work/src/assets/arm64/base-$(printf '%032d' 0 | tr 0 f).zst" ]] || fail 'mixed store assets prune'
+
 echo 'deployment pull tests passed'

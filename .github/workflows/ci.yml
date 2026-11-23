@@ -99,6 +99,18 @@ jobs:
       - name: Generated code is up to date
         run: git diff --exit-code
 
+  deploy-scripts:
+    name: Deploy script tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run deploy script tests
+        run: |
+          set -euo pipefail
+          bash scripts/deploy/pull_test.sh
+          bash scripts/deploy/bootstrap_test.sh
+          sudo bash scripts/deploy/build-local_test.sh
+
   native-build:
     name: Native build (${{ matrix.arch }})
     strategy:
@@ -119,9 +131,26 @@ jobs:
         with:
           bun-version-file: web/package.json
       - run: make build
+      - name: Build release binary
+        env:
+          VERSION: sha-${{ github.sha }}
+        run: scripts/release/build.sh --out out
+      - name: Smoke test release binary
+        env:
+          VERSION: sha-${{ github.sha }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          v="$(out/agenthold-linux-$ARCH --version)"
+          [[ "$v" == "agenthold $VERSION ("* ]] || { echo "unexpected version: $v" >&2; exit 1; }
+          cp "out/agenthold-linux-$ARCH" /tmp/sandboxd
+          sv="$(/tmp/sandboxd --version)"
+          [[ "$sv" == "sandboxd $VERSION ("* ]] || { echo "unexpected sandboxd version: $sv" >&2; exit 1; }
+          file "out/agenthold-linux-$ARCH" | grep -q 'statically linked'
       - uses: actions/upload-artifact@v7
         with:
-          name: native-build-${{ matrix.arch }}
-          path: bin/
+          name: release-${{ matrix.arch }}
+          path: out/
+          retention-days: 14
           if-no-files-found: error
 

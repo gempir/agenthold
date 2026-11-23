@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# Release binary: VERSION=sha-<commit> scripts/release/build.sh [--out DIR]
+# Release binary: VERSION=v0.1.0 scripts/release/build.sh [--out DIR]
 #
 # Builds the static agenthold binary for this host's architecture (it is also the guests'
-# sandboxd). It embeds Firecracker, the jailer and a runtime manifest that names the guest kernel
-# and base image by key (scripts/guest/kernel-key.sh, base-key.sh). It does not build or embed the
-# kernel or the base: those are built natively per architecture (scripts/release/build-assets.sh)
-# and served by an asset source. Output in build/release/<arch>/:
+# sandboxd). It embeds Firecracker, the jailer and a runtime manifest that names the guest kernel,
+# base image and harnesses layer by key (scripts/guest/{kernel,base,harnesses}-key.sh). It does not
+# build or embed those assets: they are built natively per architecture
+# (scripts/release/build-assets.sh) and served by an asset source. Output in build/release/<arch>/:
 #   agenthold-linux-<arch>  runtime-linux-<arch>.manifest.json  SHA256SUMS
-# GitHub Actions runs this on an amd64 and an arm64 runner for every main commit (release.yml).
+# GitHub Actions runs this on an amd64 and an arm64 runner for semver v* releases (release.yml) and
+# for CI release artifacts on main/PRs (ci.yml).
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VERSION="${VERSION:?set VERSION to a release tag (for example sha-<commit> or v0.1.0)}"
+VERSION="${VERSION:?set VERSION to a release version (for example v0.1.0 or sha-<commit>)}"
 [[ "$VERSION" =~ ^[A-Za-z0-9._-]+$ && "$VERSION" != . && "$VERSION" != .. && ${#VERSION} -le 128 ]] || {
   echo 'VERSION must be a safe release tag, at most 128 letters, digits, dots, dashes or underscores' >&2; exit 2;
 }

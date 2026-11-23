@@ -6,42 +6,48 @@ description: "Deploy the native binary behind your own HTTPS proxy or tunnel, an
 ## The demo builds and deploys itself
 
 The demo at `https://demo.agenthold.dev` runs in the Lima VM `agenthold` on `scarif.local` (arm64, `/dev/kvm`).
-It tests, assembles and deploys every new `main` commit on its own and is the project's arm64 asset source.
+It tests, builds and deploys every new `main` commit on its own and is the project's arm64 asset source.
 Nothing connects to the box: it polls GitHub over anonymous HTTPS, and Cloudflare Tunnel carries the
-traffic. GitHub Actions runs what needs no KVM (unit tests on SQLite and PostgreSQL, lint, generated code, web
-and native builds) and publishes the release **binaries** (`release.yml`: a pre-release `sha-<commit>` with
-`agenthold-linux-amd64` and `-arm64` for every green `main` commit). Guest kernels and base images are never
-on GitHub: each architecture's host builds them natively and serves them under `/dl/assets/`.
+traffic. GitHub Actions runs what needs no KVM (`ci.yml`: unit tests on SQLite and PostgreSQL, lint,
+generated code, web, deploy script tests and native `amd64`/`arm64` release builds uploaded as workflow
+artifacts `release-amd64` and `release-arm64`). Official GitHub releases are published only for semver tags
+(`release.yml`: `v0.1.0` and later, with `agenthold-linux-amd64` and `-arm64`); `main` commits are not
+published as `sha-*` GitHub releases. Guest kernels, base images and harness layers are never on GitHub:
+each architecture's host builds them natively and serves them under `/dl/assets/`.
 
 Two timers do the work:
 
 | Unit | Runs | Does |
 | --- | --- | --- |
-| `agenthold-build.timer` → `agenthold-build.service` | 3 minutes after the last check | `/usr/local/lib/agenthold/build-local.sh`: test a released main commit, build its assets, publish it into the release store |
+| `agenthold-build.timer` → `agenthold-build.service` | 3 minutes after the last check | `/usr/local/lib/agenthold/build-local.sh`: test a `main` commit (or tagged release), build its binary and assets, publish it into the release store |
 | `agenthold-pull.timer` → `agenthold-pull.service` | every 5 minutes, and right after a publish | `/usr/local/lib/agenthold/pull.sh`: deploy the store's channel |
 
 ### Build (`build-local.sh`)
 
-Each run asks `https://github.com/gempir/agenthold.git` for main's head and picks the newest of its last 20
-commits that has a release binary for this architecture (`AGENTHOLD_BUILD_RELEASES`, default the GitHub
-releases; docs-only commits skip CI and have none, and a commit whose CI is still running is picked up by a
-later run). With `AGENTHOLD_BUILD_RELEASES=local` the binary is built here instead
-(`scripts/release/build.sh`), for a host that does not use GitHub releases. A commit that is already in the
-store, already deployed, or failed with its next attempt not yet due, is skipped. Otherwise, with at least
-12 GB free on `/`, the builder fetches it into its own bare clone (`/var/lib/agenthold-build/agenthold.git`,
-owned by the unprivileged `agenthold-build` user), checks it out into a fresh worktree, downloads the release
-binary, `SHA256SUMS` and runtime manifest, checks the binary's version and that the kernel and base keys it
-names are the ones the source computes (`scripts/guest/kernel-key.sh`, `base-key.sh`), and runs, in this order:
+By default each run asks `https://github.com/gempir/agenthold.git` for `main`'s newest non-docs commit
+(skipping commits that touch only `docs/**` or `*.md`, matching `ci.yml`) and builds the release binary
+locally (`scripts/release/build.sh`, default `AGENTHOLD_BUILD_RELEASES=local` for `main` commits) as
+`sha-<commit>`. To build a tagged semver release instead, pass `--tag v0.1.0`: for `v*` tags,
+`AGENTHOLD_BUILD_RELEASES` defaults to GitHub Releases
+(`https://github.com/gempir/agenthold/releases/download`), fetching the published binary, `SHA256SUMS` and
+runtime manifest (set `AGENTHOLD_BUILD_RELEASES=local` to build the tag's binary from source, or a
+`file://` directory to use a downloaded CI artifact). A release that is already in the store, already
+deployed, or failed with its next attempt not yet due, is skipped. Otherwise, with at least 12 GB free on
+`/`, the builder fetches the repo into its own bare clone (`/var/lib/agenthold-build/agenthold.git`, owned
+by the unprivileged `agenthold-build` user), checks the commit out into a fresh worktree, verifies the
+release binary's `SHA256SUMS`, version and that the kernel, base and harnesses keys it names are the ones
+the source computes (`scripts/guest/{kernel,base,harnesses}-key.sh`), and runs, in this order:
 
 1. `scripts/deploy/pull_test.sh` and `bootstrap_test.sh` (build user)
 2. `make test-go`: the full race suite on SQLite, also with remote edge nodes (build user; PostgreSQL is
    covered by GitHub CI)
-3. `make web` (build user), and with `AGENTHOLD_BUILD_RELEASES=local` the binary
+3. `make web` (build user), and with `AGENTHOLD_BUILD_RELEASES=local` the release binary (`scripts/release/build.sh`);
+   otherwise `scripts/guest/fetch-runtime.sh` for the KVM tests
 4. the guest kernel, cached in `/var/cache/agenthold-build/kernel/<kernel key>` (build user)
-5. `scripts/release/build-assets.sh` (root: `mmdebstrap` for the base), which builds the base image only when
-   its key changed (the compressed base and its manifest are cached in
-   `/var/cache/agenthold-build/root/base/<base key>`, root only, and unpacked into the worktree when the key
-   matches) and writes both assets, `{kernel,base}-<key>.{json,zst}`
+5. `scripts/release/build-assets.sh` (root: `mmdebstrap` for the base), which builds the base image and
+   harnesses layer only when their keys changed (cached in `/var/cache/agenthold-build/root/{base,harnesses}/<key>`,
+   root only, and unpacked into the worktree when the key matches) and writes the assets,
+   `{kernel,base,harnesses}-<key>.{json,zst}`
 6. `make test-kvm` against those assets, with the **release binary** booted as every machine's sandboxd
    (root: the jailer, taps and nftables). The KVM tests run in their own network and mount namespaces with
    temporary data and jail directories, so they do not touch the live service's taps, firewall or address pool.
@@ -49,20 +55,21 @@ names are the ones the source computes (`scripts/guest/kernel-key.sh`, `base-key
 Every phase is a transient systemd unit in `agenthold-build.slice` (`CPUWeight=20`, `IOWeight=20`,
 `MemoryHigh=3G`, `MemoryMax=4G`, `nice 10`, idle I/O, `GOMAXPROCS=4`), so a build yields to the live
 controller and its microVMs and is killed before it can starve them. The unprivileged phases see an empty
-`/sys/fs/cgroup/agenthold` (the live microVMs' cgroups). Logs are in `/var/log/agenthold-build/<commit>.log`
+`/sys/fs/cgroup/agenthold` (the live microVMs' cgroups). Logs are in `/var/log/agenthold-build/<release>.log`
 and the journal (`journalctl -u agenthold-build`); runtime and memory peak per phase are in
 `/var/lib/agenthold-build/last-build.json`.
 
 Only when everything passed is the release published into the store `/srv/agenthold/releases/`: the assets
 into `assets/<arch>/` (an asset that is already there stays: its key names it; the compressed base is a hard
-link to the cached one), then `sha-<commit>/` (binary, runtime manifest, `SHA256SUMS`) is renamed into place,
-then `channel.json` (format 3: the commit, the sha256 of binary, runtime manifest and `SHA256SUMS`, and the
-kernel's and base's key and asset manifest sha256) is replaced. A failure keeps the previous
-channel and records the attempt: `/srv/agenthold/failed/<commit>.attempt-N.log` (N = 1 to 3), the latest one
-in `<commit>.log` and the count in `<commit>.attempts`. The same commit is retried automatically, at least 15
+link to the cached one), then `<version>/` (`sha-<commit>/` or `v0.1.0/`, with binary, runtime manifest and
+`SHA256SUMS`) is renamed into place, then `channel.json` (format 3: the commit, version, the sha256 of
+binary, runtime manifest and `SHA256SUMS`, and the kernel's, base's and harnesses' key and asset manifest
+sha256) is replaced. A failure keeps the previous
+channel and records the attempt: `/srv/agenthold/failed/<release>.attempt-N.log` (N = 1 to 3), the latest one
+in `<release>.log` and the count in `<release>.attempts`. The same release is retried automatically, at least 15
 minutes after its last failure, until it has failed 3 times; after the third failure it is not rebuilt (a new
-commit is). A commit that passes on a retry is published as usual and keeps its attempt logs until they age
-out, so a flaky test shows up there. Failure records older than 60 days are removed. To build a commit now,
+commit is). A release that passes on a retry is published as usual and keeps its attempt logs until they age
+out, so a flaky test shows up there. Failure records older than 60 days are removed. To build now,
 ignoring the record and the wait: `sudo /usr/local/lib/agenthold/build-local.sh --force`. If main moves during a build, the build
 finishes and the next run picks up the newest head; commits in between are skipped.
 
@@ -94,7 +101,8 @@ With `mode=node` in `pull.conf` it deploys an [edge node](/edge-nodes/) instead:
 expected version in its start line and a connection to its controller (an unreachable controller therefore
 rolls the switch back; the next run tries again).
 
-After a healthy switch it publishes `channel.json` and `sha-<commit>/SHA256SUMS` into `<data_dir>/dl/`. The
+After a healthy switch it publishes `channel.json` and `<version>/SHA256SUMS` (`sha-<commit>` for `main`, or
+a semver tag such as `v0.1.0`) into `<data_dir>/dl/`. The
 controller's [`/dl/`](/install/#serving-the-release-to-others) serves the binary, its runtime manifest and the
 assets itself, so another host can use `source=https://demo.agenthold.dev/dl/` (of the same architecture).
 Pruning follows (see [Disk usage](#disk-usage)).
@@ -122,7 +130,8 @@ sudo scripts/deploy/bootstrap.sh /srv/agenthold/releases   # or https://demo.age
 ```
 
 `bootstrap.sh` runs `pull.sh --install`, which verifies the channel's release like a deploy, creates
-`/opt/agenthold/releases/<full-commit>/`, places the kernel and base in the data directory and points
+`/opt/agenthold/releases/<release>/` (the full commit for `sha-<commit>`, or the semver tag for `v*`),
+places the guest assets in the data directory and points
 `/opt/agenthold/current` at it; then it installs `pull.sh`, `build-local.sh` and the units (agenthold,
 agenthold-node, pull service and timer, build service, timer and slice, cloudflared) without starting or
 enabling them. Then write `/etc/agenthold/agenthold.yaml` (mode `0600`) and `/etc/agenthold/pull.conf`, and
@@ -147,7 +156,7 @@ auth:
 ```sh
 sudo systemctl daemon-reload
 sudo systemctl enable --now agenthold
-curl -fsS http://127.0.0.1:8080/api/v1/version   # {"version":"sha-<commit>",...}
+curl -fsS http://127.0.0.1:8080/api/v1/version   # {"version":"v0.1.0",...} or {"version":"sha-<commit>",...}
 sudo systemctl enable --now agenthold-build.timer agenthold-pull.timer
 ```
 
@@ -208,9 +217,10 @@ arm64 controller cannot:
   the LAN (`portForwards` in `~/.lima/agenthold/lima.yaml` with `hostIP: 0.0.0.0`). The controller never
   connects to the node.
 
-An update therefore flows: a `main` commit passes CI and gets its release → the demo builds and deploys it →
-korriban's builder sees the new controller version, builds the amd64 assets (only when their keys changed),
-KVM-tests with the amd64 release binary and publishes → korriban's puller switches the node.
+An update therefore flows: a `main` commit lands → the demo builds its arm64 binary and assets locally,
+tests and deploys it → korriban's builder sees the new controller version, builds its amd64 binary (or
+downloads it from GitHub Releases when following a semver `v*` tag) and assets (only when their keys
+changed), KVM-tests with that binary and publishes → korriban's puller switches the node.
 
 ## Disk usage
 
@@ -230,8 +240,9 @@ show tens of GiB free that the Mac does not have. Measured on the Scarif demo VM
 - Release directories under `/opt/agenthold/releases` are pruned to the newest three, never the current or
   previous release; versions in the local release store to the newest two plus the deployed and previous
   ones (what rollback needs; their compressed bases are hard links of one file while the base is unchanged); `<data_dir>/dl/` keeps only the deployed version. Pruning only touches
-  `<sha256>.ext4[.zst]` files in `<data_dir>/base/`, 40-hex release directories and `sha-<commit>`
-  directories, ignores symlinks, and logs each removal and the bytes freed. It never runs after a failed or
+  `<sha256>.ext4[.zst]` files in `<data_dir>/base/` and `<data_dir>/harnesses/`, `<sha256>[.zst]` files in
+  `<data_dir>/kernel/`, 40-hex or semver `v*` release directories and `sha-<commit>` or semver `v*`
+  version directories, ignores symlinks, and logs each removal and the bytes freed. It never runs after a failed or
   rolled-back deployment. Set `PRUNE=0` in the puller's environment (`systemctl edit agenthold-pull.service`)
   to disable it.
 - A build needs temporary space for its worktree (with the unpacked base image, 2.4 GiB) and the Go, Bun and

@@ -7,9 +7,9 @@
 # build-local.sh publishes) or the /dl/ root of an agenthold that deployed one
 # (https://demo.agenthold.dev/dl/). bootstrap.sh installs pull.sh, build-local.sh and the systemd
 # units, then runs pull.sh --install, which verifies the channel's release for this architecture,
-# places its binary under /opt/agenthold/releases/<commit>/ and its kernel and base image in the data
-# directory, and points /opt/agenthold/current at it. It does not write /etc/agenthold, start or
-# enable anything.
+# places its binary under /opt/agenthold/releases/<release>/ (commit for sha-<commit>, tag for v*)
+# and its guest assets in the data directory, and points /opt/agenthold/current at it. It does not
+# write /etc/agenthold, start or enable anything.
 set -euo pipefail
 umask 022
 

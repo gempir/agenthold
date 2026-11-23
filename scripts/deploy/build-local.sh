@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# Test and publish a main commit on this host, for this host's architecture (arm64 or amd64): the
-# demo VM for arm64, korriban for amd64. The agenthold binary comes from the commit's GitHub
-# release (sha-<commit>, built by .github/workflows/release.yml); the guest kernel and base image are
-# built here, natively, and cached by their keys. GitHub never hosts kernels or base images.
+# Test and publish an agenthold release on this host, for this host's architecture (arm64 or
+# amd64): the demo VM for arm64, korriban for amd64. For main commits (sha-<commit>), the binary is
+# built locally by default (scripts/release/build.sh); for semver release tags (--tag v0.1.0, or
+# when following a controller running a v* tag), the binary is downloaded from GitHub Releases by
+# default (.github/workflows/release.yml). The guest kernel, base image and harnesses layer are
+# always built here, natively, and cached by their keys. GitHub never hosts guest assets.
 #
-#   build-local.sh                 publish main's newest released commit if it is new (the timer),
-#                                  or with AGENTHOLD_BUILD_FOLLOW=<controller URL> the commit that
+#   build-local.sh                 publish main's newest non-docs commit if it is new (the timer),
+#                                  or with AGENTHOLD_BUILD_FOLLOW=<controller URL> the release that
 #                                  controller runs (an edge node of another architecture)
-#   build-local.sh --commit SHA    publish that commit (it must be reachable from main)
-#   build-local.sh --force         rebuild even if the commit was built, deployed or failed before
+#   build-local.sh --commit SHA    publish that commit as sha-<SHA> (it must be reachable from main)
+#   build-local.sh --tag TAG       publish a semver release tag (for example v0.1.0)
+#   build-local.sh --force         rebuild even if the release was built, deployed or failed before
 #                                  (ignores the failure record and the wait; a failure still counts)
 #
 # Every phase runs as its own transient systemd unit in agenthold-build.slice (memory and CPU
@@ -16,13 +19,14 @@
 # asset build, for the base image's mmdebstrap, and the KVM tests). systemd reports each phase's
 # runtime and memory peak; they end up in the log and in $STATE/last-build.json.
 #
-# A commit is published only when everything passed: its assets into $STORE/assets/<arch>/, then
-# atomically $STORE/sha-<commit>/ and $STORE/channel.json (written last). A failed commit is retried
+# A release is published only when everything passed: its assets into $STORE/assets/<arch>/, then
+# atomically $STORE/<version>/ and $STORE/channel.json (written last). A failed release is retried
 # automatically: up to MAX_ATTEMPTS attempts in total (default 3), at least RETRY_DELAY seconds apart
-# (default 15 minutes). Each failure writes $FAILED/<commit>.attempt-N.log, copies it to
-# $FAILED/<commit>.log (the latest) and records the count in $FAILED/<commit>.attempts. After the
-# last failed attempt the commit is not built again until --force; a new commit on main is built
-# normally. A commit without a release (yet) is not a failure: it is looked at again next time.
+# (default 15 minutes). Each failure writes $FAILED/<release>.attempt-N.log, copies it to
+# $FAILED/<release>.log (the latest) and records the count in $FAILED/<release>.attempts. After the
+# last failed attempt the release is not built again until --force; a new commit on main is built
+# normally. When following a controller running a tagged release whose GitHub release binary is not
+# published yet, that is not a failure: it is looked at again next time.
 # pull.sh deploys from $STORE.
 set -euo pipefail
 umask 022
@@ -37,6 +41,7 @@ LOGS="${AGENTHOLD_BUILD_LOGS:-/var/log/agenthold-build}"
 BUILD_USER="${AGENTHOLD_BUILD_USER:-agenthold-build}"
 DEPLOY_ROOT="${AGENTHOLD_DEPLOY_ROOT:-/opt/agenthold}"
 SLICE="${AGENTHOLD_BUILD_SLICE:-agenthold-build.slice}"
+LOCK="${AGENTHOLD_BUILD_LOCK:-/run/agenthold-build.lock}"
 MIN_FREE_GB="${AGENTHOLD_BUILD_MIN_FREE_GB:-12}"
 MAX_ATTEMPTS="${AGENTHOLD_BUILD_MAX_ATTEMPTS:-3}"
 RETRY_DELAY="${AGENTHOLD_BUILD_RETRY_DELAY:-900}"
@@ -45,23 +50,30 @@ GOMAXPROCS_BUILD="${AGENTHOLD_BUILD_GOMAXPROCS:-4}"
 # The base URL of a controller (https://demo.agenthold.dev): build the release it runs (GET
 # /api/v1/version) instead of main's head, so a node built here runs exactly its controller's version.
 FOLLOW="${AGENTHOLD_BUILD_FOLLOW:-}"
-# Where release binaries are downloaded from: <RELEASES>/sha-<commit>/<file>. A file:// directory of
-# the same shape works too (tests). "local" builds the binary here instead (scripts/release/build.sh),
-# for hosts that do not use the GitHub releases.
-RELEASES="${AGENTHOLD_BUILD_RELEASES:-https://github.com/gempir/agenthold/releases/download}"
-# How far back from main's head to look for the newest commit that has a release (docs-only
-# commits skip CI and have none).
+# Where release binaries come from:
+#   "local"                  build the binary here (scripts/release/build.sh) — default for main
+#   https://... or file://.. download <RELEASES>/<version>/<file> — default GitHub Releases for v*
+DEFAULT_GITHUB_RELEASES="https://github.com/gempir/agenthold/releases/download"
+RELEASES="${AGENTHOLD_BUILD_RELEASES:-}"
+RELEASES_SET=0
+[[ -n "$RELEASES" ]] && RELEASES_SET=1
+# How far back from main's head to look when AGENTHOLD_BUILD_RELEASES is a URL for sha-<commit> builds.
 LOOKBACK="${AGENTHOLD_BUILD_LOOKBACK:-20}"
+SEMVER_RE='v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?'
 
+explicit_target=0
 commit=""
+tag=""
 force=0
 while (($#)); do
   case "$1" in
-    --commit) commit="$2"; shift 2 ;;
+    --commit) (($# >= 2)) || { echo '--commit requires a full 40-hex commit' >&2; exit 2; }; commit="$2"; explicit_target=1; shift 2 ;;
+    --tag) (($# >= 2)) || { echo '--tag requires a semver tag (for example v0.1.0)' >&2; exit 2; }; tag="$2"; explicit_target=1; shift 2 ;;
     --force) force=1; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+[[ -z "$commit" || -z "$tag" ]] || { echo '--commit and --tag cannot be used together' >&2; exit 2; }
 [[ $EUID -eq 0 ]] || { echo 'build-local.sh runs as root (KVM tests and the rootfs build need it)' >&2; exit 1; }
 case "$(uname -m)" in
   aarch64) ARCH=arm64 ;;
@@ -69,10 +81,11 @@ case "$(uname -m)" in
   *) echo 'the builder runs on arm64 or amd64 Linux' >&2; exit 1 ;;
 esac
 [[ -z "$FOLLOW" || "$FOLLOW" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]] || { echo "invalid AGENTHOLD_BUILD_FOLLOW $FOLLOW: a controller base URL" >&2; exit 2; }
-[[ "$STORE" == /* && "$FAILED" == /* && "$STATE" == /* && "$CACHE" == /* && "$LOGS" == /* ]] || { echo 'paths must be absolute' >&2; exit 2; }
+[[ "$STORE" == /* && "$FAILED" == /* && "$STATE" == /* && "$CACHE" == /* && "$LOGS" == /* && "$LOCK" == /* ]] || { echo 'paths must be absolute' >&2; exit 2; }
 [[ "$MIN_FREE_GB" =~ ^[0-9]+$ && "$GOMAXPROCS_BUILD" =~ ^[1-9][0-9]*$ && "$LOOKBACK" =~ ^[1-9][0-9]*$ ]] || { echo 'invalid limits' >&2; exit 2; }
-[[ "$RELEASES" == local || "$RELEASES" =~ ^(https://[A-Za-z0-9.-]+(:[0-9]+)?|file://)(/[A-Za-z0-9._~-]+)*$ ]] || { echo "invalid AGENTHOLD_BUILD_RELEASES $RELEASES" >&2; exit 2; }
-proto='=https'; [[ "$RELEASES" == file://* ]] && proto='=file'
+if ((RELEASES_SET)); then
+  [[ "$RELEASES" == local || "$RELEASES" =~ ^(https://[A-Za-z0-9.-]+(:[0-9]+)?|file://)(/[A-Za-z0-9._~-]+)*$ ]] || { echo "invalid AGENTHOLD_BUILD_RELEASES $RELEASES" >&2; exit 2; }
+fi
 [[ "$MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ && "$RETRY_DELAY" =~ ^[0-9]+$ ]] || { echo 'invalid retry limits' >&2; exit 2; }
 id -u "$BUILD_USER" >/dev/null 2>&1 || { echo "build user $BUILD_USER does not exist" >&2; exit 1; }
 for tool in git go jq zstd sha256sum flock systemd-run make curl unzip; do
@@ -82,7 +95,7 @@ done
 install -d -m 0755 "$STORE" "$FAILED" "$LOGS"
 install -d -m 0755 -o "$BUILD_USER" -g "$BUILD_USER" "$STATE" "$STATE/work" "$CACHE" "$CACHE/user" "$CACHE/kernel"
 install -d -m 0700 "$CACHE/root"
-exec 9>"/run/agenthold-build.lock"
+exec 9>"$LOCK"
 flock -n 9 || { echo 'another build is running'; exit 0; }
 
 as_user() { setpriv --reuid="$BUILD_USER" --regid="$BUILD_USER" --init-groups env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME="$STATE" "$@"; }
@@ -92,30 +105,78 @@ if [[ ! -d "$mirror" ]]; then
 fi
 as_user git -C "$mirror" fetch --quiet --prune "$REPO_URL" "+refs/heads/$BRANCH:refs/heads/$BRANCH"
 head="$(as_user git -C "$mirror" rev-parse --verify "refs/heads/$BRANCH^{commit}")"
-if [[ -z "$commit" && -n "$FOLLOW" ]]; then
+followed_commit=""
+if [[ -z "$commit" && -z "$tag" && -n "$FOLLOW" ]]; then
   # Not a failure: the controller may be restarting. The next timer run asks again.
-  commit="$(curl -fsS --proto =https,http --max-time 20 "${FOLLOW%/}/api/v1/version" |
-    jq -er '.version | select(type == "string" and test("^sha-[0-9a-f]{40}$")) | ltrimstr("sha-")')" ||
+  follow_json="$(curl -fsS --proto =https,http --max-time 20 "${FOLLOW%/}/api/v1/version")" ||
     { echo "cannot read the release ${FOLLOW%/} runs; nothing to build"; exit 0; }
-  echo "${FOLLOW%/} runs $commit"
+  followed_version="$(jq -er --arg re "^(sha-[0-9a-f]{40}|$SEMVER_RE)$" '.version | select(type == "string" and test($re))' <<<"$follow_json")" ||
+    { echo "cannot read the release ${FOLLOW%/} runs; nothing to build"; exit 0; }
+  followed_commit="$(jq -r '.commit // empty' <<<"$follow_json")"
+  if [[ "$followed_version" == sha-* ]]; then
+    commit="${followed_version#sha-}"
+  else
+    tag="$followed_version"
+  fi
+  echo "${FOLLOW%/} runs $followed_version"
 fi
-# released <commit>: whether the commit's release has this architecture's binary.
-released() { [[ "$RELEASES" == local ]] && return 0; curl -fsS --proto "$proto" --head --location --max-time 20 -o /dev/null "$RELEASES/sha-$1/agenthold-linux-$ARCH"; }
-if [[ -z "$commit" ]]; then
-  while read -r c; do
-    if released "$c"; then commit="$c"; break; fi
-  done < <(as_user git -C "$mirror" rev-list --max-count="$LOOKBACK" "$head")
-  [[ -n "$commit" ]] || { echo "none of the newest $LOOKBACK commits on $BRANCH has a release yet; nothing to build"; exit 0; }
-  [[ "$commit" == "$head" ]] || echo "newest released commit is $commit (main head $head)"
-else
+# released <version>: whether the release source has this architecture's binary.
+released() { [[ "$RELEASES" == local ]] && return 0; curl -fsS --proto "$proto" --head --location --max-time 20 -o /dev/null "$RELEASES/$1/agenthold-linux-$ARCH"; }
+if [[ -n "$tag" ]]; then
+  [[ "$tag" =~ ^${SEMVER_RE}$ ]] || { echo "--tag takes a semver release tag (for example v0.1.0)" >&2; exit 2; }
+  as_user git -C "$mirror" fetch --quiet "$REPO_URL" "+refs/tags/$tag:refs/tags/$tag"
+  commit="$(as_user git -C "$mirror" rev-parse --verify "refs/tags/$tag^{commit}")"
+  if [[ -n "$followed_commit" && "$followed_commit" =~ ^[0-9a-f]{7,40}$ && "$commit" != "$followed_commit"* ]]; then
+    echo "tag $tag resolves to $commit, which does not match ${FOLLOW%/} commit $followed_commit" >&2
+    exit 1
+  fi
+  version="$tag"
+  release_id="$tag"
+  ((RELEASES_SET)) || RELEASES="$DEFAULT_GITHUB_RELEASES"
+  proto='=https'; [[ "$RELEASES" == file://* ]] && proto='=file'
+elif [[ -n "$commit" ]]; then
   [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo '--commit takes a full 40-hex commit' >&2; exit 2; }
   as_user git -C "$mirror" merge-base --is-ancestor "$commit" "$head" || { echo "$commit is not on $BRANCH" >&2; exit 1; }
+  version="sha-$commit"
+  release_id="$commit"
+  ((RELEASES_SET)) || RELEASES="local"
+  proto='=https'; [[ "$RELEASES" == file://* ]] && proto='=file'
+else
+  ((RELEASES_SET)) || RELEASES="local"
+  proto='=https'; [[ "$RELEASES" == file://* ]] && proto='=file'
+  if [[ "$RELEASES" == local ]]; then
+    # Docs-only commits skip CI and do not change the runtime or web UI.
+    commit="$(as_user git -C "$mirror" rev-list -n 1 "$head" -- . ':(exclude)docs' ':(exclude)*.md' || true)"
+    [[ -n "$commit" ]] || commit="$head"
+    [[ "$commit" == "$head" ]] || echo "newest non-docs commit is $commit ($BRANCH head $head)"
+  else
+    while read -r c; do
+      if released "sha-$c"; then commit="$c"; break; fi
+    done < <(as_user git -C "$mirror" rev-list --max-count="$LOOKBACK" "$head")
+    [[ -n "$commit" ]] || { echo "none of the newest $LOOKBACK commits on $BRANCH has a release yet; nothing to build"; exit 0; }
+    [[ "$commit" == "$head" ]] || echo "newest released commit is $commit ($BRANCH head $head)"
+  fi
+  version="sha-$commit"
+  release_id="$commit"
 fi
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo 'unexpected commit id' >&2; exit 1; }
-version="sha-$commit"
-if [[ -n "$FOLLOW" ]] && ! released "$commit"; then echo "$commit has no release for $ARCH yet; nothing to build"; exit 0; fi
+# A tagged build of this main commit already serves the desired code. Keep its
+# public version when the regular main timer runs after an explicit release.
+if ((!explicit_target && !force)) && [[ -z "$FOLLOW" && -f "$STORE/channel.json" ]] &&
+   jq -e --arg sha "$commit" --arg re "^$SEMVER_RE$" '.commit == $sha and (.version | test($re))' "$STORE/channel.json" >/dev/null; then
+  echo "already published a tagged release for $commit"
+  exit 0
+fi
+if [[ "$RELEASES" != local ]] && ! released "$version"; then
+  if [[ -n "$FOLLOW" ]]; then
+    echo "$version has no release for $ARCH yet; nothing to build"
+    exit 0
+  fi
+  echo "$version has no release for $ARCH at $RELEASES" >&2
+  exit 1
+fi
 
-# Failed attempts of a commit. A record from before attempts were counted holds one attempt.
+# Failed attempts of a release. A record from before attempts were counted holds one attempt.
 failed_attempts() {
   local n=""
   [[ -f "$FAILED/$1.attempts" ]] && n="$(cat -- "$FAILED/$1.attempts")"
@@ -127,26 +188,27 @@ failed_attempts() {
 
 deployed="$(basename "$(readlink -f "$DEPLOY_ROOT/current" 2>/dev/null || true)")"
 if ((!force)); then
-  if [[ -f "$STORE/$version/SHA256SUMS" ]]; then echo "$commit is already built"; exit 0; fi
-  if [[ "$deployed" == "$commit" ]]; then echo "$commit is already deployed"; exit 0; fi
-  if [[ -f "$FAILED/$commit.log" ]]; then
-    attempts="$(failed_attempts "$commit")"
-    if ((attempts >= MAX_ATTEMPTS)); then echo "$commit failed before (see $FAILED/$commit.log); waiting for a new commit"; exit 0; fi
-    wait_s=$(( $(stat -c %Y -- "$FAILED/$commit.log" 2>/dev/null || echo 0) + RETRY_DELAY - $(date +%s) ))
-    if ((wait_s > 0)); then echo "$commit failed $attempts of $MAX_ATTEMPTS time(s); next attempt in ${wait_s}s"; exit 0; fi
-    echo "$commit failed $attempts of $MAX_ATTEMPTS time(s); retrying"
+  if [[ -f "$STORE/$version/SHA256SUMS" ]]; then echo "$version is already built"; exit 0; fi
+  if [[ "$deployed" == "$release_id" ]]; then echo "$version is already deployed"; exit 0; fi
+  if [[ -f "$FAILED/$release_id.log" ]]; then
+    attempts="$(failed_attempts "$release_id")"
+    if ((attempts >= MAX_ATTEMPTS)); then echo "$version failed before (see $FAILED/$release_id.log); waiting for a new release"; exit 0; fi
+    wait_s=$(( $(stat -c %Y -- "$FAILED/$release_id.log" 2>/dev/null || echo 0) + RETRY_DELAY - $(date +%s) ))
+    if ((wait_s > 0)); then echo "$version failed $attempts of $MAX_ATTEMPTS time(s); next attempt in ${wait_s}s"; exit 0; fi
+    echo "$version failed $attempts of $MAX_ATTEMPTS time(s); retrying"
   fi
 fi
 free_kb="$(df -Pk / | awk 'END {print $4}')"
 if ! [[ "$free_kb" =~ ^[0-9]+$ ]] || ((free_kb < MIN_FREE_GB * 1024 * 1024)); then
-  echo "less than $MIN_FREE_GB GB free on /; not building $commit" >&2
+  echo "less than $MIN_FREE_GB GB free on /; not building $version" >&2
   exit 1
 fi
 
-log="$LOGS/$commit.log"
+log="$LOGS/$release_id.log"
 : > "$log"
-exec > >(tee -a "$log") 2>&1
+exec > >(exec 9>&-; exec tee -a "$log") 2>&1
 wt="$STATE/work/$commit"
+rel=""
 phases="$(mktemp)"
 current_unit=""
 started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -156,27 +218,28 @@ finish() {
   set +e
   [[ -z "$current_unit" ]] || systemctl stop "$current_unit" 2>/dev/null
   [[ -z "${stage:-}" ]] || rm -rf -- "$stage"
+  [[ -z "${rel:-}" ]] || rm -rf -- "$rel"
   if [[ -d "$wt" ]]; then rm -rf -- "$wt"; fi
   as_user git -C "$mirror" worktree prune
   if ((status != 0)); then
-    echo "build of $commit FAILED (status $status)"
+    echo "build of $version ($commit) FAILED (status $status)"
     # Count before writing anything: a record from before counting is read through its latest log.
-    failed_n=$(( $(failed_attempts "$commit") + 1 ))
-    cp -- "$log" "$FAILED/$commit.attempt-$failed_n.log"
-    printf '%s\n' "$failed_n" > "$FAILED/.$commit.attempts.tmp" && mv -f -- "$FAILED/.$commit.attempts.tmp" "$FAILED/$commit.attempts"
+    failed_n=$(( $(failed_attempts "$release_id") + 1 ))
+    cp -- "$log" "$FAILED/$release_id.attempt-$failed_n.log"
+    printf '%s\n' "$failed_n" > "$FAILED/.$release_id.attempts.tmp" && mv -f -- "$FAILED/.$release_id.attempts.tmp" "$FAILED/$release_id.attempts"
     # The latest log goes last: its existence and mtime are what the next run waits on.
-    cp -- "$log" "$FAILED/.$commit.log.tmp" && mv -f -- "$FAILED/.$commit.log.tmp" "$FAILED/$commit.log"
-    echo "failed attempt $failed_n of $MAX_ATTEMPTS for $commit"
+    cp -- "$log" "$FAILED/.$release_id.log.tmp" && mv -f -- "$FAILED/.$release_id.log.tmp" "$FAILED/$release_id.log"
+    echo "failed attempt $failed_n of $MAX_ATTEMPTS for $version"
   fi
-  jq -n --arg commit "$commit" --arg started "$started" --arg finished "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson status "$status" \
+  jq -n --arg commit "$commit" --arg version "$version" --arg started "$started" --arg finished "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson status "$status" \
     --slurpfile phases <(jq -s . "$phases" 2>/dev/null || echo '[]') \
-    '{commit: $commit, started: $started, finished: $finished, status: $status, phases: $phases[0]}' > "$STATE/last-build.json.tmp" &&
+    '{commit: $commit, version: $version, started: $started, finished: $finished, status: $status, phases: $phases[0]}' > "$STATE/last-build.json.tmp" &&
     mv -f "$STATE/last-build.json.tmp" "$STATE/last-build.json"
   rm -f -- "$phases"
   # Keep the newest logs only; failure records stay (they stop rebuild loops).
   ls -1t "$LOGS"/*.log 2>/dev/null | tail -n +$((KEEP_LOGS + 1)) | xargs -r rm -f --
   # Failure records age out together (latest log, attempt logs, counter); a commit still at main's head
-  # is then built again, as before. Attempt logs of a commit that later passed age out the same way.
+  # is then built again, as before. Attempt logs of a release that later passed age out the same way.
   find "$FAILED" -maxdepth 1 \( -name '*.log' -o -name '*.attempts' \) -mtime +60 -delete 2>/dev/null
   exit "$status"
 }
@@ -184,7 +247,7 @@ trap finish EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-echo "==> building $commit (main head $head) at $started"
+echo "==> building $version ($commit, $BRANCH head $head, binary source: $RELEASES) at $started"
 rm -rf -- "$wt"
 as_user git -C "$mirror" worktree prune
 as_user git -C "$mirror" worktree add --quiet --detach "$wt" "$commit"
@@ -231,10 +294,10 @@ phase() {
     anon="$(awk '$1 == "anon" {print $2}' "/sys/fs/cgroup$cg/memory.stat" 2>/dev/null)"
     [[ "$anon" =~ ^[0-9]+$ ]] && ((anon > anon_max)) && anon_max=$anon
     echo "$(cat "/sys/fs/cgroup$cg/memory.peak" 2>/dev/null) $anon_max" > "$peakfile.tmp" && mv -f "$peakfile.tmp" "$peakfile"
-  done) &
+  done) 9>&- &
   local sampler=$!
   set +e
-  systemd-run "${props[@]}" -- bash -c 'exec "$@" 2>&1' phase "$@" 2>"$out"
+  systemd-run "${props[@]}" -- bash -c 'exec "$@" 2>&1' phase "$@" 9>&- 2>"$out"
   rc=$?
   set -e
   kill "$sampler" 2>/dev/null; wait "$sampler" 2>/dev/null || true
@@ -445,9 +508,10 @@ jq -n --arg commit "$commit" --arg version "$version" --arg built "$(date -u +%Y
    + (if $hkey != "" then {harnesses: {key: $hkey, manifest: {path: ("assets/" + $arch + "/harnesses-" + $hkey + ".json"), sha256: $hsha}}} else {} end)' > "$STORE/.channel.json.tmp"
 chmod 0644 "$STORE/.channel.json.tmp"
 mv -f -- "$STORE/.channel.json.tmp" "$STORE/channel.json"
-# A commit that passed on a retry keeps its attempt logs (flaky tests show up there) until they age out.
-rm -f -- "$FAILED/$commit.log" "$FAILED/$commit.attempts"
+# A release that passed on a retry keeps its attempt logs (flaky tests show up there) until they age out.
+rm -f -- "$FAILED/$release_id.log" "$FAILED/$release_id.attempts"
 rm -rf -- "$rel"
+rel=""
 echo "==> published $version to $STORE"
 # One cached base and harnesses layer, cleaned only after a successful publish: older keys stay
 # reachable through the store (hard links), which pull.sh prunes.

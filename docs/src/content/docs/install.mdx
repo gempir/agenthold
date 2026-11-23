@@ -18,20 +18,24 @@ installation.
 
 ## Download
 
-Binaries are published as GitHub releases: every `main` commit whose CI passed becomes a pre-release
-`sha-<commit>` with both binaries, their runtime manifests and `SHA256SUMS`; a `v*` tag becomes a release
-the same way. Only the newest 30 commit pre-releases are kept.
+Official binaries are published as semver GitHub releases (`v0.1.0` and later; tags with a `-` suffix such
+as `v0.2.0-rc.1` are marked as pre-releases), each containing both binaries, their runtime manifests and
+`SHA256SUMS`:
 
 ```sh
-v=sha-<commit>   # or a v* tag
+v=v0.1.0
 base=https://github.com/gempir/agenthold/releases/download/$v
 mkdir "$v" && cd "$v"
 curl -fsSLO "$base/SHA256SUMS"
 for f in agenthold-linux-amd64 runtime-linux-amd64.manifest.json; do curl -fsSLO "$base/$f"; done
 sha256sum --check --ignore-missing SHA256SUMS
-chmod +x agenthold-linux-amd64 && ./agenthold-linux-amd64 --version   # agenthold sha-<commit> (...)
-jq '{kernel, base}' runtime-linux-amd64.manifest.json                 # the asset keys it needs
+chmod +x agenthold-linux-amd64 && ./agenthold-linux-amd64 --version   # agenthold v0.1.0 (...)
+jq '{kernel, base, harnesses}' runtime-linux-amd64.manifest.json      # the asset keys it needs
 ```
+
+Commits on `main` are not published as GitHub releases. For a `main` build, download the `release-amd64` or
+`release-arm64` workflow artifact from a green [`ci` workflow](https://github.com/gempir/agenthold/actions/workflows/ci.yml)
+run (for example `gh run download <run-id> -n release-amd64`), or build from source below.
 
 The kernel and base image are not on GitHub. A server fetches them on first start from an asset source
 (see below): set `sandbox.firecracker.assets_url` to the `/dl/` root of a host that builds or serves your
@@ -39,12 +43,13 @@ architecture's assets. The demo, `https://demo.agenthold.dev/dl/`, serves arm64 
 independent of anybody else's host) build them yourself on an x86_64 or arm64 Linux host:
 
 ```sh
-sudo scripts/release/build-assets.sh   # build/assets/<arch>/{kernel,base}-<key>.{json,zst}
+sudo scripts/release/build-assets.sh   # build/assets/<arch>/{kernel,base,harnesses}-<key>.{json,zst}
 ```
 
 and place them as described under [runtime artifacts](#runtime-artifacts), or serve that directory as
 `<root>/assets/<arch>/` from any web server you trust. To build a binary from source instead:
-`make web && VERSION=sha-$(git rev-parse HEAD) scripts/release/build.sh` (`build/release/<arch>/`).
+`make web && VERSION=v0.1.0 scripts/release/build.sh` (or `VERSION=sha-$(git rev-parse HEAD)` for a `main`
+commit; output in `build/release/<arch>/`).
 
 ## Configure
 

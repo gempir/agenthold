@@ -59,4 +59,32 @@ echo corrupt >> "$A/base-$bkey.zst"
 if bash "$script" "$store" >/dev/null 2>&1; then fail 'corrupt release must be refused'; fi
 [[ ! -e "$work/opt/current" ]] || fail 'corrupt release left a deployment'
 [[ -z "$(ls -A "$work/data/base" 2>/dev/null)" ]] || fail 'corrupt release left base files'
+
+# Semver release bootstrap (v0.1.0): installs under /opt/agenthold/releases/v0.1.0.
+sv="v0.1.0"
+sstore="$work/store-semver"; sA="$sstore/assets/arm64"
+mkdir -p "$sstore/$sv" "$sA"
+printf '#!/usr/bin/env bash\necho "agenthold %s (333333333333)"\n' "$sv" > "$sstore/$sv/agenthold-linux-arm64"
+chmod +x "$sstore/$sv/agenthold-linux-arm64"
+jq -n --arg v "$sv" --arg k "$kkey" --arg b "$bkey" '{format:2,arch:"arm64",version:$v,files:{},kernel:{key:$k},base:{key:$b}}' > "$sstore/$sv/runtime-linux-arm64.manifest.json"
+for k in base kernel; do
+  key=$kkey; [[ $k == base ]] && key=$bkey
+  zstd -q -f --long=27 "$work/$k" -o "$sA/$k-$key.zst"
+  jq -n --arg kind "$k" --arg key "$key" --arg sha "$(s "$work/$k")" --argjson size "$(stat -c %s "$work/$k")" \
+    --arg csha "$(s "$sA/$k-$key.zst")" --argjson csize "$(stat -c %s "$sA/$k-$key.zst")" \
+    '{format:1,kind:$kind,arch:"arm64",key:$key,sha256:$sha,size:$size,compressed:{sha256:$csha,size:$csize}}' > "$sA/$k-$key.json"
+done
+(cd "$sstore/$sv" && sha256sum agenthold-linux-arm64 runtime-linux-arm64.manifest.json > SHA256SUMS)
+jq -n --arg c "$commit" --arg v "$sv" --arg b "$(s "$sstore/$sv/agenthold-linux-arm64")" --arg m "$(s "$sstore/$sv/runtime-linux-arm64.manifest.json")" \
+  --arg sum "$(s "$sstore/$sv/SHA256SUMS")" --arg kk "$kkey" --arg ks "$(s "$sA/kernel-$kkey.json")" --arg bk "$bkey" --arg bs "$(s "$sA/base-$bkey.json")" \
+  '{format:3,arch:"arm64",commit:$c,version:$v,binary:{path:($v+"/agenthold-linux-arm64"),sha256:$b},
+    runtime_manifest:{path:($v+"/runtime-linux-arm64.manifest.json"),sha256:$m},sums:{path:($v+"/SHA256SUMS"),sha256:$sum},
+    kernel:{key:$kk,manifest:{path:("assets/arm64/kernel-"+$kk+".json"),sha256:$ks}},
+    base:{key:$bk,manifest:{path:("assets/arm64/base-"+$bk+".json"),sha256:$bs}}}' > "$sstore/channel.json"
+rm -rf "$work/opt" "$work/data"
+bash "$script" "$sstore" >"$work/log" 2>&1 || { cat "$work/log"; fail 'semver bootstrap'; }
+[[ "$(readlink "$work/opt/current")" == "$work/opt/releases/$sv" ]] || fail 'semver current link'
+[[ -x "$work/opt/releases/$sv/agenthold" ]] || fail 'semver binary'
+cmp -s "$sstore/channel.json" "$work/data/dl/channel.json" || fail 'semver channel not published'
+cmp -s "$sstore/$sv/SHA256SUMS" "$work/data/dl/$sv/SHA256SUMS" || fail 'semver SHA256SUMS not published'
 echo 'bootstrap tests passed'

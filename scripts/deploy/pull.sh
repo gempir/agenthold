@@ -15,17 +15,23 @@
 #   mode=node                               an edge node (agenthold node): deploy agenthold-node.service
 #                                           and judge its health by its journal (default: controller)
 #
-# A source is a directory tree shaped like /dl/: channel.json (format 3) names a sha-<commit>
-# version, the sha256 of its binary, runtime manifest and SHA256SUMS, and the guest kernel and base
-# image by key with the sha256 of their asset manifests (assets/<arch>/<kind>-<key>.json, which pin
-# the compressed assets/<arch>/<kind>-<key>.zst and the uncompressed file). Every file is checked
-# against that chain. Before the switch the assets are placed where the release binary looks for
-# them: the manifests in <data_dir>/assets/<arch>/, the kernel at <data_dir>/kernel/<sha256> and the
-# base at <data_dir>/base/<sha256>.ext4, each with its compressed file next to it (+.zst). After a
-# healthy switch channel.json and SHA256SUMS go to <data_dir>/dl/, so the deployed controller's
-# /dl/ (which serves the binary and the assets itself) can be the pull source of another host.
+# A source is a directory tree shaped like /dl/: channel.json (format 3) names a release version
+# (a semver tag like v0.1.0, or sha-<commit> for a main build), the sha256 of its binary, runtime
+# manifest and SHA256SUMS, and the guest kernel, base image and harnesses layer by key with the
+# sha256 of their asset manifests (assets/<arch>/<kind>-<key>.json, which pin the compressed
+# assets/<arch>/<kind>-<key>.zst and the uncompressed file). Every file is checked against that
+# chain. Before the switch the assets are placed where the release binary looks for them: the
+# manifests in <data_dir>/assets/<arch>/, the kernel at <data_dir>/kernel/<sha256>, the base at
+# <data_dir>/base/<sha256>.ext4 and the harnesses layer at <data_dir>/harnesses/<sha256>.ext4, each
+# with its compressed file next to it (+.zst). After a healthy switch channel.json and SHA256SUMS
+# go to <data_dir>/dl/, so the deployed controller's /dl/ (which serves the binary and the assets
+# itself) can be the pull source of another host.
 set -euo pipefail
 umask 077
+
+SEMVER_RE='v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?'
+VERSION_RE="(sha-[0-9a-f]{40}|$SEMVER_RE)"
+RELEASE_DIR_RE="([0-9a-f]{40}|$SEMVER_RE)"
 
 CONFIG="${AGENTHOLD_DEPLOY_CONFIG:-/etc/agenthold/pull.conf}"
 conf() { # conf <key>: the value from the config file, empty if absent
@@ -79,10 +85,10 @@ elif ((!check)); then
 fi
 
 current=""
-current_commit=""
+current_id=""
 if [[ -L "$ROOT/current" ]]; then
   current="$(readlink -f "$ROOT/current")"
-  current_commit="$(basename -- "$current")"
+  current_id="$(basename -- "$current")"
 fi
 if ((check)); then
   work="$(mktemp -d "${TMPDIR:-/var/tmp}/agenthold-pull-check.XXXXXXXX")"
@@ -126,7 +132,7 @@ verify() { printf '%s  %s\n' "$1" "$2" | sha256sum --check --status; }
 # get <relative path> <max bytes> <destination> [timeout]: copy one file of the source.
 get() {
   local rel="$1" max="$2" dest="$3" size
-  [[ "$rel" =~ ^(channel\.json|sha-[0-9a-f]{40}/[A-Za-z0-9][A-Za-z0-9._-]*|assets/(amd64|arm64)/(kernel|base|harnesses)-[0-9a-f]{32}\.(json|zst))$ ]] || { echo "refusing source path $rel" >&2; return 1; }
+  [[ "$rel" =~ ^(channel\.json|${VERSION_RE}/[A-Za-z0-9][A-Za-z0-9._-]*|assets/(amd64|arm64)/(kernel|base|harnesses)-[0-9a-f]{32}\.(json|zst))$ ]] || { echo "refusing source path $rel" >&2; return 1; }
   if [[ "$kind" == local ]]; then
     local src="$SOURCE/$rel"
     [[ -f "$src" && ! -L "$src" && ! -L "$(dirname -- "$src")" ]] || { echo "$src is missing or not a regular file" >&2; return 1; }
@@ -160,7 +166,15 @@ sum_of() { # sum_of <file name>: its sha256 according to SHA256SUMS
 get channel.json 65536 "$work/channel.json"
 commit="$(jq -er --arg arch "$ARCH" 'select(.format == 3 and .arch == $arch) | .commit | select(type == "string" and test("^[0-9a-f]{40}$"))' "$work/channel.json")" ||
   { echo "channel.json is not a format 3 $ARCH channel" >&2; exit 1; }
-version="sha-$commit"
+version="$(jq -er --arg c "$commit" --arg semver "^${SEMVER_RE}\$" '
+  .version | select(type == "string" and (. == ("sha-" + $c) or test($semver)))
+' "$work/channel.json")" ||
+  { echo 'channel.json has an invalid version for its commit' >&2; exit 1; }
+if [[ "$version" == "sha-$commit" ]]; then
+  release_id="$commit"
+else
+  release_id="$version"
+fi
 jq -e --arg v "$version" --arg arch "$ARCH" '
   def sha: type == "string" and test("^[0-9a-f]{64}$");
   def key: type == "string" and test("^[0-9a-f]{32}$");
@@ -177,10 +191,10 @@ binary_sha="$(jq -er .binary.sha256 "$work/channel.json")"
 manifest_sha="$(jq -er .runtime_manifest.sha256 "$work/channel.json")"
 sums_sha="$(jq -er .sums.sha256 "$work/channel.json")"
 running=0
-[[ "$current_commit" == "$commit" ]] && running=1
+[[ "$current_id" == "$release_id" ]] && running=1
 dl="$DATA_DIR/dl"
 if ((running && !check)) && cmp -s "$work/channel.json" "$dl/channel.json" && [[ -f "$dl/$version/SHA256SUMS" ]]; then
-  echo "already running $commit"
+  echo "already running $release_id"
   exit 0
 fi
 
@@ -295,7 +309,7 @@ place_asset() {
 for k in "${asset_kinds[@]}"; do place_asset "$k"; done
 
 if ((check)); then
-  echo "check passed: $version from $SOURCE is complete and verified (running: ${current_commit:-nothing})"
+  echo "check passed: $version from $SOURCE is complete and verified (running: ${current_id:-nothing})"
   exit 0
 fi
 
@@ -315,11 +329,11 @@ publish_dl() {
 
 if ((running)); then
   publish_dl
-  echo "already running $commit"
+  echo "already running $release_id"
   exit 0
 fi
 
-release_dir="$ROOT/releases/$commit"
+release_dir="$ROOT/releases/$release_id"
 if [[ -e "$release_dir" ]]; then
   [[ -d "$release_dir" && ! -L "$release_dir" && -f "$release_dir/agenthold" ]] && verify "$binary_sha" "$release_dir/agenthold" || { echo 'existing release differs from channel' >&2; exit 1; }
 else
@@ -364,21 +378,21 @@ node_healthy() {
 }
 
 # Reclaim disk after a verified switch. Only regular files named <sha256>.ext4 or <sha256>.ext4.zst
-# directly inside the base cache, <sha256> or <sha256>.zst inside the kernel cache, asset manifests
-# whose file is gone, assets in the local store no kept version names, 40-hex directories directly
-# inside $ROOT/releases and sha-<40-hex> directories directly inside <data_dir>/dl and the local
-# store are ever removed. Any doubt
+# directly inside the base/harnesses caches, <sha256> or <sha256>.zst inside the kernel cache, asset
+# manifests whose file is gone, assets in the local store no kept version names, release directories
+# (40-hex or semver v*) directly inside $ROOT/releases and version directories (sha-<40-hex> or
+# semver v*) directly inside <data_dir>/dl and the local store are ever removed. Any doubt
 # (unreadable agent state, symlinked directories, missing manifests) skips that part of the prune.
 prune_bytes=0
-prune_remove() { # prune_remove <parent-dir> <path> <file|dir|vdir>
+prune_remove() { # prune_remove <parent-dir> <path> <file|kfile|asset|dir|vdir>
   local parent="$1" path="$2" kind="$3" size
   [[ "$(dirname -- "$path")" == "$parent" && ! -L "$path" ]] || { echo "prune: refusing $path" >&2; return 0; }
   case "$kind" in
     file) [[ -f "$path" && "$(basename -- "$path")" =~ ^[0-9a-f]{64}\.ext4(\.zst)?$ ]] || return 0;;
     kfile) [[ -f "$path" && "$(basename -- "$path")" =~ ^[0-9a-f]{64}(\.zst)?$ ]] || return 0;;
     asset) [[ -f "$path" && "$(basename -- "$path")" =~ ^(kernel|base|harnesses)-[0-9a-f]{32}\.(json|zst)$ ]] || return 0;;
-    dir) [[ -d "$path" && "$(basename -- "$path")" =~ ^[0-9a-f]{40}$ ]] || return 0;;
-    vdir) [[ -d "$path" && "$(basename -- "$path")" =~ ^sha-[0-9a-f]{40}$ ]] || return 0;;
+    dir) [[ -d "$path" && "$(basename -- "$path")" =~ ^${RELEASE_DIR_RE}$ ]] || return 0;;
+    vdir) [[ -d "$path" && "$(basename -- "$path")" =~ ^${VERSION_RE}$ ]] || return 0;;
     *) return 0;;
   esac
   size="$(du -sk -- "$path" 2>/dev/null | cut -f1)" || size=0
@@ -473,10 +487,14 @@ prune_manifests() { # asset manifests whose file the prune removed
   done
 }
 prune_store_assets() { # store assets that no version left in the local store names
-  local m f name hk dir="$SOURCE/assets/$ARCH"
+  local d m f name hk dir="$SOURCE/assets/$ARCH"
   [[ -d "$dir" && ! -L "$dir" ]] || return 0
   declare -A keep=()
-  for m in "$SOURCE"/sha-*/runtime-linux-"$ARCH".manifest.json; do
+  for d in "$SOURCE"/*; do
+    [[ -d "$d" && ! -L "$d" ]] || continue
+    name="$(basename -- "$d")"
+    [[ "$name" =~ ^${VERSION_RE}$ ]] || continue
+    m="$d/runtime-linux-$ARCH.manifest.json"
     [[ -f "$m" ]] || continue
     keep["kernel-$(jq -er .kernel.key "$m" 2>/dev/null)"]=1 && keep["base-$(jq -er .base.key "$m" 2>/dev/null)"]=1 ||
       { echo "prune: cannot read $m; skipping store assets" >&2; return 0; }
@@ -495,19 +513,19 @@ prune_releases() { # prune_releases <new-release-dir> <previous-release-dir>
   [[ -d "$rel_dir" && ! -L "$rel_dir" ]] || { echo 'prune: releases is not a plain directory; skipping releases' >&2; return 0; }
   while IFS= read -r name; do
     dir="$rel_dir/$name"
-    [[ "$name" =~ ^[0-9a-f]{40}$ && -d "$dir" && ! -L "$dir" ]] || continue
+    [[ "$name" =~ ^${RELEASE_DIR_RE}$ && -d "$dir" && ! -L "$dir" ]] || continue
     n=$((n + 1))
     ((n > KEEP_RELEASES)) || continue
     [[ "$dir" != "$1" && "$dir" != "$2" && "$dir" != "$(readlink -f "$ROOT/current")" ]] || continue
     prune_remove "$rel_dir" "$dir" dir
   done < <(ls -t -- "$rel_dir")
 }
-prune_versions() { # prune_versions <dir> <keep> <versions to keep...>: sha-<commit> trees, newest first
+prune_versions() { # prune_versions <dir> <keep> <versions to keep...>: version trees, newest first
   local parent="$1" max="$2" name n=0 v skip
   shift 2
   [[ -d "$parent" && ! -L "$parent" ]] || return 0
   while IFS= read -r name; do
-    [[ "$name" =~ ^sha-[0-9a-f]{40}$ && -d "$parent/$name" && ! -L "$parent/$name" ]] || continue
+    [[ "$name" =~ ^${VERSION_RE}$ && -d "$parent/$name" && ! -L "$parent/$name" ]] || continue
     n=$((n + 1))
     ((n > max)) || continue
     skip=0
@@ -518,7 +536,16 @@ prune_versions() { # prune_versions <dir> <keep> <versions to keep...>: sha-<com
 prune() {
   if [[ "$PRUNE" == 0 ]]; then echo 'prune: disabled by PRUNE=0'; return 0; fi
   [[ "$(readlink -f "$ROOT/current")" == "$1" ]] || { echo 'prune: current is not the new release; skipping' >&2; return 0; }
-  local previous="sha-$(basename -- "$2")"
+  local previous prev_base
+  prev_base="$(basename -- "$2")"
+  previous="$(jq -er '.version | select(type == "string" and length > 0)' "$2/runtime.manifest.json" 2>/dev/null || true)"
+  if [[ -z "$previous" ]]; then
+    if [[ "$prev_base" =~ ^[0-9a-f]{40}$ ]]; then
+      previous="sha-$prev_base"
+    else
+      previous="$prev_base"
+    fi
+  fi
   prune_bytes=0
   prune_bases "$1" "$2"
   prune_harnesses "$1" "$2"
@@ -546,7 +573,7 @@ switched=1
 mv -Tf "$work/next" "$ROOT/current"
 if systemctl restart "$SERVICE" && healthy "$version" "$TIMEOUT"; then
   switched=0
-  echo "deployed $commit"
+  echo "deployed $release_id"
   publish_dl || echo 'could not publish the release under /dl/' >&2
   # Pruning is best effort and runs only after the new release proved healthy.
   prune "$release_dir" "$current" || echo 'prune failed; leaving disk as is' >&2

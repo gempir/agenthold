@@ -12,6 +12,7 @@ import {
   writePref,
   type ShellState,
 } from '@/components/layout/shell';
+import { useSwipeDrawer } from '@/components/layout/swipe';
 
 /**
  * Full-viewport frame: the threads sidebar on the left and the routed view in
@@ -24,6 +25,7 @@ export function AppShell() {
   // navigation closes it.
   const [drawerAt, setDrawerAt] = useState<string | null>(null);
   const drawerOpen = drawerAt === href;
+  useSwipeDrawer(drawerOpen, (o) => setDrawerAt(o ? href : null));
   const [collapsed, setCollapsedState] = useState(
     () => readPref('sidebar', 'open') === 'collapsed',
   );

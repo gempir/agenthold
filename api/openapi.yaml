@@ -2823,6 +2823,314 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /me/executor:
+    get:
+      operationId: getExecutorStatus
+      tags: [executor]
+      description: Status of the current user's managed Executor instance.
+      responses:
+        "200":
+          description: Executor status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecutorStatus" }
+
+  /me/executor/start:
+    post:
+      operationId: startExecutor
+      tags: [executor]
+      description: Start the current user's managed Executor instance if it is not running yet.
+      responses:
+        "200":
+          description: Executor status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecutorStatus" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /me/executor/restart:
+    post:
+      operationId: restartExecutor
+      tags: [executor]
+      description: Restart the current user's managed Executor instance.
+      responses:
+        "200":
+          description: Executor status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecutorStatus" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /me/executor/overview:
+    get:
+      operationId: getExecutorOverview
+      tags: [executor]
+      description: Apps, connected accounts and account links in the current user's Executor instance.
+      responses:
+        "200":
+          description: Executor overview.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecutorOverview" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /me/executor/catalog:
+    get:
+      operationId: listExecutorCatalog
+      tags: [executor]
+      description: Official apps available to install from the Executor catalog.
+      responses:
+        "200":
+          description: Catalog entries.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecutorCatalog" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /me/executor/catalog/import:
+    post:
+      operationId: importExecutorCatalogApp
+      tags: [executor]
+      description: Install an app from the Executor catalog into the user's Executor instance.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entry, name]
+              properties:
+                entry: { type: string, minLength: 1, maxLength: 200 }
+                name: { type: string, minLength: 1, maxLength: 120 }
+      responses:
+        "201":
+          description: Installed app.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecutorApp" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /me/executor/apps/import:
+    post:
+      operationId: importExecutorCustomApp
+      tags: [executor]
+      description: Import a remote MCP server as an Executor app.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, url]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+                url: { type: string, minLength: 1, maxLength: 2048 }
+      responses:
+        "201":
+          description: Installed app.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecutorApp" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /me/executor/apps/{appId}:
+    parameters:
+      - name: appId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      operationId: deleteExecutorApp
+      tags: [executor]
+      description: Remove an installed app from the user's Executor instance.
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /me/executor/apps/{appId}/accounts/{scope}/{requirement}/connect:
+    parameters:
+      - name: appId
+        in: path
+        required: true
+        schema: { type: string }
+      - name: scope
+        in: path
+        required: true
+        schema: { type: string, enum: [user, app] }
+      - name: requirement
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: startExecutorAccountConnect
+      tags: [executor]
+      description: Create an Executor account connection session for an app requirement, returning its auth methods, secret fields and browser URL.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                accountId: { type: string, description: "Optional existing account ID to reconnect or update credentials for." }
+      responses:
+        "201":
+          description: Connection session ready.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecutorConnectionSession" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /me/executor/connections/submit:
+    post:
+      operationId: submitExecutorAccountConnect
+      tags: [executor]
+      description: Submit secret credentials for a pending Executor connection session. Credentials are encrypted by Executor and never enter sandboxes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [connectionId, token, method, fields]
+              properties:
+                connectionId: { type: string, minLength: 1 }
+                token: { type: string, minLength: 1 }
+                method: { type: string, minLength: 1 }
+                label: { type: string, maxLength: 120 }
+                description: { type: string, maxLength: 500 }
+                fields:
+                  type: object
+                  additionalProperties: { type: string }
+      responses:
+        "200":
+          description: Connected account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecutorAccount" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /me/executor/apps/{appId}/accounts/{scope}/{requirement}/{accountId}:
+    parameters:
+      - name: appId
+        in: path
+        required: true
+        schema: { type: string }
+      - name: scope
+        in: path
+        required: true
+        schema: { type: string, enum: [user, app] }
+      - name: requirement
+        in: path
+        required: true
+        schema: { type: string }
+      - name: accountId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: linkExecutorAccount
+      tags: [executor]
+      description: Link an existing saved Executor account to an app requirement.
+      responses:
+        "204": { description: Linked. }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: unlinkExecutorAccount
+      tags: [executor]
+      description: Unlink an Executor account from an app requirement.
+      responses:
+        "204": { description: Unlinked. }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /me/executor/accounts/{accountId}:
+    parameters:
+      - name: accountId
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      operationId: updateExecutorAccount
+      tags: [executor]
+      description: Rename an Executor account or update its agent-facing description.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: { type: string, minLength: 1, maxLength: 120 }
+                description: { type: string, maxLength: 500, description: "Agent-facing description. Send an empty string to clear." }
+      responses:
+        "200":
+          description: Updated account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecutorAccount" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteExecutorAccount
+      tags: [executor]
+      description: Disconnect and remove a saved Executor account.
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /me/executor/accounts/{accountId}/health:
+    parameters:
+      - name: accountId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: checkExecutorAccountHealth
+      tags: [executor]
+      description: Check the credential health of a saved Executor account.
+      responses:
+        "200":
+          description: Health check result.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecutorAccountHealth" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
 security:
   - session: []
   - token: []
@@ -3115,7 +3423,7 @@ components:
 
     Agent:
       type: object
-      required: [id, name, owner, harness, model, modelOptions, permissionPolicy, credentialsInSandbox, login, cpus, memoryMb, idleMinutes, state, stateError, stateChangedAt, needsRebuild, isTemplate, role, createdAt, updatedAt]
+      required: [id, name, owner, harness, model, modelOptions, permissionPolicy, executorEnabled, executorApprovalMode, credentialsInSandbox, login, cpus, memoryMb, idleMinutes, state, stateError, stateChangedAt, needsRebuild, isTemplate, role, createdAt, updatedAt]
       properties:
         id: { type: string }
         name: { type: string }
@@ -3142,6 +3450,11 @@ components:
           additionalProperties: { type: string }
           description: Default model options, by harness config option id (see ModelCatalog).
         permissionPolicy: { type: string, enum: [auto-approve, ask] }
+        executorEnabled:
+          type: boolean
+          description: Expose the owner's Executor accounts and apps to this agent through the built-in executor MCP server.
+        executorApprovalMode:
+          $ref: "#/components/schemas/ExecutorApprovalMode"
         credentialsInSandbox:
           type: boolean
           description: A harness login was completed inside the sandbox; the agent can read its own credentials.
@@ -3176,6 +3489,8 @@ components:
         harness: { type: string, description: Harness id (see /harnesses). Default claude-code. }
         model: { type: string }
         permissionPolicy: { type: string, enum: [auto-approve, ask] }
+        executorEnabled: { type: boolean, description: "Expose the owner's Executor accounts and apps to this agent via MCP. Default false." }
+        executorApprovalMode: { $ref: "#/components/schemas/ExecutorApprovalMode" }
         imageId:
           type: string
           description: >-
@@ -3216,6 +3531,8 @@ components:
           additionalProperties: { type: string }
           description: Default model options, by harness config option id. Changing the harness resets them.
         permissionPolicy: { type: string, enum: [auto-approve, ask] }
+        executorEnabled: { type: boolean, description: "Expose the owner's Executor accounts and apps to this agent via MCP. Default false." }
+        executorApprovalMode: { $ref: "#/components/schemas/ExecutorApprovalMode" }
         imageId:
           type: string
           description: >-
@@ -4270,3 +4587,147 @@ components:
         branches:
           type: array
           items: { type: string }
+
+    ExecutorApprovalMode:
+      type: string
+      enum: [model, automatic, browser]
+      description: >-
+        How Executor tool approvals are answered for this agent:
+        model (default; the agent asks you in chat and resumes),
+        automatic (Executor approves immediately; the harness's own tool confirmation guards it),
+        browser (pauses with a signed-in Executor approval link).
+
+    ExecutorStatus:
+      type: object
+      required: [available, enabled, running, oauthReady, customAppsEnabled]
+      properties:
+        available: { type: boolean, description: "True when an Executor runtime binary is present on the controller." }
+        enabled: { type: boolean, description: "False when executor.disabled is set in configuration." }
+        running: { type: boolean, description: "True when this user's isolated Executor process is currently running." }
+        version: { type: string, description: "Executor runtime version when known." }
+        dashboardUrl: { type: string, description: "Dedicated Agenthold-authenticated URL for the full Executor dashboard (requires preview.host_suffix or executor.public_url)." }
+        oauthReady: { type: boolean, description: "True when an HTTPS Executor dashboard origin is configured for OAuth2 provider callbacks." }
+        customAppsEnabled: { type: boolean, description: "True when custom MCP server and custom app imports are allowed (executor.allow_private_fetch)." }
+        reason: { type: string, description: "Why Executor is unavailable or disabled." }
+
+    ExecutorOverview:
+      type: object
+      required: [status, apps, accounts]
+      properties:
+        status: { $ref: "#/components/schemas/ExecutorStatus" }
+        apps:
+          type: array
+          items: { $ref: "#/components/schemas/ExecutorApp" }
+        accounts:
+          type: array
+          items: { $ref: "#/components/schemas/ExecutorAccount" }
+
+    ExecutorApp:
+      type: object
+      required: [id, slug, name, requirements]
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        name: { type: string }
+        activeVersion: { type: string }
+        builtin: { type: boolean }
+        requirements:
+          type: array
+          items: { $ref: "#/components/schemas/ExecutorRequirement" }
+
+    ExecutorRequirement:
+      type: object
+      required: [name, scope, providerId, providerName, many, authMethods, linkedAccountIds]
+      properties:
+        name: { type: string }
+        scope: { type: string, enum: [user, app] }
+        providerId: { type: string }
+        providerName: { type: string }
+        many: { type: boolean }
+        authMethods:
+          type: array
+          items: { $ref: "#/components/schemas/ExecutorAuthMethod" }
+        linkedAccountIds:
+          type: array
+          items: { type: string }
+
+    ExecutorAuthMethod:
+      type: object
+      required: [name, kind]
+      properties:
+        name: { type: string }
+        kind: { type: string, enum: [secrets, oauth2, other] }
+        label: { type: string }
+        guide: { type: string }
+        fields:
+          type: array
+          items: { $ref: "#/components/schemas/ExecutorSecretField" }
+
+    ExecutorSecretField:
+      type: object
+      required: [name, required]
+      properties:
+        name: { type: string }
+        title: { type: string }
+        description: { type: string }
+        required: { type: boolean }
+        secret: { type: boolean }
+
+    ExecutorAccount:
+      type: object
+      required: [id, providerId, providerName, label, method, status, linkedApps]
+      properties:
+        id: { type: string }
+        providerId: { type: string }
+        providerName: { type: string }
+        label: { type: string }
+        description: { type: string }
+        method: { type: string }
+        status: { type: string, description: "ready, needs_reauth, error, or unknown." }
+        identity: { type: string, description: "Provider email or username when available." }
+        linkedApps:
+          type: array
+          items: { type: string }
+
+    ExecutorAccountHealth:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string }
+        message: { type: string }
+
+    ExecutorCatalog:
+      type: object
+      required: [apps]
+      properties:
+        apps:
+          type: array
+          items: { $ref: "#/components/schemas/ExecutorCatalogEntry" }
+
+    ExecutorCatalogEntry:
+      type: object
+      required: [id, name, auth]
+      properties:
+        id: { type: string }
+        package: { type: string }
+        name: { type: string }
+        description: { type: string }
+        category: { type: string }
+        iconUrl: { type: string }
+        auth:
+          type: array
+          items: { type: string }
+
+    ExecutorConnectionSession:
+      type: object
+      required: [connectionId, token, providerId, providerName, methods]
+      properties:
+        connectionId: { type: string }
+        token: { type: string }
+        browserUrl: { type: string, description: "Direct URL on the Executor dashboard host for OAuth2 or browser connection." }
+        expiresAt: { type: string, format: date-time }
+        providerId: { type: string }
+        providerName: { type: string }
+        methods:
+          type: array
+          items: { $ref: "#/components/schemas/ExecutorAuthMethod" }

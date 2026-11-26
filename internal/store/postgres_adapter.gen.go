@@ -1219,6 +1219,18 @@ func (p postgresQueries) ResetSessionModels(ctx context.Context, agentID string)
 	return p.q.ResetSessionModels(ctx, agentID)
 }
 
+func (p postgresQueries) SetAgentExecutor(ctx context.Context, arg db.SetAgentExecutorParams) error {
+	return p.q.SetAgentExecutor(ctx, postgres.SetAgentExecutorParams(arg))
+}
+
+func (p postgresQueries) SetAgentExecutorApprovalMode(ctx context.Context, arg db.SetAgentExecutorApprovalModeParams) error {
+	return p.q.SetAgentExecutorApprovalMode(ctx, postgres.SetAgentExecutorApprovalModeParams(arg))
+}
+
+func (p postgresQueries) SetAgentExecutorEnabled(ctx context.Context, arg db.SetAgentExecutorEnabledParams) error {
+	return p.q.SetAgentExecutorEnabled(ctx, postgres.SetAgentExecutorEnabledParams(arg))
+}
+
 func (p postgresQueries) SetAgentHarness(ctx context.Context, arg db.SetAgentHarnessParams) error {
 	return p.q.SetAgentHarness(ctx, postgres.SetAgentHarnessParams(arg))
 }

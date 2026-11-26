@@ -469,13 +469,28 @@ func serveWire(parent context.Context, stream *yamux.Stream, backend Node, opts 
 func bridgeWire(ctx context.Context, a, b io.ReadWriteCloser) {
 	stop := context.AfterFunc(ctx, func() { _ = a.Close(); _ = b.Close() })
 	defer stop()
-	done := make(chan struct{}, 2)
-	go func() { _, _ = io.Copy(a, b); done <- struct{}{} }()
-	go func() { _, _ = io.Copy(b, a); done <- struct{}{} }()
-	<-done
+	var wg sync.WaitGroup
+	wg.Add(2)
+	halfClose := func(dst io.ReadWriteCloser) {
+		if cw, ok := dst.(interface{ CloseWrite() error }); ok {
+			_ = cw.CloseWrite()
+			return
+		}
+		_ = dst.Close()
+	}
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(a, b)
+		halfClose(a)
+	}()
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(b, a)
+		halfClose(b)
+	}()
+	wg.Wait()
 	_ = a.Close()
 	_ = b.Close()
-	<-done
 }
 
 func forwardIncoming(ctx context.Context, mux *yamux.Session, backend Node) {

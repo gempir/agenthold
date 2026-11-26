@@ -190,7 +190,14 @@ function Section({
     case 'secrets':
       return <AgentSecretsTab agentId={a.id} isOwner={isOwner} />;
     case 'tools':
-      return <AgentToolsPanel agentId={a.id} isOwner={isOwner} />;
+      return (
+        <AgentToolsPanel
+          agentId={a.id}
+          agent={a}
+          isOwner={isOwner}
+          onAgentSaved={setAgent}
+        />
+      );
     case 'triggers':
       return (
         <TriggersTab

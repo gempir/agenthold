@@ -65,6 +65,9 @@ func runSandboxd(args []string) error {
 	if len(args) > 0 && args[0] == "mcp" {
 		return sandboxd.ServeMCP(os.Stdin, os.Stdout)
 	}
+	if len(args) > 0 && args[0] == "executor-mcp" {
+		return sandboxd.ServeExecutorMCP(os.Stdin, os.Stdout)
+	}
 	if len(args) > 0 && args[0] == "net-setup" {
 		fs := flag.NewFlagSet("net-setup", flag.ExitOnError)
 		gw := fs.String("gateway", "", "address of the server on the agent network")

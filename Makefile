@@ -8,7 +8,7 @@ BUN ?= bun
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-go web web-deps test test-go test-web test-kvm test-guest lint lint-go lint-web fmt dev dev-vm dev-vm-shell dev-vm-delete guest-kernel guest-base guest-harnesses runtime clean generate gen-sql gen-go-api gen-api
+.PHONY: all build build-go web web-deps test test-go test-web test-kvm test-guest lint lint-go lint-web fmt dev dev-vm dev-vm-shell dev-vm-delete guest-kernel guest-base guest-harnesses runtime executor-runtime clean generate gen-sql gen-go-api gen-api
 
 all: build
 build: web build-go
@@ -72,6 +72,9 @@ test-guest:
 	./scripts/guest/boot-test.sh
 runtime:
 	./scripts/guest/fetch-runtime.sh
+	./scripts/guest/fetch-executor.sh --os linux
+executor-runtime:
+	./scripts/guest/fetch-executor.sh --os linux
 
 # On macOS, build the embedded web UI locally, then run the native Linux server
 # as root inside the VM. Guest artifacts can be built once with the targets above.

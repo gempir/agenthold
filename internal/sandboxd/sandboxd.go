@@ -167,6 +167,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.services.start(ctx, specs)
 	defer d.services.stopAll()
 	go d.servePlatform(ctx)
+	go d.serveExecutor(ctx)
 	if d.cfg.ResumePort != 0 {
 		go d.serveResume(ctx, d.cfg.ResumePort)
 	}

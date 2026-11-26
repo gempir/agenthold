@@ -50,6 +50,39 @@ type Config struct {
 	Apps Apps `yaml:"apps"`
 	// Git configures account-level git integrations.
 	Git Git `yaml:"git"`
+	// Executor configures the built-in Executor runtime for managing user accounts and tools.
+	Executor Executor `yaml:"executor"`
+}
+
+// Executor configures the embedded Executor runtime that manages user accounts,
+// apps and OAuth connections without exposing credentials to agent sandboxes.
+type Executor struct {
+	// Disabled turns the Executor integration off.
+	Disabled bool `yaml:"disabled"`
+	// Binary overrides the path to the executor executable. Release builds
+	// extract their embedded Executor automatically; development builds look
+	// in build/runtime/executor/executor and on PATH. AGENTHOLD_EXECUTOR_BINARY overrides.
+	Binary string `yaml:"binary"`
+	// PublicURL is an optional dedicated origin (for example https://executor.example.com)
+	// where Agenthold serves the full Executor dashboard and OAuth2 callbacks.
+	// When empty and preview.host_suffix is set, Agenthold automatically serves
+	// Executor at <scheme>://executor<preview.host_suffix>.
+	PublicURL string `yaml:"public_url"`
+	// IdleTimeout stops a user's Executor process after this long without
+	// requests or running agents. Default 30m; 0 keeps it running while the server runs.
+	IdleTimeout *time.Duration `yaml:"idle_timeout"`
+	// AllowPrivateFetch enables custom MCP server / custom app imports and deploys
+	// in Executor. Default false restricts Executor to official catalog apps because
+	// Executor's embedded workerd runtime allows private-network fetches for app code.
+	AllowPrivateFetch bool `yaml:"allow_private_fetch"`
+}
+
+// EffectiveIdleTimeout returns the idle timeout (default 30m, 0 disables idle shutdown).
+func (e Executor) EffectiveIdleTimeout() time.Duration {
+	if e.IdleTimeout == nil {
+		return 30 * time.Minute
+	}
+	return *e.IdleTimeout
 }
 
 // Git configures account-level git integrations.
@@ -540,6 +573,8 @@ func applyEnv(cfg *Config) {
 	set(&cfg.Preview.HostSuffix, "AGENTHOLD_PREVIEW_HOST_SUFFIX")
 	set(&cfg.Sandbox.Firecracker.BaseURL, "AGENTHOLD_FIRECRACKER_BASE_URL")
 	set(&cfg.Sandbox.Firecracker.AssetsURL, "AGENTHOLD_FIRECRACKER_ASSETS_URL")
+	set(&cfg.Executor.Binary, "AGENTHOLD_EXECUTOR_BINARY")
+	set(&cfg.Executor.PublicURL, "AGENTHOLD_EXECUTOR_PUBLIC_URL")
 	if cfg.DevProxy == "off" { // serve the embedded build even if the file sets a dev proxy
 		cfg.DevProxy = ""
 	}
@@ -699,6 +734,9 @@ func ApplyDefaults(cfg *Config) {
 			}
 		}
 		gh.APIURL = strings.TrimRight(gh.APIURL, "/")
+	}
+	if cfg.Executor.PublicURL != "" {
+		cfg.Executor.PublicURL = strings.TrimRight(strings.TrimSpace(cfg.Executor.PublicURL), "/")
 	}
 	for i := range cfg.Auth.Providers {
 		p := &cfg.Auth.Providers[i]
@@ -872,6 +910,14 @@ func (c *Config) Validate() error {
 		if strings.ContainsAny(gh.ClientID, " \t\r\n") {
 			errs = append(errs, errors.New("git.github.client_id: must not contain whitespace"))
 		}
+	}
+	if c.Executor.PublicURL != "" {
+		if u, err := url.Parse(c.Executor.PublicURL); err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+			errs = append(errs, fmt.Errorf("executor.public_url: want an origin URL without path, query or credentials, got %q", c.Executor.PublicURL))
+		}
+	}
+	if c.Executor.IdleTimeout != nil && *c.Executor.IdleTimeout < 0 {
+		errs = append(errs, errors.New("executor.idle_timeout: must not be negative"))
 	}
 	return errors.Join(errs...)
 }

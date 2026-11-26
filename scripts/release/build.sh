@@ -60,14 +60,18 @@ NEW_STAGE=1
 
 bash "$REPO_ROOT/scripts/guest/fetch-runtime.sh" --out "$RUNTIME"
 cp "$RUNTIME/firecracker" "$RUNTIME/jailer" "$STAGE/"
+EXEC_VERSION="$(bash "$REPO_ROOT/scripts/guest/fetch-executor.sh" --print-version)"
+bash "$REPO_ROOT/scripts/guest/fetch-executor.sh" --os linux --arch "$ARCH" --zst "$STAGE/executor.tar.zst"
 KERNEL_KEY="$(bash "$REPO_ROOT/scripts/guest/kernel-key.sh")"
 BASE_KEY="$(bash "$REPO_ROOT/scripts/guest/base-key.sh")"
 HARNESSES_KEY="$(bash "$REPO_ROOT/scripts/guest/harnesses-key.sh")"
 jq -n --arg version "$VERSION" --arg arch "$ARCH" --arg kernel "$KERNEL_KEY" --arg base "$BASE_KEY" --arg harnesses "$HARNESSES_KEY" \
   --arg fc "$(sha256sum "$STAGE/firecracker" | cut -d' ' -f1)" --argjson fcsize "$(stat -c %s "$STAGE/firecracker")" \
   --arg jailer "$(sha256sum "$STAGE/jailer" | cut -d' ' -f1)" --argjson jailersize "$(stat -c %s "$STAGE/jailer")" \
+  --arg execver "$EXEC_VERSION" --arg execsha "$(sha256sum "$STAGE/executor.tar.zst" | cut -d' ' -f1)" --argjson execsize "$(stat -c %s "$STAGE/executor.tar.zst")" \
   '{format: 2, version: $version, arch: $arch,
     files: {firecracker: {sha256: $fc, size: $fcsize}, jailer: {sha256: $jailer, size: $jailersize}},
+    executor: {version: $execver, sha256: $execsha, size: $execsize},
     kernel: {key: $kernel}, base: {key: $base}, harnesses: {key: $harnesses}}' > "$STAGE/manifest.json"
 COMMIT="$(git -C "$REPO_ROOT" rev-parse --short=12 HEAD)"
 LDFLAGS="-s -w -X github.com/gempir/agenthold/internal/version.Version=$VERSION -X github.com/gempir/agenthold/internal/version.Commit=$COMMIT"

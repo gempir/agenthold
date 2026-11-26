@@ -72,6 +72,14 @@ const (
 	GitCheckout         = "git.checkout"
 	GitWorktreeAdd      = "git.worktree_add"
 	GitPull             = "git.pull"
+
+	ExecutorCall          = "executor.mcp.call"
+	ExecutorAgentUpdate   = "executor.agent.update"
+	ExecutorAppImport     = "executor.app.import"
+	ExecutorAppDelete     = "executor.app.delete"
+	ExecutorAccountLink   = "executor.account.link"
+	ExecutorAccountUnlink = "executor.account.unlink"
+	ExecutorAccountDelete = "executor.account.delete"
 )
 
 // Entry is one audit record. AgentID is empty for account-level actions.

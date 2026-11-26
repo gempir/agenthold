@@ -101,6 +101,7 @@ func (h Hosts) URL(name string) string { return h.Origin(name) + "/" }
 var reserved = map[string]bool{
 	"www": true, "api": true, "admin": true, "auth": true, "login": true, "app": true, "apps": true,
 	"demo": true, "mail": true, "dl": true, "static": true, "assets": true, "agenthold": true,
+	"executor": true,
 }
 
 // ValidName checks a new exposure name: a DNS label part of lowercase

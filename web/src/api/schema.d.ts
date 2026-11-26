@@ -2285,6 +2285,244 @@ export interface paths {
         patch: operations["updateSessionGit"];
         trace?: never;
     };
+    "/me/executor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Status of the current user's managed Executor instance. */
+        get: operations["getExecutorStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Start the current user's managed Executor instance if it is not running yet. */
+        post: operations["startExecutor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Restart the current user's managed Executor instance. */
+        post: operations["restartExecutor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Apps, connected accounts and account links in the current user's Executor instance. */
+        get: operations["getExecutorOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Official apps available to install from the Executor catalog. */
+        get: operations["listExecutorCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/catalog/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Install an app from the Executor catalog into the user's Executor instance. */
+        post: operations["importExecutorCatalogApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/apps/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Import a remote MCP server as an Executor app. */
+        post: operations["importExecutorCustomApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/apps/{appId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Remove an installed app from the user's Executor instance. */
+        delete: operations["deleteExecutorApp"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/apps/{appId}/accounts/{scope}/{requirement}/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+                scope: "user" | "app";
+                requirement: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Create an Executor account connection session for an app requirement, returning its auth methods, secret fields and browser URL. */
+        post: operations["startExecutorAccountConnect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/connections/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Submit secret credentials for a pending Executor connection session. Credentials are encrypted by Executor and never enter sandboxes. */
+        post: operations["submitExecutorAccountConnect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/apps/{appId}/accounts/{scope}/{requirement}/{accountId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+                scope: "user" | "app";
+                requirement: string;
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Link an existing saved Executor account to an app requirement. */
+        put: operations["linkExecutorAccount"];
+        post?: never;
+        /** @description Unlink an Executor account from an app requirement. */
+        delete: operations["unlinkExecutorAccount"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/accounts/{accountId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Disconnect and remove a saved Executor account. */
+        delete: operations["deleteExecutorAccount"];
+        options?: never;
+        head?: never;
+        /** @description Rename an Executor account or update its agent-facing description. */
+        patch: operations["updateExecutorAccount"];
+        trace?: never;
+    };
+    "/me/executor/accounts/{accountId}/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Check the credential health of a saved Executor account. */
+        post: operations["checkExecutorAccountHealth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2618,6 +2856,9 @@ export interface components {
             };
             /** @enum {string} */
             permissionPolicy: "auto-approve" | "ask";
+            /** @description Expose the owner's Executor accounts and apps to this agent through the built-in executor MCP server. */
+            executorEnabled: boolean;
+            executorApprovalMode: components["schemas"]["ExecutorApprovalMode"];
             /** @description A harness login was completed inside the sandbox; the agent can read its own credentials. */
             credentialsInSandbox: boolean;
             /** @description The machine is a template. It cannot be started, chatted with or scheduled; clone it for a new machine. */
@@ -2652,6 +2893,9 @@ export interface components {
             model?: string;
             /** @enum {string} */
             permissionPolicy?: "auto-approve" | "ask";
+            /** @description Expose the owner's Executor accounts and apps to this agent via MCP. Default false. */
+            executorEnabled?: boolean;
+            executorApprovalMode?: components["schemas"]["ExecutorApprovalMode"];
             /** @description Custom image ID to build the machine from, "base" for the built-in base image, or omit to use the installation's default image. */
             imageId?: string;
             /** @description Place the agent on this node (an `id` from `GET /nodes`). Omit it for automatic placement. Admins only (403 otherwise). 400 if the node does not exist; 409 if it is offline, cannot report its capacity or has less available memory than `memoryMb`. The agent stays on the node for its whole life. */
@@ -2684,6 +2928,9 @@ export interface components {
             };
             /** @enum {string} */
             permissionPolicy?: "auto-approve" | "ask";
+            /** @description Expose the owner's Executor accounts and apps to this agent via MCP. Default false. */
+            executorEnabled?: boolean;
+            executorApprovalMode?: components["schemas"]["ExecutorApprovalMode"];
             /** @description Switch to another custom image ID (pinned to its latest ready revision), or "base" for the built-in base image. Takes effect after Reset system (needsRebuild). */
             imageId?: string;
             /**
@@ -3587,6 +3834,107 @@ export interface components {
         GitRepoStatus: {
             repo?: components["schemas"]["GitRepo"];
             branches: string[];
+        };
+        /**
+         * @description How Executor tool approvals are answered for this agent: model (default; the agent asks you in chat and resumes), automatic (Executor approves immediately; the harness's own tool confirmation guards it), browser (pauses with a signed-in Executor approval link).
+         * @enum {string}
+         */
+        ExecutorApprovalMode: "model" | "automatic" | "browser";
+        ExecutorStatus: {
+            /** @description True when an Executor runtime binary is present on the controller. */
+            available: boolean;
+            /** @description False when executor.disabled is set in configuration. */
+            enabled: boolean;
+            /** @description True when this user's isolated Executor process is currently running. */
+            running: boolean;
+            /** @description Executor runtime version when known. */
+            version?: string;
+            /** @description Dedicated Agenthold-authenticated URL for the full Executor dashboard (requires preview.host_suffix or executor.public_url). */
+            dashboardUrl?: string;
+            /** @description True when an HTTPS Executor dashboard origin is configured for OAuth2 provider callbacks. */
+            oauthReady: boolean;
+            /** @description True when custom MCP server and custom app imports are allowed (executor.allow_private_fetch). */
+            customAppsEnabled: boolean;
+            /** @description Why Executor is unavailable or disabled. */
+            reason?: string;
+        };
+        ExecutorOverview: {
+            status: components["schemas"]["ExecutorStatus"];
+            apps: components["schemas"]["ExecutorApp"][];
+            accounts: components["schemas"]["ExecutorAccount"][];
+        };
+        ExecutorApp: {
+            id: string;
+            slug: string;
+            name: string;
+            activeVersion?: string;
+            builtin?: boolean;
+            requirements: components["schemas"]["ExecutorRequirement"][];
+        };
+        ExecutorRequirement: {
+            name: string;
+            /** @enum {string} */
+            scope: "user" | "app";
+            providerId: string;
+            providerName: string;
+            many: boolean;
+            authMethods: components["schemas"]["ExecutorAuthMethod"][];
+            linkedAccountIds: string[];
+        };
+        ExecutorAuthMethod: {
+            name: string;
+            /** @enum {string} */
+            kind: "secrets" | "oauth2" | "other";
+            label?: string;
+            guide?: string;
+            fields?: components["schemas"]["ExecutorSecretField"][];
+        };
+        ExecutorSecretField: {
+            name: string;
+            title?: string;
+            description?: string;
+            required: boolean;
+            secret?: boolean;
+        };
+        ExecutorAccount: {
+            id: string;
+            providerId: string;
+            providerName: string;
+            label: string;
+            description?: string;
+            method: string;
+            /** @description ready, needs_reauth, error, or unknown. */
+            status: string;
+            /** @description Provider email or username when available. */
+            identity?: string;
+            linkedApps: string[];
+        };
+        ExecutorAccountHealth: {
+            status: string;
+            message?: string;
+        };
+        ExecutorCatalog: {
+            apps: components["schemas"]["ExecutorCatalogEntry"][];
+        };
+        ExecutorCatalogEntry: {
+            id: string;
+            package?: string;
+            name: string;
+            description?: string;
+            category?: string;
+            iconUrl?: string;
+            auth: string[];
+        };
+        ExecutorConnectionSession: {
+            connectionId: string;
+            token: string;
+            /** @description Direct URL on the Executor dashboard host for OAuth2 or browser connection. */
+            browserUrl?: string;
+            /** Format: date-time */
+            expiresAt?: string;
+            providerId: string;
+            providerName: string;
+            methods: components["schemas"]["ExecutorAuthMethod"][];
         };
     };
     responses: {
@@ -7750,6 +8098,412 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+        };
+    };
+    getExecutorStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Executor status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorStatus"];
+                };
+            };
+        };
+    };
+    startExecutor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Executor status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorStatus"];
+                };
+            };
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    restartExecutor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Executor status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorStatus"];
+                };
+            };
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    getExecutorOverview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Executor overview. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorOverview"];
+                };
+            };
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    listExecutorCatalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Catalog entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorCatalog"];
+                };
+            };
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    importExecutorCatalogApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    entry: string;
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Installed app. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorApp"];
+                };
+            };
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    importExecutorCustomApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    url: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Installed app. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorApp"];
+                };
+            };
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    deleteExecutorApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    startExecutorAccountConnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+                scope: "user" | "app";
+                requirement: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Optional existing account ID to reconnect or update credentials for. */
+                    accountId?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Connection session ready. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorConnectionSession"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    submitExecutorAccountConnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    connectionId: string;
+                    token: string;
+                    method: string;
+                    label?: string;
+                    description?: string;
+                    fields: {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Connected account. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorAccount"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    linkExecutorAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+                scope: "user" | "app";
+                requirement: string;
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Linked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    unlinkExecutorAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+                scope: "user" | "app";
+                requirement: string;
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unlinked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    deleteExecutorAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    updateExecutorAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    label?: string;
+                    /** @description Agent-facing description. Send an empty string to clear. */
+                    description?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated account. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorAccount"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    checkExecutorAccountHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Health check result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorAccountHealth"];
+                };
+            };
+            404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
 }

@@ -30,6 +30,8 @@ type Agent struct {
 	ModelOptions         string
 	ImageID              string
 	ImageRevision        int64
+	ExecutorEnabled      int64
+	ExecutorApprovalMode string
 }
 
 type AgentMcpServer struct {

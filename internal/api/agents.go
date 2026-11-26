@@ -13,6 +13,7 @@ import (
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/config"
+	"github.com/gempir/agenthold/internal/executor"
 	"github.com/gempir/agenthold/internal/harness"
 	"github.com/gempir/agenthold/internal/id"
 	"github.com/gempir/agenthold/internal/node"
@@ -59,6 +60,7 @@ func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role aut
 		State: gen.SandboxState(sb.State), StateError: sb.Error, StateChangedAt: ts(sb.StateChangedAt),
 		NeedsRebuild: a.Sandboxes.NeedsRebuild(ag, sb), Role: gen.AgentRole(role),
 		Model: ag.Model, ModelOptions: session.ParseOptions(ag.ModelOptions), PermissionPolicy: gen.AgentPermissionPolicy(ag.PermissionPolicy),
+		ExecutorEnabled: ag.ExecutorEnabled != 0, ExecutorApprovalMode: gen.ExecutorApprovalMode(executor.NormalizeApprovalMode(ag.ExecutorApprovalMode)),
 		CredentialsInSandbox: ag.CredentialsInSandbox == 1, Login: login, IsTemplate: ag.IsTemplate == 1,
 		CreatedAt: ts(ag.CreatedAt), UpdatedAt: ts(ag.UpdatedAt),
 	}
@@ -190,6 +192,17 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 	if b.PermissionPolicy != nil {
 		s.policy = string(*b.PermissionPolicy)
 	}
+	execEnabled := false
+	if b.ExecutorEnabled != nil {
+		execEnabled = *b.ExecutorEnabled
+	}
+	execMode := executor.ApprovalModel
+	if b.ExecutorApprovalMode != nil {
+		execMode = string(*b.ExecutorApprovalMode)
+		if !executor.ValidApprovalMode(execMode) {
+			return nil, badRequest("executorApprovalMode must be model, automatic or browser")
+		}
+	}
 	if err := a.validateSettings(ctx, u.ID, "", &s); err != nil {
 		return nil, err
 	}
@@ -238,6 +251,13 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 			PermissionPolicy: s.policy, LoginUserID: u.ID, CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
 			return err
+		}
+		if execEnabled || execMode != executor.ApprovalModel {
+			if err := q.SetAgentExecutor(ctx, db.SetAgentExecutorParams{
+				ExecutorEnabled: b2i(execEnabled), ExecutorApprovalMode: execMode, UpdatedAt: now, ID: agentID,
+			}); err != nil {
+				return err
+			}
 		}
 		if imageID != "" {
 			if err := q.SetAgentImage(ctx, db.SetAgentImageParams{ImageID: imageID, ImageRevision: imageRev, UpdatedAt: now, ID: agentID}); err != nil {
@@ -326,6 +346,24 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	if b.IdleMinutes != nil {
 		s.idleMinutes = int64(*b.IdleMinutes)
 	}
+	execEnabled := ag.ExecutorEnabled != 0
+	execMode := executor.NormalizeApprovalMode(ag.ExecutorApprovalMode)
+	execEnabledSet := false
+	execModeSet := false
+	if b.ExecutorEnabled != nil {
+		execEnabled = *b.ExecutorEnabled
+		execEnabledSet = true
+	}
+	if b.ExecutorApprovalMode != nil {
+		mode := string(*b.ExecutorApprovalMode)
+		if !executor.ValidApprovalMode(mode) {
+			return nil, badRequest("executorApprovalMode must be model, automatic or browser")
+		}
+		execMode = mode
+		execModeSet = true
+	}
+	execChanged := (execEnabledSet && execEnabled != (ag.ExecutorEnabled != 0)) ||
+		(execModeSet && execMode != executor.NormalizeApprovalMode(ag.ExecutorApprovalMode))
 	if err := a.validateSettings(ctx, me(ctx).ID, ag.Harness, &s); err != nil {
 		return nil, err
 	}
@@ -385,6 +423,20 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 		if err := q.SetPermissionPolicy(ctx, db.SetPermissionPolicyParams{PermissionPolicy: s.policy, UpdatedAt: now, ID: ag.ID}); err != nil {
 			return err
 		}
+		if execEnabledSet {
+			if err := q.SetAgentExecutorEnabled(ctx, db.SetAgentExecutorEnabledParams{
+				ExecutorEnabled: b2i(execEnabled), UpdatedAt: now, ID: ag.ID,
+			}); err != nil {
+				return err
+			}
+		}
+		if execModeSet {
+			if err := q.SetAgentExecutorApprovalMode(ctx, db.SetAgentExecutorApprovalModeParams{
+				ExecutorApprovalMode: execMode, UpdatedAt: now, ID: ag.ID,
+			}); err != nil {
+				return err
+			}
+		}
 		switch {
 		case harnessChanged:
 			if err := q.SetAgentHarness(ctx, db.SetAgentHarnessParams{Harness: s.harness, Model: s.model, ModelOptions: session.EncodeOptions(options), UpdatedAt: now, ID: ag.ID}); err != nil {
@@ -429,6 +481,14 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 		}
 		a.record(ctx, ag, audit.AgentUpdate, ag.Name, map[string]any{"convertedTo": convertedTo})
 	}
+	if execChanged {
+		if execEnabledSet && !execEnabled && a.Executor != nil {
+			a.Executor.CancelAgentStreams(ag.ID)
+		}
+		a.record(ctx, ag, audit.ExecutorAgentUpdate, ag.Name, map[string]any{
+			"executorEnabled": execEnabled, "executorApprovalMode": execMode,
+		})
+	}
 	g, err := a.reloadAgent(ctx, ag.ID, acc.Role)
 	if err != nil {
 		return nil, err
@@ -436,6 +496,7 @@ func (a *API) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObject)
 	a.record(ctx, ag, audit.AgentUpdate, ag.Name, map[string]any{
 		"name": s.name, "cpus": s.cpus, "memoryMb": s.memoryMB, "idleMinutes": s.idleMinutes,
 		"harness": s.harness, "model": s.model, "modelOptions": options, "permissionPolicy": s.policy,
+		"executorEnabled": execEnabled, "executorApprovalMode": execMode,
 	})
 	return gen.UpdateAgent200JSONResponse(g), nil
 }
@@ -460,6 +521,9 @@ func (a *API) DeleteAgent(ctx context.Context, req gen.DeleteAgentRequestObject)
 	}
 	if err := a.deleteMachine(ctx, acc.Row.Agent); err != nil {
 		return nil, err
+	}
+	if a.Executor != nil {
+		a.Executor.CancelAgentStreams(acc.Row.Agent.ID)
 	}
 	a.record(ctx, acc.Row.Agent, audit.AgentDelete, acc.Row.Agent.Name, nil)
 	return gen.DeleteAgent202Response{}, nil
@@ -627,6 +691,11 @@ func (a *API) CloneAgent(ctx context.Context, req gen.CloneAgentRequestObject) (
 			return err
 		}
 		if err := q.SetAgentModel(ctx, db.SetAgentModelParams{Model: src.Model, ModelOptions: src.ModelOptions, UpdatedAt: now, ID: dstID}); err != nil {
+			return err
+		}
+		if err := q.SetAgentExecutor(ctx, db.SetAgentExecutorParams{
+			ExecutorEnabled: src.ExecutorEnabled, ExecutorApprovalMode: executor.NormalizeApprovalMode(src.ExecutorApprovalMode), UpdatedAt: now, ID: dstID,
+		}); err != nil {
 			return err
 		}
 		if src.ImageID != "" {

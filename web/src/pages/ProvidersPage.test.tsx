@@ -76,6 +76,8 @@ const agent = (login: Agent['login'], role: Agent['role']): Agent => ({
   model: '',
   modelOptions: {},
   permissionPolicy: 'ask',
+  executorEnabled: true,
+  executorApprovalMode: 'model',
   credentialsInSandbox: false,
   login,
   cpus: 2,

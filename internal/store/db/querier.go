@@ -199,6 +199,9 @@ type Querier interface {
 	ReplaceProviderLogin(ctx context.Context, arg ReplaceProviderLoginParams) error
 	ResetRunningSessions(ctx context.Context) error
 	ResetSessionModels(ctx context.Context, agentID string) error
+	SetAgentExecutor(ctx context.Context, arg SetAgentExecutorParams) error
+	SetAgentExecutorApprovalMode(ctx context.Context, arg SetAgentExecutorApprovalModeParams) error
+	SetAgentExecutorEnabled(ctx context.Context, arg SetAgentExecutorEnabledParams) error
 	SetAgentHarness(ctx context.Context, arg SetAgentHarnessParams) error
 	SetAgentImage(ctx context.Context, arg SetAgentImageParams) error
 	SetAgentLoginUser(ctx context.Context, arg SetAgentLoginUserParams) error

@@ -144,6 +144,15 @@ func (a *API) SetUserRoleOverride(ctx context.Context, req gen.SetUserRoleOverri
 	if err := a.Store.SetUserRoleOverride(ctx, db.SetUserRoleOverrideParams{RoleOverride: override, UpdatedAt: a.Now().Unix(), ID: req.UserId}); err != nil {
 		return nil, err
 	}
+	if override == string(config.RoleDisabled) {
+		if a.execGate != nil {
+			a.execGate.endUserSessions(req.UserId)
+		}
+		if a.Executor != nil {
+			a.Executor.CancelUserStreams(req.UserId)
+			_ = a.Executor.Stop(req.UserId)
+		}
+	}
 	slog.InfoContext(ctx, "user role override set", "user", req.UserId, "override", override, "by", me(ctx).ID)
 	rows, err := a.Store.ListUsersWithIdentity(ctx)
 	if err != nil {

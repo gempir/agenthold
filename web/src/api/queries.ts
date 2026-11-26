@@ -344,3 +344,39 @@ export const imageBuildQuery = (imageId: string, buildId: string) =>
         : false,
     retry: false,
   });
+
+export type ExecutorApprovalMode =
+  components['schemas']['ExecutorApprovalMode'];
+export type ExecutorStatus = components['schemas']['ExecutorStatus'];
+export type ExecutorOverview = components['schemas']['ExecutorOverview'];
+export type ExecutorApp = components['schemas']['ExecutorApp'];
+export type ExecutorRequirement = components['schemas']['ExecutorRequirement'];
+export type ExecutorAuthMethod = components['schemas']['ExecutorAuthMethod'];
+export type ExecutorSecretField = components['schemas']['ExecutorSecretField'];
+export type ExecutorAccount = components['schemas']['ExecutorAccount'];
+export type ExecutorAccountHealth =
+  components['schemas']['ExecutorAccountHealth'];
+export type ExecutorCatalog = components['schemas']['ExecutorCatalog'];
+export type ExecutorCatalogEntry =
+  components['schemas']['ExecutorCatalogEntry'];
+export type ExecutorConnectionSession =
+  components['schemas']['ExecutorConnectionSession'];
+
+export const executorStatusQuery = queryOptions({
+  queryKey: ['me', 'executor'],
+  queryFn: () => unwrap(api.GET('/me/executor')),
+  retry: false,
+});
+
+export const executorOverviewQuery = queryOptions({
+  queryKey: ['me', 'executor', 'overview'],
+  queryFn: () => unwrap(api.GET('/me/executor/overview')),
+  retry: false,
+});
+
+export const executorCatalogQuery = queryOptions({
+  queryKey: ['me', 'executor', 'catalog'],
+  queryFn: () => unwrap(api.GET('/me/executor/catalog')),
+  staleTime: 60_000,
+  retry: false,
+});

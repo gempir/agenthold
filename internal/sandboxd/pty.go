@@ -46,6 +46,7 @@ func (d *Daemon) env(extra map[string]string, shell string) []string {
 		}
 	}
 	env["AGENTHOLD_PLATFORM_SOCKET"] = d.socketPath()
+	env["AGENTHOLD_EXECUTOR_SOCKET"] = d.executorSocketPath()
 	for k, v := range extra {
 		env[k] = v
 	}

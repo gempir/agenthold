@@ -135,7 +135,7 @@ func NewCluster(ctx context.Context, cfg ClusterConfig) (*Cluster, error) {
 		if err := st.UpsertLocalNode(ctx, db.UpsertLocalNodeParams{Name: cfg.LocalName, Now: c.now().Unix()}); err != nil {
 			return nil, err
 		}
-		c.pump(ctx, cfg.Local)
+		c.pump(ctx, LocalID, cfg.Local)
 	} else {
 		n, err := st.CountNodeSandboxes(ctx, LocalID)
 		if err != nil {
@@ -161,14 +161,16 @@ func (c *Cluster) OnConnect(fn func(ctx context.Context, nodeID string)) {
 	c.onConnect = append(c.onConnect, fn)
 }
 
-// pump forwards a node's incoming and intercept streams until it disconnects.
-func (c *Cluster) pump(ctx context.Context, n Node) {
+// pump forwards a node's incoming and intercept streams until it disconnects,
+// stamping the authenticated nodeID onto every incoming stream.
+func (c *Cluster) pump(ctx context.Context, nodeID string, n Node) {
 	go func() {
 		for {
 			info, s, err := n.NextIncoming(ctx)
 			if err != nil {
 				return
 			}
+			info.NodeID = nodeID
 			select {
 			case c.incoming <- incomingItem{info, s}:
 			case <-ctx.Done():
@@ -229,7 +231,7 @@ func (c *Cluster) Serve(ctx context.Context, nodeID string, conn net.Conn) {
 	if old != nil {
 		_ = old.Close()
 	}
-	c.pump(ctx, r)
+	c.pump(ctx, nodeID, r)
 	_ = c.cfg.Store.SetNodeState(ctx, db.SetNodeStateParams{State: "online", LastSeenAt: c.now().Unix(), ID: nodeID})
 	c.refresh(ctx, nodeID, r)
 	c.log.Info("node connected", "node", nodeID, "remote", conn.RemoteAddr().String())

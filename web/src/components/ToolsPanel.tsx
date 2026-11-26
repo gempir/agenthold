@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { api, unwrap } from '@/api/client';
+import {
+  executorStatusQuery,
+  type Agent,
+  type ExecutorApprovalMode,
+} from '@/api/queries';
 import type { components } from '@/api/schema';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Badge } from '@/components/ui/badge';
@@ -485,12 +491,36 @@ export function LibraryToolsPanel() {
 /** Agent Tools tab: what the agent uses, attach and detach. */
 export function AgentToolsPanel({
   agentId,
+  agent,
   isOwner,
+  onAgentSaved,
 }: {
   agentId: string;
+  agent?: Agent;
   isOwner: boolean;
+  onAgentSaved?: (a: Agent) => void;
 }) {
   const qc = useQueryClient();
+  const executorStatus = useQuery({
+    ...executorStatusQuery,
+    enabled: Boolean(agent),
+  });
+  const saveExecutor = useMutation({
+    mutationFn: (body: {
+      executorEnabled: boolean;
+      executorApprovalMode: ExecutorApprovalMode;
+    }) =>
+      unwrap(
+        api.PATCH('/agents/{agentId}', {
+          params: { path: { agentId } },
+          body,
+        }),
+      ),
+    onSuccess: (updated) => {
+      qc.setQueryData(['agents', agentId], updated);
+      onAgentSaved?.(updated);
+    },
+  });
   const servers = useQuery({
     queryKey: agentServersKey(agentId),
     queryFn: () =>
@@ -585,6 +615,79 @@ export function AgentToolsPanel({
       <p className="text-sm text-muted-foreground">
         Changes take effect in the agent's next session.
       </p>
+      {agent && (
+        <section
+          aria-label="Executor accounts"
+          className="flex flex-col gap-3 rounded-lg border p-4"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-base font-semibold">Executor accounts</h2>
+              <p className="text-sm text-muted-foreground">
+                Expose your connected Executor apps and accounts to this agent
+                over the built-in <code>executor</code> MCP server. Credentials
+                stay outside the sandbox.
+              </p>
+            </div>
+            <Button asChild size="sm" variant="outline">
+              <Link to="/settings/accounts">Manage accounts</Link>
+            </Button>
+          </div>
+          {executorStatus.data && !executorStatus.data.enabled && (
+            <p className="text-xs text-muted-foreground">
+              Executor is disabled on this server.
+            </p>
+          )}
+          {executorStatus.data &&
+            executorStatus.data.enabled &&
+            !executorStatus.data.available && (
+              <p className="text-xs text-muted-foreground">
+                {executorStatus.data.reason ||
+                  'Executor runtime is not installed on this server.'}
+              </p>
+            )}
+          <div className="flex flex-wrap items-end gap-4">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={agent.executorEnabled}
+                disabled={!isOwner || saveExecutor.isPending}
+                onChange={(e) =>
+                  saveExecutor.mutate({
+                    executorEnabled: e.target.checked,
+                    executorApprovalMode: agent.executorApprovalMode,
+                  })
+                }
+              />
+              Enable Executor MCP server
+            </label>
+            <label className="grid gap-1 text-sm">
+              Tool approval mode
+              <Select
+                aria-label="Executor approval mode"
+                value={agent.executorApprovalMode}
+                disabled={
+                  !isOwner || !agent.executorEnabled || saveExecutor.isPending
+                }
+                onChange={(e) =>
+                  saveExecutor.mutate({
+                    executorEnabled: agent.executorEnabled,
+                    executorApprovalMode: e.target
+                      .value as ExecutorApprovalMode,
+                  })
+                }
+              >
+                <option value="model">Ask in chat (recommended)</option>
+                <option value="automatic">
+                  Automatic (harness guards tool calls)
+                </option>
+                <option value="browser">Approve in browser</option>
+              </Select>
+            </label>
+          </div>
+          <ErrorText error={saveExecutor.error} />
+        </section>
+      )}
       <section className="flex flex-col gap-3">
         <h2 className="text-base font-semibold">MCP servers</h2>
         <ErrorText

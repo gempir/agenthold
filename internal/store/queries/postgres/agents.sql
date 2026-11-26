@@ -72,3 +72,12 @@ UPDATE agents SET is_template = $1, updated_at = $2 WHERE id = $3;
 
 -- name: SetSandboxResume :exec
 UPDATE sandboxes SET resume = $1 WHERE agent_id = $2;
+
+-- name: SetAgentExecutor :exec
+UPDATE agents SET executor_enabled = $1, executor_approval_mode = $2, updated_at = $3 WHERE id = $4;
+
+-- name: SetAgentExecutorEnabled :exec
+UPDATE agents SET executor_enabled = $1, updated_at = $2 WHERE id = $3;
+
+-- name: SetAgentExecutorApprovalMode :exec
+UPDATE agents SET executor_approval_mode = $1, updated_at = $2 WHERE id = $3;

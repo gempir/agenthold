@@ -105,6 +105,12 @@ func (a *API) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	if u := auth.UserFrom(r.Context()); u != nil {
 		_ = a.Preview.EndUserSessions(r.Context(), u.ID)
+		if a.execGate != nil {
+			a.execGate.endUserSessions(u.ID)
+		}
+		if a.Executor != nil {
+			a.Executor.ClearUserPairings(u.ID)
+		}
 	}
 	http.SetCookie(w, a.Auth.SessionCookie(""))
 	w.WriteHeader(http.StatusNoContent)

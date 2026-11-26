@@ -28,9 +28,11 @@ import (
 	"github.com/gempir/agenthold/internal/apps"
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/auth"
+	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/dl"
 	"github.com/gempir/agenthold/internal/egress"
+	"github.com/gempir/agenthold/internal/executor"
 	"github.com/gempir/agenthold/internal/git"
 	_ "github.com/gempir/agenthold/internal/harness/antigravity"
 	_ "github.com/gempir/agenthold/internal/harness/claude"
@@ -317,8 +319,52 @@ func run() error {
 			platformTools.PlatformArgs = []string{"sandboxd", "mcp"}
 		}
 	}
-	sessions.SetTools(platformTools)
 	previewSvc := &preview.Service{Store: st, Hosts: preview.NewHosts(cfg.Preview.HostSuffix, cfg.PublicURL)}
+
+	var bundledExec runtimeassets.ExecutorPaths
+	if !cfg.Executor.Disabled {
+		if bundledExec, err = runtimeassets.PrepareExecutor(ctx, cfg.DataDir); err != nil {
+			logger.Error("extract bundled executor runtime", "err", err)
+		}
+	}
+	execBin, execVer := executor.DiscoverBinary(cfg.Executor.Binary, bundledExec.Binary, bundledExec.Version)
+	execDashboardOrigin := cfg.Executor.PublicURL
+	if execDashboardOrigin == "" && previewSvc.Enabled() {
+		execDashboardOrigin = previewSvc.Hosts.Origin("executor")
+	}
+	executorMgr := executor.New(executor.Config{
+		Disabled:          cfg.Executor.Disabled,
+		Binary:            execBin,
+		Version:           execVer,
+		DataDir:           cfg.DataDir,
+		MasterKey:         key,
+		DashboardOrigin:   execDashboardOrigin,
+		IdleTimeout:       cfg.Executor.EffectiveIdleTimeout(),
+		AllowPrivateFetch: cfg.Executor.AllowPrivateFetch,
+		HasRunningAgents: func(ctx context.Context, userID string) bool {
+			rows, err := st.ListUserAgents(ctx, userID)
+			if err != nil {
+				return false
+			}
+			for _, r := range rows {
+				if r.Agent.OwnerID == userID && sandbox.Phase(r.Sandbox.State) == sandbox.PhaseRunning {
+					return true
+				}
+			}
+			return false
+		},
+		Log:   logger,
+		Audit: auditLog,
+	})
+	defer executorMgr.Close()
+	go executorMgr.Run(ctx)
+	if executorMgr.Available() {
+		logger.Info("executor runtime ready", "binary", execBin, "dashboard_origin", execDashboardOrigin)
+	} else if !cfg.Executor.Disabled {
+		logger.Info("executor runtime binary not found; accounts integration unavailable until installed or built as release binary")
+	}
+	platformTools.ExecutorAvailable = executorMgr.Available
+	sessions.SetTools(platformTools)
 	var identity *preview.Signer
 	if previewSvc.Enabled() {
 		identity, err = preview.LoadOrCreateSigner(filepath.Join(cfg.DataDir, "preview", "identity.key"))
@@ -340,7 +386,45 @@ func run() error {
 			if err != nil {
 				return
 			}
-			go func() { defer stream.Close(); platformSvc.Handle(ctx, info.AgentID, stream, info.Open) }()
+			go func() {
+				defer stream.Close()
+				switch info.Open.Op {
+				case tunnel.OpExecutor:
+					authorize := func(checkCtx context.Context) (string, error) {
+						row, err := st.GetAgentWithSandbox(checkCtx, info.AgentID)
+						if err != nil {
+							return "", errors.New("agent not found")
+						}
+						if info.NodeID != "" && row.Sandbox.NodeID != info.NodeID {
+							return "", errors.New("agent is not placed on this node")
+						}
+						if row.Agent.Kind == apps.KindApp || row.Agent.ExecutorEnabled == 0 {
+							return "", errors.New("executor disabled for this agent")
+						}
+						owner, err := st.GetUser(checkCtx, row.Agent.OwnerID)
+						if err != nil || authz.UserRole(owner) == config.RoleDisabled {
+							return "", errors.New("agent owner is disabled")
+						}
+						return row.Agent.ExecutorApprovalMode, nil
+					}
+					row, err := st.GetAgentWithSandbox(ctx, info.AgentID)
+					if err != nil {
+						return
+					}
+					mode, err := authorize(ctx)
+					if err != nil {
+						return
+					}
+					executorMgr.BridgeMCP(ctx, executor.BridgeOptions{
+						UserID:       row.Agent.OwnerID,
+						AgentID:      row.Agent.ID,
+						ApprovalMode: mode,
+						Authorize:    authorize,
+					}, stream)
+				default:
+					platformSvc.Handle(ctx, info.AgentID, stream, info.Open)
+				}
+			}()
 		}
 	}()
 	defer sessions.Close()
@@ -365,7 +449,7 @@ func run() error {
 
 	apiSrv := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Node: cluster, Nodes: cluster, Limits: cfg.Sandbox,
-		Box: box, Egress: directory, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc, Git: gitSvc,
+		Box: box, Egress: directory, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc, Git: gitSvc, Executor: executorMgr,
 		Preview: previewSvc, Identity: identity, Apps: appsMgr, Images: imageMgr, Activity: activityLog,
 		ACPStore: acpCatalog, Harnesses: harnessResolver,
 		ShowTestHarness: cfg.TestHarness || driverName == "fake", UserMaxAgents: cfg.Auth.UserMaxAgents,
@@ -394,7 +478,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           apiSrv.PreviewHandler(server.New(srvCfg)),
+		Handler:           apiSrv.ExecutorHostHandler(apiSrv.PreviewHandler(server.New(srvCfg))),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

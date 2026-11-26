@@ -76,8 +76,21 @@ func (a *API) ShareAgent(ctx context.Context, req gen.ShareAgentRequestObject) (
 	if target.ID == ag.OwnerID {
 		return nil, badRequest("you own this agent")
 	}
-	if err := a.Store.ShareAgent(ctx, db.ShareAgentParams{AgentID: ag.ID, UserID: target.ID, CreatedAt: a.Now().Unix()}); err != nil {
+	now := a.Now().Unix()
+	if err := a.Store.Tx(ctx, func(q *db.Queries) error {
+		if err := q.ShareAgent(ctx, db.ShareAgentParams{AgentID: ag.ID, UserID: target.ID, CreatedAt: now}); err != nil {
+			return err
+		}
+		// Atomically disable Executor whenever an agent is shared so a concurrent
+		// update cannot leave the newly shared agent exposing owner accounts.
+		return q.SetAgentExecutorEnabled(ctx, db.SetAgentExecutorEnabledParams{
+			ExecutorEnabled: 0, UpdatedAt: now, ID: ag.ID,
+		})
+	}); err != nil {
 		return nil, err
+	}
+	if a.Executor != nil {
+		a.Executor.CancelAgentStreams(ag.ID)
 	}
 	sh, err := a.Store.GetShare(ctx, db.GetShareParams{AgentID: ag.ID, UserID: target.ID})
 	if err != nil {

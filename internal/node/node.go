@@ -44,6 +44,7 @@ type Node interface {
 
 // Incoming identifies a guest-originated stream received by the controller.
 type Incoming struct {
+	NodeID  string
 	AgentID string
 	Open    tunnel.Open
 }

@@ -18,6 +18,8 @@ const agent = (over: Partial<Agent> = {}): Agent => ({
   model: '',
   modelOptions: {},
   permissionPolicy: 'ask',
+  executorEnabled: true,
+  executorApprovalMode: 'model',
   credentialsInSandbox: false,
   login: { source: 'sandbox', connected: false, mine: false },
   cpus: 2,

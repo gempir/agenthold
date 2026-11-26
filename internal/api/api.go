@@ -19,6 +19,7 @@ import (
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/egress"
+	"github.com/gempir/agenthold/internal/executor"
 	"github.com/gempir/agenthold/internal/git"
 	"github.com/gempir/agenthold/internal/harness"
 	"github.com/gempir/agenthold/internal/idle"
@@ -52,6 +53,8 @@ type Deps struct {
 	Logins   *logins.Service
 	// Git keeps users' git settings; nil disables the account endpoints.
 	Git *git.Service
+	// Executor manages per-user Executor instances for accounts and tools.
+	Executor *executor.Manager
 	// Apps manages services and apps.
 	Apps *apps.Manager
 	// Images manages custom enterprise VM images and builds.
@@ -90,6 +93,7 @@ type API struct {
 	wakes
 	agentLocks keyedLocks
 	authFlows  *harnessAuthManager
+	execGate   *executorGate
 }
 
 var _ gen.StrictServerInterface = (*API)(nil)
@@ -119,6 +123,7 @@ func New(d Deps) *API {
 		authz:     authz.Checker{Q: d.Store.Queries},
 		wakes:     wakes{pending: map[string]*wakeCall{}, visitorWake: map[string]time.Time{}, slots: map[string]chan struct{}{}},
 		authFlows: newHarnessAuthManager(),
+		execGate:  newExecutorGate(),
 	}
 	a.usage = newUsageCache(a.machineStats, time.Now)
 	return a
@@ -164,6 +169,7 @@ func (a *API) mountAuthenticated(r chi.Router) {
 		r.Post("/auth/logout", a.logout)
 		r.Get("/preview/authorize", a.authorizePreview)
 		r.Post("/preview/authorize", a.authorizePreview)
+		r.Get("/executor/authorize", a.authorizeExecutor)
 		r.Get("/agents/{agentId}/terminal", a.terminal)
 		r.Get("/agents/{agentId}/services/{serviceName}/logs/stream", a.streamServiceLogs)
 		r.Get("/sessions/{sessionId}/stream", a.stream)

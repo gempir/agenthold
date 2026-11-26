@@ -64,6 +64,9 @@ func (a *API) CreateExposure(ctx context.Context, req gen.CreateExposureRequestO
 	p := preview.CreateParams{Agent: acc.Row.Agent, Port: req.Body.Port, CreatedBy: me(ctx).ID}
 	if req.Body.Name != nil {
 		p.Name = *req.Body.Name
+		if p.Name == "executor" && a.Executor != nil && a.Executor.Enabled() {
+			return nil, badRequest(`name "executor" is reserved for the built-in Executor dashboard`)
+		}
 	}
 	if req.Body.Access != nil {
 		p.Access = preview.Access(*req.Body.Access)
@@ -93,6 +96,9 @@ func (a *API) UpdateExposure(ctx context.Context, req gen.UpdateExposureRequestO
 	if req.Body.Name != nil {
 		if *req.Body.Name == "" {
 			return nil, badRequest("name must not be empty")
+		}
+		if *req.Body.Name == "executor" && a.Executor != nil && a.Executor.Enabled() {
+			return nil, badRequest(`name "executor" is reserved for the built-in Executor dashboard`)
 		}
 		p.Name = *req.Body.Name
 	}

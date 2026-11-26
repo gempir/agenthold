@@ -17,6 +17,7 @@ const (
 	OpStats    = "stats"    // resource usage, for idle detection
 	OpHarness  = "harness"  // agent harness process speaking ACP on stdio
 	OpPlatform = "platform" // opened by sandboxd: a platform MCP tool call
+	OpExecutor = "executor" // opened by sandboxd: persistent JSON-RPC stream to owner's Executor MCP server
 	OpHello    = "hello"    // the server asks sandboxd who it is right after connecting
 	OpShutdown = "shutdown" // power the sandbox off (microVM init mode); answered with OK first
 	// OpDial connects to a TCP port on the guest's loopback. sandboxd answers

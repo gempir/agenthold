@@ -16,6 +16,7 @@ import { isPanelTab, type PanelTab } from '@/components/agent/AgentPanel';
 import { isAgentSection, type AgentSection } from '@/components/agent/sections';
 import { AccountSettings } from '@/pages/AccountSettings';
 import { AgentPage } from '@/pages/AgentPage';
+import { ExecutorAccountsPage } from '@/pages/ExecutorAccountsPage';
 import { GitSettingsPage } from '@/pages/GitSettingsPage';
 import { AgentSettingsPage } from '@/pages/AgentSettingsPage';
 import { AppPage, isAppSection, type AppSection } from '@/pages/AppPage';
@@ -212,6 +213,12 @@ const agentsSettingsRoute = createRoute({
   component: AgentsSettingsPage,
 });
 
+const accountsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/accounts',
+  component: ExecutorAccountsPage,
+});
+
 const secretsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: '/secrets',
@@ -258,6 +265,7 @@ const routeTree = rootRoute.addChildren([
       overviewRoute,
       threadsSettingsRoute,
       agentsSettingsRoute,
+      accountsRoute,
       secretsRoute,
       toolsRoute,
       tokensRoute,

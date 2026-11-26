@@ -54,9 +54,16 @@ type manifest struct {
 	Version   string              `json:"version"`
 	Arch      string              `json:"arch"`
 	Files     map[string]artifact `json:"files"`
+	Executor  *executorArtifact   `json:"executor,omitempty"`
 	Kernel    assetRef            `json:"kernel"`
 	Base      assetRef            `json:"base"`
 	Harnesses *assetRef           `json:"harnesses,omitempty"`
+}
+
+type executorArtifact struct {
+	Version string `json:"version"`
+	SHA256  string `json:"sha256"`
+	Size    int64  `json:"size"`
 }
 
 type assetRef struct {
@@ -229,6 +236,14 @@ func readManifest(assets fs.FS) (manifest, error) {
 	for _, name := range bundledNames {
 		if err := validateArtifact(m.Files[name], 256<<20); err != nil {
 			return m, fmt.Errorf("runtime manifest %s: %w", name, err)
+		}
+	}
+	if m.Executor != nil {
+		if !safeVersion(m.Executor.Version) {
+			return m, errors.New("runtime manifest executor: invalid version")
+		}
+		if err := validateArtifact(artifact{SHA256: m.Executor.SHA256, Size: m.Executor.Size}, 256<<20); err != nil {
+			return m, fmt.Errorf("runtime manifest executor: %w", err)
 		}
 	}
 	if !validKey(m.Kernel.Key) || !validKey(m.Base.Key) || (m.Harnesses != nil && !validKey(m.Harnesses.Key)) {

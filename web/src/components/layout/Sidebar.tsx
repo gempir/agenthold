@@ -211,7 +211,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
           <ErrorText error={index.error ?? settle.error} />
 
-          <ul aria-label="Threads" className="mb-3 grid grid-cols-1 gap-px">
+          <ul aria-label="Threads" className="mb-3 grid grid-cols-1 gap-1">
             {index.loading && active.length === 0 && (
               <SkeletonRows n={4} tall />
             )}
@@ -514,7 +514,7 @@ function ThreadCard({
         search={{ s: session.id }}
         aria-current={active ? 'page' : undefined}
         className={cn(
-          'grid grid-cols-1 gap-0.5 rounded-lg px-2 py-1.5 hover:bg-accent/40',
+          'grid grid-cols-1 gap-0.5 rounded-lg bg-accent/25 px-2 py-1.5 hover:bg-accent/50',
           active && 'bg-accent/70 hover:bg-accent/70',
         )}
       >
@@ -586,7 +586,7 @@ function SettledRow({
           .filter(Boolean)
           .join(' · ')}
         className={cn(
-          'flex h-8 items-center gap-2 rounded-lg px-2 hover:bg-accent/50',
+          'flex h-8 items-center gap-2 rounded-lg bg-accent/25 px-2 hover:bg-accent/50',
           active && 'bg-accent/70',
         )}
       >

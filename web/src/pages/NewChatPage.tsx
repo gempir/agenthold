@@ -80,10 +80,11 @@ export function NewChatPage() {
         placeholder={`Message ${chosen.agent.name}`}
         pending={start.isPending}
         error={start.error}
-        onSend={(text) =>
+        onSend={(text, images) =>
           start.mutate({
             agentId: chosen.agent.id,
             text,
+            images,
             ...gitStartArgs(gitDraft),
           })
         }

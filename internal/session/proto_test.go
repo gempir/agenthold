@@ -190,7 +190,7 @@ func TestCodexProtoClientLifecycleAndNativeHandoff(t *testing.T) {
 		t.Fatalf("expected 3 injected items, got %d", len(injectedItems))
 	}
 
-	res, err := client.Prompt(ctx, sid, "continue")
+	res, err := client.Prompt(ctx, sid, "continue", nil)
 	if err != nil || res.StopReason != acp.StopReasonEndTurn {
 		t.Fatalf("Prompt: res=%+v err=%v", res, err)
 	}
@@ -357,7 +357,7 @@ func TestClaudeProtoClientLifecycle(t *testing.T) {
 	if err != nil || !strings.HasPrefix(sid, "cl_") {
 		t.Fatalf("NewSession: sid=%q err=%v", sid, err)
 	}
-	res, err := client.Prompt(ctx, sid, "hi")
+	res, err := client.Prompt(ctx, sid, "hi", nil)
 	if err != nil || res.StopReason != acp.StopReasonEndTurn {
 		t.Fatalf("Prompt: res=%+v err=%v", res, err)
 	}

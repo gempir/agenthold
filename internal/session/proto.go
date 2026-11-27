@@ -19,10 +19,17 @@ type protoClient interface {
 	CloseSession(ctx context.Context, sessionID string) error
 	SetConfigOption(ctx context.Context, sessionID string, opt ConfigOption, value string) ([]ConfigOption, error)
 	InjectHistory(ctx context.Context, sessionID, threadID string, sel HandoffSelection) (bool, error)
-	Prompt(ctx context.Context, sessionID, text string) (acp.PromptResponse, error)
+	Prompt(ctx context.Context, sessionID, text string, images []PromptImage) (acp.PromptResponse, error)
 	Cancel(ctx context.Context, sessionID string) error
 	Done() <-chan struct{}
 	Close()
+}
+
+// PromptImage is an image attached to a prompt: base64 data (no data: prefix)
+// and its MIME type.
+type PromptImage struct {
+	MimeType string `json:"mimeType"`
+	Data     string `json:"data"`
 }
 
 // SlashCommand is a slash command reported by a harness (ACP

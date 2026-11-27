@@ -335,3 +335,29 @@ func TestHarnessList(t *testing.T) {
 	alice.do("GET", "/me", nil, &me)
 	expect(t, "unknown harness", alice.do("POST", "/agents", gen.AgentInput{Name: "x", Harness: ptr("nope")}, nil), 400)
 }
+
+func TestPromptWithImages(t *testing.T) {
+	e := newEnv(t)
+	alice := e.login("alice", "Alice", "a@example.com")
+	ag := e.fakeAgent(alice, "")
+	var sess gen.Session
+	expect(t, "create session", alice.do("POST", "/agents/"+ag.Id+"/sessions", map[string]string{}, &sess), 201)
+	path := "/sessions/" + sess.Id + "/prompt"
+
+	// 1x1 PNG.
+	png := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="
+	img := func(mime, data string) map[string]any {
+		return map[string]any{"text": "look", "images": []map[string]string{{"mimeType": mime, "data": data}}}
+	}
+	expect(t, "not base64", alice.do("POST", path, img("image/png", "!!!"), nil), 400)
+	expect(t, "type mismatch", alice.do("POST", path, img("image/jpeg", png), nil), 400)
+	expect(t, "empty message", alice.do("POST", path, map[string]any{"text": ""}, nil), 400)
+
+	st := e.stream(alice, sess.Id, 0)
+	expect(t, "image only", alice.do("POST", path, map[string]any{"text": "", "images": []map[string]string{{"mimeType": "image/png", "data": png}}}, nil), 202)
+	evs := st.until(isType("turn_end"))
+	imgs, _ := evs[0].Data["images"].([]any)
+	if evs[0].Type != "prompt" || len(imgs) != 1 {
+		t.Fatalf("prompt event lacks the image: %+v", evs[0])
+	}
+}

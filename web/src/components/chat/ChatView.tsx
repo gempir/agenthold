@@ -22,6 +22,11 @@ import { api, unwrap } from '@/api/client';
 import { ErrorText } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
 import { Composer } from '@/components/chat/Composer';
+import {
+  toImagePayload,
+  useAttachments,
+  type Attachment,
+} from '@/lib/attachments';
 import { ToolCard } from '@/components/chat/ToolCard';
 import { useSessionStream } from '@/components/chat/useSessionStream';
 import { ActivityLink } from '@/components/chat/LiveLog';
@@ -276,9 +281,19 @@ function Item({
               {item.user}
             </span>
           )}
-          <p className="rounded-2xl rounded-br-md bg-secondary px-4 py-2.5 text-[15px] leading-6 whitespace-pre-wrap text-secondary-foreground">
-            {item.text}
-          </p>
+          {item.images?.map((im, i) => (
+            <img
+              key={i}
+              src={`data:${im.mimeType};base64,${im.data}`}
+              alt="Attached image"
+              className="max-h-64 max-w-full rounded-xl border object-contain"
+            />
+          ))}
+          {item.text && (
+            <p className="rounded-2xl rounded-br-md bg-secondary px-4 py-2.5 text-[15px] leading-6 whitespace-pre-wrap text-secondary-foreground">
+              {item.text}
+            </p>
+          )}
         </div>
       );
     case 'agent':
@@ -411,17 +426,22 @@ function SessionComposer({
   onSent: () => void;
 }) {
   const [text, setText] = useState('');
+  const att = useAttachments();
   const path = { params: { path: { sessionId } } };
   const send = useMutation({
-    mutationFn: (t: string) =>
+    mutationFn: (v: { text: string; images: Attachment[] }) =>
       unwrap(
         api.POST('/sessions/{sessionId}/prompt', {
           ...path,
-          body: { text: t },
+          body: {
+            text: v.text,
+            ...(v.images.length && { images: toImagePayload(v.images) }),
+          },
         }),
       ),
     onSuccess: () => {
       setText('');
+      att.clear();
       onSent();
     },
   });
@@ -437,7 +457,11 @@ function SessionComposer({
         running={running}
         busy={send.isPending || cancel.isPending}
         disabled={offline}
-        onSubmit={() => send.mutate(text.trim())}
+        attachments={att.items}
+        attachError={att.error}
+        onAttach={att.add}
+        onRemoveAttachment={att.remove}
+        onSubmit={() => send.mutate({ text: text.trim(), images: att.items })}
         onStop={() => cancel.mutate()}
         meta={
           meta || usage ? (

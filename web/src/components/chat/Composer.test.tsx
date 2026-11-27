@@ -44,6 +44,10 @@ it('attaches a picked image, sends it without text, and removes it', async () =>
     { mimeType: 'image/png', data: 'iVBORw==' },
   ]);
 
+  fireEvent.click(screen.getByLabelText('View shot.png'));
+  expect(screen.getByRole('dialog')).toBeTruthy();
+  fireEvent.click(screen.getByLabelText('Close'));
+
   fireEvent.click(screen.getByLabelText('Remove shot.png'));
   expect(screen.queryByAltText('shot.png')).toBeNull();
 });

@@ -22,6 +22,7 @@ import { api, unwrap } from '@/api/client';
 import { ErrorText } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
 import { Composer } from '@/components/chat/Composer';
+import { Lightbox } from '@/components/chat/Lightbox';
 import {
   toImagePayload,
   useAttachments,
@@ -261,6 +262,46 @@ function Permission({
   );
 }
 
+/** The images sent with a message; a click opens them in the lightbox. */
+function MessageImages({
+  images,
+}: {
+  images: { mimeType: string; data: string }[];
+}) {
+  const [viewing, setViewing] = useState<number | null>(null);
+  const shown = images.map((im, i) => ({
+    src: `data:${im.mimeType};base64,${im.data}`,
+    alt: images.length > 1 ? `Attached image ${i + 1}` : 'Attached image',
+  }));
+  return (
+    <>
+      <div className="flex flex-wrap justify-end gap-2">
+        {shown.map((im, i) => (
+          <button
+            key={i}
+            type="button"
+            aria-label={`View ${im.alt.toLowerCase()}`}
+            onClick={() => setViewing(i)}
+            className="block cursor-zoom-in rounded-xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <img
+              src={im.src}
+              alt={im.alt}
+              className="max-h-64 max-w-full rounded-xl border object-contain"
+            />
+          </button>
+        ))}
+      </div>
+      <Lightbox
+        images={shown}
+        index={viewing}
+        onIndexChange={setViewing}
+        onClose={() => setViewing(null)}
+      />
+    </>
+  );
+}
+
 function Item({
   item,
   sessionId,
@@ -281,14 +322,7 @@ function Item({
               {item.user}
             </span>
           )}
-          {item.images?.map((im, i) => (
-            <img
-              key={i}
-              src={`data:${im.mimeType};base64,${im.data}`}
-              alt="Attached image"
-              className="max-h-64 max-w-full rounded-xl border object-contain"
-            />
-          ))}
+          {item.images?.length ? <MessageImages images={item.images} /> : null}
           {item.text && (
             <p className="rounded-2xl rounded-br-md bg-secondary px-4 py-2.5 text-[15px] leading-6 whitespace-pre-wrap text-secondary-foreground">
               {item.text}

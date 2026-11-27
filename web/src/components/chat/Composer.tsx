@@ -1,7 +1,8 @@
-import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowUp, Paperclip, Square, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IMAGE_TYPES, type Attachment } from '@/lib/attachments';
+import { Lightbox } from '@/components/chat/Lightbox';
 
 const MAX_HEIGHT = 240;
 
@@ -48,6 +49,7 @@ export function Composer({
 }) {
   const box = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const [viewing, setViewing] = useState<number | null>(null);
   const canSend =
     (!!value.trim() || attachments.length > 0) &&
     !running &&
@@ -78,13 +80,20 @@ export function Composer({
     >
       {attachments.length > 0 && (
         <ul className="flex flex-wrap gap-2 px-3 pt-3">
-          {attachments.map((a) => (
+          {attachments.map((a, i) => (
             <li key={a.id} className="group relative">
-              <img
-                src={a.previewUrl}
-                alt={a.name}
-                className="size-16 rounded-lg border object-cover"
-              />
+              <button
+                type="button"
+                aria-label={`View ${a.name}`}
+                onClick={() => setViewing(i)}
+                className="block cursor-zoom-in rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              >
+                <img
+                  src={a.previewUrl}
+                  alt={a.name}
+                  className="size-16 rounded-lg border object-cover"
+                />
+              </button>
               <button
                 type="button"
                 aria-label={`Remove ${a.name}`}
@@ -121,6 +130,14 @@ export function Composer({
           }
         }}
         className="block max-h-60 min-h-[3.25rem] w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[15px] leading-6 placeholder:text-muted-foreground focus:outline-none"
+      />
+      <Lightbox
+        images={attachments.map((a) => ({ src: a.previewUrl, alt: a.name }))}
+        index={
+          viewing !== null && viewing < attachments.length ? viewing : null
+        }
+        onIndexChange={setViewing}
+        onClose={() => setViewing(null)}
       />
       {attachError && (
         <p role="alert" className="px-4 pb-1 text-xs text-destructive">

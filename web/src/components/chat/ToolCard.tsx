@@ -150,10 +150,15 @@ export function ToolCard({ tool }: { tool: ToolCall }) {
         aria-expanded={hasBody ? open : undefined}
         disabled={!hasBody}
         onClick={() => setOpen((o) => !o)}
-        className="group flex w-full items-center gap-2 rounded-md py-1 text-left text-muted-foreground enabled:hover:text-foreground"
+        className="group flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-md py-0.5 text-left text-xs text-muted-foreground/60 enabled:hover:text-muted-foreground"
       >
         <Icon className="size-3.5 shrink-0" aria-hidden />
-        <span className="min-w-0 truncate">{tool.title}</span>
+        <span
+          title={tool.title}
+          className={`min-w-0 overflow-hidden text-ellipsis whitespace-nowrap ${tool.toolKind === 'execute' ? 'font-mono' : ''}`}
+        >
+          {tool.title.replace(/\s+/g, ' ')}
+        </span>
         <StatusGlyph status={tool.status} />
         {hasBody && (
           <ChevronRight

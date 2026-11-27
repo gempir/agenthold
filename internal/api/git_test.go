@@ -454,6 +454,27 @@ func TestGitSessionDetectsTheRepositoryItWorksIn(t *testing.T) {
 	}
 }
 
+func TestGitSessionDetectsTheRepositoryAShellCommandWorksIn(t *testing.T) {
+	e := newEnv(t)
+	alice := e.login("alice", "Alice", "a@example.com")
+	ag := e.fakeAgent(alice, "")
+	e.cloneDemo(alice, ag.Id)
+
+	// Agents mostly work through the shell: a cd into the repository's root
+	// tells where the session works.
+	var sess gen.Session
+	expect(t, "create", alice.do("POST", "/agents/"+ag.Id+"/sessions", map[string]string{}, &sess), 201)
+	e.prompt(alice, sess.Id, "run cd ~/projects/demo && git status")
+	if p, b, r := sessionGit(e.getSession(alice, sess.Id)); p != "demo" || b != "main" || r != "projects/demo" {
+		t.Fatalf("detected %q %q %q", p, b, r)
+	}
+	// A later command in the home says nothing and keeps the repository.
+	e.prompt(alice, sess.Id, "run ls")
+	if p, b, _ := sessionGit(e.getSession(alice, sess.Id)); p != "demo" || b != "main" {
+		t.Fatalf("lost the repository: %q %q", p, b)
+	}
+}
+
 func TestGitUpdateSession(t *testing.T) {
 	e := newEnv(t)
 	alice := e.login("alice", "Alice", "a@example.com")

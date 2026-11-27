@@ -451,6 +451,15 @@ func (a *agent) Prompt(_ context.Context, p acp.PromptRequest) (acp.PromptRespon
 		}
 		_ = a.conn.SessionUpdate(ctx, acp.SessionNotification{SessionId: sid, Update: acp.UpdateToolCall(call, acp.WithUpdateStatus(acp.ToolCallStatusCompleted))})
 		answer = "I wrote " + path + "."
+	case len(fields) >= 2 && fields[0] == "run":
+		// Reports a shell command like a harness's Bash tool; nothing runs.
+		command := strings.TrimSpace(strings.TrimPrefix(in, "run"))
+		call := acp.ToolCallId("run-" + strconv.FormatInt(time.Now().UnixNano(), 36))
+		_ = a.conn.SessionUpdate(ctx, acp.SessionNotification{SessionId: sid, Update: acp.StartToolCall(call, command,
+			acp.WithStartKind(acp.ToolKindExecute), acp.WithStartStatus(acp.ToolCallStatusInProgress),
+			acp.WithStartRawInput(map[string]any{"command": command}))})
+		_ = a.conn.SessionUpdate(ctx, acp.SessionNotification{SessionId: sid, Update: acp.UpdateToolCall(call, acp.WithUpdateStatus(acp.ToolCallStatusCompleted))})
+		answer = "I ran it."
 	case len(fields) == 2 && fields[0] == "slow":
 		n, _ := strconv.Atoi(fields[1])
 		for i := 1; i <= n; i++ {

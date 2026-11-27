@@ -622,10 +622,14 @@ func (c *harnessConn) emitRawUpdate(nativeID string, raw json.RawMessage) {
 			Amount float64 `json:"amount"`
 		} `json:"cost"`
 		Locations []acp.ToolCallLocation `json:"locations"`
+		RawInput  json.RawMessage        `json:"rawInput"`
 	}
 	if json.Unmarshal(raw, &meta) == nil {
 		if len(meta.Locations) > 0 {
 			c.m.noteLocations(sessionID, meta.Locations)
+		}
+		if strings.HasPrefix(meta.SessionUpdate, "tool_call") {
+			c.m.noteToolInput(sessionID, meta.RawInput)
 		}
 		if meta.SessionUpdate == "usage_update" && meta.Used > 0 {
 			u := ContextUsage{UsedTokens: meta.Used, MaxTokens: meta.Size}
@@ -676,11 +680,17 @@ func (c *harnessConn) SessionUpdate(ctx context.Context, n acp.SessionNotificati
 	if at := c.promptAt.Swap(0); at != 0 {
 		c.m.lg.Info("harness: first update of the turn", "agent", c.agentID, "session", sessionID, "took", time.Since(time.Unix(0, at)))
 	}
-	if tc := n.Update.ToolCall; tc != nil && len(tc.Locations) > 0 {
-		c.m.noteLocations(sessionID, tc.Locations)
+	if tc := n.Update.ToolCall; tc != nil {
+		if len(tc.Locations) > 0 {
+			c.m.noteLocations(sessionID, tc.Locations)
+		}
+		c.m.noteToolInputValue(sessionID, tc.RawInput)
 	}
-	if tc := n.Update.ToolCallUpdate; tc != nil && len(tc.Locations) > 0 {
-		c.m.noteLocations(sessionID, tc.Locations)
+	if tc := n.Update.ToolCallUpdate; tc != nil {
+		if len(tc.Locations) > 0 {
+			c.m.noteLocations(sessionID, tc.Locations)
+		}
+		c.m.noteToolInputValue(sessionID, tc.RawInput)
 	}
 	raw, err := json.Marshal(n.Update)
 	if err != nil {

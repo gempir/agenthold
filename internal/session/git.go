@@ -2,7 +2,9 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -78,14 +80,104 @@ func (m *Manager) noteLocations(sessionID string, locs []acp.ToolCallLocation) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if t := m.turns[sessionID]; t != nil {
-		t.touchedPath = last
+		t.touchedPath, t.touchedDir = last, false
 	}
+}
+
+// touchedPlace is where a turn last worked: a file, or a directory.
+type touchedPlace struct {
+	path string
+	dir  bool
+}
+
+// cdTarget matches a cd in a shell command, also inside a quoted
+// `bash -lc '...'` wrapper: its argument, bare or quoted.
+var cdTarget = regexp.MustCompile(`(?:^|[\s;&|('"])cd\s+("[^"]+"|'[^']+'|[^\s;&|'")]+)`)
+
+// commandDir is the directory a shell command works in: its working
+// directory (Codex reports one) moved by the last cd in it. Empty when it
+// says nothing about one. A relative path is relative to home.
+func commandDir(command, cwd string) string {
+	dir := cwd
+	for _, m := range cdTarget.FindAllStringSubmatch(command, -1) {
+		arg := strings.Trim(m[1], `"'`)
+		switch {
+		case arg == "-" || strings.ContainsAny(arg, "$`*?") && !strings.HasPrefix(arg, "$HOME"):
+			continue
+		case arg == "~" || arg == "$HOME":
+			dir = "."
+		case strings.HasPrefix(arg, "~/"):
+			dir = arg[2:]
+		case strings.HasPrefix(arg, "$HOME/"):
+			dir = arg[len("$HOME/"):]
+		case strings.HasPrefix(arg, "$"):
+			continue
+		case filepath.IsAbs(arg) || dir == "":
+			dir = arg
+		default:
+			dir = filepath.Join(dir, arg)
+		}
+	}
+	return dir
+}
+
+// noteToolInputValue is noteToolInput for a decoded raw input.
+func (m *Manager) noteToolInputValue(sessionID string, rawInput any) {
+	if rawInput == nil {
+		return
+	}
+	if b, err := json.Marshal(rawInput); err == nil {
+		m.noteToolInput(sessionID, b)
+	}
+}
+
+// noteToolInput records the directory a shell tool call works in, from its
+// raw input ({"command": ..., "cwd": ...}; the command may be an argv list).
+func (m *Manager) noteToolInput(sessionID string, rawInput json.RawMessage) {
+	if len(rawInput) == 0 {
+		return
+	}
+	var in struct {
+		Command json.RawMessage `json:"command"`
+		Cwd     string          `json:"cwd"`
+	}
+	if json.Unmarshal(rawInput, &in) != nil {
+		return
+	}
+	var command string
+	if json.Unmarshal(in.Command, &command) != nil {
+		var argv []string
+		if json.Unmarshal(in.Command, &argv) != nil && in.Cwd == "" {
+			return
+		}
+		command = strings.Join(argv, " ")
+	}
+	dir := commandDir(command, in.Cwd)
+	if dir == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t := m.turns[sessionID]
+	if t == nil {
+		return
+	}
+	home := ""
+	if t.conn != nil {
+		home = t.conn.home
+	}
+	// Home itself, or a place outside it, says nothing about a repository
+	// and must not hide one the turn worked in before.
+	if rel, ok := relInHome(home, dir); !ok || rel == "." {
+		return
+	}
+	t.touchedPath, t.touchedDir = dir, true
 }
 
 // refreshSessionGit updates the repository and branch recorded for the
 // session after a turn (the agent may have switched branches or worked in a
 // repository). Best effort: failures are only logged.
-func (m *Manager) refreshSessionGit(ctx context.Context, conn *harnessConn, sess db.AgentSession, touchedPath string) {
+func (m *Manager) refreshSessionGit(ctx context.Context, conn *harnessConn, sess db.AgentSession, touched touchedPlace) {
 	defer func() {
 		if r := recover(); r != nil {
 			m.lg.Warn("git status after the turn panicked", "session", sess.ID, "panic", r)
@@ -106,18 +198,26 @@ func (m *Manager) refreshSessionGit(ctx context.Context, conn *harnessConn, sess
 		}
 		return reply.Repo, true
 	}
-	target := sess.Cwd
-	if target == "" {
-		target = sess.GitRepoPath
-	}
-	repo, known := status(target)
-	if repo == nil && sess.Cwd == "" && touchedPath != "" {
-		if rel, ok := relInHome(conn.home, touchedPath); ok && rel != "." {
-			// A file (most tool locations are) or a directory: its directory
-			// is in the same repository either way, unless it is the root.
-			dir := filepath.Dir(rel)
+	var repo *tunnel.GitRepo
+	known := false
+	// Without a working directory of its own the session is where the turn
+	// last worked, if that is a repository; else where it was before.
+	if sess.Cwd == "" && touched.path != "" {
+		if rel, ok := relInHome(conn.home, touched.path); ok && rel != "." {
+			// A file is in its directory's repository.
+			dir := rel
+			if !touched.dir {
+				dir = filepath.Dir(rel)
+			}
 			repo, _ = status(dir)
 		}
+	}
+	if repo == nil {
+		target := sess.Cwd
+		if target == "" {
+			target = sess.GitRepoPath
+		}
+		repo, known = status(target)
 	}
 	switch {
 	case repo != nil:

@@ -699,6 +699,7 @@ func (p *codexProtoClient) handleNotification(method string, params json.RawMess
 				ID      string `json:"id"`
 				Type    string `json:"type"`
 				Command string `json:"command"`
+				Cwd     string `json:"cwd"`
 				Tool    string `json:"tool"`
 				Query   string `json:"query"`
 			} `json:"item"`
@@ -712,7 +713,7 @@ func (p *codexProtoClient) handleNotification(method string, params json.RawMess
 					"title":         n.Item.Command,
 					"kind":          "execute",
 					"status":        "in_progress",
-					"rawInput":      map[string]any{"command": n.Item.Command},
+					"rawInput":      map[string]any{"command": n.Item.Command, "cwd": n.Item.Cwd},
 				})
 			case "fileChange":
 				p.emitRawUpdate(n.ThreadID, map[string]any{

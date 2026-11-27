@@ -152,8 +152,10 @@ type turn struct {
 	prompting bool // session/prompt was sent
 	cancelled bool
 	finished  bool // run returned; nothing may act on the turn anymore
-	// touchedPath is the last file a tool call of the turn reported.
+	// touchedPath is the last file a tool call of the turn reported, or the
+	// last directory a shell command of it ran in (touchedDir).
 	touchedPath string
+	touchedDir  bool
 	killTimer   *time.Timer                            // armed by Cancel
 	perms       map[string]chan acp.PermissionOptionId // pending permission requests
 }
@@ -551,7 +553,7 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 		}
 		t.cancelPermissions()
 		cancelled := t.cancelled
-		touched := t.touchedPath
+		touched := touchedPlace{path: t.touchedPath, dir: t.touchedDir}
 		m.mu.Unlock()
 		if c := t.conn; c != nil && !c.closed() {
 			m.refreshSessionGit(lctx, c, sess, touched)

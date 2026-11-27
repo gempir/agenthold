@@ -20,6 +20,10 @@ func TestCodexProtoClientLifecycleAndNativeHandoff(t *testing.T) {
 
 	var injectedItems []map[string]any
 	var sawInterrupt bool
+	var startApproval, startSandbox string
+	var resumeApproval, resumeSandbox string
+	var turnApproval, turnSandboxType string
+	var approvalDecision string
 
 	// Mock codex app-server peer.
 	go func() {
@@ -34,7 +38,17 @@ func TestCodexProtoClientLifecycleAndNativeHandoff(t *testing.T) {
 				return
 			}
 			var msg jsonRPCMessage
-			if json.Unmarshal(line, &msg) != nil || msg.Method == "" {
+			if json.Unmarshal(line, &msg) != nil {
+				continue
+			}
+			if msg.Method == "" {
+				// Response to server-initiated approval request.
+				var r struct {
+					Decision string `json:"decision"`
+				}
+				if json.Unmarshal(msg.Result, &r) == nil && r.Decision != "" {
+					approvalDecision = r.Decision
+				}
 				continue
 			}
 			switch msg.Method {
@@ -63,10 +77,24 @@ func TestCodexProtoClientLifecycleAndNativeHandoff(t *testing.T) {
 					},
 				})
 			case "thread/start":
+				var p struct {
+					ApprovalPolicy string `json:"approvalPolicy"`
+					Sandbox        string `json:"sandbox"`
+				}
+				_ = json.Unmarshal(msg.Params, &p)
+				startApproval, startSandbox = p.ApprovalPolicy, p.Sandbox
 				write(map[string]any{
 					"jsonrpc": "2.0", "id": msg.ID,
 					"result": map[string]any{"thread": map[string]any{"id": "thr_codex_1"}},
 				})
+			case "thread/resume":
+				var p struct {
+					ApprovalPolicy string `json:"approvalPolicy"`
+					Sandbox        string `json:"sandbox"`
+				}
+				_ = json.Unmarshal(msg.Params, &p)
+				resumeApproval, resumeSandbox = p.ApprovalPolicy, p.Sandbox
+				write(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": map[string]any{}})
 			case "thread/inject_items":
 				var p struct {
 					ThreadID string           `json:"threadId"`
@@ -76,9 +104,22 @@ func TestCodexProtoClientLifecycleAndNativeHandoff(t *testing.T) {
 				injectedItems = p.Items
 				write(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": map[string]any{}})
 			case "turn/start":
+				var p struct {
+					ApprovalPolicy string `json:"approvalPolicy"`
+					SandboxPolicy  struct {
+						Type string `json:"type"`
+					} `json:"sandboxPolicy"`
+				}
+				_ = json.Unmarshal(msg.Params, &p)
+				turnApproval, turnSandboxType = p.ApprovalPolicy, p.SandboxPolicy.Type
 				write(map[string]any{
 					"jsonrpc": "2.0", "id": msg.ID,
 					"result": map[string]any{"turn": map[string]any{"id": "turn_1"}},
+				})
+				// Verify any unexpected approval request is auto-approved immediately.
+				write(map[string]any{
+					"jsonrpc": "2.0", "id": 9001, "method": "item/commandExecution/requestApproval",
+					"params": map[string]any{"threadId": "thr_codex_1", "itemId": "it_1", "command": "rm -rf /tmp/x"},
 				})
 				// Stream deltas, usage, and completion.
 				write(map[string]any{
@@ -127,6 +168,15 @@ func TestCodexProtoClientLifecycleAndNativeHandoff(t *testing.T) {
 	if err != nil || sid != "thr_codex_1" || len(sessOpts) < 2 {
 		t.Fatalf("NewSession: sid=%q opts=%+v err=%v", sid, sessOpts, err)
 	}
+	if startApproval != "never" || startSandbox != "danger-full-access" {
+		t.Fatalf("thread/start approval=%q sandbox=%q", startApproval, startSandbox)
+	}
+	if _, err := client.ResumeSession(ctx, sid, "/home/agent", nil); err != nil {
+		t.Fatalf("ResumeSession: %v", err)
+	}
+	if resumeApproval != "never" || resumeSandbox != "danger-full-access" {
+		t.Fatalf("thread/resume approval=%q sandbox=%q", resumeApproval, resumeSandbox)
+	}
 
 	sel := SelectHistory("ses_1", "claude-code", "codex", []HistoricalMessage{
 		{Role: "user", Kind: "user_message", Text: "earlier question", Seq: 1, Status: "completed"},
@@ -144,6 +194,9 @@ func TestCodexProtoClientLifecycleAndNativeHandoff(t *testing.T) {
 	if err != nil || res.StopReason != acp.StopReasonEndTurn {
 		t.Fatalf("Prompt: res=%+v err=%v", res, err)
 	}
+	if turnApproval != "never" || turnSandboxType != "dangerFullAccess" {
+		t.Fatalf("turn/start approval=%q sandbox=%q", turnApproval, turnSandboxType)
+	}
 
 	// Verify Cancel sends turn/interrupt when active.
 	client.mu.Lock()
@@ -152,9 +205,14 @@ func TestCodexProtoClientLifecycleAndNativeHandoff(t *testing.T) {
 	if err := client.Cancel(ctx, sid); err != nil || !sawInterrupt {
 		t.Fatalf("Cancel: err=%v sawInterrupt=%v", err, sawInterrupt)
 	}
+	if approvalDecision != "acceptForSession" {
+		t.Fatalf("approvalDecision = %q, want acceptForSession", approvalDecision)
+	}
 }
 
 func TestClaudeProtoClientLifecycle(t *testing.T) {
+	var permMode string
+	var canUseToolBehavior string
 	mockPeer := func() io.ReadWriteCloser {
 		cli, srv := net.Pipe()
 		go func() {
@@ -175,12 +233,23 @@ func TestClaudeProtoClientLifecycle(t *testing.T) {
 					Request   struct {
 						Subtype string `json:"subtype"`
 						Model   string `json:"model"`
+						Mode    string `json:"mode"`
 					} `json:"request"`
+					Response struct {
+						RequestID string `json:"request_id"`
+						Response  struct {
+							Behavior string `json:"behavior"`
+						} `json:"response"`
+					} `json:"response"`
 				}
 				if json.Unmarshal(line, &msg) != nil {
 					continue
 				}
 				switch msg.Type {
+				case "control_response":
+					if msg.Response.RequestID == "tool_req_1" {
+						canUseToolBehavior = msg.Response.Response.Behavior
+					}
 				case "control_request":
 					switch msg.Request.Subtype {
 					case "initialize":
@@ -206,7 +275,17 @@ func TestClaudeProtoClientLifecycle(t *testing.T) {
 								},
 							},
 						})
-					case "set_model", "set_permission_mode", "interrupt":
+					case "set_permission_mode":
+						permMode = msg.Request.Mode
+						write(map[string]any{
+							"type": "control_response",
+							"response": map[string]any{
+								"subtype":    "success",
+								"request_id": msg.RequestID,
+								"response":   map[string]any{"mode": msg.Request.Mode},
+							},
+						})
+					case "set_model", "interrupt":
 						write(map[string]any{
 							"type": "control_response",
 							"response": map[string]any{
@@ -217,6 +296,16 @@ func TestClaudeProtoClientLifecycle(t *testing.T) {
 						})
 					}
 				case "user":
+					write(map[string]any{
+						"type":       "control_request",
+						"request_id": "tool_req_1",
+						"request": map[string]any{
+							"subtype":     "can_use_tool",
+							"tool_name":   "Bash",
+							"tool_use_id": "tu_1",
+							"input":       map[string]any{"command": "echo hi"},
+						},
+					})
 					write(map[string]any{
 						"type": "stream_event",
 						"event": map[string]any{
@@ -274,5 +363,22 @@ func TestClaudeProtoClientLifecycle(t *testing.T) {
 	}
 	if err := client.Cancel(ctx, sid); err != nil {
 		t.Fatalf("Cancel: %v", err)
+	}
+	if permMode != "bypassPermissions" {
+		t.Fatalf("set_permission_mode = %q, want bypassPermissions", permMode)
+	}
+	if canUseToolBehavior != "allow" {
+		t.Fatalf("can_use_tool behavior = %q, want allow", canUseToolBehavior)
+	}
+}
+
+func TestPickAllowPrefersAllowAlways(t *testing.T) {
+	opts := []acp.PermissionOption{
+		{OptionId: "once", Name: "Allow once", Kind: acp.PermissionOptionKindAllowOnce},
+		{OptionId: "always", Name: "Allow always", Kind: acp.PermissionOptionKindAllowAlways},
+		{OptionId: "reject", Name: "Reject", Kind: acp.PermissionOptionKindRejectOnce},
+	}
+	if got := pickAllow(opts); got != "always" {
+		t.Fatalf("pickAllow = %q, want always", got)
 	}
 }

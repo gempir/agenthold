@@ -191,24 +191,27 @@ func TestAskPolicyAndAccess(t *testing.T) {
 	e := newEnv(t)
 	alice := e.login("alice", "Alice", "a@example.com")
 	bob := e.login("bob", "Bob", "b@example.com")
+	// Even if a legacy API caller passes permissionPolicy="ask", harnesses run
+	// unrestricted inside their sandbox and normalize to auto-approve.
 	ag := e.fakeAgent(alice, "ask")
+	if ag.PermissionPolicy != gen.AgentPermissionPolicyAutoApprove {
+		t.Fatalf("permissionPolicy = %q, want auto-approve", ag.PermissionPolicy)
+	}
 	var sess gen.Session
 	alice.do("POST", "/agents/"+ag.Id+"/sessions", map[string]string{}, &sess)
 	expect(t, "outsider", bob.do("GET", "/sessions/"+sess.Id, nil, nil), 404)
 	expect(t, "outsider prompt", bob.do("POST", "/sessions/"+sess.Id+"/prompt", map[string]string{"text": "x"}, nil), 404)
 
 	st := e.stream(alice, sess.Id, 0)
-	alice.do("POST", "/sessions/"+sess.Id+"/prompt", map[string]string{"text": "write secret.txt nope"}, nil)
-	evs := st.until(isType("permission"))
-	req := evs[len(evs)-1].Data["requestId"].(string)
+	alice.do("POST", "/sessions/"+sess.Id+"/prompt", map[string]string{"text": "write allowed.txt auto ok"}, nil)
+	evs := st.until(isType("turn_end"))
 	expect(t, "wrong id", alice.do("POST", "/sessions/"+sess.Id+"/permissions/perm_nope", map[string]string{"optionId": "allow"}, nil), 404)
-	expect(t, "reject", alice.do("POST", "/sessions/"+sess.Id+"/permissions/"+req, map[string]string{"optionId": "reject"}, nil), 204)
-	rest := st.until(isType("turn_end"))
-	if !strings.Contains(text(rest), "did not change") {
-		t.Fatalf("after reject: %q", text(rest))
+	if !strings.Contains(text(evs), "I wrote allowed.txt") {
+		t.Fatalf("after auto-approve: %q", text(evs))
 	}
-	if _, err := os.Stat(filepath.Join(e.home(ag.Id), "secret.txt")); err == nil {
-		t.Fatal("file written despite rejection")
+	b, err := os.ReadFile(filepath.Join(e.home(ag.Id), "allowed.txt"))
+	if err != nil || string(b) != "auto ok\n" {
+		t.Fatalf("file in sandbox: %q %v", b, err)
 	}
 }
 

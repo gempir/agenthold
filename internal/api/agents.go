@@ -59,7 +59,7 @@ func (a *API) apiAgent(ctx context.Context, ag db.Agent, sb db.Sandbox, role aut
 		Harness: ag.Harness, Cpus: float32(ag.Cpus), MemoryMb: ag.MemoryMb, IdleMinutes: int(ag.IdleMinutes),
 		State: gen.SandboxState(sb.State), StateError: sb.Error, StateChangedAt: ts(sb.StateChangedAt),
 		NeedsRebuild: a.Sandboxes.NeedsRebuild(ag, sb), Role: gen.AgentRole(role),
-		Model: ag.Model, ModelOptions: session.ParseOptions(ag.ModelOptions), PermissionPolicy: gen.AgentPermissionPolicy(ag.PermissionPolicy),
+		Model: ag.Model, ModelOptions: session.ParseOptions(ag.ModelOptions), PermissionPolicy: gen.AgentPermissionPolicyAutoApprove,
 		ExecutorEnabled: ag.ExecutorEnabled != 0, ExecutorApprovalMode: gen.ExecutorApprovalMode(executor.NormalizeApprovalMode(ag.ExecutorApprovalMode)),
 		CredentialsInSandbox: ag.CredentialsInSandbox == 1, Login: login, IsTemplate: ag.IsTemplate == 1,
 		CreatedAt: ts(ag.CreatedAt), UpdatedAt: ts(ag.UpdatedAt),
@@ -121,12 +121,11 @@ func (a *API) validateSettings(ctx context.Context, userID, existingHarness stri
 	if !validModelID(s.model) {
 		return badRequest("invalid model")
 	}
-	if s.policy == "" {
-		s.policy = session.PolicyAutoApprove
-	}
-	if s.policy != session.PolicyAutoApprove && s.policy != session.PolicyAsk {
+	if s.policy != "" && s.policy != session.PolicyAutoApprove && s.policy != session.PolicyAsk {
 		return badRequest("permissionPolicy must be auto-approve or ask")
 	}
+	// Harnesses always run unrestricted inside their isolated microVM sandbox.
+	s.policy = session.PolicyAutoApprove
 	return nil
 }
 

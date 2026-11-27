@@ -11,7 +11,7 @@ are no workspaces, teams or role levels; for any agent, a user is one of:
 | Relation | Can |
 | --- | --- |
 | owner | everything: use the agent, change its settings, harness, tools, secrets, schedules and webhooks, run harness logins, make it use their own provider logins, share and unshare it, read the audit log, reset its system and delete it |
-| shared user | use the agent: read sessions (live) and files, create sessions, prompt, cancel, answer permission requests, open terminals, change files, start and stop it, see who it is shared with, run schedules, leave |
+| shared user | use the agent: read sessions (live) and files, create sessions, prompt, cancel, open terminals, change files, start and stop it, see who it is shared with, run schedules, leave |
 | anyone else | nothing; the agent does not exist for them (API requests about it return 404) |
 
 All checks are made on the server, in `internal/authz`. The UI only hides what a user cannot do.

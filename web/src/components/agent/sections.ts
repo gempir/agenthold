@@ -51,7 +51,7 @@ export const AGENT_SECTIONS: {
   {
     id: 'harness',
     label: 'Harness',
-    hint: 'Harness, model, permissions, sign-in',
+    hint: 'Harness, model, sign-in',
     icon: Cpu,
     show: () => true,
   },

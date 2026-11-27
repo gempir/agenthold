@@ -36,7 +36,8 @@ func init() {
 		// --disable-telemetry: no usage data to Google from this server
 		// (Business logins never send it). Logs stay in
 		// ~/.gemini/antigravity-cli/log.
-		Command: []string{"agy", "acp", "--disable-telemetry"},
+		// --dangerously-skip-permissions: the microVM is the safety boundary.
+		Command: []string{"agy", "acp", "--disable-telemetry", "--dangerously-skip-permissions"},
 		Env: func(harness.Config) map[string]string {
 			// The image pins the version; the platform controls upgrades.
 			// SSH_CONNECTION + AGY_ACP_FORCE_FILE_STORAGE follow T3 Code so agy 1.5

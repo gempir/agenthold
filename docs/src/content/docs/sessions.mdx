@@ -6,11 +6,11 @@ description: "agenthold does not implement an agent loop. A **harness** (Claude 
 agenthold does not implement an agent loop. A **harness** (Claude Code, Codex, Antigravity, OpenCode, or any agent from
 the ACP Store) runs inside each sandbox over stdio:
 
-- **Claude Code** runs natively via `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio`.
-- **Codex** runs natively via `codex app-server -c thread_unload_delay_secs=0` (JSON-RPC 2.0 over stdio, including native `thread/inject_items` for context handoff).
-- **Antigravity (`agy`)**, **OpenCode**, **ACP Store** agents, and **local ACP commands** speak the [Agent Client Protocol](https://agentclientprotocol.com) (ACP) on stdio.
+- **Claude Code** runs natively via `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --dangerously-skip-permissions`.
+- **Codex** runs natively via `codex app-server -c thread_unload_delay_secs=0 -c approval_policy="never" -c sandbox_mode="danger-full-access"` (JSON-RPC 2.0 over stdio, including native `thread/inject_items` for context handoff).
+- **Antigravity (`agy`)** runs via `agy acp --disable-telemetry --dangerously-skip-permissions`, **OpenCode** runs via `opencode acp` with `permission: "allow"`, and **ACP Store** / **local ACP** agents speak the [Agent Client Protocol](https://agentclientprotocol.com) (ACP) on stdio.
 
-All harnesses normalize into the same session event log, permission workflow, model picker, and token usage updates.
+All harnesses normalize into the same session event log, model picker, and token usage updates.
 
 A conversation with an agent is a **thread**. In the API, the database and the event log a thread is a
 **session** (`/api/v1/sessions/...`), so the rest of this page uses both words for the same thing.
@@ -73,12 +73,18 @@ as JSON.
 
 ## Permissions
 
-Each agent has a permission policy:
+Every agent runs inside its own isolated Firecracker microVM sandbox (with egress filtering and secret injection outside
+the VM), so the sandbox itself is the safety boundary. All harness-level permission prompts and inner sandboxes are
+turned off so agents can work autonomously without pausing for tool approvals:
 
-- `auto-approve` (default): the sandbox is the safety boundary. Requests are approved with the harness's
-  one-time "allow" option and logged as auto-approved.
-- `ask`: everyone connected with access sees the request with the harness's options. The turn waits until someone answers
-  or cancels.
+- **Claude Code** launches with `--dangerously-skip-permissions` and enforces `bypassPermissions` on every turn.
+- **Codex** launches with `-c approval_policy="never" -c sandbox_mode="danger-full-access"` and sets `approvalPolicy: "never"` with `dangerFullAccess` on every thread and turn.
+- **Antigravity (`agy`)** launches with `--dangerously-skip-permissions`.
+- **OpenCode** sets `"permission": "allow"` in `OPENCODE_CONFIG_CONTENT`.
+- **ACP Store and custom ACP harnesses** have any `session/request_permission` callbacks auto-approved immediately (preferring `allow_always`) and recorded in the event log.
+
+External OAuth and API tool calls exposed through [Executor](/executor/) keep their own separate approval mode
+(`model`, `automatic`, or `browser`).
 
 ## Signing in a harness
 
@@ -159,10 +165,10 @@ binaries, an exact version and a sha256 per architecture) only; a test checks th
 
 | Harness | Entry point | Protocol | In the base image |
 | --- | --- | --- | --- |
-| `claude-code` | `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio` ([@anthropic-ai/claude-code](https://www.npmjs.com/package/@anthropic-ai/claude-code)) | Native Claude stream-json | yes |
-| `codex` | `codex app-server -c thread_unload_delay_secs=0` ([@openai/codex](https://www.npmjs.com/package/@openai/codex)) | Native Codex App Server | yes |
-| `opencode` | `opencode acp` ([opencode-ai](https://www.npmjs.com/package/opencode-ai)) | ACP | yes |
-| `antigravity` | `agy acp --disable-telemetry` ([Antigravity CLI](https://antigravity.google/docs/cli/acp), pinned native binary) | ACP | yes |
+| `claude-code` | `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --dangerously-skip-permissions` ([@anthropic-ai/claude-code](https://www.npmjs.com/package/@anthropic-ai/claude-code)) | Native Claude stream-json | yes |
+| `codex` | `codex app-server -c thread_unload_delay_secs=0 -c approval_policy="never" -c sandbox_mode="danger-full-access"` ([@openai/codex](https://www.npmjs.com/package/@openai/codex)) | Native Codex App Server | yes |
+| `opencode` | `opencode acp` with `permission: "allow"` ([opencode-ai](https://www.npmjs.com/package/opencode-ai)) | ACP | yes |
+| `antigravity` | `agy acp --disable-telemetry --dangerously-skip-permissions` ([Antigravity CLI](https://antigravity.google/docs/cli/acp), pinned native binary) | ACP | yes |
 | ACP Store / Local ACP | Installed on demand into `~/.agenthold/tools/<agent-id>/<version>/` (`binary`, `npx`, or `uvx`) or any local executable | ACP | on demand (persistent home) |
 | `fake` | `/opt/agenthold/fakeagent`, a scripted agent for tests and UI work (development only) | ACP | shipped with sandboxd |
 

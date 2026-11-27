@@ -16,7 +16,9 @@ func init() {
 			"--output-format", "stream-json",
 			"--verbose",
 			"--include-partial-messages",
-			"--permission-prompt-tool", "stdio",
+			// The Firecracker microVM is the safety boundary: bypass all
+			// harness-level permission prompts and inner sandboxes.
+			"--dangerously-skip-permissions",
 		},
 		Env: func(c harness.Config) map[string]string {
 			env := map[string]string{

@@ -469,8 +469,10 @@ func (p *codexProtoClient) threadOptions(threadID string) []ConfigOption {
 
 func (p *codexProtoClient) NewSession(ctx context.Context, cwd string, mcp []acp.McpServer) (string, []ConfigOption, error) {
 	params := map[string]any{
-		"cwd":    cwd,
-		"config": codexMCPConfig(mcp),
+		"cwd":            cwd,
+		"approvalPolicy": "never",
+		"sandbox":        "danger-full-access",
+		"config":         codexMCPConfig(mcp),
 	}
 	raw, err := p.request(ctx, "thread/start", params)
 	if err != nil {
@@ -492,10 +494,12 @@ func (p *codexProtoClient) NewSession(ctx context.Context, cwd string, mcp []acp
 
 func (p *codexProtoClient) ResumeSession(ctx context.Context, sessionID, cwd string, mcp []acp.McpServer) ([]ConfigOption, error) {
 	params := map[string]any{
-		"threadId":     sessionID,
-		"excludeTurns": true,
-		"cwd":          cwd,
-		"config":       codexMCPConfig(mcp),
+		"threadId":       sessionID,
+		"excludeTurns":   true,
+		"cwd":            cwd,
+		"approvalPolicy": "never",
+		"sandbox":        "danger-full-access",
+		"config":         codexMCPConfig(mcp),
 	}
 	_, err := p.request(ctx, "thread/resume", params)
 	if err != nil {
@@ -586,17 +590,12 @@ func (p *codexProtoClient) Prompt(ctx context.Context, sessionID, text string) (
 		p.mu.Unlock()
 	}()
 
-	approvalPolicy := "never"
-	if p.conn != nil {
-		if ag, err := p.conn.m.store.GetAgent(ctx, p.conn.agentID); err == nil && ag.PermissionPolicy == PolicyAsk {
-			approvalPolicy = "on-request"
-		}
-	}
-
+	// The Firecracker microVM is the safety boundary: never prompt for approval
+	// and disable Codex's inner sandbox.
 	params := map[string]any{
 		"threadId":       sessionID,
 		"input":          []map[string]any{{"type": "text", "text": text}},
-		"approvalPolicy": approvalPolicy,
+		"approvalPolicy": "never",
 		"sandboxPolicy":  map[string]any{"type": "dangerFullAccess"},
 	}
 	if model != "" {
@@ -921,41 +920,9 @@ func (p *codexProtoClient) handleServerRequest(msg jsonRPCMessage) {
 
 	switch msg.Method {
 	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "execCommandApproval", "applyPatchApproval":
-		var req struct {
-			ThreadID string `json:"threadId"`
-			ItemID   string `json:"itemId"`
-			Command  string `json:"command"`
-			Reason   string `json:"reason"`
-		}
-		_ = json.Unmarshal(msg.Params, &req)
-		title := req.Command
-		if title == "" {
-			title = req.Reason
-		}
-		if title == "" {
-			title = msg.Method
-		}
-		decision := "accept"
-		if p.conn != nil {
-			res, _ := p.conn.RequestPermission(context.Background(), acp.RequestPermissionRequest{
-				SessionId: acp.SessionId(req.ThreadID),
-				ToolCall: acp.ToolCallUpdate{
-					ToolCallId: acp.ToolCallId(req.ItemID),
-					Title:      ptr(title),
-				},
-				Options: []acp.PermissionOption{
-					{OptionId: "accept", Name: "Allow once", Kind: acp.PermissionOptionKindAllowOnce},
-					{OptionId: "acceptForSession", Name: "Allow for session", Kind: acp.PermissionOptionKindAllowAlways},
-					{OptionId: "decline", Name: "Deny", Kind: acp.PermissionOptionKindRejectOnce},
-				},
-			})
-			if res.Outcome.Selected != nil {
-				decision = string(res.Outcome.Selected.OptionId)
-			} else {
-				decision = "cancel"
-			}
-		}
-		reply(map[string]any{"decision": decision}, "")
+		// The Firecracker microVM is the safety boundary: always accept
+		// immediately if Codex ever sends an approval request.
+		reply(map[string]any{"decision": "acceptForSession"}, "")
 	default:
 		reply(nil, "unsupported method: "+msg.Method)
 	}

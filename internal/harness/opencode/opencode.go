@@ -15,7 +15,12 @@ func init() {
 		Package: "opencode-ai",
 		Command: []string{"opencode", "acp"},
 		Env: func(c harness.Config) map[string]string {
-			cfg := map[string]any{"autoupdate": false}
+			// The microVM is the safety boundary: allow all tool calls without
+			// prompting.
+			cfg := map[string]any{
+				"autoupdate": false,
+				"permission": "allow",
+			}
 			if c.Model != "" {
 				cfg["model"] = c.Model // "provider/model", e.g. "anthropic/claude-sonnet-5-5"
 			}

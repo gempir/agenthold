@@ -234,8 +234,6 @@ function Overview({
           <dd>{harness}</dd>
           <dt className="text-muted-foreground">Model</dt>
           <dd>{a.model || 'default'}</dd>
-          <dt className="text-muted-foreground">Permissions</dt>
-          <dd>{a.permissionPolicy}</dd>
         </dl>
         {a.credentialsInSandbox && (
           <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">

@@ -63,4 +63,4 @@ export function describeDetails(e: Pick<AuditEntry, 'action' | 'details'>) {
 }
 
 export const SHARED_HELP =
-  'People you share with can start threads with the agent, answer its permission requests, use its terminal and files, and start or stop it. Only you can change its settings, tools, secrets and sharing, or delete it.';
+  'People you share with can start threads with the agent, use its terminal and files, and start or stop it. Only you can change its settings, tools, secrets and sharing, or delete it.';

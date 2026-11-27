@@ -824,30 +824,25 @@ func TestServerCrashMidTurn(t *testing.T) {
 	e.ok("again")
 }
 
-func TestPermissionCancelled(t *testing.T) {
+func TestLegacyAskPolicyStillAutoApproves(t *testing.T) {
 	e := newEnv(t)
 	if err := e.st.SetPermissionPolicy(context.Background(), db.SetPermissionPolicyParams{PermissionPolicy: PolicyAsk, UpdatedAt: 1, ID: agentID}); err != nil {
 		t.Fatal(err)
 	}
-	sub := e.start("write " + filepath.Join(e.home, "f.txt") + " hi")
-	// Wait for the permission request, then cancel the turn.
-	deadline := time.After(10 * time.Second)
-	for asked := false; !asked; {
-		select {
-		case ev := <-sub.C:
-			asked = ev.Type == EventPermission
-		case <-deadline:
-			t.Fatal("no permission request")
+	target := filepath.Join(e.home, "f.txt")
+	r := e.ok("write " + target + " hi")
+	var autoApproved bool
+	for _, ev := range r.events {
+		if ev.Type == EventPermissionResolved && strings.Contains(string(ev.Data), `"by":"auto"`) {
+			autoApproved = true
 		}
 	}
-	if err := e.m.Cancel(context.Background(), e.sid); err != nil {
-		t.Fatal(err)
+	if !autoApproved {
+		t.Fatalf("expected auto-approved permission event, got %+v", r.events)
 	}
-	if r := e.wait(sub, 5*time.Second); r.stop != "cancelled" {
-		t.Fatalf("stop %q errors %q", r.stop, r.errs)
-	}
-	if _, err := os.Stat(filepath.Join(e.home, "f.txt")); err == nil {
-		t.Fatal("file written after cancel")
+	b, err := os.ReadFile(target)
+	if err != nil || string(b) != "hi\n" {
+		t.Fatalf("file after auto-approve: %q %v", b, err)
 	}
 }
 

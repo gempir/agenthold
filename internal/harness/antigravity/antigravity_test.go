@@ -85,8 +85,11 @@ func TestLoginMethods(t *testing.T) {
 		}
 	}
 	argv, _, ok := harness.LoginCommand(a, harness.Config{}, methods, "terminal-login")
-	if !ok || strings.Join(argv, " ") != "agy acp --disable-telemetry --login" {
+	if !ok || strings.Join(argv, " ") != "agy acp --disable-telemetry --dangerously-skip-permissions --login" {
 		t.Fatalf("terminal-login runs %q", argv)
+	}
+	if !slices.Contains(a.Command, "--dangerously-skip-permissions") {
+		t.Fatalf("command missing --dangerously-skip-permissions: %v", a.Command)
 	}
 }
 

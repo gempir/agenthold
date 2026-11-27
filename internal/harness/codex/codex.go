@@ -11,8 +11,14 @@ func init() {
 		Protocol: harness.ProtocolCodex,
 		Package:  "@openai/codex",
 		// thread_unload_delay_secs=0 matches T3 Code: session lifecycle is owned
-		// by the server rather than Codex's own unload timer.
-		Command: []string{"codex", "app-server", "-c", "thread_unload_delay_secs=0"},
+		// by the server rather than Codex's own unload timer. The microVM is the
+		// safety boundary, so approvals and Codex's inner sandbox are disabled.
+		Command: []string{
+			"codex", "app-server",
+			"-c", "thread_unload_delay_secs=0",
+			"-c", `approval_policy="never"`,
+			"-c", `sandbox_mode="danger-full-access"`,
+		},
 		Env: func(harness.Config) map[string]string {
 			return map[string]string{"NO_BROWSER": "1"}
 		},

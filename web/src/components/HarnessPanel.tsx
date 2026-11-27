@@ -34,8 +34,6 @@ const TerminalTab = lazy(() =>
   import('@/components/TerminalTab').then((m) => ({ default: m.TerminalTab })),
 );
 
-type Policy = Agent['permissionPolicy'];
-
 export function HarnessPanel({
   agent,
   isOwner,
@@ -66,8 +64,6 @@ export function HarnessPanel({
           <dd>
             <ModelSummary agent={agent} />
           </dd>
-          <dt className="text-muted-foreground">Permission policy</dt>
-          <dd>{agent.permissionPolicy}</dd>
         </dl>
       )}
       <AccountLogin agent={agent} isOwner={isOwner} onSaved={onSaved} />
@@ -194,7 +190,6 @@ function HarnessForm({
   const [model, setModel] = useState<Choice>(() =>
     toChoice({ model: agent.model, options: agent.modelOptions }),
   );
-  const [policy, setPolicy] = useState<Policy>(agent.permissionPolicy);
   const options = harnesses.data ?? [];
   const models = useQuery(modelsQuery(agent.id));
   // The catalog is the saved harness's: another harness starts on its default.
@@ -205,12 +200,11 @@ function HarnessForm({
         api.PATCH('/agents/{agentId}', {
           params: { path: { agentId: agent.id } },
           body: harnessChanged
-            ? { harness, model: '', modelOptions: {}, permissionPolicy: policy }
+            ? { harness, model: '', modelOptions: {} }
             : {
                 harness,
                 model: model.model,
                 modelOptions: model.options,
-                permissionPolicy: policy,
               },
         }),
       ),
@@ -228,7 +222,7 @@ function HarnessForm({
         save.mutate();
       }}
     >
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1 text-sm">
           Harness
           <Select value={harness} onChange={(e) => setHarness(e.target.value)}>
@@ -271,16 +265,6 @@ function HarnessForm({
             </div>
           )}
         </div>
-        <label className="grid gap-1 text-sm">
-          Permission policy
-          <Select
-            value={policy}
-            onChange={(e) => setPolicy(e.target.value as Policy)}
-          >
-            <option value="auto-approve">auto-approve</option>
-            <option value="ask">ask</option>
-          </Select>
-        </label>
       </div>
       <ErrorText error={save.error} />
       <div>

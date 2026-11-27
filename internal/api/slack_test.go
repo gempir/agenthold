@@ -523,7 +523,7 @@ func TestSlackStopAndQueue(t *testing.T) {
 	se.fake.waitFor("queued answer", shows("chat.update", "echo: queued one", "Done"))
 }
 
-func TestSlackPermissionButtons(t *testing.T) {
+func TestSlackAutoApprovesTools(t *testing.T) {
 	se := newSlackEnv(t)
 	alice := se.login("alice", "Alice", "a@example.com")
 	se.fakeAgent(alice, "ask")
@@ -531,35 +531,15 @@ func TestSlackPermissionButtons(t *testing.T) {
 
 	se.mention("U1", "C1", "400.1", "", "write notes.txt hi there")
 	row := se.thread("C1", "400.1")
-	perm := se.fake.waitFor("permission request", shows("chat.postMessage", "Permission requested", "Write notes.txt", `"action_id":"perm_0"`))
-	var blocks []map[string]any
-	_ = json.Unmarshal([]byte(perm.params.Get("blocks")), &blocks)
-	var allow slackgo.BlockAction
-	for _, b := range blocks {
-		els, _ := b["elements"].([]any)
-		for _, el := range els {
-			m := el.(map[string]any)
-			if m["action_id"] == "perm_0" {
-				if m["style"] != "primary" {
-					t.Fatalf("allow button %v", m)
-				}
-				allow = slackgo.BlockAction{ActionID: "perm_0", Value: m["value"].(string)}
-			}
-		}
-	}
-	// Someone without access cannot answer.
-	bob := se.login("bob", "Bob", "b@example.com")
-	se.link(bob, "U2")
-	se.click("U2", "C1", allow)
-	se.fake.waitFor("bob refused", func(c slackCall) bool {
-		return c.method == "respond/U2" && strings.Contains(c.text(), "Could not answer")
-	})
-	se.click("U1", "C1", allow)
-	se.fake.waitFor("resolved", func(c slackCall) bool {
-		return shows("chat.update", "Allowed", "*Alice*", "Write notes.txt")(c)
-	})
 	se.fake.waitFor("answer", shows("chat.update", "I wrote notes.txt", "Done"))
 	se.waitIdle(row.SessionID)
+	se.fake.mu.Lock()
+	defer se.fake.mu.Unlock()
+	for _, c := range se.fake.calls {
+		if c.method == "chat.postMessage" && strings.Contains(c.text(), "Permission requested") {
+			t.Fatalf("unexpected interactive permission prompt posted to Slack: %+v", c)
+		}
+	}
 }
 
 // modalOptions lists the values of the model select in a views.open/update call.

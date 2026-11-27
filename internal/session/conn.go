@@ -692,8 +692,11 @@ func (c *harnessConn) SessionUpdate(ctx context.Context, n acp.SessionNotificati
 
 // RequestPermission implements acp.Client.
 //
-// ACP requires answering with "cancelled" once the turn was cancelled, also
-// for requests that cross the cancel on the wire.
+// Because every harness runs inside an isolated Firecracker microVM sandbox,
+// permission requests from ACP harnesses that still ask are always approved
+// immediately (preferring persistent "allow always" options). ACP requires
+// answering with "cancelled" once the turn was cancelled, also for requests
+// that cross the cancel on the wire.
 func (c *harnessConn) RequestPermission(ctx context.Context, p acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
 	c.alive()
 	sessionID, ok := c.sessionFor(p.SessionId)
@@ -701,57 +704,29 @@ func (c *harnessConn) RequestPermission(ctx context.Context, p acp.RequestPermis
 	if !ok || len(p.Options) == 0 || !c.m.turnLive(sessionID) {
 		return cancelled, nil
 	}
-	agent, err := c.m.store.GetAgent(ctx, c.agentID)
-	if err != nil {
-		return cancelled, nil
-	}
 	requestID := id.New("perm")
 	lctx := context.WithoutCancel(ctx)
-	ch := make(chan acp.PermissionOptionId, 1)
-	// Registered (or refused) under the lock Cancel takes, so a cancel
-	// either sees this request or this request sees the cancel.
+	// Checked under the lock Cancel takes, so a cancel either sees the turn
+	// ending or this request sees the cancel.
 	c.m.mu.Lock()
 	t := c.m.turns[sessionID]
 	if t == nil || t.cancelled || t.finished {
 		c.m.mu.Unlock()
 		return cancelled, nil
 	}
-	ask := agent.PermissionPolicy == PolicyAsk
-	if ask {
-		t.perms[requestID] = ch
-	}
 	c.m.mu.Unlock()
 	_ = c.m.log.append(lctx, sessionID, EventPermission, "", map[string]any{
-		"requestId": requestID, "toolCall": p.ToolCall, "options": p.Options, "policy": agent.PermissionPolicy,
+		"requestId": requestID, "toolCall": p.ToolCall, "options": p.Options, "policy": PolicyAutoApprove,
 	})
-	if !ask {
-		// The sandbox is the safety boundary: approve.
-		opt := pickAllow(p.Options)
-		_ = c.m.log.append(lctx, sessionID, EventPermissionResolved, "", map[string]string{"requestId": requestID, "optionId": string(opt), "by": "auto"})
-		return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(opt)}, nil
-	}
-
-	select {
-	case opt, ok := <-ch:
-		if !ok || opt == "" {
-			return cancelled, nil
-		}
-		for _, o := range p.Options {
-			if o.OptionId == opt {
-				return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(opt)}, nil
-			}
-		}
-		return cancelled, nil
-	case <-ctx.Done():
-		return cancelled, nil
-	case <-c.done:
-		return cancelled, nil
-	}
+	opt := pickAllow(p.Options)
+	_ = c.m.log.append(lctx, sessionID, EventPermissionResolved, "", map[string]string{"requestId": requestID, "optionId": string(opt), "by": "auto"})
+	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(opt)}, nil
 }
 
-// pickAllow prefers a one-time approval (approvals stay visible per call).
+// pickAllow prefers a persistent approval so third-party ACP harnesses that
+// still ask inside the sandbox stop prompting on subsequent tool calls.
 func pickAllow(opts []acp.PermissionOption) acp.PermissionOptionId {
-	for _, kind := range []acp.PermissionOptionKind{acp.PermissionOptionKindAllowOnce, acp.PermissionOptionKindAllowAlways} {
+	for _, kind := range []acp.PermissionOptionKind{acp.PermissionOptionKindAllowAlways, acp.PermissionOptionKindAllowOnce} {
 		for _, o := range opts {
 			if o.Kind == kind {
 				return o.OptionId

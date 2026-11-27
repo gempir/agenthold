@@ -4,7 +4,7 @@ description: "Start and continue agent threads from Slack DMs, channel threads, 
 ---
 
 The Slack app does in Slack what threads do in the web UI: start threads with any agent you can use, see the
-answer stream in (tool calls, plan, notices, errors), stop a turn, answer permission requests, choose a thread's
+answer stream in (tool calls, plan, notices, errors), stop a turn, choose a thread's
 model, effort and fast mode, and list, continue, rename and delete threads. Creating and configuring agents stays in
 the web UI.
 
@@ -64,8 +64,7 @@ and **Open in web**.
 A turn is one bot message, updated as it streams (at most once a second): what the agent is doing (waking,
 thinking, the running tool), the last tool calls, the plan, then the answer in Markdown, with **Stop** while it
 runs and a footer when it ends (done, cancelled or failed, and how long it took). Thoughts are not shown. Long
-answers continue in a new message after about 10,000 characters. Permission requests (agents with the `ask`
-policy) get a message with the harness's options as buttons; it shows who answered. Notices and errors appear
+answers continue in a new message after about 10,000 characters. Notices and errors appear
 as small notes.
 
 ## Commands

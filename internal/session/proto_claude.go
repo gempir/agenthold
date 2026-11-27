@@ -21,7 +21,7 @@ import (
 
 // claudeProtoClient speaks Claude Code's native stream-json control protocol
 // directly (`claude -p --input-format stream-json --output-format stream-json
-// --verbose --include-partial-messages --permission-prompt-tool stdio`),
+// --verbose --include-partial-messages --dangerously-skip-permissions`),
 // matching T3 Code's ClaudeAgentSdkQueryRunner without needing claude-agent-acp.
 //
 // Because each `claude -p` process serves one conversation thread,
@@ -487,16 +487,9 @@ func (p *claudeProtoClient) Prompt(ctx context.Context, sessionID, text string) 
 		p.mu.Unlock()
 	}
 
-	// Ensure permission mode matches agent policy before the prompt.
-	if p.conn != nil {
-		if ag, err := p.conn.m.store.GetAgent(ctx, p.conn.agentID); err == nil {
-			mode := "bypassPermissions"
-			if ag.PermissionPolicy == PolicyAsk {
-				mode = "default"
-			}
-			_, _ = cp.controlRequest(ctx, map[string]any{"subtype": "set_permission_mode", "mode": mode})
-		}
-	}
+	// Ensure Claude stays in full-bypass mode before the prompt (including resumed
+	// sessions): the Firecracker microVM is the safety boundary.
+	_, _ = cp.controlRequest(ctx, map[string]any{"subtype": "set_permission_mode", "mode": "bypassPermissions"})
 
 	turnCh := make(chan claudeTurnOutcome, 1)
 	cp.mu.Lock()
@@ -860,31 +853,14 @@ func (cp *claudeProc) handleControlRequest(reqID string, raw json.RawMessage) {
 		return
 	}
 
-	allow := true
-	if cp.parent.conn != nil {
-		res, _ := cp.parent.conn.RequestPermission(context.Background(), acp.RequestPermissionRequest{
-			SessionId: acp.SessionId(cp.sessionID),
-			ToolCall: acp.ToolCallUpdate{
-				ToolCallId: acp.ToolCallId(req.ToolUseID),
-				Title:      ptr(req.ToolName),
-			},
-			Options: []acp.PermissionOption{
-				{OptionId: "allow", Name: "Allow", Kind: acp.PermissionOptionKindAllowOnce},
-				{OptionId: "deny", Name: "Deny", Kind: acp.PermissionOptionKindRejectOnce},
-			},
-		})
-		allow = res.Outcome.Selected != nil && res.Outcome.Selected.OptionId == "allow"
+	// The Firecracker microVM is the safety boundary: always allow tool calls
+	// without prompting if Claude ever sends a can_use_tool request.
+	var inputObj any
+	_ = json.Unmarshal(req.Input, &inputObj)
+	if inputObj == nil {
+		inputObj = map[string]any{}
 	}
-	if allow {
-		var inputObj any
-		_ = json.Unmarshal(req.Input, &inputObj)
-		if inputObj == nil {
-			inputObj = map[string]any{}
-		}
-		reply(map[string]any{"behavior": "allow", "updatedInput": inputObj})
-	} else {
-		reply(map[string]any{"behavior": "deny", "message": "Denied by user"})
-	}
+	reply(map[string]any{"behavior": "allow", "updatedInput": inputObj})
 }
 
 func (cp *claudeProc) emitUpdate(update map[string]any) {

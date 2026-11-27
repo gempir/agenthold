@@ -895,3 +895,18 @@ it('a session on a branch shows it in the composer and refreshes it', async () =
     ),
   );
 });
+
+it('titles the browser tab after the open thread and its agent', async () => {
+  stubGlobal('WebSocket', FakeSocket);
+  mockApi({
+    'GET /me': me,
+    'GET /harnesses': [],
+    'GET /agents': [agent({ state: 'running' })],
+    'GET /agents/a1': agent({ state: 'running' }),
+    'GET /agents/a1/sessions': [session({ title: 'Fix the build' })],
+  });
+  const { router } = renderApp('/a/a1?s=s1');
+  await waitFor(() => expect(document.title).toBe('Fix the build · builder'));
+  await router.navigate({ to: '/a/$agentId', params: { agentId: 'a1' } });
+  await waitFor(() => expect(document.title).toBe('builder'));
+});

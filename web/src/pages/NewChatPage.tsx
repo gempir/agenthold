@@ -19,6 +19,7 @@ import { Crumb, TopBar } from '@/components/layout/TopBar';
 import { useShell } from '@/components/layout/shell';
 import { useChatIndex } from '@/hooks/useChatIndex';
 import { useStartChat } from '@/hooks/useStartChat';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { accessOf } from '@/pages/AgentPage';
 
 function greeting(name?: string) {
@@ -37,6 +38,7 @@ export function NewChatPage() {
   const start = useStartChat();
   const [picked, setPicked] = useState<string>();
   const [gitDraft, setGitDraft] = useGitDraft();
+  useDocumentTitle('New chat');
 
   const candidates = index.agents.filter((x) => accessOf(x.agent).canUse);
   const chosen = candidates.find((x) => x.agent.id === picked) ?? candidates[0];

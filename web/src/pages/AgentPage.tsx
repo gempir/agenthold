@@ -28,6 +28,7 @@ import { Crumb, CrumbSep, TopBar } from '@/components/layout/TopBar';
 import { readPref, writePref } from '@/components/layout/shell';
 import { useSettle } from '@/hooks/useSettle';
 import { useStartChat } from '@/hooks/useStartChat';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import type { Choice } from '@/lib/models';
 
 const ChatView = lazy(() => import('@/components/chat/ChatView'));
@@ -66,6 +67,12 @@ export function AgentPage({
     model: '',
     options: {},
   });
+  // The tab shows the open chat's title, then the agent.
+  const active = sessions.data?.find((s) => s.id === sessionId);
+  useDocumentTitle(
+    sessionId ? active?.title || 'New thread' : undefined,
+    q.data?.name,
+  );
 
   if (q.isPending)
     return (
@@ -84,7 +91,7 @@ export function AgentPage({
 
   const a = q.data;
   const access = accessOf(a);
-  const selected = sessions.data?.find((s) => s.id === sessionId);
+  const selected = active;
   const notice = <AgentNotice agent={a} canUse={access.canUse} />;
 
   return (

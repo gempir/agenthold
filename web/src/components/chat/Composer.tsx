@@ -1,8 +1,8 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowUp, Paperclip, Square, X } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { IMAGE_TYPES, type Attachment } from '@/lib/attachments';
-import { Lightbox } from '@/components/chat/Lightbox';
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { ArrowUp, Paperclip, Square, X } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { IMAGE_TYPES, type Attachment } from "@/lib/attachments";
+import { Lightbox } from "@/components/chat/Lightbox";
 
 const MAX_HEIGHT = 240;
 
@@ -60,14 +60,14 @@ export function Composer({
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
-    el.style.height = 'auto';
+    el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`;
   }, [value]);
 
   return (
     <form
       className={cn(
-        'rounded-2xl border bg-card shadow-lg shadow-black/10 transition-colors focus-within:border-foreground/20',
+        "relative rounded-2xl border bg-card shadow-lg shadow-black/10 transition-colors focus-within:border-foreground/20",
         className,
       )}
       onSubmit={(e) => {
@@ -107,6 +107,32 @@ export function Composer({
           ))}
         </ul>
       )}
+      {onAttach && (
+        <>
+          <input
+            ref={picker}
+            type="file"
+            multiple
+            hidden
+            aria-label="Attach images"
+            accept={IMAGE_TYPES.join(",")}
+            onChange={(e) => {
+              onAttach(Array.from(e.target.files ?? []));
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            aria-label="Attach image"
+            title="Attach image"
+            disabled={disabled}
+            onClick={() => picker.current?.click()}
+            className="absolute top-2 right-2 flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+          >
+            <Paperclip className="size-4" />
+          </button>
+        </>
+      )}
       <textarea
         ref={box}
         aria-label="Message"
@@ -119,17 +145,17 @@ export function Composer({
         onPaste={(e) => {
           if (!onAttach) return;
           const files = Array.from(e.clipboardData.files);
-          if (!files.some((f) => f.type.startsWith('image/'))) return;
+          if (!files.some((f) => f.type.startsWith("image/"))) return;
           e.preventDefault();
           onAttach(files);
         }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
             if (canSend) onSubmit();
           }
         }}
-        className="block max-h-60 min-h-[3.25rem] w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[15px] leading-6 placeholder:text-muted-foreground focus:outline-none"
+        className="block max-h-60 min-h-[3.25rem] w-full resize-none bg-transparent pr-12 pl-4 pt-3.5 pb-1 text-[15px] leading-6 placeholder:text-muted-foreground focus:outline-none"
       />
       <Lightbox
         images={attachments.map((a) => ({ src: a.previewUrl, alt: a.name }))}
@@ -145,32 +171,6 @@ export function Composer({
         </p>
       )}
       <div className="flex items-center gap-2 px-2.5 pb-2.5">
-        {onAttach && (
-          <>
-            <input
-              ref={picker}
-              type="file"
-              multiple
-              hidden
-              aria-label="Attach images"
-              accept={IMAGE_TYPES.join(',')}
-              onChange={(e) => {
-                onAttach(Array.from(e.target.files ?? []));
-                e.target.value = '';
-              }}
-            />
-            <button
-              type="button"
-              aria-label="Attach image"
-              title="Attach image"
-              disabled={disabled}
-              onClick={() => picker.current?.click()}
-              className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-            >
-              <Paperclip className="size-4" />
-            </button>
-          </>
-        )}
         <div className="flex min-w-0 flex-1 items-center gap-1 text-xs text-muted-foreground">
           {meta}
         </div>

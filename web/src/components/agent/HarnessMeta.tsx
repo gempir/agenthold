@@ -105,7 +105,7 @@ export function HarnessMeta({
       ? set.variables
       : toChoice(session.model)
     : (draft ?? { model: '', options: {} });
-  const defaultLabel = `Agent default (${choiceLabel(models.data, agentDefault, 'harness default')})`;
+  const defaultLabel = choiceLabel(models.data, agentDefault, 'Default model');
   const switchable = models.data?.switchable ?? true;
   const others: HarnessChoice[] = otherHarnesses.map((h, i) => ({
     id: h.id,

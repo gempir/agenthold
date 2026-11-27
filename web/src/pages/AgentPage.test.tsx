@@ -435,7 +435,7 @@ it('a new thread starts with the model picked in the composer', async () => {
   renderApp('/a/a1');
   const user = userEvent.setup();
   const trigger = await screen.findByRole('button', {
-    name: /Model for this conversation: Agent default/,
+    name: /Model for this conversation:/,
   });
   await user.click(trigger);
   await user.click(await screen.findByRole('option', { name: /Opus 5.5/ }));
@@ -591,7 +591,7 @@ it('the owner switches the agent to another harness from the model picker', asyn
   renderApp('/a/a1');
   const user = userEvent.setup();
   const trigger = await screen.findByRole('button', {
-    name: /Model for this conversation: Agent default/,
+    name: /Model for this conversation:/,
   });
   expect(trigger).toHaveAttribute('title', 'Claude Code');
   await user.click(trigger);

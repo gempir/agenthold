@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, FolderGit2, GitBranch, RefreshCw } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  Copy,
+  FolderGit2,
+  GitBranch,
+  RefreshCw,
+} from 'lucide-react';
 import { api, unwrap } from '@/api/client';
 import {
   agentGitReposQuery,
@@ -59,31 +66,31 @@ export function gitStartArgs(d: GitDraft) {
 const basename = (p: string) => p.split('/').filter(Boolean).pop() ?? p;
 
 /**
- * The project and branch of a conversation, in the composer's meta bar. A
- * draft gets a picker over the repositories found in the agent's home (and
- * the choice to start in a new worktree); a started session shows the
- * project and branch it is on, with a refresh to re-detect them.
+ * Where a draft conversation starts, in the composer's meta bar: a picker
+ * over the repositories found in the agent's home, and the choice to start
+ * in a new worktree. A started thread shows its branch in SessionGitLine.
  */
 export function GitMeta({
   agent,
-  session,
   draft,
   onDraft,
   canUse = true,
 }: {
   agent: Agent;
-  session?: Session;
   draft?: GitDraft;
   onDraft?: (d: GitDraft) => void;
   canUse?: boolean;
 }) {
-  if (session)
-    return <SessionGitBadge agent={agent} session={session} canUse={canUse} />;
   if (!draft || !onDraft || !canUse) return null;
   return <DraftGitPicker agent={agent} draft={draft} onDraft={onDraft} />;
 }
 
-function SessionGitBadge({
+/**
+ * The project and branch a started thread is on, as a quiet line under its
+ * composer: the branch can be copied, and re-detected with refresh. Nothing
+ * when the thread is not known to be in a repository.
+ */
+export function SessionGitLine({
   agent,
   session,
   canUse,
@@ -93,6 +100,7 @@ function SessionGitBadge({
   canUse: boolean;
 }) {
   const qc = useQueryClient();
+  const [copied, setCopied] = useState(false);
   const refresh = useMutation({
     mutationFn: () =>
       unwrap(
@@ -106,30 +114,53 @@ function SessionGitBadge({
   });
   const git = session.git;
   if (!git || !(git.project || git.branch)) return null;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(git.branch);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // No clipboard (an insecure context): nothing to show.
+    }
+  };
   return (
     <div
       data-testid="session-git"
-      className="flex min-w-0 items-center gap-0.5 text-muted-foreground"
+      className="flex min-w-0 items-center gap-1 px-3 text-xs text-muted-foreground/80"
     >
-      <span
-        title={[git.project, git.branch].filter(Boolean).join(' · ')}
-        className="flex min-w-0 items-center gap-1.5 px-1.5 py-1"
-      >
-        <FolderGit2 className="size-3.5 shrink-0" aria-hidden />
-        {git.project && (
-          <span className="max-w-32 truncate text-foreground">
-            {git.project}
+      {git.project && (
+        <span
+          title={git.repoPath ? `~/${git.repoPath}` : git.project}
+          className="flex min-w-0 shrink items-center gap-1"
+        >
+          <FolderGit2 className="size-3 shrink-0" aria-hidden />
+          <span className="truncate">{git.project}</span>
+        </span>
+      )}
+      {git.branch && (
+        <>
+          <GitBranch className="ml-1.5 size-3 shrink-0" aria-hidden />
+          <span
+            title={git.branch}
+            className="min-w-0 truncate font-mono text-[11px]"
+          >
+            {git.branch}
           </span>
-        )}
-        {git.branch && (
-          <>
-            <GitBranch className="size-3.5 shrink-0" aria-hidden />
-            <span className="max-w-32 truncate font-mono text-xs">
-              {git.branch}
-            </span>
-          </>
-        )}
-      </span>
+          <button
+            type="button"
+            aria-label={copied ? 'Branch name copied' : 'Copy branch name'}
+            title={copied ? 'Copied' : 'Copy branch name'}
+            onClick={() => void copy()}
+            className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-accent hover:text-foreground"
+          >
+            {copied ? (
+              <Check className="size-3 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <Copy className="size-3" />
+            )}
+          </button>
+        </>
+      )}
       {canUse && (
         <button
           type="button"
@@ -137,7 +168,7 @@ function SessionGitBadge({
           title="Refresh git branch"
           disabled={refresh.isPending}
           onClick={() => refresh.mutate()}
-          className="flex size-6 items-center justify-center rounded-md hover:bg-accent hover:text-foreground disabled:opacity-50"
+          className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-accent hover:text-foreground disabled:opacity-50"
         >
           <RefreshCw
             className={cn('size-3', refresh.isPending && 'animate-spin')}

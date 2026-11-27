@@ -524,6 +524,7 @@ export default function ChatView({
   initialRunning = false,
   agentState,
   composerMeta,
+  composerFooter,
   notice,
 }: {
   sessionId: string;
@@ -534,6 +535,8 @@ export default function ChatView({
   initialRunning?: boolean;
   /** Harness/model line shown inside the composer. */
   composerMeta?: ReactNode;
+  /** A quiet line under the composer, e.g. the thread's git branch. */
+  composerFooter?: ReactNode;
   /** Agent state banner shown right above the composer. */
   notice?: ReactNode;
 }) {
@@ -654,6 +657,9 @@ export default function ChatView({
           <p className="rounded-2xl border border-dashed px-4 py-3 text-center text-sm text-muted-foreground">
             You have read-only access to this session.
           </p>
+        )}
+        {composerFooter && (
+          <div className="mt-1.5 empty:hidden">{composerFooter}</div>
         )}
       </div>
     </div>

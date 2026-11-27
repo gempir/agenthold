@@ -198,3 +198,20 @@ it('makes initials from agent names', () => {
   expect(initials('x')).toBe('X');
   expect(initials('--')).toBe('?');
 });
+
+it('shows the branch of active and settled threads', async () => {
+  setup([
+    session({ git: { project: 'web', branch: 'feat/login' } }),
+    { ...settled(0), git: { project: 'web', branch: 'fix/old-bug' } },
+  ]);
+  renderApp('/settings/threads');
+  const threads = await screen.findByRole('list', { name: 'Threads' });
+  expect(await within(threads).findByTestId('chat-git')).toHaveTextContent(
+    'feat/login',
+  );
+  await userEvent.click(screen.getByRole('button', { name: /Settled/ }));
+  const list = screen.getByRole('list', { name: 'Settled threads' });
+  expect(within(list).getByTestId('chat-branch')).toHaveTextContent(
+    'fix/old-bug',
+  );
+});

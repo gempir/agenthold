@@ -21,7 +21,12 @@ import {
   panelTabNeedsUse,
   type PanelTab,
 } from '@/components/agent/AgentPanel';
-import { GitMeta, gitStartArgs, useGitDraft } from '@/components/agent/GitMeta';
+import {
+  GitMeta,
+  SessionGitLine,
+  gitStartArgs,
+  useGitDraft,
+} from '@/components/agent/GitMeta';
 import { HarnessMeta } from '@/components/agent/HarnessMeta';
 import { DraftChat } from '@/components/chat/DraftChat';
 import { Crumb, CrumbSep, TopBar } from '@/components/layout/TopBar';
@@ -246,12 +251,16 @@ export function AgentPage({
                     session={selected}
                     canUse={access.canUse}
                   />
-                  <GitMeta
+                </>
+              }
+              composerFooter={
+                selected && (
+                  <SessionGitLine
                     agent={a}
                     session={selected}
                     canUse={access.canUse}
                   />
-                </>
+                )
               }
               notice={notice}
             />

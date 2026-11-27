@@ -1,7 +1,7 @@
 import { stubGlobal } from '@/test-setup';
 import { waitFor, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, setSystemTime } from 'bun:test';
+import { expect, it, setSystemTime, vi } from 'bun:test';
 import {
   agentPollInterval,
   agentsPollInterval,
@@ -867,7 +867,7 @@ it('a ?cwd= preselects the repository of the draft', async () => {
   );
 });
 
-it('a session on a branch shows it in the composer and refreshes it', async () => {
+it('a session on a branch shows it under the composer, copies and refreshes it', async () => {
   stubGlobal('WebSocket', FakeSocket);
   const { calls } = mockApi({
     'GET /me': me,
@@ -884,6 +884,22 @@ it('a session on a branch shows it in the composer and refreshes it', async () =
   const badge = await screen.findByTestId('session-git');
   expect(badge).toHaveTextContent('web');
   expect(badge).toHaveTextContent('feat/login');
+  // Under the message box, not inside it.
+  expect(
+    screen.getByRole('textbox', { name: 'Message' }).closest('form'),
+  ).not.toContainElement(badge);
+  const writeText = vi.fn(() => Promise.resolve());
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText },
+    configurable: true,
+  });
+  await userEvent.click(
+    within(badge).getByRole('button', { name: 'Copy branch name' }),
+  );
+  expect(writeText).toHaveBeenCalledWith('feat/login');
+  expect(
+    await within(badge).findByRole('button', { name: 'Branch name copied' }),
+  ).toBeInTheDocument();
   await userEvent.click(
     within(badge).getByRole('button', { name: 'Refresh git branch' }),
   );

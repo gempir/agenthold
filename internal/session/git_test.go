@@ -39,3 +39,24 @@ func TestRelInHome(t *testing.T) {
 		}
 	}
 }
+
+func TestCommandDir(t *testing.T) {
+	for _, c := range []struct{ command, cwd, want string }{
+		{"cd /home/agent/agenthold && git status", "", "/home/agent/agenthold"},
+		{"cd ~/agenthold/web && bun test", "", "agenthold/web"},
+		{"cd $HOME/repo; make", "", "repo"},
+		{`cd "my repo" && ls`, "", "my repo"},
+		{"/bin/bash -lc 'cd /home/agent/x && go test ./...'", "/home/agent", "/home/agent/x"},
+		{"go test ./...", "/home/agent/y", "/home/agent/y"},
+		{"cd /a && cd b", "", "/a/b"},
+		{"cd agenthold", "", "agenthold"},
+		{"cd - && ls", "", ""},
+		{"cd $DIR && ls", "", ""},
+		{"echo abcd /tmp", "", ""},
+		{"str_replace", "", ""},
+	} {
+		if got := commandDir(c.command, c.cwd); got != c.want {
+			t.Errorf("commandDir(%q, %q) = %q, want %q", c.command, c.cwd, got, c.want)
+		}
+	}
+}

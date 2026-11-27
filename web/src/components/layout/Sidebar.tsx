@@ -594,6 +594,15 @@ function SettledRow({
         <span className="min-w-0 flex-1 truncate text-muted-foreground group-hover:text-foreground">
           {title}
         </span>
+        {session.git?.branch && (
+          <span
+            data-testid="chat-branch"
+            className="flex max-w-[40%] min-w-0 shrink items-center gap-1 font-mono text-[11px] text-muted-foreground/70"
+          >
+            <GitBranch className="size-3 shrink-0" aria-hidden />
+            <span className="truncate">{session.git.branch}</span>
+          </span>
+        )}
         <span
           className={cn(
             'shrink-0 text-xs text-muted-foreground tabular-nums',
@@ -631,7 +640,7 @@ function GitLine({ git }: { git: SessionGit }) {
       className="flex min-w-0 items-center gap-2 truncate text-xs text-muted-foreground"
     >
       {git.project && (
-        <span className="flex min-w-0 items-center gap-1">
+        <span className="flex max-w-[50%] min-w-0 items-center gap-1">
           <FolderGit2 className="size-3 shrink-0" aria-hidden />
           <span className="truncate">{git.project}</span>
         </span>

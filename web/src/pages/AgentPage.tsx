@@ -288,10 +288,11 @@ export function AgentPage({
             }
             pending={start.isPending}
             error={start.error}
-            onSend={(text) =>
+            onSend={(text, images) =>
               start.mutate({
                 agentId,
                 text,
+                images,
                 model: draftModel,
                 ...gitStartArgs(gitDraft),
               })

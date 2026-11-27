@@ -570,7 +570,7 @@ func (p *codexProtoClient) InjectHistory(ctx context.Context, sessionID, threadI
 	return true, nil
 }
 
-func (p *codexProtoClient) Prompt(ctx context.Context, sessionID, text string) (acp.PromptResponse, error) {
+func (p *codexProtoClient) Prompt(ctx context.Context, sessionID, text string, images []PromptImage) (acp.PromptResponse, error) {
 	p.mu.Lock()
 	st := p.state[sessionID]
 	var model, effort string
@@ -592,9 +592,13 @@ func (p *codexProtoClient) Prompt(ctx context.Context, sessionID, text string) (
 
 	// The Firecracker microVM is the safety boundary: never prompt for approval
 	// and disable Codex's inner sandbox.
+	input := []map[string]any{{"type": "text", "text": text}}
+	for _, im := range images {
+		input = append(input, map[string]any{"type": "image", "url": "data:" + im.MimeType + ";base64," + im.Data})
+	}
 	params := map[string]any{
 		"threadId":       sessionID,
-		"input":          []map[string]any{{"type": "text", "text": text}},
+		"input":          input,
 		"approvalPolicy": "never",
 		"sandboxPolicy":  map[string]any{"type": "dangerFullAccess"},
 	}

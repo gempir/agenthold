@@ -115,11 +115,15 @@ func isAgentBusyPromptError(err error) bool {
 	return errors.As(err, &re) && strings.HasPrefix(re.Message, "Agent is already processing")
 }
 
-func (p *acpProtoClient) Prompt(ctx context.Context, sessionID, text string) (acp.PromptResponse, error) {
+func (p *acpProtoClient) Prompt(ctx context.Context, sessionID, text string, images []PromptImage) (acp.PromptResponse, error) {
+	blocks := []acp.ContentBlock{acp.TextBlock(text)}
+	for _, im := range images {
+		blocks = append(blocks, acp.ImageBlock(im.Data, im.MimeType))
+	}
 	for attempt := 0; ; attempt++ {
 		res, err := p.acp.Prompt(ctx, acp.PromptRequest{
 			SessionId: acp.SessionId(sessionID),
-			Prompt:    []acp.ContentBlock{acp.TextBlock(text)},
+			Prompt:    blocks,
 		})
 		if err == nil || !isAgentBusyPromptError(err) || attempt >= 30 || ctx.Err() != nil {
 			return res, err

@@ -1395,7 +1395,17 @@ paths:
               type: object
               required: [text]
               properties:
-                text: { type: string, minLength: 1 }
+                text: { type: string, description: The message. May be empty when images are attached. }
+                images:
+                  type: array
+                  maxItems: 4
+                  description: Images attached to the message (PNG, JPEG, GIF or WebP, up to 5 MiB each).
+                  items:
+                    type: object
+                    required: [mimeType, data]
+                    properties:
+                      mimeType: { type: string, enum: [image/png, image/jpeg, image/gif, image/webp] }
+                      data: { type: string, description: "Base64 encoded image bytes, without a data URL prefix." }
       responses:
         "202": { description: The turn started. }
         "400": { $ref: "#/components/responses/Error" }

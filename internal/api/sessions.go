@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -342,17 +343,31 @@ func (a *API) PromptSession(ctx context.Context, req gen.PromptSessionRequestObj
 		return nil, err
 	}
 	text := strings.TrimSpace(req.Body.Text)
-	if text == "" || len(text) > 256*1024 {
+	hasImages := req.Body.Images != nil && len(*req.Body.Images) > 0
+	if (text == "" && !hasImages) || len(text) > 256*1024 {
 		return nil, badRequest("text must be 1 byte to 256 KiB")
 	}
+	if hasImages && len(*req.Body.Images) > 4 {
+		return nil, badRequest("at most 4 images per message")
+	}
+	var images []session.PromptImage
+	if req.Body.Images != nil {
+		for _, im := range *req.Body.Images {
+			pi, err := promptImage(string(im.MimeType), im.Data)
+			if err != nil {
+				return nil, err
+			}
+			images = append(images, pi)
+		}
+	}
 	u := me(ctx)
-	if err := a.Sessions.Prompt(ctx, s.ID, u.ID, u.Name, text, nil); err != nil {
+	if err := a.Sessions.PromptWith(ctx, s.ID, u.ID, u.Name, text, nil, session.PromptOpts{Images: images}); err != nil {
 		if errors.Is(err, session.ErrBusy) {
 			return nil, errStatus(http.StatusConflict, err.Error())
 		}
 		return nil, err
 	}
-	a.record(ctx, mustAgent(ctx, a, s.AgentID), audit.Prompt, s.ID, map[string]any{"text": truncateRunes(text, 500), "session": s.Title})
+	a.record(ctx, mustAgent(ctx, a, s.AgentID), audit.Prompt, s.ID, map[string]any{"text": truncateRunes(text, 500), "session": s.Title, "images": len(images)})
 	return gen.PromptSession202Response{}, nil
 }
 
@@ -516,4 +531,23 @@ func truncateRunes(s string, n int) string {
 		return string(r[:n]) + "…"
 	}
 	return s
+}
+
+// maxPromptImageBytes caps one attached image after decoding.
+const maxPromptImageBytes = 5 << 20
+
+// promptImage validates one attached image: base64 that decodes to at most
+// maxPromptImageBytes and whose bytes really are the image type it claims.
+func promptImage(mimeType, data string) (session.PromptImage, error) {
+	raw, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return session.PromptImage{}, badRequest("image data must be base64")
+	}
+	if len(raw) == 0 || len(raw) > maxPromptImageBytes {
+		return session.PromptImage{}, badRequest("each image must be 1 byte to 5 MiB")
+	}
+	if http.DetectContentType(raw) != mimeType {
+		return session.PromptImage{}, badRequest("image content does not match its type " + mimeType)
+	}
+	return session.PromptImage{MimeType: mimeType, Data: data}, nil
 }

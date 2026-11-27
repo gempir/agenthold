@@ -466,7 +466,7 @@ func (p *claudeProtoClient) InjectHistory(_ context.Context, _, _ string, _ Hand
 	return false, nil
 }
 
-func (p *claudeProtoClient) Prompt(ctx context.Context, sessionID, text string) (acp.PromptResponse, error) {
+func (p *claudeProtoClient) Prompt(ctx context.Context, sessionID, text string, images []PromptImage) (acp.PromptResponse, error) {
 	p.mu.Lock()
 	cp := p.procs[sessionID]
 	cfg := p.cfg[sessionID]
@@ -503,11 +503,21 @@ func (p *claudeProtoClient) Prompt(ctx context.Context, sessionID, text string) 
 		cp.mu.Unlock()
 	}()
 
+	var content any = text
+	if len(images) > 0 {
+		blocks := []map[string]any{{"type": "text", "text": text}}
+		for _, im := range images {
+			blocks = append(blocks, map[string]any{"type": "image", "source": map[string]any{
+				"type": "base64", "media_type": im.MimeType, "data": im.Data,
+			}})
+		}
+		content = blocks
+	}
 	if err := cp.writeLine(map[string]any{
 		"type": "user",
 		"message": map[string]any{
 			"role":    "user",
-			"content": text,
+			"content": content,
 		},
 	}); err != nil {
 		return acp.PromptResponse{}, err

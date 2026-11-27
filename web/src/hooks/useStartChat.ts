@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { api, unwrap } from '@/api/client';
+import type { ImageType } from '@/lib/attachments';
 import type { Choice } from '@/lib/models';
 
 /** Starts a conversation: creates a session, sets its model when one was
@@ -13,6 +14,7 @@ export function useStartChat() {
     mutationFn: async (v: {
       agentId: string;
       text: string;
+      images?: { mimeType: ImageType; data: string }[];
       model?: Choice;
       /** Working directory relative to home, e.g. a repository. */
       cwd?: string;
@@ -42,7 +44,7 @@ export function useStartChat() {
       await unwrap(
         api.POST('/sessions/{sessionId}/prompt', {
           params: { path: { sessionId: s.id } },
-          body: { text: v.text },
+          body: { text: v.text, ...(v.images?.length && { images: v.images }) },
         }),
       );
       return s;

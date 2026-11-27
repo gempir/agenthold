@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { ErrorText } from '@/components/Spinner';
 import { Composer } from '@/components/chat/Composer';
+import { toImagePayload, useAttachments } from '@/lib/attachments';
 
 /**
  * A conversation that has not started yet: a greeting and the composer,
@@ -29,10 +30,11 @@ export function DraftChat({
   disabled?: boolean;
   pending?: boolean;
   error?: unknown;
-  onSend: (text: string) => void;
+  onSend: (text: string, images: ReturnType<typeof toImagePayload>) => void;
   children?: ReactNode;
 }) {
   const [text, setText] = useState('');
+  const att = useAttachments();
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-3 py-10 md:px-8">
@@ -59,7 +61,11 @@ export function DraftChat({
               autoFocus
               meta={meta}
               placeholder={placeholder}
-              onSubmit={() => onSend(text.trim())}
+              attachments={att.items}
+              attachError={att.error}
+              onAttach={att.add}
+              onRemoveAttachment={att.remove}
+              onSubmit={() => onSend(text.trim(), toImagePayload(att.items))}
             />
           </>
         )}

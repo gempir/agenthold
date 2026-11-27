@@ -5943,7 +5943,15 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    /** @description The message. May be empty when images are attached. */
                     text: string;
+                    /** @description Images attached to the message (PNG, JPEG, GIF or WebP, up to 5 MiB each). */
+                    images?: {
+                        /** @enum {string} */
+                        mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+                        /** @description Base64 encoded image bytes, without a data URL prefix. */
+                        data: string;
+                    }[];
                 };
             };
         };

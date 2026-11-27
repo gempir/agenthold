@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
-import { ArrowUp, Square } from 'lucide-react';
+import { ArrowUp, Paperclip, Square, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { IMAGE_TYPES, type Attachment } from '@/lib/attachments';
 
 const MAX_HEIGHT = 240;
 
@@ -21,6 +22,10 @@ export function Composer({
   autoFocus,
   meta,
   className,
+  attachments = [],
+  attachError,
+  onAttach,
+  onRemoveAttachment,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -35,9 +40,19 @@ export function Composer({
   /** Shown at the lower left, e.g. the harness and model. */
   meta?: ReactNode;
   className?: string;
+  /** Images waiting to be sent. Pasting or the paperclip adds more via onAttach. */
+  attachments?: Attachment[];
+  attachError?: string | null;
+  onAttach?: (files: File[]) => void;
+  onRemoveAttachment?: (id: string) => void;
 }) {
   const box = useRef<HTMLTextAreaElement>(null);
-  const canSend = !!value.trim() && !running && !busy && !disabled;
+  const picker = useRef<HTMLInputElement>(null);
+  const canSend =
+    (!!value.trim() || attachments.length > 0) &&
+    !running &&
+    !busy &&
+    !disabled;
 
   // Grow with the text up to a cap, then scroll.
   useLayoutEffect(() => {
@@ -61,6 +76,28 @@ export function Composer({
         if (e.target === e.currentTarget) box.current?.focus();
       }}
     >
+      {attachments.length > 0 && (
+        <ul className="flex flex-wrap gap-2 px-3 pt-3">
+          {attachments.map((a) => (
+            <li key={a.id} className="group relative">
+              <img
+                src={a.previewUrl}
+                alt={a.name}
+                className="size-16 rounded-lg border object-cover"
+              />
+              <button
+                type="button"
+                aria-label={`Remove ${a.name}`}
+                title="Remove"
+                onClick={() => onRemoveAttachment?.(a.id)}
+                className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-foreground text-background shadow transition-opacity hover:opacity-90"
+              >
+                <X className="size-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <textarea
         ref={box}
         aria-label="Message"
@@ -70,6 +107,13 @@ export function Composer({
         disabled={disabled}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
+        onPaste={(e) => {
+          if (!onAttach) return;
+          const files = Array.from(e.clipboardData.files);
+          if (!files.some((f) => f.type.startsWith('image/'))) return;
+          e.preventDefault();
+          onAttach(files);
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
@@ -78,7 +122,38 @@ export function Composer({
         }}
         className="block max-h-60 min-h-[3.25rem] w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[15px] leading-6 placeholder:text-muted-foreground focus:outline-none"
       />
+      {attachError && (
+        <p role="alert" className="px-4 pb-1 text-xs text-destructive">
+          {attachError}
+        </p>
+      )}
       <div className="flex items-center gap-2 px-2.5 pb-2.5">
+        {onAttach && (
+          <>
+            <input
+              ref={picker}
+              type="file"
+              multiple
+              hidden
+              aria-label="Attach images"
+              accept={IMAGE_TYPES.join(',')}
+              onChange={(e) => {
+                onAttach(Array.from(e.target.files ?? []));
+                e.target.value = '';
+              }}
+            />
+            <button
+              type="button"
+              aria-label="Attach image"
+              title="Attach image"
+              disabled={disabled}
+              onClick={() => picker.current?.click()}
+              className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+            >
+              <Paperclip className="size-4" />
+            </button>
+          </>
+        )}
         <div className="flex min-w-0 flex-1 items-center gap-1 text-xs text-muted-foreground">
           {meta}
         </div>

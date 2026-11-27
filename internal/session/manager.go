@@ -434,6 +434,8 @@ type PromptOpts struct {
 	Depth int
 	// Origin describes the agent that started the turn, shown in the log.
 	Origin map[string]string
+	// Images are attached to the prompt (validated by the caller).
+	Images []PromptImage
 }
 
 // AgentDepth is the depth of the deepest turn the agent is running (0 if none).
@@ -509,6 +511,9 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 	}
 
 	promptData := map[string]any{"text": text, "user": map[string]string{"id": userID, "name": userName}}
+	if len(opts.Images) > 0 {
+		promptData["images"] = opts.Images
+	}
 	if opts.Origin != nil {
 		promptData["origin"] = opts.Origin
 		promptData["depth"] = opts.Depth
@@ -538,7 +543,7 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 
 	go func() {
 		defer m.wg.Done()
-		end, err := m.run(t, sess, text, promptSeq, status)
+		end, err := m.run(t, sess, text, opts.Images, promptSeq, status)
 		m.mu.Lock()
 		t.finished = true
 		if t.killTimer != nil {
@@ -593,7 +598,7 @@ func titleFrom(text string) string {
 
 // run executes one turn and returns the data of its turn_end event, which the
 // caller appends once the turn has been released.
-func (m *Manager) run(t *turn, sess db.AgentSession, text string, promptSeq int64, status func(string)) (map[string]any, error) {
+func (m *Manager) run(t *turn, sess db.AgentSession, text string, images []PromptImage, promptSeq int64, status func(string)) (map[string]any, error) {
 	ctx := t.setup
 	notice := func(msg string) {
 		_ = m.log.append(context.WithoutCancel(ctx), sess.ID, EventNotice, "", map[string]string{"message": msg})
@@ -630,7 +635,7 @@ func (m *Manager) run(t *turn, sess db.AgentSession, text string, promptSeq int6
 	promptText := WithInlineContext(inlineCtx, text)
 	// Not the setup context: a cancel is session/cancel, answered by the
 	// harness with stopReason "cancelled".
-	res, err := conn.proto.Prompt(t.prompt, acpID, promptText)
+	res, err := conn.proto.Prompt(t.prompt, acpID, promptText, images)
 	conn.used(acpID)
 	if err == nil && handoffToSeq > 0 {
 		_ = m.store.SetSessionHandoffSeq(context.WithoutCancel(ctx), db.SetSessionHandoffSeqParams{

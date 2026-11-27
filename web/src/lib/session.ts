@@ -55,6 +55,7 @@ export type ChatItem =
       seq: number;
       text: string;
       user?: string;
+      images?: { mimeType: string; data: string }[];
       chunked: boolean;
     }
   | { kind: 'agent'; seq: number; text: string }
@@ -214,6 +215,14 @@ export function applyEvent(s: ChatState, ev: SessionEvent): ChatState {
             seq: ev.seq,
             text: str(d.text),
             user,
+            ...(Array.isArray(d.images) && d.images.length
+              ? {
+                  images: d.images.filter(isObj).map((im) => ({
+                    mimeType: str(im.mimeType),
+                    data: str(im.data),
+                  })),
+                }
+              : {}),
             chunked: false,
           },
         ],

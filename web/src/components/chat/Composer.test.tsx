@@ -4,9 +4,6 @@ import { useState } from 'react';
 import { Composer } from './Composer';
 import { toImagePayload, useAttachments } from '@/lib/attachments';
 
-URL.createObjectURL = () => 'blob:preview';
-URL.revokeObjectURL = () => {};
-
 const png = () =>
   new File([new Uint8Array([137, 80, 78, 71])], 'shot.png', {
     type: 'image/png',
@@ -39,7 +36,9 @@ it('attaches a picked image, sends it without text, and removes it', async () =>
   fireEvent.change(screen.getByLabelText('Attach images'), {
     target: { files: [png()] },
   });
-  await screen.findByAltText('shot.png');
+  const thumb = await screen.findByAltText('shot.png');
+  // A data: URL: the CSP's img-src does not allow blob: URLs.
+  expect(thumb.getAttribute('src')).toBe('data:image/png;base64,iVBORw==');
   fireEvent.click(screen.getByLabelText('Send'));
   expect(onSubmit).toHaveBeenCalledWith([
     { mimeType: 'image/png', data: 'iVBORw==' },

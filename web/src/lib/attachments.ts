@@ -17,7 +17,8 @@ export interface Attachment {
   mimeType: ImageType;
   /** Base64 without a data: prefix, as the API wants it. */
   data: string;
-  /** Object URL for the thumbnail. */
+  /** data: URL for the thumbnail. Not a blob: URL, which the CSP's img-src
+   * does not allow. */
   previewUrl: string;
 }
 
@@ -55,12 +56,6 @@ export function useAttachments() {
     live.current = items;
   }, [items]);
 
-  // Free the object URLs when the composer goes away.
-  useEffect(
-    () => () => live.current.forEach((a) => URL.revokeObjectURL(a.previewUrl)),
-    [],
-  );
-
   const add = useCallback(async (files: File[]) => {
     const room = MAX_IMAGES - live.current.length;
     const problems: string[] = [];
@@ -80,12 +75,13 @@ export function useAttachments() {
     const added: Attachment[] = [];
     for (const f of fits.slice(0, Math.max(room, 0))) {
       try {
+        const data = await readBase64(f);
         added.push({
           id: crypto.randomUUID(),
           name: f.name || 'pasted image',
           mimeType: f.type as ImageType,
-          data: await readBase64(f),
-          previewUrl: URL.createObjectURL(f),
+          data,
+          previewUrl: `data:${f.type};base64,${data}`,
         });
       } catch {
         problems.push(`Could not read ${f.name || 'the image'}`);
@@ -98,16 +94,10 @@ export function useAttachments() {
 
   const remove = useCallback((id: string) => {
     setError(null);
-    setItems((cur) => {
-      cur
-        .filter((a) => a.id === id)
-        .forEach((a) => URL.revokeObjectURL(a.previewUrl));
-      return cur.filter((a) => a.id !== id);
-    });
+    setItems((cur) => cur.filter((a) => a.id !== id));
   }, []);
 
   const clear = useCallback(() => {
-    live.current.forEach((a) => URL.revokeObjectURL(a.previewUrl));
     setItems([]);
     setError(null);
   }, []);

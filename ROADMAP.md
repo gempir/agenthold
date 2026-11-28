@@ -40,7 +40,7 @@ Update checkboxes as each milestone merges cleanly to `main` with `make test` an
   - Inline context chips for files, quoted assistant messages (select text → Cite in composer), diff review comments, threads (`@`), models (`@`), skills (`$`), slash commands (`/`).
   - General file attachments (upload to workspace) + 32 KiB+ large paste → file chip.
   - `ArrowUp` sent-prompt recall, `Cmd+S` prompt stash, `Shift`-click multi-model parallel launch, `Cmd/Ctrl+Enter` background start.
-- [ ] **1E. Sidebar Redesign, Command Palette (`Cmd+K`) & Clutter Pruning (`00019_prune_tasks.sql`)**
+- [x] **1E. Sidebar Redesign, Command Palette (`Cmd+K`) & Clutter Pruning (`00019_prune_tasks.sql`)**
   - Sidebar: **Pinned**, **Active**, **Working** (collapsible running threads), **Snoozed**, **Settled**, optional **Group by project** toggle, Undo toast (`Cmd+Z`), and T3-style bottom-left utility dock (Settings, PRs, Automations, Usage).
   - Global Command Palette (`Cmd/Ctrl+K`) searching threads (titles, branches, message text via backend search endpoint), projects, scripts, settings, and actions.
   - Prune clutter: remove built-in `ProjectTask` mini-tracker (`00019_prune_tasks.sql`, API, tools, UI); remove duplicated workspace tabs (`Files`, `Git`, `Terminal`, `Preview`) from `AgentSettingsPage`; promote Projects out of Settings to first-class navigation; replace manual `GitTab` worktree ceremony with clean in-thread project/branch/worktree controls.

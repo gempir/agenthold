@@ -225,6 +225,18 @@ func (p postgresQueries) CreateSession(ctx context.Context, arg db.CreateSession
 	return p.q.CreateSession(ctx, postgres.CreateSessionParams(arg))
 }
 
+func (p postgresQueries) CreateSessionGuestLink(ctx context.Context, arg db.CreateSessionGuestLinkParams) error {
+	return p.q.CreateSessionGuestLink(ctx, postgres.CreateSessionGuestLinkParams(arg))
+}
+
+func (p postgresQueries) CreateSessionGuestRequest(ctx context.Context, arg db.CreateSessionGuestRequestParams) error {
+	return p.q.CreateSessionGuestRequest(ctx, postgres.CreateSessionGuestRequestParams(arg))
+}
+
+func (p postgresQueries) CreateSessionReviewComment(ctx context.Context, arg db.CreateSessionReviewCommentParams) error {
+	return p.q.CreateSessionReviewComment(ctx, postgres.CreateSessionReviewCommentParams(arg))
+}
+
 func (p postgresQueries) CreateSkill(ctx context.Context, arg db.CreateSkillParams) error {
 	return p.q.CreateSkill(ctx, postgres.CreateSkillParams(arg))
 }
@@ -365,6 +377,16 @@ func (p postgresQueries) DeleteSessionEventsFrom(ctx context.Context, arg db.Del
 
 func (p postgresQueries) DeleteSessionQueuedMessage(ctx context.Context, arg db.DeleteSessionQueuedMessageParams) (int64, error) {
 	value, err := p.q.DeleteSessionQueuedMessage(ctx, postgres.DeleteSessionQueuedMessageParams(arg))
+	return value, err
+}
+
+func (p postgresQueries) DeleteSessionReviewComment(ctx context.Context, arg db.DeleteSessionReviewCommentParams) (int64, error) {
+	value, err := p.q.DeleteSessionReviewComment(ctx, postgres.DeleteSessionReviewCommentParams(arg))
+	return value, err
+}
+
+func (p postgresQueries) DeleteSessionShare(ctx context.Context, arg db.DeleteSessionShareParams) (int64, error) {
+	value, err := p.q.DeleteSessionShare(ctx, postgres.DeleteSessionShareParams(arg))
 	return value, err
 }
 
@@ -642,9 +664,34 @@ func (p postgresQueries) GetSessionEvent(ctx context.Context, arg db.GetSessionE
 	return db.AgentSessionEvent(value), err
 }
 
+func (p postgresQueries) GetSessionGuestLink(ctx context.Context, arg db.GetSessionGuestLinkParams) (db.SessionGuestLink, error) {
+	value, err := p.q.GetSessionGuestLink(ctx, postgres.GetSessionGuestLinkParams(arg))
+	return db.SessionGuestLink(value), err
+}
+
+func (p postgresQueries) GetSessionGuestLinkByTokenHash(ctx context.Context, tokenHash string) (db.SessionGuestLink, error) {
+	value, err := p.q.GetSessionGuestLinkByTokenHash(ctx, tokenHash)
+	return db.SessionGuestLink(value), err
+}
+
+func (p postgresQueries) GetSessionGuestRequest(ctx context.Context, arg db.GetSessionGuestRequestParams) (db.SessionGuestRequest, error) {
+	value, err := p.q.GetSessionGuestRequest(ctx, postgres.GetSessionGuestRequestParams(arg))
+	return db.SessionGuestRequest(value), err
+}
+
 func (p postgresQueries) GetSessionQueuedMessage(ctx context.Context, arg db.GetSessionQueuedMessageParams) (db.SessionQueuedMessage, error) {
 	value, err := p.q.GetSessionQueuedMessage(ctx, postgres.GetSessionQueuedMessageParams(arg))
 	return db.SessionQueuedMessage(value), err
+}
+
+func (p postgresQueries) GetSessionReviewComment(ctx context.Context, arg db.GetSessionReviewCommentParams) (db.SessionReviewComment, error) {
+	value, err := p.q.GetSessionReviewComment(ctx, postgres.GetSessionReviewCommentParams(arg))
+	return db.SessionReviewComment(value), err
+}
+
+func (p postgresQueries) GetSessionShare(ctx context.Context, arg db.GetSessionShareParams) (db.SessionShare, error) {
+	value, err := p.q.GetSessionShare(ctx, postgres.GetSessionShareParams(arg))
+	return db.SessionShare(value), err
 }
 
 func (p postgresQueries) GetSessionUser(ctx context.Context, arg db.GetSessionUserParams) (db.GetSessionUserRow, error) {
@@ -710,6 +757,11 @@ func (p postgresQueries) GetWebhook(ctx context.Context, id string) (db.Webhook,
 func (p postgresQueries) GetWebhookByToken(ctx context.Context, tokenHash string) (db.Webhook, error) {
 	value, err := p.q.GetWebhookByToken(ctx, tokenHash)
 	return db.Webhook(value), err
+}
+
+func (p postgresQueries) HasAnySessionShareOnAgent(ctx context.Context, arg db.HasAnySessionShareOnAgentParams) (int64, error) {
+	value, err := p.q.HasAnySessionShareOnAgent(ctx, postgres.HasAnySessionShareOnAgentParams(arg))
+	return value, err
 }
 
 func (p postgresQueries) HasPreviewConsent(ctx context.Context, arg db.HasPreviewConsentParams) (int64, error) {
@@ -1090,6 +1142,18 @@ func (p postgresQueries) ListOrgTools(ctx context.Context) ([]db.OrgTool, error)
 	return result, nil
 }
 
+func (p postgresQueries) ListPendingSessionGuestRequests(ctx context.Context, sessionID string) ([]db.SessionGuestRequest, error) {
+	value, err := p.q.ListPendingSessionGuestRequests(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.SessionGuestRequest, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.SessionGuestRequest(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListProjectSessions(ctx context.Context, projectID string) ([]db.AgentSession, error) {
 	value, err := p.q.ListProjectSessions(ctx, projectID)
 	if err != nil {
@@ -1198,6 +1262,30 @@ func (p postgresQueries) ListSessionEvents(ctx context.Context, arg db.ListSessi
 	return result, nil
 }
 
+func (p postgresQueries) ListSessionGuestLinks(ctx context.Context, sessionID string) ([]db.SessionGuestLink, error) {
+	value, err := p.q.ListSessionGuestLinks(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.SessionGuestLink, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.SessionGuestLink(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListSessionGuestRequests(ctx context.Context, sessionID string) ([]db.SessionGuestRequest, error) {
+	value, err := p.q.ListSessionGuestRequests(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.SessionGuestRequest, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.SessionGuestRequest(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListSessionQueuedMessages(ctx context.Context, sessionID string) ([]db.SessionQueuedMessage, error) {
 	value, err := p.q.ListSessionQueuedMessages(ctx, sessionID)
 	if err != nil {
@@ -1206,6 +1294,30 @@ func (p postgresQueries) ListSessionQueuedMessages(ctx context.Context, sessionI
 	result := make([]db.SessionQueuedMessage, 0, len(value))
 	for _, row := range value {
 		result = append(result, db.SessionQueuedMessage(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListSessionReviewComments(ctx context.Context, sessionID string) ([]db.SessionReviewComment, error) {
+	value, err := p.q.ListSessionReviewComments(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.SessionReviewComment, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.SessionReviewComment(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListSessionShares(ctx context.Context, sessionID string) ([]db.ListSessionSharesRow, error) {
+	value, err := p.q.ListSessionShares(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ListSessionSharesRow, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.ListSessionSharesRow{User: db.User(row.User), Role: row.Role, CreatedBy: row.CreatedBy, SharedAt: row.SharedAt})
 	}
 	return result, nil
 }
@@ -1314,6 +1426,30 @@ func (p postgresQueries) ListUserSecrets(ctx context.Context, ownerID string) ([
 	result := make([]db.Secret, 0, len(value))
 	for _, row := range value {
 		result = append(result, db.Secret(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListUserSharedSessions(ctx context.Context, userID string) ([]db.ListUserSharedSessionsRow, error) {
+	value, err := p.q.ListUserSharedSessions(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ListUserSharedSessionsRow, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.ListUserSharedSessionsRow{AgentSession: db.AgentSession(row.AgentSession), ShareRole: row.ShareRole, SharedAt: row.SharedAt, AgentName: row.AgentName, AgentOwnerID: row.AgentOwnerID, AgentHarness: row.AgentHarness})
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListUserSharedSessionsForAgent(ctx context.Context, arg db.ListUserSharedSessionsForAgentParams) ([]db.ListUserSharedSessionsForAgentRow, error) {
+	value, err := p.q.ListUserSharedSessionsForAgent(ctx, postgres.ListUserSharedSessionsForAgentParams(arg))
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ListUserSharedSessionsForAgentRow, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.ListUserSharedSessionsForAgentRow{AgentSession: db.AgentSession(row.AgentSession), ShareRole: row.ShareRole})
 	}
 	return result, nil
 }
@@ -1456,6 +1592,21 @@ func (p postgresQueries) ResetRunningSessions(ctx context.Context) error {
 
 func (p postgresQueries) ResetSessionModels(ctx context.Context, agentID string) error {
 	return p.q.ResetSessionModels(ctx, agentID)
+}
+
+func (p postgresQueries) ResolveSessionGuestRequest(ctx context.Context, arg db.ResolveSessionGuestRequestParams) (int64, error) {
+	value, err := p.q.ResolveSessionGuestRequest(ctx, postgres.ResolveSessionGuestRequestParams(arg))
+	return value, err
+}
+
+func (p postgresQueries) ResolveSessionReviewComment(ctx context.Context, arg db.ResolveSessionReviewCommentParams) (int64, error) {
+	value, err := p.q.ResolveSessionReviewComment(ctx, postgres.ResolveSessionReviewCommentParams(arg))
+	return value, err
+}
+
+func (p postgresQueries) RevokeSessionGuestLink(ctx context.Context, arg db.RevokeSessionGuestLinkParams) (int64, error) {
+	value, err := p.q.RevokeSessionGuestLink(ctx, postgres.RevokeSessionGuestLinkParams(arg))
+	return value, err
 }
 
 func (p postgresQueries) SearchUserSessionEvents(ctx context.Context, arg db.SearchUserSessionEventsParams) ([]db.SearchUserSessionEventsRow, error) {
@@ -1828,6 +1979,10 @@ func (p postgresQueries) UpsertOrgProviderLogin(ctx context.Context, arg db.Upse
 
 func (p postgresQueries) UpsertService(ctx context.Context, arg db.UpsertServiceParams) error {
 	return p.q.UpsertService(ctx, postgres.UpsertServiceParams(arg))
+}
+
+func (p postgresQueries) UpsertSessionShare(ctx context.Context, arg db.UpsertSessionShareParams) error {
+	return p.q.UpsertSessionShare(ctx, postgres.UpsertSessionShareParams(arg))
 }
 
 func (p postgresQueries) UpsertUserGitConfig(ctx context.Context, arg db.UpsertUserGitConfigParams) error {

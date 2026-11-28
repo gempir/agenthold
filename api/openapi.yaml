@@ -4306,6 +4306,302 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  # --- Phase 3A: Multiplayer Thread Sharing, Guest Links & Collaborative Review Comments ---
+
+  /me/shared-threads:
+    get:
+      operationId: listMySharedThreads
+      tags: [sharing]
+      description: List individual threads shared directly with the current user.
+      responses:
+        "200":
+          description: Threads shared with the current user.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SharedThread" }
+
+  /sessions/{sessionId}/shares:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    get:
+      operationId: listSessionShares
+      tags: [sharing]
+      description: List users with thread-level access to this session.
+      responses:
+        "200":
+          description: Thread access list.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionAccessList" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: shareSession
+      tags: [sharing]
+      description: Share this individual thread with an existing user by verified email (viewer or collaborator).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SessionShareInput" }
+      responses:
+        "200":
+          description: Thread shared.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionShare" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/shares/{userId}:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+      - { name: userId, in: path, required: true, schema: { type: string } }
+    delete:
+      operationId: unshareSession
+      tags: [sharing]
+      description: Revoke a user's thread-level access (or leave a thread shared with you).
+      responses:
+        "204": { description: Share removed. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/guest-links:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    get:
+      operationId: listSessionGuestLinks
+      tags: [sharing]
+      description: List guest links created for this thread.
+      responses:
+        "200":
+          description: Guest links.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/GuestLink" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createSessionGuestLink
+      tags: [sharing]
+      description: Create a 24-hour single-thread guest link returning the one-time raw URL (/guest/<token>).
+      responses:
+        "201":
+          description: Guest link created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuestLinkCreated" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/guest-links/{linkId}:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+      - { name: linkId, in: path, required: true, schema: { type: string } }
+    delete:
+      operationId: revokeSessionGuestLink
+      tags: [sharing]
+      description: Instantly revoke an active guest link for this thread.
+      responses:
+        "204": { description: Guest link revoked. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/guest-requests:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    get:
+      operationId: listSessionGuestRequests
+      tags: [sharing]
+      description: List guest message requests for this thread.
+      responses:
+        "200":
+          description: Guest requests.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/GuestRequest" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/guest-requests/{requestId}/approve:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+      - { name: requestId, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: approveSessionGuestRequest
+      tags: [sharing]
+      description: Approve a pending guest request and send it as a prompt in the thread.
+      responses:
+        "200":
+          description: Approved and sent.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuestRequest" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/guest-requests/{requestId}/dismiss:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+      - { name: requestId, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: dismissSessionGuestRequest
+      tags: [sharing]
+      description: Dismiss a pending guest request without sending it to the agent.
+      responses:
+        "200":
+          description: Dismissed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuestRequest" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/review-comments:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    get:
+      operationId: listSessionReviewComments
+      tags: [sharing]
+      description: List collaborative diff review comments attached to this thread.
+      responses:
+        "200":
+          description: Review comments.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SessionReviewComment" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createSessionReviewComment
+      tags: [sharing]
+      description: Create a persistent diff review comment on this thread (allowed for viewers, collaborators, shared users, and owner).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SessionReviewCommentInput" }
+      responses:
+        "201":
+          description: Comment created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionReviewComment" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/review-comments/{commentId}/resolve:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+      - { name: commentId, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: resolveSessionReviewComment
+      tags: [sharing]
+      description: Mark a diff review comment as resolved.
+      responses:
+        "200":
+          description: Resolved comment.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionReviewComment" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/review-comments/{commentId}:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+      - { name: commentId, in: path, required: true, schema: { type: string } }
+    delete:
+      operationId: deleteSessionReviewComment
+      tags: [sharing]
+      description: Delete a diff review comment (author, collaborator, or owner).
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/handoff:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      operationId: handoffSession
+      tags: [sharing]
+      description: Record a @teammate handoff notice in the thread event log.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SessionHandoffInput" }
+      responses:
+        "200":
+          description: Handoff recorded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionHandoffResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /guest/{token}:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getGuestThread
+      tags: [auth-flow]
+      security: []
+      description: Public unauthenticated guest view of a single shared thread (metadata, event history, and pending guest requests; no diffs, files, settings, or secrets).
+      responses:
+        "200":
+          description: Guest thread view.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuestThreadView" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /guest/{token}/stream:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string } }
+      - { name: after, in: query, schema: { type: integer, format: int64 } }
+    get:
+      operationId: streamGuestThread
+      tags: [streams]
+      security: []
+      description: Public WebSocket live stream of session events for a guest link token.
+      responses:
+        "101": { description: WebSocket upgrade. }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /guest/{token}/requests:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: createGuestRequest
+      tags: [auth-flow]
+      security: []
+      description: Submit a guest message request queued for owner or collaborator approval.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GuestRequestInput" }
+      responses:
+        "201":
+          description: Guest request queued.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuestRequest" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
 
 
 security:
@@ -5242,6 +5538,10 @@ components:
           description: >-
             Who settled it: a user, the agent itself (platform tools), or the auto-settle job after the agent
             owner's period without activity. Absent while it is active.
+        shareRole:
+          $ref: "#/components/schemas/SessionAccessRole"
+          description: >-
+            The caller's effective access level on this thread (owner, shared, collaborator, or viewer).
 
     PermissionMode:
       type: string
@@ -6547,3 +6847,156 @@ components:
         key: { type: string }
         dx: { type: number }
         dy: { type: number }
+
+    # --- Phase 3A: Multiplayer Thread Sharing, Guest Links & Collaborative Review Comments ---
+
+    SessionShareRole:
+      type: string
+      enum: [viewer, collaborator]
+      x-enum-varnames: [ShareRoleViewer, ShareRoleCollaborator]
+
+    SessionAccessRole:
+      type: string
+      enum: [owner, shared, collaborator, viewer]
+      x-enum-varnames: [ShareAccessOwner, ShareAccessShared, ShareAccessCollaborator, ShareAccessViewer]
+
+    SessionShareInput:
+      type: object
+      required: [email, role]
+      properties:
+        email: { type: string, format: email }
+        role: { $ref: "#/components/schemas/SessionShareRole" }
+
+    SessionShare:
+      type: object
+      required: [user, role, createdBy, createdAt]
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        role: { $ref: "#/components/schemas/SessionShareRole" }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    SessionAccessList:
+      type: object
+      required: [owner, shares]
+      properties:
+        owner: { $ref: "#/components/schemas/User" }
+        shares:
+          type: array
+          items: { $ref: "#/components/schemas/SessionShare" }
+
+    SharedThread:
+      type: object
+      required: [session, agentName, role, sharedAt]
+      properties:
+        session: { $ref: "#/components/schemas/Session" }
+        agentName: { type: string }
+        role: { $ref: "#/components/schemas/SessionShareRole" }
+        sharedAt: { type: string, format: date-time }
+
+    GuestLink:
+      type: object
+      required: [id, sessionId, createdBy, expiresAt, createdAt, active]
+      properties:
+        id: { type: string }
+        sessionId: { type: string }
+        createdBy: { type: string }
+        expiresAt: { type: string, format: date-time }
+        revokedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        active: { type: boolean }
+
+    GuestLinkCreated:
+      type: object
+      required: [link, token, url]
+      properties:
+        link: { $ref: "#/components/schemas/GuestLink" }
+        token: { type: string }
+        url: { type: string, description: "One-time shareable path (/guest/<token>)." }
+
+    GuestRequestStatus:
+      type: string
+      enum: [pending, approved, dismissed]
+      x-enum-varnames: [GuestRequestPending, GuestRequestApproved, GuestRequestDismissed]
+
+    GuestRequestInput:
+      type: object
+      required: [text]
+      properties:
+        name: { type: string, maxLength: 80 }
+        text: { type: string, minLength: 1, maxLength: 16384 }
+
+    GuestRequest:
+      type: object
+      required: [id, sessionId, guestLinkId, guestName, text, status, createdAt]
+      properties:
+        id: { type: string }
+        sessionId: { type: string }
+        guestLinkId: { type: string }
+        guestName: { type: string }
+        text: { type: string }
+        status: { $ref: "#/components/schemas/GuestRequestStatus" }
+        resolvedBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        resolvedAt: { type: string, format: date-time }
+
+    GuestThreadView:
+      type: object
+      required: [sessionId, title, running, expiresAt, events, pendingRequests]
+      properties:
+        sessionId: { type: string }
+        title: { type: string }
+        agentName: { type: string }
+        running: { type: boolean }
+        expiresAt: { type: string, format: date-time }
+        events:
+          type: array
+          items: { $ref: "#/components/schemas/SessionEvent" }
+        pendingRequests:
+          type: array
+          items: { $ref: "#/components/schemas/GuestRequest" }
+
+    ReviewCommentSide:
+      type: string
+      enum: [new, old]
+      x-enum-varnames: [ShareCommentSideNew, ShareCommentSideOld]
+
+    SessionReviewCommentInput:
+      type: object
+      required: [filePath, startLine, endLine, body]
+      properties:
+        filePath: { type: string, minLength: 1, maxLength: 512 }
+        startLine: { type: integer, minimum: 1 }
+        endLine: { type: integer, minimum: 1 }
+        side: { $ref: "#/components/schemas/ReviewCommentSide" }
+        body: { type: string, minLength: 1, maxLength: 8192 }
+
+    SessionReviewComment:
+      type: object
+      required: [id, sessionId, userId, userName, filePath, startLine, endLine, side, body, createdAt]
+      properties:
+        id: { type: string }
+        sessionId: { type: string }
+        userId: { type: string }
+        userName: { type: string }
+        filePath: { type: string }
+        startLine: { type: integer }
+        endLine: { type: integer }
+        side: { $ref: "#/components/schemas/ReviewCommentSide" }
+        body: { type: string }
+        resolvedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+
+    SessionHandoffInput:
+      type: object
+      required: [target]
+      properties:
+        target: { type: string, description: "Email or name of a teammate with access to this thread." }
+        note: { type: string, maxLength: 1000 }
+
+    SessionHandoffResult:
+      type: object
+      required: [to, message]
+      properties:
+        to: { $ref: "#/components/schemas/User" }
+        message: { type: string }

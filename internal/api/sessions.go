@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -209,27 +208,61 @@ func (a *API) apiSessionWith(ctx context.Context, s db.AgentSession, agentHarnes
 			SessionTitle *string `json:"sessionTitle,omitempty"`
 		}{AgentId: s.OriginAgentID, AgentName: name, SessionId: s.OriginSessionID, SessionTitle: parentTitle}
 	}
+	if caller := me(ctx); caller != nil {
+		if ag, err := a.Store.GetAgent(ctx, s.AgentID); err == nil {
+			if sr, _, err := a.authz.SessionRoleOf(ctx, caller.ID, s, ag); err == nil && sr.Valid() {
+				r := gen.SessionAccessRole(sr)
+				out.ShareRole = &r
+			}
+		}
+	}
 	return out, nil
 }
 
-// sessionAccess loads a session after checking action on its agent.
+// sessionAccess loads a session after checking thread-level (or agent-level)
+// access. Maps authz.AgentRead -> SessionRead and authz.AgentPrompt -> SessionPrompt.
 func (a *API) sessionAccess(ctx context.Context, sessionID string, action authz.Action) (db.AgentSession, error) {
-	s, err := a.Store.GetAgentSession(ctx, sessionID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return s, errNotFound
+	sa := authz.SessionRead
+	if action != authz.AgentRead {
+		sa = authz.SessionPrompt
 	}
-	if err != nil {
-		return s, err
-	}
-	_, err = a.authz.Agent(ctx, me(ctx).ID, s.AgentID, action)
-	return s, err
+	acc, err := a.authz.Session(ctx, me(ctx).ID, sessionID, sa)
+	return acc.Session, err
 }
 
 // ListSessions implements gen.StrictServerInterface.
 func (a *API) ListSessions(ctx context.Context, req gen.ListSessionsRequestObject) (gen.ListSessionsResponseObject, error) {
-	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentRead)
+	u := me(ctx)
+	acc, err := a.authz.Agent(ctx, u.ID, req.AgentId, authz.AgentRead)
 	if err != nil {
-		return nil, err
+		if !errors.Is(err, authz.ErrNotFound) {
+			return nil, err
+		}
+		// Thread-only viewers/collaborators see ONLY the sessions explicitly shared with them.
+		sharedRows, serr := a.Store.ListUserSharedSessionsForAgent(ctx, db.ListUserSharedSessionsForAgentParams{
+			AgentID: req.AgentId,
+			UserID:  u.ID,
+		})
+		if serr != nil {
+			return nil, serr
+		}
+		if len(sharedRows) == 0 {
+			return nil, authz.ErrNotFound
+		}
+		ag, aerr := a.Store.GetAgent(ctx, req.AgentId)
+		if aerr != nil {
+			return nil, authz.ErrNotFound
+		}
+		out := gen.ListSessions200JSONResponse{}
+		for _, r := range sharedRows {
+			qcount, _ := a.Store.CountSessionQueuedMessages(ctx, r.AgentSession.ID)
+			s, err := a.apiSessionWith(ctx, r.AgentSession, ag.Harness, int(qcount))
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, s)
+		}
+		return out, nil
 	}
 	rows, err := a.Store.ListAgentSessions(ctx, req.AgentId)
 	if err != nil {
@@ -556,10 +589,15 @@ func (a *API) RenameSession(ctx context.Context, req gen.RenameSessionRequestObj
 
 // DeleteSession implements gen.StrictServerInterface.
 func (a *API) DeleteSession(ctx context.Context, req gen.DeleteSessionRequestObject) (gen.DeleteSessionResponseObject, error) {
-	s, err := a.sessionAccess(ctx, req.SessionId, authz.AgentPrompt)
+	acc, err := a.authz.Session(ctx, me(ctx).ID, req.SessionId, authz.SessionPrompt)
 	if err != nil {
 		return nil, err
 	}
+	// Only the agent owner or an agent-shared user may delete a thread.
+	if acc.Role != authz.SessionOwner && acc.Role != authz.SessionShared {
+		return nil, authz.ErrForbidden
+	}
+	s := acc.Session
 	if err := a.Sessions.Delete(ctx, s.ID); err != nil {
 		if errors.Is(err, session.ErrBusy) {
 			return nil, errStatus(http.StatusConflict, err.Error())
@@ -601,6 +639,7 @@ func (a *API) PromptSession(ctx context.Context, req gen.PromptSessionRequestObj
 		}
 		return nil, err
 	}
+	a.recordMentionHandoffs(ctx, s, *u, text)
 	a.record(ctx, mustAgent(ctx, a, s.AgentID), audit.Prompt, s.ID, map[string]any{"text": truncateRunes(text, 500), "session": s.Title, "images": len(images)})
 	return gen.PromptSession202Response{}, nil
 }
@@ -672,7 +711,8 @@ func (a *API) ListSessionEvents(ctx context.Context, req gen.ListSessionEventsRe
 	return out, nil
 }
 
-// stream sends a session's events over a WebSocket, from a cursor on.
+// stream sends a session's events over a WebSocket, from a cursor on, and
+// accepts lightweight client presence_update frames ("idle" | "typing" | "viewing_diff").
 func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	if u == nil {
@@ -680,37 +720,54 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := auth.WithUser(r.Context(), u)
-	s, err := a.sessionAccess(ctx, chi.URLParam(r, "sessionId"), authz.AgentRead)
+	acc, err := a.authz.Session(ctx, u.ID, chi.URLParam(r, "sessionId"), authz.SessionRead)
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	agent := mustAgent(ctx, a, s.AgentID)
-	role, err := a.authz.RoleOf(ctx, u.ID, agent)
-	if err != nil {
-		writeError(w, r, err)
-		return
-	}
+	s := acc.Session
+	agent := acc.AgentRow.Agent
 	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
 	ws, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
 	}
 	defer func() { _ = ws.CloseNow() }()
-	ctx = ws.CloseRead(ctx) // we only write; this also detects the client leaving
+	ws.SetReadLimit(16 << 10)
+	streamCtx, cancelStream := context.WithCancel(ctx)
+	defer cancelStream()
 
-	viewer := &session.Viewer{ID: u.ID, Name: u.Name, AvatarURL: u.AvatarUrl, Role: string(role)}
-	backlog, sub, err := a.Sessions.Subscribe(ctx, s.ID, after, viewer)
+	viewer := &session.Viewer{ID: u.ID, Name: u.Name, AvatarURL: u.AvatarUrl, Role: string(acc.Role), Activity: "idle"}
+	backlog, sub, err := a.Sessions.Subscribe(streamCtx, s.ID, after, viewer)
 	if err != nil {
 		return
 	}
 	defer sub.Close()
+
+	// Read incoming client control frames (presence_update) and detect disconnects.
+	go func() {
+		defer cancelStream()
+		for {
+			_, raw, err := ws.Read(streamCtx)
+			if err != nil {
+				return
+			}
+			var msg struct {
+				Type     string `json:"type"`
+				Activity string `json:"activity"`
+			}
+			if json.Unmarshal(raw, &msg) == nil && msg.Type == "presence_update" {
+				sub.SetActivity(msg.Activity)
+			}
+		}
+	}()
+
 	running := a.Sessions.Running(s.ID)
-	if wsjson.Write(ctx, ws, map[string]any{"type": "status", "running": running}) != nil {
+	if wsjson.Write(streamCtx, ws, map[string]any{"type": "status", "running": running}) != nil {
 		return
 	}
 	for _, e := range backlog {
-		if wsjson.Write(ctx, ws, apiEvent(e)) != nil {
+		if wsjson.Write(streamCtx, ws, apiEvent(e)) != nil {
 			return
 		}
 	}
@@ -719,33 +776,33 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case e := <-sub.C:
-			if wsjson.Write(ctx, ws, apiEvent(e)) != nil {
+			if wsjson.Write(streamCtx, ws, apiEvent(e)) != nil {
 				return
 			}
 			if e.Type == session.EventPrompt || e.Type == session.EventTurnEnd {
 				running = e.Type == session.EventPrompt
-				_ = wsjson.Write(ctx, ws, map[string]any{"type": "status", "running": running})
+				_ = wsjson.Write(streamCtx, ws, map[string]any{"type": "status", "running": running})
 			}
 		case <-tick.C:
 			// Access can be withdrawn (unshared, or the account disabled) while watching.
-			if !a.stillAllowed(ctx, u.ID) {
+			if !a.stillAllowed(streamCtx, u.ID) {
 				_ = ws.Close(websocket.StatusPolicyViolation, accessEnded)
 				return
 			}
-			if role, err := a.authz.RoleOf(ctx, u.ID, agent); err == nil && !authz.Can(role, authz.AgentRead) {
+			if sRole, _, err := a.authz.SessionRoleOf(streamCtx, u.ID, s, agent); err == nil && !authz.CanSession(sRole, authz.SessionRead) {
 				_ = ws.Close(websocket.StatusPolicyViolation, "access removed")
 				return
 			}
 			if now := a.Sessions.Running(s.ID); now != running {
 				running = now
-				_ = wsjson.Write(ctx, ws, map[string]any{"type": "status", "running": running})
+				_ = wsjson.Write(streamCtx, ws, map[string]any{"type": "status", "running": running})
 			}
 		case vs := <-sub.Presence:
-			if wsjson.Write(ctx, ws, map[string]any{"type": "presence", "viewers": vs}) != nil {
+			if wsjson.Write(streamCtx, ws, map[string]any{"type": "presence", "viewers": vs}) != nil {
 				return
 			}
 		case q := <-sub.Queue:
-			if wsjson.Write(ctx, ws, map[string]any{
+			if wsjson.Write(streamCtx, ws, map[string]any{
 				"type":      "queue_updated",
 				"sessionId": q.SessionID,
 				"messages":  apiQueuedMessages(q.Messages),
@@ -753,11 +810,19 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 			}) != nil {
 				return
 			}
+		case n := <-sub.Notice:
+			frame := map[string]any{"type": n.Type}
+			for k, v := range n.Payload {
+				frame[k] = v
+			}
+			if wsjson.Write(streamCtx, ws, frame) != nil {
+				return
+			}
 		case <-sub.Lost():
 			// Too slow: the client reconnects with its last seq.
 			_ = ws.Close(websocket.StatusTryAgainLater, "resubscribe")
 			return
-		case <-ctx.Done():
+		case <-streamCtx.Done():
 			return
 		}
 	}

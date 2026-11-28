@@ -118,6 +118,20 @@ export type Session = components['schemas']['Session'];
 export type SessionGit = components['schemas']['SessionGit'];
 export type PermissionMode = components['schemas']['PermissionMode'];
 export type QueuedMessage = components['schemas']['QueuedMessage'];
+export type SessionShareRole = components['schemas']['SessionShareRole'];
+export type SessionAccessRole = components['schemas']['SessionAccessRole'];
+export type SessionShare = components['schemas']['SessionShare'];
+export type SessionAccessList = components['schemas']['SessionAccessList'];
+export type SharedThread = components['schemas']['SharedThread'];
+export type GuestLink = components['schemas']['GuestLink'];
+export type GuestLinkCreated = components['schemas']['GuestLinkCreated'];
+export type GuestRequest = components['schemas']['GuestRequest'];
+export type GuestThreadView = components['schemas']['GuestThreadView'];
+export type SessionReviewComment =
+  components['schemas']['SessionReviewComment'];
+export type ReviewCommentSide = components['schemas']['ReviewCommentSide'];
+export type SessionHandoffResult =
+  components['schemas']['SessionHandoffResult'];
 export type Skill = components['schemas']['Skill'];
 export type FileSearchResult = components['schemas']['FileSearchResult'];
 export type FileMatch = components['schemas']['FileMatch'];
@@ -136,6 +150,60 @@ export const sessionQueueQuery = (sessionId: string) =>
     queryFn: () =>
       unwrap(
         api.GET('/sessions/{sessionId}/queue', {
+          params: { path: { sessionId } },
+        }),
+      ),
+    retry: false,
+  });
+
+export const mySharedThreadsQuery = queryOptions({
+  queryKey: ['me', 'shared-threads'],
+  queryFn: () => unwrap(api.GET('/me/shared-threads')),
+  retry: false,
+});
+
+export const sessionSharesQuery = (sessionId: string) =>
+  queryOptions({
+    queryKey: ['sessions', sessionId, 'shares'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/sessions/{sessionId}/shares', {
+          params: { path: { sessionId } },
+        }),
+      ),
+    retry: false,
+  });
+
+export const sessionGuestLinksQuery = (sessionId: string) =>
+  queryOptions({
+    queryKey: ['sessions', sessionId, 'guest-links'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/sessions/{sessionId}/guest-links', {
+          params: { path: { sessionId } },
+        }),
+      ),
+    retry: false,
+  });
+
+export const sessionGuestRequestsQuery = (sessionId: string) =>
+  queryOptions({
+    queryKey: ['sessions', sessionId, 'guest-requests'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/sessions/{sessionId}/guest-requests', {
+          params: { path: { sessionId } },
+        }),
+      ),
+    retry: false,
+  });
+
+export const sessionReviewCommentsQuery = (sessionId: string) =>
+  queryOptions({
+    queryKey: ['sessions', sessionId, 'review-comments'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/sessions/{sessionId}/review-comments', {
           params: { path: { sessionId } },
         }),
       ),

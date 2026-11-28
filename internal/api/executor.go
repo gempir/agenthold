@@ -16,9 +16,12 @@ import (
 	"github.com/gempir/agenthold/internal/api/gen"
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/auth"
+	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/executor"
 	"github.com/gempir/agenthold/internal/id"
+	"github.com/gempir/agenthold/internal/session"
+	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
 )
 
@@ -843,4 +846,56 @@ func (a *API) authorizeExecutor(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	slog.DebugContext(r.Context(), "issued executor dashboard code", "user", u.ID)
 	http.Redirect(w, r, strings.TrimRight(origin.String(), "/")+executorReservedPrefix+"callback?"+back.Encode(), http.StatusSeeOther)
+}
+
+// ResolveExecutorCaller determines which user's Executor instance must handle
+// an incoming Executor MCP call for agentID/sessionID.
+//
+// When a turn is active for a collaborator or shared user, it routes strictly
+// to that acting user's Executor instance — NEVER falling back to the agent
+// owner's personal OAuth accounts. It falls back to the agent owner only when
+// the acting caller is the owner or a system/idle call with no non-owner turn.
+func ResolveExecutorCaller(ctx context.Context, st *store.Store, sessions *session.Manager, agentID, sessionID string) (string, error) {
+	ag, err := st.GetAgent(ctx, agentID)
+	if err != nil {
+		return "", errors.New("agent not found")
+	}
+	targetUserID := ag.OwnerID
+	if sessions != nil {
+		uid, active, ambiguous := sessions.ActiveCaller(agentID, sessionID)
+		if ambiguous {
+			return "", errors.New("cannot route executor call: multiple users are running concurrent turns without session attribution")
+		}
+		if active && uid != "" {
+			targetUserID = uid
+		}
+	}
+	u, err := st.GetUser(ctx, targetUserID)
+	if err != nil {
+		return "", errors.New("acting user not found")
+	}
+	if authz.UserRole(u) == config.RoleDisabled {
+		return "", errors.New("acting user is disabled")
+	}
+	if targetUserID != ag.OwnerID {
+		chk := authz.Checker{Q: st.Queries}
+		if sessionID != "" {
+			if _, err := chk.Session(ctx, targetUserID, sessionID, authz.SessionPrompt); err != nil {
+				return "", errors.New("acting user does not have prompt access to this session")
+			}
+		} else {
+			role, err := chk.RoleOf(ctx, targetUserID, ag)
+			if err != nil {
+				return "", err
+			}
+			if !authz.Can(role, authz.AgentPrompt) {
+				// Allow collaborator thread shares if the acting turn is on a shared thread.
+				shared, err := chk.HasSessionShareOnAgent(ctx, targetUserID, ag.ID)
+				if err != nil || !shared {
+					return "", errors.New("acting user does not have access to this agent")
+				}
+			}
+		}
+	}
+	return targetUserID, nil
 }

@@ -53,6 +53,9 @@ type Querier interface {
 	CreateSchedule(ctx context.Context, arg CreateScheduleParams) error
 	CreateSecret(ctx context.Context, arg CreateSecretParams) error
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
+	CreateSessionGuestLink(ctx context.Context, arg CreateSessionGuestLinkParams) error
+	CreateSessionGuestRequest(ctx context.Context, arg CreateSessionGuestRequestParams) error
+	CreateSessionReviewComment(ctx context.Context, arg CreateSessionReviewCommentParams) error
 	CreateSkill(ctx context.Context, arg CreateSkillParams) error
 	CreateSlackLinkCode(ctx context.Context, arg CreateSlackLinkCodeParams) error
 	CreateSlackThread(ctx context.Context, arg CreateSlackThreadParams) error
@@ -86,6 +89,8 @@ type Querier interface {
 	DeleteSession(ctx context.Context, tokenHash string) error
 	DeleteSessionEventsFrom(ctx context.Context, arg DeleteSessionEventsFromParams) (int64, error)
 	DeleteSessionQueuedMessage(ctx context.Context, arg DeleteSessionQueuedMessageParams) (int64, error)
+	DeleteSessionReviewComment(ctx context.Context, arg DeleteSessionReviewCommentParams) (int64, error)
+	DeleteSessionShare(ctx context.Context, arg DeleteSessionShareParams) (int64, error)
 	DeleteSkill(ctx context.Context, id string) error
 	DeleteSlackInstallation(ctx context.Context) error
 	DeleteSlackLinkCode(ctx context.Context, codeHash string) (int64, error)
@@ -142,7 +147,12 @@ type Querier interface {
 	GetSecretByName(ctx context.Context, arg GetSecretByNameParams) (Secret, error)
 	GetService(ctx context.Context, arg GetServiceParams) (Service, error)
 	GetSessionEvent(ctx context.Context, arg GetSessionEventParams) (AgentSessionEvent, error)
+	GetSessionGuestLink(ctx context.Context, arg GetSessionGuestLinkParams) (SessionGuestLink, error)
+	GetSessionGuestLinkByTokenHash(ctx context.Context, tokenHash string) (SessionGuestLink, error)
+	GetSessionGuestRequest(ctx context.Context, arg GetSessionGuestRequestParams) (SessionGuestRequest, error)
 	GetSessionQueuedMessage(ctx context.Context, arg GetSessionQueuedMessageParams) (SessionQueuedMessage, error)
+	GetSessionReviewComment(ctx context.Context, arg GetSessionReviewCommentParams) (SessionReviewComment, error)
+	GetSessionShare(ctx context.Context, arg GetSessionShareParams) (SessionShare, error)
 	GetSessionUser(ctx context.Context, arg GetSessionUserParams) (GetSessionUserRow, error)
 	GetShare(ctx context.Context, arg GetShareParams) (AgentShare, error)
 	GetSkill(ctx context.Context, id string) (Skill, error)
@@ -156,6 +166,7 @@ type Querier interface {
 	GetUserGitConfig(ctx context.Context, userID string) (UserGitConfig, error)
 	GetWebhook(ctx context.Context, id string) (Webhook, error)
 	GetWebhookByToken(ctx context.Context, tokenHash string) (Webhook, error)
+	HasAnySessionShareOnAgent(ctx context.Context, arg HasAnySessionShareOnAgentParams) (int64, error)
 	HasPreviewConsent(ctx context.Context, arg HasPreviewConsentParams) (int64, error)
 	InsertAudit(ctx context.Context, arg InsertAuditParams) error
 	InsertSessionEvent(ctx context.Context, arg InsertSessionEventParams) error
@@ -190,6 +201,7 @@ type Querier interface {
 	ListOrgProviderLogins(ctx context.Context) ([]OrgProviderLogin, error)
 	ListOrgSkills(ctx context.Context) ([]OrgSkill, error)
 	ListOrgTools(ctx context.Context) ([]OrgTool, error)
+	ListPendingSessionGuestRequests(ctx context.Context, sessionID string) ([]SessionGuestRequest, error)
 	ListProjectSessions(ctx context.Context, projectID string) ([]AgentSession, error)
 	ListProjectSources(ctx context.Context, projectID string) ([]ProjectSource, error)
 	ListProjects(ctx context.Context, ownerID string) ([]Project, error)
@@ -199,7 +211,11 @@ type Querier interface {
 	ListSandboxes(ctx context.Context) ([]Sandbox, error)
 	ListServices(ctx context.Context, agentID string) ([]Service, error)
 	ListSessionEvents(ctx context.Context, arg ListSessionEventsParams) ([]AgentSessionEvent, error)
+	ListSessionGuestLinks(ctx context.Context, sessionID string) ([]SessionGuestLink, error)
+	ListSessionGuestRequests(ctx context.Context, sessionID string) ([]SessionGuestRequest, error)
 	ListSessionQueuedMessages(ctx context.Context, sessionID string) ([]SessionQueuedMessage, error)
+	ListSessionReviewComments(ctx context.Context, sessionID string) ([]SessionReviewComment, error)
+	ListSessionShares(ctx context.Context, sessionID string) ([]ListSessionSharesRow, error)
 	ListSlackThreadSessions(ctx context.Context) ([]string, error)
 	ListSlackThreads(ctx context.Context) ([]SlackThread, error)
 	ListSlackThreadsOfSession(ctx context.Context, sessionID string) ([]SlackThread, error)
@@ -209,6 +225,8 @@ type Querier interface {
 	ListUserMCPServers(ctx context.Context, ownerID string) ([]McpServer, error)
 	ListUserProviderLogins(ctx context.Context, userID string) ([]ProviderLogin, error)
 	ListUserSecrets(ctx context.Context, ownerID string) ([]Secret, error)
+	ListUserSharedSessions(ctx context.Context, userID string) ([]ListUserSharedSessionsRow, error)
+	ListUserSharedSessionsForAgent(ctx context.Context, arg ListUserSharedSessionsForAgentParams) ([]ListUserSharedSessionsForAgentRow, error)
 	ListUserSkills(ctx context.Context, ownerID string) ([]Skill, error)
 	ListUserSlackUsers(ctx context.Context, userID string) ([]SlackUser, error)
 	ListUserToolPreferences(ctx context.Context, userID string) ([]UserToolPreference, error)
@@ -233,6 +251,9 @@ type Querier interface {
 	ReplaceProviderLogin(ctx context.Context, arg ReplaceProviderLoginParams) error
 	ResetRunningSessions(ctx context.Context) error
 	ResetSessionModels(ctx context.Context, agentID string) error
+	ResolveSessionGuestRequest(ctx context.Context, arg ResolveSessionGuestRequestParams) (int64, error)
+	ResolveSessionReviewComment(ctx context.Context, arg ResolveSessionReviewCommentParams) (int64, error)
+	RevokeSessionGuestLink(ctx context.Context, arg RevokeSessionGuestLinkParams) (int64, error)
 	SearchUserSessionEvents(ctx context.Context, arg SearchUserSessionEventsParams) ([]SearchUserSessionEventsRow, error)
 	SearchUserSessionsByMetadata(ctx context.Context, arg SearchUserSessionsByMetadataParams) ([]SearchUserSessionsByMetadataRow, error)
 	SetAgentExecutor(ctx context.Context, arg SetAgentExecutorParams) error
@@ -317,6 +338,7 @@ type Querier interface {
 	UpsertModelCatalog(ctx context.Context, arg UpsertModelCatalogParams) error
 	UpsertOrgProviderLogin(ctx context.Context, arg UpsertOrgProviderLoginParams) error
 	UpsertService(ctx context.Context, arg UpsertServiceParams) error
+	UpsertSessionShare(ctx context.Context, arg UpsertSessionShareParams) error
 	UpsertUserGitConfig(ctx context.Context, arg UpsertUserGitConfigParams) error
 	UpsertUserToolPreference(ctx context.Context, arg UpsertUserToolPreferenceParams) error
 }

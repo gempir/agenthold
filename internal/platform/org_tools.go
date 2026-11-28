@@ -203,18 +203,24 @@ func (p *Service) requestAccountConnect(ctx context.Context, caller db.Agent, se
 	if err != nil {
 		return "", err
 	}
-	owner, err := p.Store.GetUser(ctx, caller.OwnerID)
+	targetUserID := caller.OwnerID
+	if p.Sessions != nil {
+		if active := p.Sessions.ActiveUserID(caller.ID, sessionID); active != "" {
+			targetUserID = active
+		}
+	}
+	actingUser, err := p.Store.GetUser(ctx, targetUserID)
 	if err != nil {
 		return "", err
 	}
 	decoded := tools.DecodeOrgTool(row)
-	if !tools.RoleAllowed(decoded.AllowedRoles, authz.UserRole(owner)) {
+	if !tools.RoleAllowed(decoded.AllowedRoles, authz.UserRole(actingUser)) {
 		return "", fmt.Errorf("organization tool %q is not available for your account", slug)
 	}
 
 	connected := false
 	if decoded.Kind == tools.OrgToolKindExecutorApp && p.Executor != nil && p.Executor.Available() {
-		if ov, err := p.Executor.Overview(ctx, owner.ID); err == nil {
+		if ov, err := p.Executor.Overview(ctx, actingUser.ID); err == nil {
 			connected = ExecutorOrgToolConnected(decoded, ov)
 		}
 	}

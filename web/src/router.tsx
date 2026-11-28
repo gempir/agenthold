@@ -18,6 +18,7 @@ import { AccountSettings } from '@/pages/AccountSettings';
 import { AgentPage } from '@/pages/AgentPage';
 import { ExecutorAccountsPage } from '@/pages/ExecutorAccountsPage';
 import { GitSettingsPage } from '@/pages/GitSettingsPage';
+import { GuestThreadPage } from '@/pages/GuestThreadPage';
 import { AgentSettingsPage } from '@/pages/AgentSettingsPage';
 import { AppPage, isAppSection, type AppSection } from '@/pages/AppPage';
 import { HomePage } from '@/pages/HomePage';
@@ -59,6 +60,15 @@ const loginRoute = createRoute({
   component: function Login() {
     const { redirect, error } = loginRoute.useSearch();
     return <LoginPage redirect={redirect} error={error} />;
+  },
+});
+
+const guestRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/guest/$token',
+  component: function GuestThread() {
+    const { token } = guestRoute.useParams();
+    return <GuestThreadPage token={token} />;
   },
 });
 
@@ -293,6 +303,7 @@ const toolsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  guestRoute,
   appRoute.addChildren([
     indexRoute,
     newChatRoute,
@@ -336,7 +347,7 @@ export function createAppRouter(
   const onError = (e: unknown) => {
     if (!(e instanceof ApiError) || e.status !== 401) return;
     const loc = router.state.location;
-    if (loc.pathname === '/login') return;
+    if (loc.pathname === '/login' || loc.pathname.startsWith('/guest/')) return;
     void router.navigate({ to: '/login', search: { redirect: loc.href } });
   };
   const queryClient = new QueryClient({

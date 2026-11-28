@@ -126,3 +126,66 @@ func CanUnbindLogin(actorID, loginUserID string, role Role) bool {
 	}
 	return Can(role, AgentConfigure)
 }
+
+// SessionRole is a user's effective relation to a single session (thread).
+type SessionRole string
+
+// Session roles.
+const (
+	SessionNone         SessionRole = ""
+	SessionViewer       SessionRole = "viewer"
+	SessionCollaborator SessionRole = "collaborator"
+	SessionShared       SessionRole = "shared"
+	SessionOwner        SessionRole = "owner"
+)
+
+// Valid reports whether r gives any access to the session.
+func (r SessionRole) Valid() bool {
+	switch r {
+	case SessionViewer, SessionCollaborator, SessionShared, SessionOwner:
+		return true
+	}
+	return false
+}
+
+// ValidSessionShareRole reports whether role is a valid thread-level share role.
+func ValidSessionShareRole(role string) bool {
+	return role == string(SessionViewer) || role == string(SessionCollaborator)
+}
+
+// SessionAction is something a user wants to do on a session (thread).
+type SessionAction string
+
+// Session actions.
+const (
+	SessionRead         SessionAction = "session.read"
+	SessionComment      SessionAction = "session.comment"
+	SessionPrompt       SessionAction = "session.prompt"
+	SessionApproveGuest SessionAction = "session.guest.approve"
+	SessionManageShares SessionAction = "session.shares.manage"
+)
+
+// CanSession decides a session action for a session role.
+func CanSession(role SessionRole, action SessionAction) bool {
+	switch role {
+	case SessionOwner:
+		return true
+	case SessionShared:
+		return action != SessionManageShares
+	case SessionCollaborator:
+		return action == SessionRead || action == SessionComment || action == SessionPrompt || action == SessionApproveGuest
+	case SessionViewer:
+		return action == SessionRead || action == SessionComment
+	}
+	return false
+}
+
+// CanUnshareSession decides whether actor (with role on the session) may remove
+// target's thread-level share: the agent owner removes anyone, and a thread-shared
+// user may remove themselves ("Leave").
+func CanUnshareSession(role SessionRole, actorID, targetID string) bool {
+	if CanSession(role, SessionManageShares) {
+		return true
+	}
+	return (role == SessionViewer || role == SessionCollaborator) && actorID != "" && actorID == targetID
+}

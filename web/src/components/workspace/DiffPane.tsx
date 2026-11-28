@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   ChevronsDownUp,
@@ -15,8 +16,10 @@ import {
   Columns2,
   FileCode2,
   GitCommitHorizontal,
+  MessageSquare,
   Rows2,
   Search,
+  Send,
   X,
 } from 'lucide-react';
 import { api, ApiError, unwrap } from '@/api/client';
@@ -24,8 +27,10 @@ import {
   agentGitReposQuery,
   gitCommitsQuery,
   gitDiffQuery,
+  sessionReviewCommentsQuery,
   type GitDiff,
   type GitDiffFile,
+  type SessionReviewComment,
 } from '@/api/queries';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
@@ -108,6 +113,7 @@ export function DiffPane({
   canUse,
   repoPath,
   composerKey,
+  sessionId,
   onOpenFile,
   onStart,
   starting,
@@ -118,10 +124,97 @@ export function DiffPane({
   repoPath?: string;
   /** Draft key of the composer review comments go to. */
   composerKey?: string;
+  /** Session ID for persisted collaborative diff review comments. */
+  sessionId?: string;
   onOpenFile?: (path: string, line?: number) => void;
   onStart?: () => void;
   starting?: boolean;
 }) {
+  const qc = useQueryClient();
+  const activeSessionId =
+    sessionId ??
+    (composerKey && !composerKey.startsWith('new:') ? composerKey : undefined);
+  useEffect(() => {
+    globalThis.dispatchEvent?.(
+      new CustomEvent('agenthold:presence-activity', {
+        detail: { activity: 'viewing_diff' },
+      }),
+    );
+    return () => {
+      globalThis.dispatchEvent?.(
+        new CustomEvent('agenthold:presence-activity', {
+          detail: { activity: 'idle' },
+        }),
+      );
+    };
+  }, []);
+  const reviewCommentsQ = useQuery({
+    ...sessionReviewCommentsQuery(activeSessionId ?? ''),
+    enabled: Boolean(activeSessionId),
+  });
+  const openReviewComments = useMemo(
+    () =>
+      Array.isArray(reviewCommentsQ.data)
+        ? reviewCommentsQ.data.filter((c) => !c.resolvedAt)
+        : [],
+    [reviewCommentsQ.data],
+  );
+  const createReviewComment = useMutation({
+    mutationFn: (input: {
+      filePath: string;
+      startLine: number;
+      endLine: number;
+      side: 'new' | 'old';
+      body: string;
+    }) =>
+      unwrap(
+        api.POST('/sessions/{sessionId}/review-comments', {
+          params: { path: { sessionId: activeSessionId! } },
+          body: input,
+        }),
+      ),
+    onSuccess: () => {
+      if (activeSessionId) {
+        void qc.invalidateQueries({
+          queryKey: sessionReviewCommentsQuery(activeSessionId).queryKey,
+        });
+      }
+    },
+  });
+  const resolveReviewComment = useMutation({
+    mutationFn: (commentId: string) =>
+      unwrap(
+        api.POST('/sessions/{sessionId}/review-comments/{commentId}/resolve', {
+          params: { path: { sessionId: activeSessionId!, commentId } },
+        }),
+      ),
+    onSuccess: () => {
+      if (activeSessionId) {
+        void qc.invalidateQueries({
+          queryKey: sessionReviewCommentsQuery(activeSessionId).queryKey,
+        });
+      }
+    },
+  });
+  const [sentAllNote, setSentAllNote] = useState(false);
+  const sendAllToComposer = () => {
+    if (!composerKey || openReviewComments.length === 0) return;
+    for (const c of openReviewComments) {
+      attachToComposer(composerKey, {
+        kind: 'review',
+        id: `rc-${c.id}`,
+        path: c.filePath,
+        startLine: c.startLine,
+        endLine: c.endLine,
+        side: c.side,
+        source: `review by ${c.userName || 'teammate'}`,
+        excerpt: '',
+        body: c.body,
+      });
+    }
+    setSentAllNote(true);
+    setTimeout(() => setSentAllNote(false), 2500);
+  };
   const [source, setSource] = useState<DiffSource>('uncommitted');
   const [repoChoice, setRepoChoice] = useState<string>();
   const [sha, setSha] = useState<string>();
@@ -375,6 +468,17 @@ export function DiffPane({
           <CommitBar agentId={agentId} path={diff.data.repo.path || path} />
         )}
 
+      {openReviewComments.length > 0 && (
+        <SharedReviewCommentsBar
+          comments={openReviewComments}
+          canSend={Boolean(composerKey)}
+          sent={sentAllNote}
+          resolving={resolveReviewComment.isPending}
+          onResolve={(id) => resolveReviewComment.mutate(id)}
+          onSendAll={sendAllToComposer}
+        />
+      )}
+
       <div className="min-h-0 flex-1 overflow-auto">
         {(!ready ||
           diff.isLoading ||
@@ -428,6 +532,11 @@ export function DiffPane({
                 }
                 composerKey={composerKey}
                 source={sourceLabel}
+                onPersistComment={
+                  activeSessionId
+                    ? (c) => createReviewComment.mutate(c)
+                    : undefined
+                }
                 onOpenFile={onOpenFile}
               />
             ))}
@@ -487,6 +596,85 @@ function Summary({ diff }: { diff: GitDiff }) {
         </span>
       )}
     </p>
+  );
+}
+
+function SharedReviewCommentsBar({
+  comments,
+  canSend,
+  sent,
+  resolving,
+  onResolve,
+  onSendAll,
+}: {
+  comments: SessionReviewComment[];
+  canSend: boolean;
+  sent: boolean;
+  resolving: boolean;
+  onResolve: (id: string) => void;
+  onSendAll: () => void;
+}) {
+  return (
+    <section
+      data-testid="shared-review-comments"
+      aria-label="Shared review comments"
+      className="grid shrink-0 gap-2 border-b bg-muted/20 px-3 py-2 text-xs"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 font-medium text-foreground">
+          <MessageSquare className="size-3.5" aria-hidden />
+          Open review comments ({comments.length})
+        </span>
+        {canSend && (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="h-6 px-2 text-xs"
+            onClick={onSendAll}
+          >
+            <Send className="size-3" aria-hidden />
+            {sent ? 'Added to composer' : 'Send all to composer'}
+          </Button>
+        )}
+      </div>
+      <ul className="grid max-h-36 gap-1.5 overflow-y-auto">
+        {comments.map((c) => (
+          <li
+            key={c.id}
+            className="flex items-start justify-between gap-2 rounded-md border bg-background px-2 py-1.5"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  {c.userName || 'Teammate'}
+                </span>
+                <span className="truncate font-mono">
+                  {c.filePath}:
+                  {c.startLine === c.endLine
+                    ? c.startLine
+                    : `${c.startLine}-${c.endLine}`}
+                </span>
+              </p>
+              <p className="mt-0.5 whitespace-pre-wrap text-foreground">
+                {c.body}
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-6 shrink-0 px-2 text-xs text-muted-foreground"
+              disabled={resolving}
+              onClick={() => onResolve(c.id)}
+            >
+              <Check className="size-3" aria-hidden />
+              Resolve
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -580,6 +768,7 @@ function DiffFile({
   currentRow,
   composerKey,
   source,
+  onPersistComment,
   onOpenFile,
 }: {
   file: GitDiffFile;
@@ -592,6 +781,13 @@ function DiffFile({
   currentRow?: number;
   composerKey?: string;
   source: string;
+  onPersistComment?: (c: {
+    filePath: string;
+    startLine: number;
+    endLine: number;
+    side: 'new' | 'old';
+    body: string;
+  }) => void;
   onOpenFile?: (path: string, line?: number) => void;
 }) {
   const [sel, setSel] = useState<LineSelection | null>(null);
@@ -600,7 +796,7 @@ function DiffFile({
   const st = STATUS[file.status];
   const fullPath = joinRel(repoPath, file.path);
   const bounds = sel ? selectionBounds(sel) : null;
-  const canComment = !!composerKey;
+  const canComment = !!composerKey || !!onPersistComment;
 
   const pick = (i: number, shift: boolean) => {
     if (!canComment) return;
@@ -614,7 +810,7 @@ function DiffFile({
     !!query && !!r && r.kind !== 'hunk' && r.text.toLowerCase().includes(query);
 
   const box =
-    commenting && bounds && composerKey ? (
+    commenting && bounds && canComment ? (
       <CommentBox
         label={(() => {
           const c = rangeComment(rows, bounds);
@@ -627,15 +823,27 @@ function DiffFile({
           setSel(null);
         }}
         onSubmit={(body) => {
-          const rich = attachToComposer(composerKey, {
-            kind: 'review',
-            id: newContextId(),
-            path: fullPath,
-            source,
-            body,
-            ...rangeComment(rows, bounds),
-          });
-          setAttached(rich);
+          const rc = rangeComment(rows, bounds);
+          if (composerKey) {
+            const rich = attachToComposer(composerKey, {
+              kind: 'review',
+              id: newContextId(),
+              path: fullPath,
+              source,
+              body,
+              ...rc,
+            });
+            setAttached(rich);
+          }
+          if (onPersistComment && rc.startLine > 0) {
+            onPersistComment({
+              filePath: fullPath,
+              startLine: rc.startLine,
+              endLine: Math.max(rc.startLine, rc.endLine),
+              side: rc.side === 'old' ? 'old' : 'new',
+              body,
+            });
+          }
           setCommenting(false);
           setSel(null);
         }}

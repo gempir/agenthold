@@ -23,10 +23,14 @@ type Provider struct {
 	// is enabled and available. When true and an agent has executor_enabled != 0,
 	// the built-in "executor" MCP server is exposed to its sessions automatically.
 	ExecutorAvailable func() bool
-	// Executor optionally syncs enabled executor_app org tools into the agent
-	// owner's Executor instance on demand when a session starts.
+	// Executor optionally syncs enabled executor_app org tools into the acting
+	// user's Executor instance on demand when a session starts.
 	Executor ExecutorSyncer
-	Log      *slog.Logger
+	// ActiveUser, if set, returns the acting user ID for a running session turn
+	// so per-user org tools sync into that caller's Executor instance instead of
+	// always syncing into the agent owner's instance.
+	ActiveUser func(agentID, sessionID string) string
+	Log        *slog.Logger
 }
 
 // PlatformServerName is the platform MCP server's name.
@@ -47,9 +51,15 @@ func (p Provider) MCPServers(ctx context.Context, agentID, sessionID string, cap
 	if err != nil {
 		return nil, err
 	}
-	// Merge enabled organization tools for the agent's owner.
-	if owner, err := p.Store.GetUser(ctx, agent.OwnerID); err == nil {
-		if orgTools, err := EffectiveOrgToolsForUser(ctx, p.Store, owner); err == nil {
+	// Merge enabled organization tools for the acting caller (or owner).
+	targetUserID := agent.OwnerID
+	if p.ActiveUser != nil {
+		if active := p.ActiveUser(agentID, sessionID); active != "" {
+			targetUserID = active
+		}
+	}
+	if user, err := p.Store.GetUser(ctx, targetUserID); err == nil {
+		if orgTools, err := EffectiveOrgToolsForUser(ctx, p.Store, user); err == nil {
 			existingNames := map[string]bool{}
 			for _, s := range out {
 				if n := mcpServerName(s); n != "" {
@@ -63,8 +73,8 @@ func (p Provider) MCPServers(ctx context.Context, agentID, sessionID string, cap
 				}
 			}
 			if agent.ExecutorEnabled != 0 && p.Executor != nil && p.Executor.Available() {
-				if err := SyncExecutorOrgApps(ctx, p.Executor, owner.ID, orgTools); err != nil && p.Log != nil {
-					p.Log.Warn("sync executor org apps failed", "user", owner.ID, "agent", agentID, "err", err)
+				if err := SyncExecutorOrgApps(ctx, p.Executor, user.ID, orgTools); err != nil && p.Log != nil {
+					p.Log.Warn("sync executor org apps failed", "user", user.ID, "agent", agentID, "err", err)
 				}
 			}
 		}

@@ -159,6 +159,9 @@ func (a *API) Mount(r chi.Router) {
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public endpoints that must not interpret Authorization headers.
 		r.Post("/hooks/{token}", a.deliver)
+		r.Get("/guest/{token}", a.getGuestThread)
+		r.Post("/guest/{token}/requests", a.createGuestRequest)
+		r.Get("/guest/{token}/stream", a.streamGuestThread)
 		r.Get("/openapi.yaml", openAPI)
 		r.Group(func(r chi.Router) { a.mountAuthenticated(r) })
 	})

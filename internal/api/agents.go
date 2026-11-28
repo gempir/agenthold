@@ -289,15 +289,19 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 
 // GetAgent implements gen.StrictServerInterface.
 func (a *API) GetAgent(ctx context.Context, req gen.GetAgentRequestObject) (gen.GetAgentResponseObject, error) {
-	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentRead)
+	acc, err := a.readAgentOrSharedSession(ctx, req.AgentId)
 	if err != nil {
 		return nil, err
+	}
+	role := acc.Role
+	if role == authz.None {
+		role = authz.Shared
 	}
 	infos, err := a.nodeInfos(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out, err := a.apiAgent(ctx, acc.Row.Agent, acc.Row.Sandbox, acc.Role, infos)
+	out, err := a.apiAgent(ctx, acc.Row.Agent, acc.Row.Sandbox, role, infos)
 	if err != nil {
 		return nil, err
 	}

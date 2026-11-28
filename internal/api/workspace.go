@@ -175,7 +175,7 @@ func (a *API) ReadFileText(ctx context.Context, req gen.ReadFileTextRequestObjec
 	if start < 0 || end < 0 || (end > 0 && start > end) {
 		return nil, badRequest("invalid line range")
 	}
-	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentRead)
+	acc, err := a.readAgentOrSharedSession(ctx, req.AgentId)
 	if err != nil {
 		return nil, err
 	}

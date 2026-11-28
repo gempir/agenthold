@@ -158,6 +158,7 @@ func (m *Manager) Restart(agentID string) {
 type turn struct {
 	sessionID string
 	agentID   string
+	userID    string
 	depth     int
 	// setup is the context of everything before the prompt is sent (waking,
 	// starting the harness, activating the session); Cancel ends it.
@@ -483,6 +484,66 @@ func (m *Manager) RecordSubthread(ctx context.Context, parentSessionID string, d
 	return m.log.append(ctx, parentSessionID, EventSubthread, "", data)
 }
 
+// RecordNotice appends a notice event to sessionID's log (e.g. a @teammate handoff).
+func (m *Manager) RecordNotice(ctx context.Context, sessionID, userID string, data map[string]any) error {
+	if sessionID == "" {
+		return nil
+	}
+	return m.log.append(ctx, sessionID, EventNotice, userID, data)
+}
+
+// BroadcastNotice sends an ephemeral real-time frame (such as guest_request or
+// review_comments_updated) to every live subscriber of sessionID.
+func (m *Manager) BroadcastNotice(sessionID, typ string, payload map[string]any) {
+	if sessionID == "" {
+		return
+	}
+	m.log.broadcastNotice(sessionID, StreamNotice{Type: typ, Payload: payload})
+}
+
+// ActiveCaller reports the acting user ID of the currently running turn on
+// sessionID (or on agentID when sessionID is empty). If multiple distinct users
+// are running turns concurrently on agentID and sessionID is empty, ambiguous
+// is true so callers never guess or fall back to the agent owner.
+func (m *Manager) ActiveCaller(agentID, sessionID string) (userID string, active bool, ambiguous bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if sessionID != "" {
+		if t, ok := m.turns[sessionID]; ok && !t.finished {
+			return t.userID, true, false
+		}
+	}
+	if agentID == "" {
+		return "", false, false
+	}
+	found := false
+	seenUser := ""
+	for _, t := range m.turns {
+		if t.agentID != agentID || t.finished {
+			continue
+		}
+		if !found {
+			found = true
+			seenUser = t.userID
+			continue
+		}
+		if t.userID != seenUser {
+			return "", true, true
+		}
+	}
+	return seenUser, found, false
+}
+
+// ActiveUserID returns the acting user ID for the running turn on sessionID
+// (or agentID when unambiguous), or "" if no turn is running or it is ambiguous.
+func (m *Manager) ActiveUserID(agentID, sessionID string) string {
+	uid, active, ambiguous := m.ActiveCaller(agentID, sessionID)
+	if !active || ambiguous {
+		return ""
+	}
+	return uid
+}
+
 // Subscribe returns events after `after` and a live subscription. A non-nil
 // viewer is shown to everyone else watching the session.
 func (m *Manager) Subscribe(ctx context.Context, sessionID string, after int64, viewer *Viewer) ([]Event, *Subscription, error) {
@@ -583,7 +644,7 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 	setup, stopSetup := context.WithCancel(m.ctx)
 	prompt, stopPrompt := context.WithCancelCause(m.ctx)
 	t := &turn{
-		sessionID: sessionID, agentID: sess.AgentID, depth: opts.Depth,
+		sessionID: sessionID, agentID: sess.AgentID, userID: userID, depth: opts.Depth,
 		permissionMode: NormalizePermissionMode(sess.PermissionMode),
 		setup:          setup, stopSetup: stopSetup, prompt: prompt, stopPrompt: stopPrompt,
 		perms: map[string]chan acp.PermissionOptionId{},

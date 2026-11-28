@@ -60,7 +60,7 @@ Update checkboxes as each milestone merges cleanly to `main` with `make test` an
 ---
 
 ## Phase 3 — Multiplayer Collaboration & Git/PR Loop
-- [ ] **3A. Thread-Level Sharing, Guest Links & Per-Caller Tool Identity (`00021_thread_sharing.sql`)**
+- [x] **3A. Thread-Level Sharing, Guest Links & Per-Caller Tool Identity (`00021_thread_sharing.sql`)**
   - Share individual threads with org users (`viewer` / `collaborator`) without sharing the entire VM.
   - Single-thread **Guest links** (live read-only stream + owner-approved prompt queue, 24h expiry, instant revoke).
   - Route controller-side Executor & Org MCP calls using the **prompting user's** identity (or org service credential), enabling safe multiplayer collaboration without leaking owner tokens.

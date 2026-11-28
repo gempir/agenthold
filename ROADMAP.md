@@ -21,14 +21,14 @@ Update checkboxes as each milestone merges cleanly to `main` with `make test` an
 ---
 
 ## Phase 1 — Everyday T3 Code Loop (UI & Thread Ergonomics)
-- [ ] **1A. Per-Thread Harness/Model, Queue & Steer, Rewind, Side Chats, Permission Modes (`00018_thread_ux.sql`)**
+- [x] **1A. Per-Thread Harness/Model, Queue & Steer, Rewind, Side Chats, Permission Modes (`00018_thread_ux.sql`)**
   - Allow selecting and switching harness + model + effort per thread (without mutating the whole agent), reusing existing Context Handoff.
   - Persistent message queue per session + steer mid-turn (`POST /sessions/{id}/queue`, `PATCH/DELETE`, `POST .../send-now`, steer endpoint); auto-drain on turn end.
   - Rewind / "Edit from here" (`POST /sessions/{id}/rewind`, optional file revert in worktree).
   - Side chats (`kind=side_chat`, `/side` / `/btw`) seeded with parent context, openable beside the main thread, with "Add to chat".
   - Per-thread permission mode (`full-access` default, `auto-accept-edits`, `supervised`, `plan`) wired into harness/ACP requests.
   - Thread `pinnedAt` and `snoozedUntil` API endpoints (`POST /sessions/{id}/pin`, `/unpin`, `/snooze`, `/unsnooze`).
-- [ ] **1B. Sandbox Diff & File Viewer/Editor APIs + Project Scripts (`agenthold.json` / `t3.json`)**
+- [x] **1B. Sandbox Diff & File Viewer/Editor APIs + Project Scripts (`agenthold.json` / `t3.json`)**
   - Extend `sandboxd` + controller API for structured git diffs (`turn`, `uncommitted`, `branch`, `commits` + commit detail), file read/write (UTF-8 text & raw preview, line range), and workspace file search (for `@` file picker).
   - Support reading `agenthold.json` (with fallback to `t3.json`) in project root for project scripts (`Setup` on worktree create, `Dev` with `previewUrl` + `stopOnSettle`, `Test`, `Clean` on settle) and executing them via services/exec.
   - Add optional `isolation: "worktree"` to `start_subthread` platform tool.

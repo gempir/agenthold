@@ -376,7 +376,9 @@ func (p *Service) linkedSession(ctx context.Context, caller db.Agent, callerSess
 			return r.ID, nil
 		}
 	}
-	s, err := p.Sessions.Create(ctx, target.ID, caller.OwnerID, "From "+caller.Name)
+	s, err := p.Sessions.CreateWith(ctx, target.ID, caller.OwnerID, "From "+caller.Name, session.CreateOpts{
+		ParentKind: session.ParentKindA2A,
+	})
 	if err != nil {
 		return "", err
 	}

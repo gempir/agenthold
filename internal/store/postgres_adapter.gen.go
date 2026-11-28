@@ -60,6 +60,18 @@ func (p postgresQueries) CountAgentApps(ctx context.Context, createdByAgentID st
 	return value, err
 }
 
+func (p postgresQueries) CountAgentQueuedMessages(ctx context.Context, agentID string) ([]db.CountAgentQueuedMessagesRow, error) {
+	value, err := p.q.CountAgentQueuedMessages(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.CountAgentQueuedMessagesRow, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.CountAgentQueuedMessagesRow(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) CountAgentsByHarness(ctx context.Context, harness string) (int64, error) {
 	value, err := p.q.CountAgentsByHarness(ctx, harness)
 	return value, err
@@ -92,6 +104,11 @@ func (p postgresQueries) CountOwnedAgents(ctx context.Context, ownerID string) (
 
 func (p postgresQueries) CountOwnerApps(ctx context.Context, ownerID string) (int64, error) {
 	value, err := p.q.CountOwnerApps(ctx, ownerID)
+	return value, err
+}
+
+func (p postgresQueries) CountSessionQueuedMessages(ctx context.Context, sessionID string) (int64, error) {
+	value, err := p.q.CountSessionQueuedMessages(ctx, sessionID)
 	return value, err
 }
 
@@ -326,6 +343,16 @@ func (p postgresQueries) DeleteSession(ctx context.Context, tokenHash string) er
 	return p.q.DeleteSession(ctx, tokenHash)
 }
 
+func (p postgresQueries) DeleteSessionEventsFrom(ctx context.Context, arg db.DeleteSessionEventsFromParams) (int64, error) {
+	value, err := p.q.DeleteSessionEventsFrom(ctx, postgres.DeleteSessionEventsFromParams(arg))
+	return value, err
+}
+
+func (p postgresQueries) DeleteSessionQueuedMessage(ctx context.Context, arg db.DeleteSessionQueuedMessageParams) (int64, error) {
+	value, err := p.q.DeleteSessionQueuedMessage(ctx, postgres.DeleteSessionQueuedMessageParams(arg))
+	return value, err
+}
+
 func (p postgresQueries) DeleteSkill(ctx context.Context, id string) error {
 	return p.q.DeleteSkill(ctx, id)
 }
@@ -401,6 +428,10 @@ func (p postgresQueries) DueSchedules(ctx context.Context, nextRunAt int64) ([]d
 		result = append(result, db.Schedule(row))
 	}
 	return result, nil
+}
+
+func (p postgresQueries) EnqueueSessionMessage(ctx context.Context, arg db.EnqueueSessionMessageParams) error {
+	return p.q.EnqueueSessionMessage(ctx, postgres.EnqueueSessionMessageParams(arg))
 }
 
 func (p postgresQueries) ExtendSession(ctx context.Context, arg db.ExtendSessionParams) error {
@@ -569,6 +600,11 @@ func (p postgresQueries) GetService(ctx context.Context, arg db.GetServiceParams
 func (p postgresQueries) GetSessionEvent(ctx context.Context, arg db.GetSessionEventParams) (db.AgentSessionEvent, error) {
 	value, err := p.q.GetSessionEvent(ctx, postgres.GetSessionEventParams(arg))
 	return db.AgentSessionEvent(value), err
+}
+
+func (p postgresQueries) GetSessionQueuedMessage(ctx context.Context, arg db.GetSessionQueuedMessageParams) (db.SessionQueuedMessage, error) {
+	value, err := p.q.GetSessionQueuedMessage(ctx, postgres.GetSessionQueuedMessageParams(arg))
+	return db.SessionQueuedMessage(value), err
 }
 
 func (p postgresQueries) GetSessionUser(ctx context.Context, arg db.GetSessionUserParams) (db.GetSessionUserRow, error) {
@@ -1086,6 +1122,18 @@ func (p postgresQueries) ListSessionEvents(ctx context.Context, arg db.ListSessi
 	return result, nil
 }
 
+func (p postgresQueries) ListSessionQueuedMessages(ctx context.Context, sessionID string) ([]db.SessionQueuedMessage, error) {
+	value, err := p.q.ListSessionQueuedMessages(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.SessionQueuedMessage, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.SessionQueuedMessage(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListSessionTasks(ctx context.Context, sessionID string) ([]db.ProjectTask, error) {
 	value, err := p.q.ListSessionTasks(ctx, sessionID)
 	if err != nil {
@@ -1284,6 +1332,11 @@ func (p postgresQueries) MaxSessionSeq(ctx context.Context, sessionID string) (i
 	return value, err
 }
 
+func (p postgresQueries) PinSession(ctx context.Context, arg db.PinSessionParams) (int64, error) {
+	value, err := p.q.PinSession(ctx, postgres.PinSessionParams(arg))
+	return value, err
+}
+
 func (p postgresQueries) PutSlackChannelAgent(ctx context.Context, arg db.PutSlackChannelAgentParams) error {
 	return p.q.PutSlackChannelAgent(ctx, postgres.PutSlackChannelAgentParams(arg))
 }
@@ -1327,6 +1380,30 @@ func (p postgresQueries) ResetRunningSessions(ctx context.Context) error {
 
 func (p postgresQueries) ResetSessionModels(ctx context.Context, agentID string) error {
 	return p.q.ResetSessionModels(ctx, agentID)
+}
+
+func (p postgresQueries) SearchUserSessionEvents(ctx context.Context, arg db.SearchUserSessionEventsParams) ([]db.SearchUserSessionEventsRow, error) {
+	value, err := p.q.SearchUserSessionEvents(ctx, postgres.SearchUserSessionEventsParams(arg))
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.SearchUserSessionEventsRow, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.SearchUserSessionEventsRow{AgentSession: db.AgentSession(row.AgentSession), AgentName: row.AgentName, EventSeq: row.EventSeq, EventType: row.EventType, EventData: row.EventData})
+	}
+	return result, nil
+}
+
+func (p postgresQueries) SearchUserSessionsByMetadata(ctx context.Context, arg db.SearchUserSessionsByMetadataParams) ([]db.SearchUserSessionsByMetadataRow, error) {
+	value, err := p.q.SearchUserSessionsByMetadata(ctx, postgres.SearchUserSessionsByMetadataParams(arg))
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.SearchUserSessionsByMetadataRow, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.SearchUserSessionsByMetadataRow{AgentSession: db.AgentSession(row.AgentSession), AgentName: row.AgentName, ProjectName: row.ProjectName})
+	}
+	return result, nil
 }
 
 func (p postgresQueries) SetAgentExecutor(ctx context.Context, arg db.SetAgentExecutorParams) error {
@@ -1462,8 +1539,21 @@ func (p postgresQueries) SetSessionOrigin(ctx context.Context, arg db.SetSession
 	return p.q.SetSessionOrigin(ctx, postgres.SetSessionOriginParams(arg))
 }
 
+func (p postgresQueries) SetSessionParentKind(ctx context.Context, arg db.SetSessionParentKindParams) error {
+	return p.q.SetSessionParentKind(ctx, postgres.SetSessionParentKindParams(arg))
+}
+
+func (p postgresQueries) SetSessionPermissionMode(ctx context.Context, arg db.SetSessionPermissionModeParams) error {
+	return p.q.SetSessionPermissionMode(ctx, postgres.SetSessionPermissionModeParams(arg))
+}
+
 func (p postgresQueries) SetSessionProject(ctx context.Context, arg db.SetSessionProjectParams) error {
 	return p.q.SetSessionProject(ctx, postgres.SetSessionProjectParams(arg))
+}
+
+func (p postgresQueries) SetSessionQueuedMessageSteer(ctx context.Context, arg db.SetSessionQueuedMessageSteerParams) (int64, error) {
+	value, err := p.q.SetSessionQueuedMessageSteer(ctx, postgres.SetSessionQueuedMessageSteerParams(arg))
+	return value, err
 }
 
 func (p postgresQueries) SetSessionStatus(ctx context.Context, arg db.SetSessionStatusParams) error {
@@ -1497,6 +1587,10 @@ func (p postgresQueries) SettleSession(ctx context.Context, arg db.SettleSession
 
 func (p postgresQueries) ShareAgent(ctx context.Context, arg db.ShareAgentParams) error {
 	return p.q.ShareAgent(ctx, postgres.ShareAgentParams(arg))
+}
+
+func (p postgresQueries) SnoozeSession(ctx context.Context, arg db.SnoozeSessionParams) error {
+	return p.q.SnoozeSession(ctx, postgres.SnoozeSessionParams(arg))
 }
 
 func (p postgresQueries) StartImageBuild(ctx context.Context, arg db.StartImageBuildParams) error {
@@ -1551,6 +1645,11 @@ func (p postgresQueries) TrimPreviewSessions(ctx context.Context, arg db.TrimPre
 	return p.q.TrimPreviewSessions(ctx, postgres.TrimPreviewSessionsParams(arg))
 }
 
+func (p postgresQueries) UnpinSession(ctx context.Context, id string) (int64, error) {
+	value, err := p.q.UnpinSession(ctx, id)
+	return value, err
+}
+
 func (p postgresQueries) UnsettleSession(ctx context.Context, arg db.UnsettleSessionParams) (int64, error) {
 	value, err := p.q.UnsettleSession(ctx, postgres.UnsettleSessionParams(arg))
 	return value, err
@@ -1558,6 +1657,11 @@ func (p postgresQueries) UnsettleSession(ctx context.Context, arg db.UnsettleSes
 
 func (p postgresQueries) UnshareAgent(ctx context.Context, arg db.UnshareAgentParams) (int64, error) {
 	value, err := p.q.UnshareAgent(ctx, postgres.UnshareAgentParams(arg))
+	return value, err
+}
+
+func (p postgresQueries) UnsnoozeSession(ctx context.Context, id string) (int64, error) {
+	value, err := p.q.UnsnoozeSession(ctx, id)
 	return value, err
 }
 
@@ -1611,6 +1715,11 @@ func (p postgresQueries) UpdateSecret(ctx context.Context, arg db.UpdateSecretPa
 
 func (p postgresQueries) UpdateSessionGitStatus(ctx context.Context, arg db.UpdateSessionGitStatusParams) error {
 	return p.q.UpdateSessionGitStatus(ctx, postgres.UpdateSessionGitStatusParams(arg))
+}
+
+func (p postgresQueries) UpdateSessionQueuedMessage(ctx context.Context, arg db.UpdateSessionQueuedMessageParams) (int64, error) {
+	value, err := p.q.UpdateSessionQueuedMessage(ctx, postgres.UpdateSessionQueuedMessageParams(arg))
+	return value, err
 }
 
 func (p postgresQueries) UpdateSkill(ctx context.Context, arg db.UpdateSkillParams) error {

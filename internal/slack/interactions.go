@@ -238,7 +238,10 @@ func (s *Service) submit(ctx, uctx context.Context, userID string, cb slackgo.In
 			}
 		}
 		choice.Options = &opts
-		if _, err := s.o.API.SetSessionModel(uctx, gen.SetSessionModelRequestObject{SessionId: meta.Session, Body: &choice}); err != nil {
+		if _, err := s.o.API.SetSessionModel(uctx, gen.SetSessionModelRequestObject{
+			SessionId: meta.Session,
+			Body:      &gen.SetSessionModelJSONRequestBody{Model: &choice.Model, Options: choice.Options},
+		}); err != nil {
 			return slackgo.NewErrorsViewSubmissionResponse(map[string]string{"model": truncate(s.errorText(err), 150)})
 		}
 		s.goTracked(func() { s.refreshHeaders(s.ctx, meta.Session) })

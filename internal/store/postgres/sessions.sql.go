@@ -31,6 +31,53 @@ func (q *Queries) AutoSettleSession(ctx context.Context, arg AutoSettleSessionPa
 	return result.RowsAffected()
 }
 
+const countAgentQueuedMessages = `-- name: CountAgentQueuedMessages :many
+SELECT q.session_id, CAST(COUNT(*) AS BIGINT) AS count
+FROM session_queued_messages q
+JOIN agent_sessions s ON s.id = q.session_id
+WHERE s.agent_id = $1
+GROUP BY q.session_id
+`
+
+type CountAgentQueuedMessagesRow struct {
+	SessionID string
+	Count     int64
+}
+
+func (q *Queries) CountAgentQueuedMessages(ctx context.Context, agentID string) ([]CountAgentQueuedMessagesRow, error) {
+	rows, err := q.db.QueryContext(ctx, countAgentQueuedMessages, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountAgentQueuedMessagesRow{}
+	for rows.Next() {
+		var i CountAgentQueuedMessagesRow
+		if err := rows.Scan(&i.SessionID, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const countSessionQueuedMessages = `-- name: CountSessionQueuedMessages :one
+SELECT CAST(COUNT(*) AS BIGINT) FROM session_queued_messages WHERE session_id = $1
+`
+
+func (q *Queries) CountSessionQueuedMessages(ctx context.Context, sessionID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countSessionQueuedMessages, sessionID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createAgentSession = `-- name: CreateAgentSession :exec
 INSERT INTO agent_sessions (id, agent_id, title, created_by, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)
 `
@@ -65,8 +112,72 @@ func (q *Queries) DeleteAgentSession(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteSessionEventsFrom = `-- name: DeleteSessionEventsFrom :execrows
+DELETE FROM agent_session_events WHERE session_id = $1 AND seq >= $2
+`
+
+type DeleteSessionEventsFromParams struct {
+	SessionID string
+	Seq       int64
+}
+
+func (q *Queries) DeleteSessionEventsFrom(ctx context.Context, arg DeleteSessionEventsFromParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteSessionEventsFrom, arg.SessionID, arg.Seq)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteSessionQueuedMessage = `-- name: DeleteSessionQueuedMessage :execrows
+DELETE FROM session_queued_messages WHERE id = $1 AND session_id = $2
+`
+
+type DeleteSessionQueuedMessageParams struct {
+	ID        string
+	SessionID string
+}
+
+func (q *Queries) DeleteSessionQueuedMessage(ctx context.Context, arg DeleteSessionQueuedMessageParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteSessionQueuedMessage, arg.ID, arg.SessionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const enqueueSessionMessage = `-- name: EnqueueSessionMessage :exec
+INSERT INTO session_queued_messages (id, session_id, user_id, user_name, text, images_json, steer, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+`
+
+type EnqueueSessionMessageParams struct {
+	ID         string
+	SessionID  string
+	UserID     string
+	UserName   string
+	Text       string
+	ImagesJson string
+	Steer      int64
+	CreatedAt  int64
+}
+
+func (q *Queries) EnqueueSessionMessage(ctx context.Context, arg EnqueueSessionMessageParams) error {
+	_, err := q.db.ExecContext(ctx, enqueueSessionMessage,
+		arg.ID,
+		arg.SessionID,
+		arg.UserID,
+		arg.UserName,
+		arg.Text,
+		arg.ImagesJson,
+		arg.Steer,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const getAgentSession = `-- name: GetAgentSession :one
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch, harness FROM agent_sessions WHERE id = $1
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch, harness, pinned_at, snoozed_until, permission_mode, parent_kind FROM agent_sessions WHERE id = $1
 `
 
 func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession, error) {
@@ -97,6 +208,10 @@ func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession,
 		&i.ProjectID,
 		&i.ProjectBranch,
 		&i.Harness,
+		&i.PinnedAt,
+		&i.SnoozedUntil,
+		&i.PermissionMode,
+		&i.ParentKind,
 	)
 	return i, err
 }
@@ -140,6 +255,31 @@ func (q *Queries) GetSessionEvent(ctx context.Context, arg GetSessionEventParams
 	return i, err
 }
 
+const getSessionQueuedMessage = `-- name: GetSessionQueuedMessage :one
+SELECT id, session_id, user_id, user_name, text, images_json, steer, created_at FROM session_queued_messages WHERE id = $1 AND session_id = $2
+`
+
+type GetSessionQueuedMessageParams struct {
+	ID        string
+	SessionID string
+}
+
+func (q *Queries) GetSessionQueuedMessage(ctx context.Context, arg GetSessionQueuedMessageParams) (SessionQueuedMessage, error) {
+	row := q.db.QueryRowContext(ctx, getSessionQueuedMessage, arg.ID, arg.SessionID)
+	var i SessionQueuedMessage
+	err := row.Scan(
+		&i.ID,
+		&i.SessionID,
+		&i.UserID,
+		&i.UserName,
+		&i.Text,
+		&i.ImagesJson,
+		&i.Steer,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const insertSessionEvent = `-- name: InsertSessionEvent :exec
 INSERT INTO agent_session_events (session_id, seq, at, type, user_id, data) VALUES ($1, $2, $3, $4, $5, $6)
 `
@@ -166,7 +306,7 @@ func (q *Queries) InsertSessionEvent(ctx context.Context, arg InsertSessionEvent
 }
 
 const linkedSessions = `-- name: LinkedSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch, harness FROM agent_sessions WHERE agent_id = $1 AND origin_agent_id = $2 ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch, harness, pinned_at, snoozed_until, permission_mode, parent_kind FROM agent_sessions WHERE agent_id = $1 AND origin_agent_id = $2 ORDER BY updated_at DESC
 `
 
 type LinkedSessionsParams struct {
@@ -209,6 +349,10 @@ func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) 
 			&i.ProjectID,
 			&i.ProjectBranch,
 			&i.Harness,
+			&i.PinnedAt,
+			&i.SnoozedUntil,
+			&i.PermissionMode,
+			&i.ParentKind,
 		); err != nil {
 			return nil, err
 		}
@@ -224,7 +368,7 @@ func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) 
 }
 
 const listAgentSessions = `-- name: ListAgentSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch, harness FROM agent_sessions WHERE agent_id = $1 ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch, harness, pinned_at, snoozed_until, permission_mode, parent_kind FROM agent_sessions WHERE agent_id = $1 ORDER BY updated_at DESC
 `
 
 func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]AgentSession, error) {
@@ -261,6 +405,10 @@ func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]Agen
 			&i.ProjectID,
 			&i.ProjectBranch,
 			&i.Harness,
+			&i.PinnedAt,
+			&i.SnoozedUntil,
+			&i.PermissionMode,
+			&i.ParentKind,
 		); err != nil {
 			return nil, err
 		}
@@ -323,7 +471,7 @@ func (q *Queries) ListAutoSettleCandidates(ctx context.Context, now int64) ([]Li
 }
 
 const listChildSessions = `-- name: ListChildSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch, harness FROM agent_sessions WHERE origin_session_id = $1 ORDER BY created_at ASC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch, harness, pinned_at, snoozed_until, permission_mode, parent_kind FROM agent_sessions WHERE origin_session_id = $1 ORDER BY created_at ASC
 `
 
 // Sub-threads started from a parent session, oldest first.
@@ -361,6 +509,10 @@ func (q *Queries) ListChildSessions(ctx context.Context, originSessionID string)
 			&i.ProjectID,
 			&i.ProjectBranch,
 			&i.Harness,
+			&i.PinnedAt,
+			&i.SnoozedUntil,
+			&i.PermissionMode,
+			&i.ParentKind,
 		); err != nil {
 			return nil, err
 		}
@@ -401,6 +553,42 @@ func (q *Queries) ListSessionEvents(ctx context.Context, arg ListSessionEventsPa
 			&i.Type,
 			&i.UserID,
 			&i.Data,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSessionQueuedMessages = `-- name: ListSessionQueuedMessages :many
+SELECT id, session_id, user_id, user_name, text, images_json, steer, created_at FROM session_queued_messages WHERE session_id = $1 ORDER BY steer DESC, created_at ASC, id ASC
+`
+
+func (q *Queries) ListSessionQueuedMessages(ctx context.Context, sessionID string) ([]SessionQueuedMessage, error) {
+	rows, err := q.db.QueryContext(ctx, listSessionQueuedMessages, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SessionQueuedMessage{}
+	for rows.Next() {
+		var i SessionQueuedMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.UserID,
+			&i.UserName,
+			&i.Text,
+			&i.ImagesJson,
+			&i.Steer,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -456,7 +644,7 @@ func (q *Queries) MarkCredentialsInSandbox(ctx context.Context, id string) error
 }
 
 const markSessionRunning = `-- name: MarkSessionRunning :exec
-UPDATE agent_sessions SET status = 'running', updated_at = $1, settled_at = NULL, settled_by = '' WHERE id = $2
+UPDATE agent_sessions SET status = 'running', updated_at = $1, settled_at = NULL, settled_by = '', snoozed_until = NULL WHERE id = $2
 `
 
 type MarkSessionRunningParams struct {
@@ -464,7 +652,7 @@ type MarkSessionRunningParams struct {
 	ID        string
 }
 
-// A new turn is activity: it also unsettles the session.
+// A new turn is activity: it also unsettles and wakes a snoozed session.
 func (q *Queries) MarkSessionRunning(ctx context.Context, arg MarkSessionRunningParams) error {
 	_, err := q.db.ExecContext(ctx, markSessionRunning, arg.UpdatedAt, arg.ID)
 	return err
@@ -479,6 +667,23 @@ func (q *Queries) MaxSessionSeq(ctx context.Context, sessionID string) (int64, e
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const pinSession = `-- name: PinSession :execrows
+UPDATE agent_sessions SET pinned_at = $1 WHERE id = $2 AND pinned_at IS NULL
+`
+
+type PinSessionParams struct {
+	PinnedAt sql.NullInt64
+	ID       string
+}
+
+func (q *Queries) PinSession(ctx context.Context, arg PinSessionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, pinSession, arg.PinnedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const renameSession = `-- name: RenameSession :exec
@@ -515,6 +720,171 @@ UPDATE agent_sessions SET model = '', model_options = '{}' WHERE agent_id = $1 A
 func (q *Queries) ResetSessionModels(ctx context.Context, agentID string) error {
 	_, err := q.db.ExecContext(ctx, resetSessionModels, agentID)
 	return err
+}
+
+const searchUserSessionEvents = `-- name: SearchUserSessionEvents :many
+SELECT agent_sessions.id, agent_sessions.agent_id, agent_sessions.acp_session_id, agent_sessions.title, agent_sessions.status, agent_sessions.created_by, agent_sessions.created_at, agent_sessions.updated_at, agent_sessions.origin_agent_id, agent_sessions.origin_session_id, agent_sessions.model, agent_sessions.model_options, agent_sessions.cwd, agent_sessions.git_project, agent_sessions.git_branch, agent_sessions.git_repo_path, agent_sessions.settled_at, agent_sessions.settled_by, agent_sessions.unsettled_at, agent_sessions.acp_harness, agent_sessions.handoff_seq, agent_sessions.project_id, agent_sessions.project_branch, agent_sessions.harness, agent_sessions.pinned_at, agent_sessions.snoozed_until, agent_sessions.permission_mode, agent_sessions.parent_kind, agents.name AS agent_name, agent_session_events.seq AS event_seq, agent_session_events.type AS event_type, agent_session_events.data AS event_data
+FROM agent_session_events
+JOIN agent_sessions ON agent_sessions.id = agent_session_events.session_id
+JOIN agents ON agents.id = agent_sessions.agent_id
+WHERE (agents.owner_id = $1
+       OR agents.id IN (SELECT agent_shares.agent_id FROM agent_shares WHERE agent_shares.user_id = $1))
+  AND agent_session_events.type IN ('prompt', 'update', 'error')
+  AND STRPOS(LOWER(agent_session_events.data), CAST($2 AS TEXT)) > 0
+ORDER BY agent_sessions.updated_at DESC, agent_session_events.seq DESC
+LIMIT CAST($3 AS BIGINT)
+`
+
+type SearchUserSessionEventsParams struct {
+	UserID  string
+	Needle  string
+	MaxRows int64
+}
+
+type SearchUserSessionEventsRow struct {
+	AgentSession AgentSession
+	AgentName    string
+	EventSeq     int64
+	EventType    string
+	EventData    string
+}
+
+func (q *Queries) SearchUserSessionEvents(ctx context.Context, arg SearchUserSessionEventsParams) ([]SearchUserSessionEventsRow, error) {
+	rows, err := q.db.QueryContext(ctx, searchUserSessionEvents, arg.UserID, arg.Needle, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchUserSessionEventsRow{}
+	for rows.Next() {
+		var i SearchUserSessionEventsRow
+		if err := rows.Scan(
+			&i.AgentSession.ID,
+			&i.AgentSession.AgentID,
+			&i.AgentSession.AcpSessionID,
+			&i.AgentSession.Title,
+			&i.AgentSession.Status,
+			&i.AgentSession.CreatedBy,
+			&i.AgentSession.CreatedAt,
+			&i.AgentSession.UpdatedAt,
+			&i.AgentSession.OriginAgentID,
+			&i.AgentSession.OriginSessionID,
+			&i.AgentSession.Model,
+			&i.AgentSession.ModelOptions,
+			&i.AgentSession.Cwd,
+			&i.AgentSession.GitProject,
+			&i.AgentSession.GitBranch,
+			&i.AgentSession.GitRepoPath,
+			&i.AgentSession.SettledAt,
+			&i.AgentSession.SettledBy,
+			&i.AgentSession.UnsettledAt,
+			&i.AgentSession.AcpHarness,
+			&i.AgentSession.HandoffSeq,
+			&i.AgentSession.ProjectID,
+			&i.AgentSession.ProjectBranch,
+			&i.AgentSession.Harness,
+			&i.AgentSession.PinnedAt,
+			&i.AgentSession.SnoozedUntil,
+			&i.AgentSession.PermissionMode,
+			&i.AgentSession.ParentKind,
+			&i.AgentName,
+			&i.EventSeq,
+			&i.EventType,
+			&i.EventData,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchUserSessionsByMetadata = `-- name: SearchUserSessionsByMetadata :many
+SELECT agent_sessions.id, agent_sessions.agent_id, agent_sessions.acp_session_id, agent_sessions.title, agent_sessions.status, agent_sessions.created_by, agent_sessions.created_at, agent_sessions.updated_at, agent_sessions.origin_agent_id, agent_sessions.origin_session_id, agent_sessions.model, agent_sessions.model_options, agent_sessions.cwd, agent_sessions.git_project, agent_sessions.git_branch, agent_sessions.git_repo_path, agent_sessions.settled_at, agent_sessions.settled_by, agent_sessions.unsettled_at, agent_sessions.acp_harness, agent_sessions.handoff_seq, agent_sessions.project_id, agent_sessions.project_branch, agent_sessions.harness, agent_sessions.pinned_at, agent_sessions.snoozed_until, agent_sessions.permission_mode, agent_sessions.parent_kind, agents.name AS agent_name, CAST(COALESCE(projects.name, '') AS TEXT) AS project_name
+FROM agent_sessions
+JOIN agents ON agents.id = agent_sessions.agent_id
+LEFT JOIN projects ON projects.id = agent_sessions.project_id
+WHERE (agents.owner_id = $1
+       OR agents.id IN (SELECT agent_shares.agent_id FROM agent_shares WHERE agent_shares.user_id = $1))
+  AND (STRPOS(LOWER(agent_sessions.title), CAST($2 AS TEXT)) > 0
+       OR STRPOS(LOWER(agent_sessions.git_branch), CAST($2 AS TEXT)) > 0
+       OR STRPOS(LOWER(agent_sessions.git_project), CAST($2 AS TEXT)) > 0
+       OR STRPOS(LOWER(agent_sessions.project_branch), CAST($2 AS TEXT)) > 0
+       OR STRPOS(LOWER(COALESCE(projects.name, '')), CAST($2 AS TEXT)) > 0)
+ORDER BY agent_sessions.updated_at DESC
+LIMIT CAST($3 AS BIGINT)
+`
+
+type SearchUserSessionsByMetadataParams struct {
+	UserID  string
+	Needle  string
+	MaxRows int64
+}
+
+type SearchUserSessionsByMetadataRow struct {
+	AgentSession AgentSession
+	AgentName    string
+	ProjectName  string
+}
+
+func (q *Queries) SearchUserSessionsByMetadata(ctx context.Context, arg SearchUserSessionsByMetadataParams) ([]SearchUserSessionsByMetadataRow, error) {
+	rows, err := q.db.QueryContext(ctx, searchUserSessionsByMetadata, arg.UserID, arg.Needle, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchUserSessionsByMetadataRow{}
+	for rows.Next() {
+		var i SearchUserSessionsByMetadataRow
+		if err := rows.Scan(
+			&i.AgentSession.ID,
+			&i.AgentSession.AgentID,
+			&i.AgentSession.AcpSessionID,
+			&i.AgentSession.Title,
+			&i.AgentSession.Status,
+			&i.AgentSession.CreatedBy,
+			&i.AgentSession.CreatedAt,
+			&i.AgentSession.UpdatedAt,
+			&i.AgentSession.OriginAgentID,
+			&i.AgentSession.OriginSessionID,
+			&i.AgentSession.Model,
+			&i.AgentSession.ModelOptions,
+			&i.AgentSession.Cwd,
+			&i.AgentSession.GitProject,
+			&i.AgentSession.GitBranch,
+			&i.AgentSession.GitRepoPath,
+			&i.AgentSession.SettledAt,
+			&i.AgentSession.SettledBy,
+			&i.AgentSession.UnsettledAt,
+			&i.AgentSession.AcpHarness,
+			&i.AgentSession.HandoffSeq,
+			&i.AgentSession.ProjectID,
+			&i.AgentSession.ProjectBranch,
+			&i.AgentSession.Harness,
+			&i.AgentSession.PinnedAt,
+			&i.AgentSession.SnoozedUntil,
+			&i.AgentSession.PermissionMode,
+			&i.AgentSession.ParentKind,
+			&i.AgentName,
+			&i.ProjectName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const setAgentHarness = `-- name: SetAgentHarness :exec
@@ -686,6 +1056,53 @@ func (q *Queries) SetSessionOrigin(ctx context.Context, arg SetSessionOriginPara
 	return err
 }
 
+const setSessionParentKind = `-- name: SetSessionParentKind :exec
+UPDATE agent_sessions SET parent_kind = $1 WHERE id = $2
+`
+
+type SetSessionParentKindParams struct {
+	ParentKind string
+	ID         string
+}
+
+func (q *Queries) SetSessionParentKind(ctx context.Context, arg SetSessionParentKindParams) error {
+	_, err := q.db.ExecContext(ctx, setSessionParentKind, arg.ParentKind, arg.ID)
+	return err
+}
+
+const setSessionPermissionMode = `-- name: SetSessionPermissionMode :exec
+UPDATE agent_sessions SET permission_mode = $1, updated_at = $2 WHERE id = $3
+`
+
+type SetSessionPermissionModeParams struct {
+	PermissionMode string
+	UpdatedAt      int64
+	ID             string
+}
+
+func (q *Queries) SetSessionPermissionMode(ctx context.Context, arg SetSessionPermissionModeParams) error {
+	_, err := q.db.ExecContext(ctx, setSessionPermissionMode, arg.PermissionMode, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const setSessionQueuedMessageSteer = `-- name: SetSessionQueuedMessageSteer :execrows
+UPDATE session_queued_messages SET steer = $1 WHERE id = $2 AND session_id = $3
+`
+
+type SetSessionQueuedMessageSteerParams struct {
+	Steer     int64
+	ID        string
+	SessionID string
+}
+
+func (q *Queries) SetSessionQueuedMessageSteer(ctx context.Context, arg SetSessionQueuedMessageSteerParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setSessionQueuedMessageSteer, arg.Steer, arg.ID, arg.SessionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setSessionStatus = `-- name: SetSessionStatus :exec
 UPDATE agent_sessions SET status = $1, updated_at = $2 WHERE id = $3
 `
@@ -720,6 +1137,32 @@ func (q *Queries) SettleSession(ctx context.Context, arg SettleSessionParams) (i
 	return result.RowsAffected()
 }
 
+const snoozeSession = `-- name: SnoozeSession :exec
+UPDATE agent_sessions SET snoozed_until = $1 WHERE id = $2
+`
+
+type SnoozeSessionParams struct {
+	SnoozedUntil sql.NullInt64
+	ID           string
+}
+
+func (q *Queries) SnoozeSession(ctx context.Context, arg SnoozeSessionParams) error {
+	_, err := q.db.ExecContext(ctx, snoozeSession, arg.SnoozedUntil, arg.ID)
+	return err
+}
+
+const unpinSession = `-- name: UnpinSession :execrows
+UPDATE agent_sessions SET pinned_at = NULL WHERE id = $1 AND pinned_at IS NOT NULL
+`
+
+func (q *Queries) UnpinSession(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, unpinSession, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const unsettleSession = `-- name: UnsettleSession :execrows
 UPDATE agent_sessions SET settled_at = NULL, settled_by = '', unsettled_at = $1 WHERE id = $2 AND settled_at IS NOT NULL
 `
@@ -732,6 +1175,18 @@ type UnsettleSessionParams struct {
 // Unsettles a settled session; no row when it is active already.
 func (q *Queries) UnsettleSession(ctx context.Context, arg UnsettleSessionParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, unsettleSession, arg.UnsettledAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const unsnoozeSession = `-- name: UnsnoozeSession :execrows
+UPDATE agent_sessions SET snoozed_until = NULL WHERE id = $1 AND snoozed_until IS NOT NULL
+`
+
+func (q *Queries) UnsnoozeSession(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, unsnoozeSession, id)
 	if err != nil {
 		return 0, err
 	}
@@ -772,6 +1227,24 @@ func (q *Queries) UpdateSessionGitStatus(ctx context.Context, arg UpdateSessionG
 		arg.ID,
 	)
 	return err
+}
+
+const updateSessionQueuedMessage = `-- name: UpdateSessionQueuedMessage :execrows
+UPDATE session_queued_messages SET text = $1 WHERE id = $2 AND session_id = $3
+`
+
+type UpdateSessionQueuedMessageParams struct {
+	Text      string
+	ID        string
+	SessionID string
+}
+
+func (q *Queries) UpdateSessionQueuedMessage(ctx context.Context, arg UpdateSessionQueuedMessageParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateSessionQueuedMessage, arg.Text, arg.ID, arg.SessionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const upsertModelCatalog = `-- name: UpsertModelCatalog :exec

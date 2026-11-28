@@ -78,6 +78,10 @@ type AgentSession struct {
 	ProjectID       string
 	ProjectBranch   string
 	Harness         string
+	PinnedAt        sql.NullInt64
+	SnoozedUntil    sql.NullInt64
+	PermissionMode  string
+	ParentKind      string
 }
 
 type AgentSessionEvent struct {
@@ -409,6 +413,17 @@ type Session struct {
 	CreatedAt int64
 	ExpiresAt int64
 	UserAgent string
+}
+
+type SessionQueuedMessage struct {
+	ID         string
+	SessionID  string
+	UserID     string
+	UserName   string
+	Text       string
+	ImagesJson string
+	Steer      int64
+	CreatedAt  int64
 }
 
 type Skill struct {

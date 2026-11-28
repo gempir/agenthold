@@ -123,13 +123,37 @@ func (a *API) loginCommand(ctx context.Context, agent db.Agent, methodID string)
 }
 
 func (a *API) apiSession(ctx context.Context, s db.AgentSession) (gen.Session, error) {
+	qcount, _ := a.Store.CountSessionQueuedMessages(ctx, s.ID)
+	return a.apiSessionWith(ctx, s, "", int(qcount))
+}
+
+func (a *API) apiSessionWith(ctx context.Context, s db.AgentSession, agentHarness string, queuedCount int) (gen.Session, error) {
 	u, err := a.Store.GetUser(ctx, s.CreatedBy)
 	if err != nil {
 		return gen.Session{}, err
 	}
+	pm := gen.PermissionMode(session.NormalizePermissionMode(s.PermissionMode))
+	pk := gen.SessionParentKind(s.ParentKind)
+	qc := queuedCount
 	out := gen.Session{
 		Id: s.ID, AgentId: s.AgentID, Title: s.Title, Running: a.Sessions.Running(s.ID),
 		CreatedBy: apiUser(u), CreatedAt: ts(s.CreatedAt), UpdatedAt: ts(s.UpdatedAt),
+		PermissionMode: &pm, ParentKind: &pk, QueuedCount: &qc,
+	}
+	if s.PinnedAt.Valid {
+		p := ts(s.PinnedAt.Int64)
+		out.PinnedAt = &p
+	}
+	if s.SnoozedUntil.Valid {
+		if s.SnoozedUntil.Int64 == 0 {
+			sn := true
+			out.Snoozed = &sn
+		} else if s.SnoozedUntil.Int64 > a.Now().Unix() {
+			sn := true
+			u := ts(s.SnoozedUntil.Int64)
+			out.Snoozed = &sn
+			out.SnoozedUntil = &u
+		}
 	}
 	if s.SettledAt.Valid {
 		at, by := ts(s.SettledAt.Int64), settledBy(s.SettledBy)
@@ -155,8 +179,16 @@ func (a *API) apiSession(ctx context.Context, s db.AgentSession) (gen.Session, e
 			out.Project = &gen.SessionProject{Id: p.ID, Name: p.Name, Direct: s.ProjectBranch == "", Branch: opt(s.ProjectBranch)}
 		}
 	}
-	if s.Harness != "" {
-		h := s.Harness
+	effectiveHarness := s.Harness
+	if effectiveHarness == "" {
+		if agentHarness != "" {
+			effectiveHarness = agentHarness
+		} else if ag, err := a.Store.GetAgent(ctx, s.AgentID); err == nil {
+			effectiveHarness = ag.Harness
+		}
+	}
+	if effectiveHarness != "" {
+		h := effectiveHarness
 		out.Harness = &h
 	}
 	if s.OriginAgentID != "" {
@@ -195,16 +227,23 @@ func (a *API) sessionAccess(ctx context.Context, sessionID string, action authz.
 
 // ListSessions implements gen.StrictServerInterface.
 func (a *API) ListSessions(ctx context.Context, req gen.ListSessionsRequestObject) (gen.ListSessionsResponseObject, error) {
-	if _, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentRead); err != nil {
+	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentRead)
+	if err != nil {
 		return nil, err
 	}
 	rows, err := a.Store.ListAgentSessions(ctx, req.AgentId)
 	if err != nil {
 		return nil, err
 	}
+	qcounts := map[string]int{}
+	if counts, err := a.Store.CountAgentQueuedMessages(ctx, req.AgentId); err == nil {
+		for _, c := range counts {
+			qcounts[c.SessionID] = int(c.Count)
+		}
+	}
 	out := gen.ListSessions200JSONResponse{}
 	for _, r := range rows {
-		s, err := a.apiSession(ctx, r)
+		s, err := a.apiSessionWith(ctx, r, acc.Row.Agent.Harness, qcounts[r.ID])
 		if err != nil {
 			return nil, err
 		}
@@ -224,6 +263,9 @@ func (a *API) CreateSession(ctx context.Context, req gen.CreateSessionRequestObj
 	}
 	title := ""
 	var opts session.CreateOpts
+	var model string
+	modelOpts := map[string]string{}
+	effectiveHarness := acc.Row.Agent.Harness
 	if b := req.Body; b != nil {
 		if b.Title != nil {
 			title = strings.TrimSpace(*b.Title)
@@ -231,10 +273,58 @@ func (a *API) CreateSession(ctx context.Context, req gen.CreateSessionRequestObj
 		if opts, err = a.sessionGitStart(ctx, acc.Row.Agent, *b); err != nil {
 			return nil, err
 		}
+		if b.Harness != nil && strings.TrimSpace(*b.Harness) != "" {
+			h := strings.TrimSpace(*b.Harness)
+			ad, ok, err := a.resolveAdapter(ctx, h)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				return nil, badRequest("unknown harness " + h)
+			}
+			effectiveHarness = ad.ID
+			if ad.ID != acc.Row.Agent.Harness {
+				opts.Harness = ad.ID
+			}
+		}
+		if b.PermissionMode != nil && *b.PermissionMode != "" {
+			pm := string(*b.PermissionMode)
+			if !session.ValidPermissionMode(pm) {
+				return nil, badRequest("invalid permissionMode " + pm)
+			}
+			opts.PermissionMode = pm
+		}
+		model = strings.TrimSpace(deref(b.Model))
+		if b.ModelOptions != nil {
+			for k, v := range *b.ModelOptions {
+				modelOpts[k] = v
+			}
+		}
+	}
+	if model != "" || len(modelOpts) > 0 {
+		choice := session.Choice{Model: model, Options: modelOpts}
+		targetAgent := acc.Row.Agent
+		targetAgent.Harness = effectiveHarness
+		_, cerr := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentConfigure)
+		if err := a.validateChoice(ctx, targetAgent, choice, session.Choice{}, cerr == nil); err != nil {
+			return nil, err
+		}
 	}
 	s, err := a.Sessions.CreateWith(ctx, req.AgentId, me(ctx).ID, title, opts)
 	if err != nil {
 		return nil, err
+	}
+	if model != "" || len(modelOpts) > 0 {
+		if err := a.Sessions.SetSessionChoice(ctx, s.ID, session.Choice{Model: model, Options: modelOpts}); err != nil {
+			return nil, err
+		}
+		s, err = a.Store.GetAgentSession(ctx, s.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if opts.Harness != "" && a.Egress != nil {
+		a.Egress.Invalidate()
 	}
 	a.record(ctx, acc.Row.Agent, audit.SessionCreate, s.ID, nil)
 	g, err := a.apiSession(ctx, s)
@@ -349,6 +439,7 @@ func (a *API) StartSubthread(ctx context.Context, req gen.StartSubthreadRequestO
 		GitBranch:   parent.GitBranch,
 		GitRepoPath: parent.GitRepoPath,
 		Harness:     pinnedHarness,
+		ParentKind:  session.ParentKindSubthread,
 	}
 	if parent.ProjectID != "" {
 		if opts.GitBranch == "" {
@@ -651,6 +742,15 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 			}
 		case vs := <-sub.Presence:
 			if wsjson.Write(ctx, ws, map[string]any{"type": "presence", "viewers": vs}) != nil {
+				return
+			}
+		case q := <-sub.Queue:
+			if wsjson.Write(ctx, ws, map[string]any{
+				"type":      "queue_updated",
+				"sessionId": q.SessionID,
+				"messages":  apiQueuedMessages(q.Messages),
+				"count":     q.Count,
+			}) != nil {
 				return
 			}
 		case <-sub.Lost():

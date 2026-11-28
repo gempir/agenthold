@@ -1439,6 +1439,12 @@ paths:
                 gitBranch: { type: string, maxLength: 255, description: "Optional branch to check out or create when starting in a git repository." }
                 createBranch: { type: boolean, description: "Create gitBranch if it does not exist." }
                 createWorktree: { type: boolean, description: "Create a new git worktree on gitBranch for this session." }
+                harness: { type: string, description: "Optional harness id for this thread (defaults to the agent's harness)." }
+                model: { type: string, maxLength: 200, description: "Optional model id for this thread." }
+                modelOptions:
+                  type: object
+                  additionalProperties: { type: string, maxLength: 100 }
+                permissionMode: { $ref: "#/components/schemas/PermissionMode" }
       responses:
         "201":
           description: Created.
@@ -1449,6 +1455,24 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+
+  /sessions/search:
+    get:
+      operationId: searchSessions
+      tags: [sessions]
+      description: Search across all sessions accessible to the current user by title, git branch/project, and event message content.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        "200":
+          description: Matching sessions with match snippets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SessionSearchResult" }
+        "400": { $ref: "#/components/responses/Error" }
 
   /sessions/{sessionId}:
     parameters:
@@ -1492,6 +1516,60 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /sessions/{sessionId}/settings:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    patch:
+      operationId: updateSessionSettings
+      tags: [sessions]
+      description: Update per-thread settings (harness, model, modelOptions, permissionMode) without mutating the parent agent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SessionSettingsPatch" }
+      responses:
+        "200":
+          description: Updated session.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/harness:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    patch:
+      operationId: setSessionHarness
+      tags: [sessions]
+      description: Switch this thread's harness without mutating the parent agent. Context Handoff carries history on the next turn.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [harness]
+              properties:
+                harness: { type: string }
+                model: { type: string, maxLength: 200 }
+                modelOptions:
+                  type: object
+                  additionalProperties: { type: string, maxLength: 100 }
+      responses:
+        "200":
+          description: Harness updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
   /sessions/{sessionId}/model:
     parameters:
       - $ref: "#/components/parameters/SessionId"
@@ -1499,13 +1577,14 @@ paths:
       operationId: setSessionModel
       tags: [sessions]
       description: |
-        The session's own model and options. An empty model with no options returns the session to the agent's
-        default. It applies from the next message on (a running turn keeps its model).
+        The session's own model, options, and optional harness override. An empty model with no options returns the
+        session to the harness's default. Switching harness updates only this session and triggers Context Handoff on
+        the next turn.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/ModelChoice" }
+            schema: { $ref: "#/components/schemas/SessionModelInput" }
       responses:
         "200":
           description: Set.
@@ -1515,6 +1594,7 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
   /sessions/{sessionId}/prompt:
     parameters:
@@ -1579,6 +1659,229 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Session" }
         "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/side-chats:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      operationId: startSideChat
+      tags: [sessions]
+      description: |
+        Start a side chat (/side / /btw) of this session on the same agent and working directory, seeded with
+        the parent thread's conversation context via Context Handoff. Optionally sends the first prompt immediately.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string, maxLength: 200 }
+                harness: { type: string, description: "Optional harness id for this side chat." }
+                model: { type: string, maxLength: 200, description: "Optional model id for this side chat." }
+                modelOptions:
+                  type: object
+                  additionalProperties: { type: string, maxLength: 100 }
+                text: { type: string, description: "Optional first prompt to send immediately." }
+      responses:
+        "201":
+          description: Side chat created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/queue:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    get:
+      operationId: listSessionQueue
+      tags: [sessions]
+      description: List queued follow-up messages for this session in execution order.
+      responses:
+        "200":
+          description: Queued messages.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/QueuedMessage" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: enqueueSessionMessage
+      tags: [sessions]
+      description: |
+        Enqueue a follow-up message. If the session is idle, starts the turn immediately. If running and steer is true,
+        promotes the message and interrupts the current turn so it runs next.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QueueMessageInput" }
+      responses:
+        "201":
+          description: Message queued or started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnqueueMessageResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/queue/{messageId}:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+      - { name: messageId, in: path, required: true, schema: { type: string } }
+    patch:
+      operationId: updateQueuedMessage
+      tags: [sessions]
+      description: Edit the text of a queued message.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: Updated queued message.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueuedMessage" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteQueuedMessage
+      tags: [sessions]
+      description: Remove a queued message.
+      responses:
+        "204": { description: Removed. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/queue/{messageId}/send-now:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+      - { name: messageId, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: sendQueuedMessageNow
+      tags: [sessions]
+      description: Promote a queued message to run immediately (starts now if idle, or steers the running turn).
+      responses:
+        "202":
+          description: Promoted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SendQueuedMessageResult" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/rewind:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      operationId: rewindSession
+      tags: [sessions]
+      description: |
+        Rewind the conversation to before the given event sequence number ("Edit from here"). Deletes events with
+        seq >= seq, resets harness session state so Context Handoff carries only earlier history, and returns the
+        rewound prompt text. Refuses with 409 if a turn is currently running.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RewindSessionInput" }
+      responses:
+        "200":
+          description: Rewound.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RewindSessionResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/pin:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      operationId: pinSession
+      tags: [sessions]
+      description: Pin the thread so it stays at the top of the sidebar.
+      responses:
+        "200":
+          description: Pinned.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/unpin:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      operationId: unpinSession
+      tags: [sessions]
+      description: Remove the pin from the thread.
+      responses:
+        "200":
+          description: Unpinned.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/snooze:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      operationId: snoozeSession
+      tags: [sessions]
+      description: Snooze the thread until a given time, or indefinitely when until is omitted or null. Auto-wakes on new message, error, or pending permission.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                until:
+                  type: string
+                  format: date-time
+                  nullable: true
+                  description: Optional RFC3339 wake-up time. Omit or pass null to snooze indefinitely.
+      responses:
+        "200":
+          description: Snoozed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/unsnooze:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      operationId: unsnoozeSession
+      tags: [sessions]
+      description: Wake a snoozed thread immediately.
+      responses:
+        "200":
+          description: Unsnoozed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 
@@ -4576,16 +4879,26 @@ components:
         agentId: { type: string }
         origin:
           type: object
-          description: Set when another agent or parent thread started this session (sub-thread, send_message, ask, or assign_task).
+          description: Set when another agent or parent thread started this session (sub-thread, side chat, send_message, ask, or assign_task).
           required: [agentId, agentName, sessionId]
           properties:
             agentId: { type: string }
             agentName: { type: string }
             sessionId: { type: string, description: The parent or calling agent's session that started this thread. }
             sessionTitle: { type: string, description: The parent session's title, if known. }
+        parentKind:
+          $ref: "#/components/schemas/SessionParentKind"
+          description: Relationship to origin session ('subthread', 'side_chat', 'a2a', or empty/absent for root threads).
         harness:
           type: string
-          description: "The harness this session runs on when pinned separately from the agent's default (e.g. a Codex sub-thread on a Claude Code agent)."
+          description: "The effective harness this session runs on (pinned per-thread override or the agent's default harness)."
+        permissionMode:
+          $ref: "#/components/schemas/PermissionMode"
+          description: Per-thread permission mode (default full-access).
+        queuedCount:
+          type: integer
+          minimum: 0
+          description: Number of follow-up messages currently waiting in this session's queue.
         title: { type: string }
         running: { type: boolean }
         cwd: { type: string, description: "Working directory relative to the agent's home directory." }
@@ -4601,6 +4914,17 @@ components:
         createdBy: { $ref: "#/components/schemas/User" }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+        pinnedAt:
+          type: string
+          format: date-time
+          description: When the thread was pinned; absent when not pinned.
+        snoozed:
+          type: boolean
+          description: True while the thread is snoozed (indefinitely or until snoozedUntil).
+        snoozedUntil:
+          type: string
+          format: date-time
+          description: When a timed snooze expires; absent when not snoozed or snoozed indefinitely.
         settledAt:
           type: string
           format: date-time
@@ -4611,6 +4935,108 @@ components:
           description: >-
             Who settled it: a user, the agent itself (platform tools), or the auto-settle job after the agent
             owner's period without activity. Absent while it is active.
+
+    PermissionMode:
+      type: string
+      enum: [full-access, auto-accept-edits, supervised, plan]
+
+    SessionParentKind:
+      type: string
+      enum: ["", subthread, side_chat, a2a]
+
+    SessionModelInput:
+      type: object
+      properties:
+        harness: { type: string, description: "Optional harness id to switch this session to without mutating the parent agent." }
+        model: { type: string, maxLength: 200, description: "Model id ('' keeps the default)." }
+        options:
+          type: object
+          additionalProperties: { type: string, maxLength: 100 }
+          description: Values by option id (ModelOption.id).
+
+    SessionSettingsPatch:
+      type: object
+      properties:
+        harness: { type: string, description: "Switch this session's harness without mutating the parent agent." }
+        model: { type: string, maxLength: 200, description: "Model id ('' resets to the harness default)." }
+        modelOptions:
+          type: object
+          additionalProperties: { type: string, maxLength: 100 }
+        permissionMode: { $ref: "#/components/schemas/PermissionMode" }
+
+    PromptImageInput:
+      type: object
+      required: [mimeType, data]
+      properties:
+        mimeType: { type: string, enum: [image/png, image/jpeg, image/gif, image/webp] }
+        data: { type: string, description: "Base64 encoded image bytes, without a data URL prefix." }
+
+    QueueMessageInput:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, description: The message. May be empty when images are attached. }
+        images:
+          type: array
+          maxItems: 4
+          items: { $ref: "#/components/schemas/PromptImageInput" }
+        steer: { type: boolean, description: "When true and the session is running, interrupt the current turn and run this message next." }
+
+    QueuedMessage:
+      type: object
+      required: [id, sessionId, userId, userName, text, steer, createdAt]
+      properties:
+        id: { type: string }
+        sessionId: { type: string }
+        userId: { type: string }
+        userName: { type: string }
+        text: { type: string }
+        images:
+          type: array
+          items: { $ref: "#/components/schemas/PromptImageInput" }
+        steer: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    EnqueueMessageResult:
+      type: object
+      required: [started]
+      properties:
+        started: { type: boolean, description: "True if the session was idle and the message started a turn immediately." }
+        message: { $ref: "#/components/schemas/QueuedMessage" }
+
+    SendQueuedMessageResult:
+      type: object
+      required: [started, steered]
+      properties:
+        started: { type: boolean, description: "True if the session was idle and the turn started immediately." }
+        steered: { type: boolean, description: "True if the running turn was interrupted to run this message next." }
+
+    RewindSessionInput:
+      type: object
+      required: [seq]
+      properties:
+        seq: { type: integer, format: int64, minimum: 1 }
+        revertFiles: { type: boolean, description: "Best-effort safe git reset when the session works in a dedicated git worktree." }
+
+    RewindSessionResult:
+      type: object
+      required: [seq, deletedEvents, filesReverted]
+      properties:
+        seq: { type: integer, format: int64 }
+        promptText: { type: string, description: "Prompt text that was at seq, if seq was a prompt event." }
+        deletedEvents: { type: integer, format: int64 }
+        filesReverted: { type: boolean }
+        revertNote: { type: string }
+
+    SessionSearchResult:
+      type: object
+      required: [session, matchField]
+      properties:
+        session: { $ref: "#/components/schemas/Session" }
+        agentName: { type: string }
+        matchField: { type: string, enum: [title, branch, project, message] }
+        snippet: { type: string }
+        matchSeq: { type: integer, format: int64 }
 
     UserSettings:
       type: object

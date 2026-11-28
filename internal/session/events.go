@@ -101,10 +101,12 @@ type Subscription struct {
 	C chan Event
 	// Presence receives the full list of viewers whenever it changes.
 	Presence chan []Viewer
-	viewer   *Viewer
-	l        *log
-	session  string
-	once     sync.Once
+	// Queue receives the full queued message list whenever the queue changes.
+	Queue   chan QueueUpdate
+	viewer  *Viewer
+	l       *log
+	session string
+	once    sync.Once
 	// lost is closed if the subscriber fell too far behind; it must resubscribe.
 	lost chan struct{}
 }
@@ -159,10 +161,46 @@ func (l *log) broadcastPresence(sessionID string) {
 	}
 }
 
+// broadcastQueue sends the latest queued messages snapshot to every subscriber.
+func (l *log) broadcastQueue(sessionID string, update QueueUpdate) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for s := range l.subs[sessionID] {
+		select {
+		case <-s.Queue: // drop stale snapshot; only the latest matters
+		default:
+		}
+		select {
+		case s.Queue <- update:
+		default:
+		}
+	}
+}
+
+// rewind deletes stored events with seq >= fromSeq and updates the cached seq.
+func (l *log) rewind(ctx context.Context, sessionID string, fromSeq int64) (int64, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	deleted, err := l.store.DeleteSessionEventsFrom(ctx, db.DeleteSessionEventsFromParams{
+		SessionID: sessionID,
+		Seq:       fromSeq,
+	})
+	if err != nil {
+		return 0, err
+	}
+	maxSeq, err := l.store.MaxSessionSeq(ctx, sessionID)
+	if err != nil {
+		delete(l.seq, sessionID)
+		return deleted, err
+	}
+	l.seq[sessionID] = maxSeq
+	return deleted, nil
+}
+
 // subscribe returns stored events after `after` and a subscription for
 // everything later. There is no gap and no duplicate between the two.
 func (l *log) subscribe(ctx context.Context, sessionID string, after int64, viewer *Viewer) ([]Event, *Subscription, error) {
-	s := &Subscription{C: make(chan Event, 1024), Presence: make(chan []Viewer, 1), viewer: viewer, l: l, session: sessionID, lost: make(chan struct{})}
+	s := &Subscription{C: make(chan Event, 1024), Presence: make(chan []Viewer, 1), Queue: make(chan QueueUpdate, 1), viewer: viewer, l: l, session: sessionID, lost: make(chan struct{})}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var backlog []Event

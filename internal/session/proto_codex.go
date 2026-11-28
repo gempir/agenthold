@@ -590,8 +590,16 @@ func (p *codexProtoClient) Prompt(ctx context.Context, sessionID, text string, i
 		p.mu.Unlock()
 	}()
 
-	// The Firecracker microVM is the safety boundary: never prompt for approval
-	// and disable Codex's inner sandbox.
+	// Map per-thread permission mode to Codex approval & sandbox policy.
+	approvalPolicy := "never"
+	sandboxPolicy := map[string]any{"type": "dangerFullAccess"}
+	switch p.conn.sessionPermissionMode(sessionID) {
+	case PermissionAutoAcceptEdits, PermissionSupervised:
+		approvalPolicy = "on-request"
+	case PermissionPlan:
+		approvalPolicy = "on-request"
+		sandboxPolicy = map[string]any{"type": "readOnly"}
+	}
 	input := []map[string]any{{"type": "text", "text": text}}
 	for _, im := range images {
 		input = append(input, map[string]any{"type": "image", "url": "data:" + im.MimeType + ";base64," + im.Data})
@@ -599,8 +607,8 @@ func (p *codexProtoClient) Prompt(ctx context.Context, sessionID, text string, i
 	params := map[string]any{
 		"threadId":       sessionID,
 		"input":          input,
-		"approvalPolicy": "never",
-		"sandboxPolicy":  map[string]any{"type": "dangerFullAccess"},
+		"approvalPolicy": approvalPolicy,
+		"sandboxPolicy":  sandboxPolicy,
 	}
 	if model != "" {
 		params["model"] = model
@@ -925,8 +933,37 @@ func (p *codexProtoClient) handleServerRequest(msg jsonRPCMessage) {
 
 	switch msg.Method {
 	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "execCommandApproval", "applyPatchApproval":
-		// The Firecracker microVM is the safety boundary: always accept
-		// immediately if Codex ever sends an approval request.
+		kind := "other"
+		title := msg.Method
+		switch msg.Method {
+		case "item/commandExecution/requestApproval", "execCommandApproval":
+			kind, title = "execute", "Run command"
+		case "item/fileChange/requestApproval", "applyPatchApproval":
+			kind, title = "edit", "Edit files"
+		}
+		var meta struct {
+			ThreadID string `json:"threadId"`
+			ItemID   string `json:"itemId"`
+			Command  string `json:"command"`
+			Reason   string `json:"reason"`
+		}
+		_ = json.Unmarshal(msg.Params, &meta)
+		if meta.Command != "" {
+			title = meta.Command
+		} else if meta.Reason != "" {
+			title = meta.Reason
+		}
+		if p.conn != nil && p.conn.m != nil && meta.ThreadID != "" {
+			allowed, allowAlways := p.conn.requestToolApproval(p.conn.m.ctx, meta.ThreadID, meta.ItemID, title, kind, msg.Params)
+			if !allowed {
+				reply(map[string]any{"decision": "decline"}, "")
+				return
+			}
+			if !allowAlways {
+				reply(map[string]any{"decision": "accept"}, "")
+				return
+			}
+		}
 		reply(map[string]any{"decision": "acceptForSession"}, "")
 	default:
 		reply(nil, "unsupported method: "+msg.Method)

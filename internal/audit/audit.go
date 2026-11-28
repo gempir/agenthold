@@ -22,6 +22,13 @@ const (
 	// (platform tools), by the auto-settle job or by new activity.
 	SessionSettle   = "session.settle"
 	SessionUnsettle = "session.unsettle"
+	SessionPin      = "session.pin"
+	SessionUnpin    = "session.unpin"
+	SessionSnooze   = "session.snooze"
+	SessionUnsnooze = "session.unsnooze"
+	SessionRewind   = "session.rewind"
+	SessionSettings = "session.settings"
+	SessionSideChat = "session.side_chat"
 	TerminalOpen    = "terminal.open"
 	HarnessLogin    = "harness.login"
 	FileWrite       = "file.write"

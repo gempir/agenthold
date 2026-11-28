@@ -26,6 +26,7 @@ import (
 var (
 	ErrBusy              = errors.New("a turn is already running in this session")
 	ErrNotFound          = errors.New("session not found")
+	ErrEventNotFound     = errors.New("event not found")
 	ErrNoTurn            = errors.New("no turn is running")
 	ErrUnknownPermission = errors.New("permission request not found or already answered")
 	// ErrNoHarness: the machine is an app, which runs no harness.
@@ -108,6 +109,7 @@ type Manager struct {
 	logins     Logins
 	resolver   Resolver
 	catMu      sync.Mutex // serializes model catalog updates
+	qmu        sync.Mutex // serializes queue enqueue/pop transitions
 	probe      bool       // describe unknown models after turns (SetModelProbe)
 }
 
@@ -165,11 +167,13 @@ type turn struct {
 	stopPrompt context.CancelCauseFunc
 
 	// Guarded by Manager.mu.
-	conn      *harnessConn
-	acpID     string
-	prompting bool // session/prompt was sent
-	cancelled bool
-	finished  bool // run returned; nothing may act on the turn anymore
+	conn           *harnessConn
+	acpID          string
+	permissionMode string
+	prompting      bool // session/prompt was sent
+	cancelled      bool
+	steering       bool // cancelled to immediately run a steered queued message
+	finished       bool // run returned; nothing may act on the turn anymore
 	// touchedPath is the last file a tool call of the turn reported, or the
 	// last directory a shell command of it ran in (touchedDir).
 	touchedPath string
@@ -408,6 +412,11 @@ type CreateOpts struct {
 	// Harness pins this session to a specific harness (e.g. "codex" for a
 	// sub-thread on a Claude Code agent); '' uses the agent's default harness.
 	Harness string
+	// PermissionMode sets the per-thread permission mode ('' defaults to full-access).
+	PermissionMode string
+	// ParentKind records how this session relates to its origin session
+	// ('subthread', 'side_chat', 'a2a', or '').
+	ParentKind string
 }
 
 // CreateWith is Create with options.
@@ -416,7 +425,12 @@ func (m *Manager) CreateWith(ctx context.Context, agentID, userID, title string,
 		return db.AgentSession{}, ErrNoHarness
 	}
 	now := time.Now().Unix()
-	s := db.AgentSession{ID: id.New("ses"), AgentID: agentID, Title: title, Status: "idle", CreatedBy: userID, CreatedAt: now, UpdatedAt: now}
+	permMode := NormalizePermissionMode(opts.PermissionMode)
+	s := db.AgentSession{
+		ID: id.New("ses"), AgentID: agentID, Title: title, Status: "idle",
+		CreatedBy: userID, CreatedAt: now, UpdatedAt: now,
+		PermissionMode: permMode, ParentKind: opts.ParentKind,
+	}
 	if s.Title == "" {
 		s.Title = PlaceholderTitle
 	}
@@ -436,6 +450,20 @@ func (m *Manager) CreateWith(ctx context.Context, agentID, userID, title string,
 			return s, err
 		}
 		s.Harness = opts.Harness
+	}
+	if permMode != PermissionFullAccess {
+		if err := m.store.SetSessionPermissionMode(ctx, db.SetSessionPermissionModeParams{
+			PermissionMode: permMode, UpdatedAt: now, ID: s.ID,
+		}); err != nil {
+			return s, err
+		}
+	}
+	if opts.ParentKind != "" {
+		if err := m.store.SetSessionParentKind(ctx, db.SetSessionParentKindParams{
+			ParentKind: opts.ParentKind, ID: s.ID,
+		}); err != nil {
+			return s, err
+		}
 	}
 	return s, nil
 }
@@ -550,7 +578,8 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 	prompt, stopPrompt := context.WithCancelCause(m.ctx)
 	t := &turn{
 		sessionID: sessionID, agentID: sess.AgentID, depth: opts.Depth,
-		setup: setup, stopSetup: stopSetup, prompt: prompt, stopPrompt: stopPrompt,
+		permissionMode: NormalizePermissionMode(sess.PermissionMode),
+		setup:          setup, stopSetup: stopSetup, prompt: prompt, stopPrompt: stopPrompt,
 		perms: map[string]chan acp.PermissionOptionId{},
 	}
 	m.turns[sessionID] = t
@@ -618,6 +647,7 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 		}
 		t.cancelPermissions()
 		cancelled := t.cancelled
+		steering := t.steering
 		touched := touchedPlace{path: t.touchedPath, dir: t.touchedDir}
 		m.mu.Unlock()
 		if c := t.conn; c != nil && !c.closed() {
@@ -634,6 +664,8 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 			end = map[string]any{"stopReason": string(acp.StopReasonCancelled)}
 		case err != nil:
 			m.lg.Warn("turn failed", "session", sessionID, "err", err)
+			// Turn errors auto-wake a snoozed thread so the user sees the failure.
+			_, _ = m.store.UnsnoozeSession(lctx, sessionID)
 			_ = m.log.append(lctx, sessionID, EventError, "", map[string]string{"message": err.Error()})
 			end = map[string]any{"stopReason": "error"}
 		}
@@ -647,6 +679,12 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 		_ = m.log.append(lctx, sessionID, EventTurnEnd, "", end)
 		if err == nil && t.conn != nil {
 			m.probeLater(t.conn)
+		}
+		// Auto-drain the persistent follow-up queue after normal completion, or
+		// immediately after a steer-initiated interruption. A manual Stop/cancel
+		// (cancelled && !steering) pauses the queue until the user sends or resumes.
+		if (err == nil && !cancelled) || (cancelled && steering) {
+			m.drainQueue(lctx, sessionID)
 		}
 	}()
 	return nil
@@ -700,6 +738,9 @@ func (m *Manager) run(t *turn, sess db.AgentSession, text string, images []Promp
 	conn.promptAt.Store(time.Now().UnixNano())
 
 	promptText := WithInlineContext(inlineCtx, text)
+	if NormalizePermissionMode(sess.PermissionMode) == PermissionPlan && !IsSlashCommand(text) && conn.adapter.EffectiveProtocol() != harness.ProtocolClaude {
+		promptText = planModeInstruction + promptText
+	}
 	// Not the setup context: a cancel is session/cancel, answered by the
 	// harness with stopReason "cancelled".
 	res, err := conn.proto.Prompt(t.prompt, acpID, promptText, images)
@@ -823,6 +864,10 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 		// If a previous turn deferred inline handoff because of a slash command,
 		// deliver the pending handoff now if this turn is not also a slash command.
 		if sess.HandoffSeq < 0 && !IsSlashCommand(userText) {
+			if sess.ParentKind == ParentKindSideChat && sess.OriginSessionID != "" {
+				inlineCtx, toSeq := m.deliverSideChatHandoff(ctx, conn, sess, sess.AcpSessionID, userText, notice)
+				return sess.AcpSessionID, inlineCtx, toSeq, nil
+			}
 			inlineCtx, toSeq := m.deliverHandoff(ctx, conn, sess, sess.AcpSessionID, userText, promptSeq, sess.AcpHarness, notice)
 			return sess.AcpSessionID, inlineCtx, toSeq, nil
 		}
@@ -962,8 +1007,12 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 	}
 	conn.markActive(acpID)
 
-	if hadPriorSession {
+	if hadPriorSession || sess.HandoffSeq < 0 {
 		inlineCtx, toSeq := m.deliverHandoff(ctx, conn, sess, acpID, userText, promptSeq, prevHarness, notice)
+		return acpID, inlineCtx, toSeq, nil
+	}
+	if sess.ParentKind == ParentKindSideChat && sess.OriginSessionID != "" && sess.HandoffSeq == 0 {
+		inlineCtx, toSeq := m.deliverSideChatHandoff(ctx, conn, sess, acpID, userText, notice)
 		return acpID, inlineCtx, toSeq, nil
 	}
 	return acpID, "", 0, nil

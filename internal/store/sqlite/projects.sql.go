@@ -187,7 +187,7 @@ func (q *Queries) GetProjectTask(ctx context.Context, id string) (ProjectTask, e
 }
 
 const listProjectSessions = `-- name: ListProjectSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch, harness FROM agent_sessions WHERE project_id = ? ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch, harness, pinned_at, snoozed_until, permission_mode, parent_kind FROM agent_sessions WHERE project_id = ? ORDER BY updated_at DESC
 `
 
 func (q *Queries) ListProjectSessions(ctx context.Context, projectID string) ([]AgentSession, error) {
@@ -224,6 +224,10 @@ func (q *Queries) ListProjectSessions(ctx context.Context, projectID string) ([]
 			&i.ProjectID,
 			&i.ProjectBranch,
 			&i.Harness,
+			&i.PinnedAt,
+			&i.SnoozedUntil,
+			&i.PermissionMode,
+			&i.ParentKind,
 		); err != nil {
 			return nil, err
 		}

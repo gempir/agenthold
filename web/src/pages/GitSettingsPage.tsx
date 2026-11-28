@@ -7,7 +7,6 @@ import {
   type GitSettings,
 } from '@/api/queries';
 import { ErrorText, Loading } from '@/components/Spinner';
-import { SettingsHeader } from '@/components/layout/SettingsLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -24,14 +23,10 @@ const PRESETS = [
 ] as const;
 
 /** Git in account settings: who commits are authored as, and HTTPS tokens. */
-export function GitSettingsPage() {
+export function GitSettingsSection() {
   const settings = useQuery(gitSettingsQuery);
   return (
     <>
-      <SettingsHeader
-        title="Git"
-        description="The identity your agents commit with and the credentials they use to clone and push over HTTPS."
-      />
       {settings.isPending && <Loading />}
       <ErrorText error={settings.error} />
       {settings.data && (

@@ -53,7 +53,7 @@ Update checkboxes as each milestone merges cleanly to `main` with `make test` an
   - Admin-managed Org Skills auto-delivered to every agent's harness skills directory alongside user skills.
   - Admin-managed Org Provider Logins (shared Anthropic/OpenAI/Gemini/OpenRouter API keys or gateways) so new users can chat immediately after SSO login without personal API keys, while still allowing personal logins as override.
   - Auto-enable Executor + Org Tools across threads by default (no per-agent opt-in ceremony); respect admin policy for custom user MCPs.
-- [ ] **2B. Unified Integrations UI & In-Thread `request_secret` / `connect_account` Cards**
+- [x] **2B. Unified Integrations UI & In-Thread `request_secret` / `connect_account` Cards**
   - Consolidate Settings (`Accounts`, `Tools`, `Git`, `Secrets`, `Provider logins`) into clean, minimal **Integrations** + **Credentials/Secrets** + **Providers** views; hide raw "Executor runtime Start/Restart" internals (auto-start transparently).
   - Add `request_secret` and `request_account_connect` platform MCP tools rendering secure interactive cards inline in chat (never writing secrets to conversation history).
 

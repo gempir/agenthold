@@ -161,6 +161,98 @@ it('answers an unresolved permission request', async () => {
   ).toEqual({ optionId: 'allow' });
 });
 
+it('renders an inline secret request card and collapses it once resolved', async () => {
+  const { calls } = mockApi({
+    'POST /sessions/s1/secret-requests/sreq_1': {
+      status: 'submitted',
+      name: 'STRIPE_KEY',
+    },
+  });
+  renderChat(true);
+  const sock = FakeSocket.all[0];
+  act(() => {
+    sock.emit({ type: 'status', running: true });
+    sock.emit(
+      ev(1, 'secret_request', {
+        requestId: 'sreq_1',
+        name: 'STRIPE_KEY',
+        description: 'For test charges',
+        hosts: ['api.stripe.com'],
+      }),
+    );
+  });
+  const card = await screen.findByRole('group', { name: 'Secret request' });
+  expect(card).toHaveTextContent('STRIPE_KEY');
+  expect(screen.getByText(/Waiting for your secret/)).toBeVisible();
+  await userEvent.type(
+    within(card).getByLabelText('Value for STRIPE_KEY'),
+    'sk_test_123',
+  );
+  await userEvent.click(
+    within(card).getByRole('button', { name: 'Save securely' }),
+  );
+  await waitFor(() =>
+    expect(
+      calls.find((c) => c.key === 'POST /sessions/s1/secret-requests/sreq_1')
+        ?.body,
+    ).toEqual({ value: 'sk_test_123' }),
+  );
+  act(() =>
+    sock.emit(
+      ev(2, 'secret_request_resolved', {
+        requestId: 'sreq_1',
+        status: 'submitted',
+        name: 'STRIPE_KEY',
+        by: 'u1',
+      }),
+    ),
+  );
+  await waitFor(() =>
+    expect(screen.getByTestId('chat-scroll')).toHaveTextContent(
+      'Secret STRIPE_KEY saved securely',
+    ),
+  );
+  expect(screen.queryByRole('group', { name: 'Secret request' })).toBeNull();
+  expect(screen.getByTestId('chat-scroll')).not.toHaveTextContent(
+    'sk_test_123',
+  );
+});
+
+it('renders an inline account connect card that connects from the thread', async () => {
+  const { calls } = mockApi({
+    'GET /org/tools': [],
+    'POST /me/org-tools/otl_1/connect': {
+      toolId: 'otl_1',
+      slug: 'linear',
+      connected: true,
+    },
+  });
+  renderChat(true);
+  act(() =>
+    FakeSocket.all[0].emit(
+      ev(1, 'account_connect_request', {
+        requestId: 'acreq_1',
+        toolId: 'otl_1',
+        slug: 'linear',
+        name: 'Linear',
+        kind: 'executor_app',
+        authMode: 'user_oauth',
+        reason: 'To read your issues',
+        connected: false,
+      }),
+    ),
+  );
+  const card = await screen.findByRole('group', { name: 'Connect Linear' });
+  expect(card).toHaveTextContent('To read your issues');
+  await userEvent.click(
+    within(card).getByRole('button', { name: 'Connect Linear' }),
+  );
+  expect(calls.some((c) => c.key === 'POST /me/org-tools/otl_1/connect')).toBe(
+    true,
+  );
+  expect(await screen.findByText('Linear connected')).toBeVisible();
+});
+
 it('folds consecutive tool calls into one expandable work row', async () => {
   mockApi({});
   renderChat(true);

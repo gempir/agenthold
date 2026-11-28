@@ -156,7 +156,7 @@ it('shows Executor apps and accounts, checks health, installs from catalog, and 
   ).toBeVisible();
 
   // Install an app from the catalog.
-  await user.click(screen.getByRole('button', { name: 'Add app' }));
+  await user.click(screen.getByRole('button', { name: 'Add integration' }));
   const catalogList = await screen.findByRole('list', { name: 'Catalog apps' });
   expect(within(catalogList).getByText('Linear')).toBeVisible();
   await user.click(
@@ -203,8 +203,38 @@ it('shows unavailable reason when Executor binary is missing', async () => {
     }),
   });
   renderApp('/settings/accounts');
-  expect(await screen.findByText('Unavailable')).toBeVisible();
-  expect(screen.getByText('Executor binary not found')).toBeVisible();
+  const banner = await screen.findByRole('status', {
+    name: 'Integrations unavailable',
+  });
+  expect(banner).toHaveTextContent(
+    'Connected accounts are unavailable on this server right now.',
+  );
+  expect(banner).toHaveTextContent('Executor binary not found');
+  // Runtime internals stay hidden.
+  expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Restart' })).toBeNull();
+});
+
+it('hides Executor runtime controls and dashboard links when it is healthy', async () => {
+  mockApi({
+    'GET /me': me,
+    'GET /me/executor': statusReady({ running: false }),
+    'GET /me/executor/overview': sampleOverview(),
+  });
+  renderApp('/settings/accounts');
+  expect(
+    await screen.findByRole('region', { name: 'Connected accounts' }),
+  ).toBeVisible();
+  expect(screen.queryByText('Executor runtime')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
+  expect(screen.queryByRole('link', { name: /Executor dashboard/ })).toBeNull();
+  expect(
+    screen.queryByRole('status', { name: 'Integrations unavailable' }),
+  ).toBeNull();
+  // It is the Connected accounts tab of Integrations.
+  expect(
+    screen.getByRole('link', { name: 'Connected accounts' }),
+  ).toHaveAttribute('aria-current', 'page');
 });
 
 it('toggles Executor settings on an agent Tools tab', async () => {

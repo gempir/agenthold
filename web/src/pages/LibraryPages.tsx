@@ -1,6 +1,5 @@
 import { AgentsSection } from '@/components/AgentsSection';
 import { SecretsPanel } from '@/components/SecretsPanel';
-import { LibraryToolsPanel } from '@/components/ToolsPanel';
 import { SettingsHeader } from '@/components/layout/SettingsLayout';
 
 /** Account settings: your agents and agents shared with you. */
@@ -25,19 +24,6 @@ export function SecretsSettingsPage() {
         description="Credentials the egress proxy injects for your agents"
       />
       <SecretsPanel />
-    </>
-  );
-}
-
-/** Account settings: your MCP server and skills libraries. */
-export function ToolsSettingsPage() {
-  return (
-    <>
-      <SettingsHeader
-        title="Tools"
-        description="MCP servers and skills you can attach to your agents"
-      />
-      <LibraryToolsPanel />
     </>
   );
 }

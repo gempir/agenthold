@@ -64,6 +64,41 @@ export interface SubthreadItem {
   summary?: string;
 }
 
+/** An agent's request_secret call: the value goes straight to the secret
+ * store, never into the conversation. */
+export interface SecretRequestItem {
+  kind: 'secret_request';
+  seq: number;
+  requestId: string;
+  name: string;
+  description: string;
+  hosts: string[];
+  envVar?: string;
+  header?: string;
+  resolved?: {
+    status: 'submitted' | 'declined';
+    name?: string;
+    envVar?: string;
+    placeholder?: string;
+    by?: string;
+  };
+}
+
+/** An agent's request_account_connect call for an organization tool. */
+export interface AccountConnectItem {
+  kind: 'account_connect';
+  seq: number;
+  requestId: string;
+  toolId: string;
+  slug: string;
+  name: string;
+  description?: string;
+  toolKind: string;
+  authMode: string;
+  reason?: string;
+  connected: boolean;
+}
+
 export type ChatItem =
   | {
       kind: 'user';
@@ -85,6 +120,8 @@ export type ChatItem =
       options: PermissionOption[];
       resolved?: { optionId: string; by: string };
     }
+  | SecretRequestItem
+  | AccountConnectItem
   | { kind: 'turn_end'; seq: number; stopReason: string }
   | { kind: 'notice' | 'error'; seq: number; message: string };
 
@@ -280,6 +317,62 @@ export function applyEvent(s: ChatState, ev: SessionEvent): ChatState {
             : i,
         ),
       };
+      break;
+    }
+    case 'secret_request': {
+      const requestId = str(d.requestId);
+      if (!requestId) break;
+      const item: SecretRequestItem = {
+        kind: 'secret_request',
+        seq: ev.seq,
+        requestId,
+        name: str(d.name, 'Secret'),
+        description: str(d.description),
+        hosts: Array.isArray(d.hosts)
+          ? d.hosts.filter((h): h is string => typeof h === 'string')
+          : [],
+        ...(str(d.envVar) && { envVar: str(d.envVar) }),
+        ...(str(d.header) && { header: str(d.header) }),
+      };
+      next = { ...s, items: [...s.items, item] };
+      break;
+    }
+    case 'secret_request_resolved': {
+      const rid = str(d.requestId);
+      const resolved: NonNullable<SecretRequestItem['resolved']> = {
+        status: d.status === 'submitted' ? 'submitted' : 'declined',
+        ...(str(d.name) && { name: str(d.name) }),
+        ...(str(d.envVar) && { envVar: str(d.envVar) }),
+        ...(str(d.placeholder) && { placeholder: str(d.placeholder) }),
+        ...(str(d.by) && { by: str(d.by) }),
+      };
+      next = {
+        ...s,
+        items: s.items.map((i) =>
+          i.kind === 'secret_request' && i.requestId === rid
+            ? { ...i, resolved }
+            : i,
+        ),
+      };
+      break;
+    }
+    case 'account_connect_request': {
+      const toolId = str(d.toolId);
+      if (!toolId) break;
+      const item: AccountConnectItem = {
+        kind: 'account_connect',
+        seq: ev.seq,
+        requestId: str(d.requestId),
+        toolId,
+        slug: str(d.slug),
+        name: str(d.name, str(d.slug, 'Integration')),
+        ...(str(d.description) && { description: str(d.description) }),
+        toolKind: str(d.kind),
+        authMode: str(d.authMode),
+        ...(str(d.reason) && { reason: str(d.reason) }),
+        connected: d.connected === true,
+      };
+      next = { ...s, items: [...s.items, item] };
       break;
     }
     case 'turn_end':

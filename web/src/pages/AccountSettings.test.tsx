@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { expect, it } from 'bun:test';
 import { mockApi, renderApp } from '@/test-utils';
 
@@ -31,4 +31,27 @@ it('avoids duplicating the commit hash when the version already contains it', as
   renderApp('/settings/threads');
   const badge = await screen.findByTestId('app-version');
   expect(badge).toHaveTextContent('sha-9c481de');
+});
+
+it('groups accounts, tools and git under one Integrations entry', async () => {
+  mockApi({
+    'GET /me': me,
+    'GET /version': { version: 'v0.4.2', commit: '' },
+    'GET /agents': [],
+    'GET /apps': [],
+    'GET /me/settings': { threadAutoSettleDays: 0 },
+  });
+  renderApp('/settings/threads');
+  const nav = await screen.findByRole('navigation', {
+    name: 'Account settings',
+  });
+  expect(
+    within(nav).getByRole('link', { name: 'Integrations' }),
+  ).toHaveAttribute('href', '/settings/integrations');
+  for (const gone of ['Accounts', 'Tools', 'Git'])
+    expect(within(nav).queryByRole('link', { name: gone })).toBeNull();
+  expect(within(nav).getByRole('link', { name: 'Secrets' })).toBeVisible();
+  expect(
+    within(nav).getByRole('link', { name: 'Provider logins' }),
+  ).toBeVisible();
 });

@@ -34,6 +34,7 @@ import {
 } from '@/pages/ProjectPage';
 import { ProjectsPage } from '@/pages/ProjectsPage';
 import { ProvidersPage } from '@/pages/ProvidersPage';
+import { PullRequestsPage } from '@/pages/PullRequestsPage';
 import { SlackLinkPage } from '@/pages/SlackLinkPage';
 import { SlackPage } from '@/pages/SlackPage';
 import { ThreadsSettingsPage } from '@/pages/ThreadsSettingsPage';
@@ -174,6 +175,27 @@ const projectRoute = createRoute({
   },
 });
 
+// The pull request hub; ?pr=host/owner/repo#number opens one.
+const pullsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/pulls',
+  validateSearch: (s: Record<string, unknown>): { pr?: string } => ({
+    ...(str(s.pr) && { pr: str(s.pr) }),
+  }),
+  component: function Pulls() {
+    const { pr } = pullsRoute.useSearch();
+    const navigate = useNavigate();
+    return (
+      <PullRequestsPage
+        selected={pr}
+        onSelect={(key) =>
+          void navigate({ to: '/pulls', search: key ? { pr: key } : {} })
+        }
+      />
+    );
+  },
+});
+
 // Where the Slack bot's "Connect your agenthold account" link lands.
 const slackLinkRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -301,6 +323,7 @@ const routeTree = rootRoute.addChildren([
     appPageRoute,
     projectsRedirectRoute,
     projectRoute,
+    pullsRoute,
     overviewRedirectRoute,
     slackLinkRoute,
     settingsRoute.addChildren([

@@ -1182,10 +1182,23 @@ function Footer({
         >
           <FolderGit2 className="size-4" />
         </Link>
+        <Link
+          to="/pulls"
+          title="Pull requests"
+          aria-label="Pull requests"
+          aria-current={pathname.startsWith('/pulls') ? 'page' : undefined}
+          className={cn(
+            'flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+            pathname.startsWith('/pulls')
+              ? 'bg-accent text-foreground'
+              : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+          )}
+        >
+          <GitPullRequest className="size-4" aria-hidden />
+        </Link>
         <div className="ml-auto flex items-center gap-1">
           {(
             [
-              ['Pull requests', GitPullRequest],
               ['Automations', Workflow],
               ['Usage', ChartNoAxesColumn],
             ] as const

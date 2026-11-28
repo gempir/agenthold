@@ -21,6 +21,7 @@ import (
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/config"
+	"github.com/gempir/agenthold/internal/pr"
 	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/project"
 	"github.com/gempir/agenthold/internal/session"
@@ -49,6 +50,8 @@ type Service struct {
 	Apps *apps.Manager
 	// Projects works with projects; their tools are listed when it is set.
 	Projects *project.Service
+	// PullRequests is the pull request hub; its tools are listed when it is set.
+	PullRequests *pr.Service
 }
 
 // Tools are the platform tools in MCP form.
@@ -130,6 +133,9 @@ func (p *Service) tools() []map[string]any {
 	if p.Projects != nil {
 		out = append(out, projectTools...)
 	}
+	if p.PullRequests != nil {
+		out = append(out, pullRequestTools...)
+	}
 	return out
 }
 
@@ -174,6 +180,9 @@ func (p *Service) Call(ctx context.Context, callerID, sessionID, tool string, ar
 	}
 	if p.Projects != nil && isProjectTool(tool) {
 		return p.projectCall(ctx, caller, sessionID, tool, args)
+	}
+	if p.PullRequests != nil && isPullRequestTool(tool) {
+		return p.pullRequestCall(ctx, caller, sessionID, tool, args)
 	}
 	var in toolArgs
 	if len(args) > 0 {

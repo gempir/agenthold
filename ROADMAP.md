@@ -67,7 +67,7 @@ Update checkboxes as each milestone merges cleanly to `main` with `make test` an
   - Multiplayer thread UX: live typing/viewing presence, shared diff review comments persisted per thread, `@teammate` handoff notifications.
 - [ ] **3B. PWA + Web Push Notifications**
   - Web app manifest, service worker, VAPID key generation/storage, subscription management in Settings, and push alerts on turn completion, errors, approvals/questions, guest prompt requests, and watched PR events.
-- [ ] **3C. Full Git & Pull Request Hub + 24/7 PR Watching (`00022_pull_requests.sql`)**
+- [x] **3C. Full Git & Pull Request Hub + 24/7 PR Watching (`00022_pull_requests.sql`)**
   - In-thread Git actions: Commit (with optional AI commit message), Push, Create PR (with AI title/body), auto-link PRs matching thread branch.
   - Dedicated **Pull Requests** view (via GitHub/GitLab credentials in the controller): list PRs, inspect diffs/checks/comments, review & merge, "Work on PR" to launch a worktree thread.
   - `link_pull_request` & `watch_pull_request` platform tools + background poller that wakes the thread on failed CI, new reviews/comments, merge conflicts, or merge/close (auto-settling merged PR threads).

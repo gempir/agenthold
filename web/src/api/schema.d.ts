@@ -3098,6 +3098,160 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pull-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Pull requests on every git host the user stored a credential for (or only host), newest activity first. Hosts that fail are reported in errors, the others listed. */
+        get: operations["listPullRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pull-requests/{owner}/{repo}/{number}": {
+        parameters: {
+            query?: {
+                /** @description The git host (default github.com, or the user's only host). */
+                host?: components["parameters"]["PullRequestHost"];
+            };
+            header?: never;
+            path: {
+                owner: components["parameters"]["PullRequestOwner"];
+                repo: components["parameters"]["PullRequestRepo"];
+                number: components["parameters"]["PullRequestNumber"];
+            };
+            cookie?: never;
+        };
+        /** @description A pull request with its checks, reviews and comments, and changed files with their patches. */
+        get: operations["getPullRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pull-requests/{owner}/{repo}/{number}/comments": {
+        parameters: {
+            query?: {
+                /** @description The git host (default github.com, or the user's only host). */
+                host?: components["parameters"]["PullRequestHost"];
+            };
+            header?: never;
+            path: {
+                owner: components["parameters"]["PullRequestOwner"];
+                repo: components["parameters"]["PullRequestRepo"];
+                number: components["parameters"]["PullRequestNumber"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Comment on a pull request, or review it (approve, request changes). */
+        post: operations["commentOnPullRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pull-requests/{owner}/{repo}/{number}/merge": {
+        parameters: {
+            query?: {
+                /** @description The git host (default github.com, or the user's only host). */
+                host?: components["parameters"]["PullRequestHost"];
+            };
+            header?: never;
+            path: {
+                owner: components["parameters"]["PullRequestOwner"];
+                repo: components["parameters"]["PullRequestRepo"];
+                number: components["parameters"]["PullRequestNumber"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Merge a pull request. headSha is the head commit the user reviewed: the merge is refused (409) when the pull request got new commits since. */
+        post: operations["mergePullRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pull-requests/{owner}/{repo}/{number}/work": {
+        parameters: {
+            query?: {
+                /** @description The git host (default github.com, or the user's only host). */
+                host?: components["parameters"]["PullRequestHost"];
+            };
+            header?: never;
+            path: {
+                owner: components["parameters"]["PullRequestOwner"];
+                repo: components["parameters"]["PullRequestRepo"];
+                number: components["parameters"]["PullRequestNumber"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Start a thread of a running agent on the pull request's branch: the repository is cloned when the agent has no checkout of it, a worktree is added on the branch, and the pull request is linked to the new thread (and the prompt sent, when given). */
+        post: operations["workOnPullRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/pull-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        /** @description The pull requests linked to a thread (their state refreshed when it is older than a minute). */
+        get: operations["listSessionPullRequests"];
+        put?: never;
+        /** @description Link a pull request to the thread (url: its URL or owner/repo#number; number alone: of the thread's repository), or with create push the thread's branch and open a pull request for it (one already open for the branch is linked instead). watch starts watching it. */
+        post: operations["linkSessionPullRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/pull-requests/{prId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                prId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Unlink a pull request from the thread. */
+        delete: operations["unlinkSessionPullRequest"];
+        options?: never;
+        head?: never;
+        /** @description Start or stop watching a linked pull request around the clock. Sub-threads cannot watch (their parent thread does). */
+        patch: operations["updateSessionPullRequest"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4847,6 +5001,125 @@ export interface components {
             providerName: string;
             methods: components["schemas"]["ExecutorAuthMethod"][];
         };
+        /** @enum {string} */
+        PullRequestState: "open" | "draft" | "merged" | "closed";
+        /**
+         * @description The verdict of the head commit's checks.
+         * @enum {string}
+         */
+        PullRequestChecksState: "none" | "pending" | "success" | "failure";
+        PullRequestSummary: {
+            host: string;
+            /** @description owner/name */
+            repo: string;
+            number: number;
+            url: string;
+            title: string;
+            state: components["schemas"]["PullRequestState"];
+            draft: boolean;
+            author: string;
+            headRef?: string;
+            headSha?: string;
+            baseRef?: string;
+            comments: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        PullRequestList: {
+            pullRequests: components["schemas"]["PullRequestSummary"][];
+            /** @description The hosts listed (none without a credential for a supported host). */
+            hosts: string[];
+            errors: {
+                host: string;
+                error: string;
+            }[];
+        };
+        PullRequestCheck: {
+            name: string;
+            /** @description queued, in_progress or completed. */
+            status: string;
+            conclusion?: string;
+            url?: string;
+        };
+        PullRequestComment: {
+            /** Format: int64 */
+            id: number;
+            /** @enum {string} */
+            kind: "comment" | "review" | "review_comment";
+            author: string;
+            body: string;
+            /** @description A review's state (APPROVED, CHANGES_REQUESTED, COMMENTED). */
+            state?: string;
+            path?: string;
+            line?: number;
+            url?: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        PullRequestFile: {
+            path: string;
+            previousPath?: string;
+            /** @enum {string} */
+            status: "A" | "M" | "D" | "R";
+            additions: number;
+            deletions: number;
+            patch?: string;
+        };
+        PullRequestDetail: {
+            pullRequest: components["schemas"]["PullRequestSummary"];
+            body: string;
+            /** @description Unset while the host computes it. */
+            mergeable?: boolean;
+            mergeableState?: string;
+            conflicted: boolean;
+            baseSha?: string;
+            headRepo?: string;
+            additions: number;
+            deletions: number;
+            changedFiles: number;
+            checks: components["schemas"]["PullRequestCheck"][];
+            checksState: components["schemas"]["PullRequestChecksState"];
+            comments: components["schemas"]["PullRequestComment"][];
+            files: components["schemas"]["PullRequestFile"][];
+            /** @description The login of the user's account on the host. */
+            viewer?: string;
+        };
+        PullRequestMergeResult: {
+            merged: boolean;
+            sha?: string;
+            message?: string;
+        };
+        SessionPullRequest: {
+            id: string;
+            sessionId: string;
+            host: string;
+            repo: string;
+            number: number;
+            url: string;
+            title: string;
+            state: components["schemas"]["PullRequestState"];
+            headSha: string;
+            checksState: components["schemas"]["PullRequestChecksState"];
+            watching: boolean;
+            /** @description How often the watcher woke the thread for it. */
+            wakeCount: number;
+            /** @description Failed reads in a row. */
+            failCount: number;
+            /** Format: date-time */
+            lastCheckedAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        PullRequestWork: {
+            session: components["schemas"]["Session"];
+            pullRequest: components["schemas"]["SessionPullRequest"];
+            /** @description The worktree the thread works in (relative to the home). */
+            worktree: string;
+        };
     };
     responses: {
         /** @description Error. */
@@ -4867,6 +5140,11 @@ export interface components {
         AgentId: string;
         AppId: string;
         ServiceName: string;
+        PullRequestOwner: string;
+        PullRequestRepo: string;
+        PullRequestNumber: number;
+        /** @description The git host (default github.com, or the user's only host). */
+        PullRequestHost: string;
     };
     requestBodies: never;
     headers: never;
@@ -10419,6 +10697,308 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    listPullRequests: {
+        parameters: {
+            query?: {
+                /** @description open (default), closed, merged or all. */
+                state?: string;
+                /** @description Whose pull requests: involved (default), authored or review_requested. */
+                filter?: "involved" | "authored" | "review_requested";
+                /** @description Only this repository (owner/name). */
+                repo?: string;
+                /** @description Free-text search. */
+                q?: string;
+                host?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pull requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PullRequestList"];
+                };
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    getPullRequest: {
+        parameters: {
+            query?: {
+                /** @description The git host (default github.com, or the user's only host). */
+                host?: components["parameters"]["PullRequestHost"];
+            };
+            header?: never;
+            path: {
+                owner: components["parameters"]["PullRequestOwner"];
+                repo: components["parameters"]["PullRequestRepo"];
+                number: components["parameters"]["PullRequestNumber"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pull request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PullRequestDetail"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+        };
+    };
+    commentOnPullRequest: {
+        parameters: {
+            query?: {
+                /** @description The git host (default github.com, or the user's only host). */
+                host?: components["parameters"]["PullRequestHost"];
+            };
+            header?: never;
+            path: {
+                owner: components["parameters"]["PullRequestOwner"];
+                repo: components["parameters"]["PullRequestRepo"];
+                number: components["parameters"]["PullRequestNumber"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    body?: string;
+                    /** @enum {string} */
+                    event?: "comment" | "approve" | "request_changes";
+                };
+            };
+        };
+        responses: {
+            /** @description Commented. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+        };
+    };
+    mergePullRequest: {
+        parameters: {
+            query?: {
+                /** @description The git host (default github.com, or the user's only host). */
+                host?: components["parameters"]["PullRequestHost"];
+            };
+            header?: never;
+            path: {
+                owner: components["parameters"]["PullRequestOwner"];
+                repo: components["parameters"]["PullRequestRepo"];
+                number: components["parameters"]["PullRequestNumber"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    method?: "merge" | "squash" | "rebase";
+                    headSha: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The merge. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PullRequestMergeResult"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+        };
+    };
+    workOnPullRequest: {
+        parameters: {
+            query?: {
+                /** @description The git host (default github.com, or the user's only host). */
+                host?: components["parameters"]["PullRequestHost"];
+            };
+            header?: never;
+            path: {
+                owner: components["parameters"]["PullRequestOwner"];
+                repo: components["parameters"]["PullRequestRepo"];
+                number: components["parameters"]["PullRequestNumber"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    agentId: string;
+                    prompt?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The new thread. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PullRequestWork"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+        };
+    };
+    listSessionPullRequests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Linked pull requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        pullRequests: components["schemas"]["SessionPullRequest"][];
+                    };
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    linkSessionPullRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    url?: string;
+                    number?: number;
+                    watch?: boolean;
+                    create?: {
+                        title?: string;
+                        body?: string;
+                        base?: string;
+                        draft?: boolean;
+                        /** @description Push the branch first (default true). */
+                        push?: boolean;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description The link. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionPullRequest"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+        };
+    };
+    unlinkSessionPullRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                prId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unlinked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    updateSessionPullRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                prId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    watching: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description The link. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionPullRequest"];
                 };
             };
             400: components["responses"]["Error"];

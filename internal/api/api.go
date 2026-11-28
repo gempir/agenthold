@@ -26,6 +26,7 @@ import (
 	"github.com/gempir/agenthold/internal/images"
 	"github.com/gempir/agenthold/internal/logins"
 	"github.com/gempir/agenthold/internal/node"
+	"github.com/gempir/agenthold/internal/pr"
 	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/project"
 	"github.com/gempir/agenthold/internal/sandbox"
@@ -56,6 +57,8 @@ type Deps struct {
 	Git *git.Service
 	// Projects works with projects on agents' machines; nil disables them.
 	Projects *project.Service
+	// PullRequests is the pull request hub; nil disables its endpoints.
+	PullRequests *pr.Service
 	// Executor manages per-user Executor instances for accounts and tools.
 	Executor *executor.Manager
 	// Apps manages services and apps.

@@ -84,6 +84,15 @@ const (
 
 	ScriptRun = "script.run"
 
+	PullRequestLink    = "pull_request.link"
+	PullRequestUnlink  = "pull_request.unlink"
+	PullRequestWatch   = "pull_request.watch"
+	PullRequestUnwatch = "pull_request.unwatch"
+	PullRequestWake    = "pull_request.wake"
+	PullRequestCreate  = "pull_request.create"
+	PullRequestReview  = "pull_request.review"
+	PullRequestMerge   = "pull_request.merge"
+
 	ProjectThreadStart = "project.thread_start"
 	ProjectMerge       = "project.merge"
 	ProjectPush        = "project.push"

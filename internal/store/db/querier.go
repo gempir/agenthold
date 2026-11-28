@@ -80,6 +80,7 @@ type Querier interface {
 	DeleteService(ctx context.Context, arg DeleteServiceParams) (int64, error)
 	DeleteSession(ctx context.Context, tokenHash string) error
 	DeleteSessionEventsFrom(ctx context.Context, arg DeleteSessionEventsFromParams) (int64, error)
+	DeleteSessionPullRequest(ctx context.Context, arg DeleteSessionPullRequestParams) (int64, error)
 	DeleteSessionQueuedMessage(ctx context.Context, arg DeleteSessionQueuedMessageParams) (int64, error)
 	DeleteSkill(ctx context.Context, id string) error
 	DeleteSlackInstallation(ctx context.Context) error
@@ -131,6 +132,8 @@ type Querier interface {
 	GetSecretByName(ctx context.Context, arg GetSecretByNameParams) (Secret, error)
 	GetService(ctx context.Context, arg GetServiceParams) (Service, error)
 	GetSessionEvent(ctx context.Context, arg GetSessionEventParams) (AgentSessionEvent, error)
+	GetSessionPullRequest(ctx context.Context, id string) (SessionPullRequest, error)
+	GetSessionPullRequestByKey(ctx context.Context, arg GetSessionPullRequestByKeyParams) (SessionPullRequest, error)
 	GetSessionQueuedMessage(ctx context.Context, arg GetSessionQueuedMessageParams) (SessionQueuedMessage, error)
 	GetSessionUser(ctx context.Context, arg GetSessionUserParams) (GetSessionUserRow, error)
 	GetShare(ctx context.Context, arg GetShareParams) (AgentShare, error)
@@ -179,11 +182,13 @@ type Querier interface {
 	ListProjectSources(ctx context.Context, projectID string) ([]ProjectSource, error)
 	ListProjects(ctx context.Context, ownerID string) ([]Project, error)
 	ListProviderLogins(ctx context.Context) ([]ProviderLogin, error)
+	ListPullRequestSessions(ctx context.Context, arg ListPullRequestSessionsParams) ([]SessionPullRequest, error)
 	ListRefreshableGitCredentials(ctx context.Context, expiresAt int64) ([]GitCredential, error)
 	ListSandboxSubnets(ctx context.Context) ([]ListSandboxSubnetsRow, error)
 	ListSandboxes(ctx context.Context) ([]Sandbox, error)
 	ListServices(ctx context.Context, agentID string) ([]Service, error)
 	ListSessionEvents(ctx context.Context, arg ListSessionEventsParams) ([]AgentSessionEvent, error)
+	ListSessionPullRequests(ctx context.Context, sessionID string) ([]SessionPullRequest, error)
 	ListSessionQueuedMessages(ctx context.Context, sessionID string) ([]SessionQueuedMessage, error)
 	ListSlackThreadSessions(ctx context.Context) ([]string, error)
 	ListSlackThreads(ctx context.Context) ([]SlackThread, error)
@@ -198,6 +203,7 @@ type Querier interface {
 	ListUserSlackUsers(ctx context.Context, userID string) ([]SlackUser, error)
 	ListUsersByVerifiedEmail(ctx context.Context, lower string) ([]User, error)
 	ListUsersWithIdentity(ctx context.Context) ([]ListUsersWithIdentityRow, error)
+	ListWatchedPullRequests(ctx context.Context) ([]ListWatchedPullRequestsRow, error)
 	LockUser(ctx context.Context, id string) error
 	MakeAppClone(ctx context.Context, id string) error
 	MarkCredentialsInSandbox(ctx context.Context, id string) error
@@ -209,6 +215,7 @@ type Querier interface {
 	PutSlackChannelAgent(ctx context.Context, arg PutSlackChannelAgentParams) error
 	PutSlackInstallation(ctx context.Context, arg PutSlackInstallationParams) error
 	PutSlackUser(ctx context.Context, arg PutSlackUserParams) error
+	RecordPullRequestPoll(ctx context.Context, arg RecordPullRequestPollParams) (int64, error)
 	RecordScheduleRun(ctx context.Context, arg RecordScheduleRunParams) error
 	RecordWebhookDelivery(ctx context.Context, arg RecordWebhookDeliveryParams) error
 	RefreshGitCredential(ctx context.Context, arg RefreshGitCredentialParams) (int64, error)
@@ -239,6 +246,7 @@ type Querier interface {
 	SetPermissionPolicy(ctx context.Context, arg SetPermissionPolicyParams) error
 	SetProjectSourceDefaultBranch(ctx context.Context, arg SetProjectSourceDefaultBranchParams) error
 	SetProviderLoginStatus(ctx context.Context, arg SetProviderLoginStatusParams) error
+	SetPullRequestWatching(ctx context.Context, arg SetPullRequestWatchingParams) (int64, error)
 	SetRemoteNodesOffline(ctx context.Context) error
 	SetSandboxBuilt(ctx context.Context, arg SetSandboxBuiltParams) error
 	SetSandboxResume(ctx context.Context, arg SetSandboxResumeParams) error
@@ -288,6 +296,7 @@ type Querier interface {
 	UpdateMCPServer(ctx context.Context, arg UpdateMCPServerParams) error
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) error
 	UpdateProjectSource(ctx context.Context, arg UpdateProjectSourceParams) error
+	UpdatePullRequestInfo(ctx context.Context, arg UpdatePullRequestInfoParams) error
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) error
 	UpdateSecret(ctx context.Context, arg UpdateSecretParams) error
 	UpdateSessionGitStatus(ctx context.Context, arg UpdateSessionGitStatusParams) error
@@ -298,5 +307,6 @@ type Querier interface {
 	UpsertLocalNode(ctx context.Context, arg UpsertLocalNodeParams) error
 	UpsertModelCatalog(ctx context.Context, arg UpsertModelCatalogParams) error
 	UpsertService(ctx context.Context, arg UpsertServiceParams) error
+	UpsertSessionPullRequest(ctx context.Context, arg UpsertSessionPullRequestParams) error
 	UpsertUserGitConfig(ctx context.Context, arg UpsertUserGitConfigParams) error
 }

@@ -1,18 +1,21 @@
-import { lazy, Suspense, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import {
+  ArrowUpLeft,
   ChevronRight,
+  FileText,
   FolderGit2,
   GitBranch,
   Loader2,
   Maximize2,
+  MessagesSquare,
   Minimize2,
   Plus,
   TriangleAlert,
   X,
 } from 'lucide-react';
-import { sessionsQuery, type Agent } from '@/api/queries';
+import { sessionsQuery, type Agent, type Session } from '@/api/queries';
 import { FilesTab } from '@/components/FilesTab';
 import { GitTab } from '@/components/GitTab';
 import { LiveLog } from '@/components/chat/LiveLog';
@@ -21,6 +24,19 @@ import { Button } from '@/components/ui/button';
 import { AgentControls, AgentDetails } from '@/components/agent/AgentControls';
 import { useHarnessName } from '@/components/agent/HarnessMeta';
 import { AGENT_SECTIONS, type Access } from '@/components/agent/sections';
+import {
+  isBuiltinTab,
+  openPanelTab,
+  parseTab,
+  usePanelTabs,
+  type BuiltinTab,
+  type DynamicTab,
+  type PanelTab,
+} from '@/components/agent/panelTabs';
+import { DiffPane } from '@/components/workspace/DiffPane';
+import { FileViewer } from '@/components/workspace/FileViewer';
+import { composerKey } from '@/lib/composerContext';
+import { baseName, resolveFileRef } from '@/lib/files';
 import { useAgentActions } from '@/hooks/useAgentActions';
 import { relTime, useNow } from '@/lib/time';
 import { cn } from '@/lib/utils';
@@ -28,23 +44,31 @@ import { cn } from '@/lib/utils';
 const TerminalTab = lazy(() =>
   import('@/components/TerminalTab').then((m) => ({ default: m.TerminalTab })),
 );
+const ChatView = lazy(() => import('@/components/chat/ChatView'));
 
-export type PanelTab = 'overview' | 'git' | 'files' | 'terminal' | 'activity';
-export const isPanelTab = (v: unknown): v is PanelTab =>
-  v === 'overview' ||
-  v === 'git' ||
-  v === 'files' ||
-  v === 'terminal' ||
-  v === 'activity';
+export {
+  isPanelTab,
+  panelTabNeedsUse,
+  type PanelTab,
+} from '@/components/agent/panelTabs';
 
-/** Tabs only those who may use the agent get. */
-export const panelTabNeedsUse = (t: PanelTab) =>
-  t === 'terminal' || t === 'activity';
+/** What the panel's tabs can open: files, other threads, the main view. */
+export type PanelActions = {
+  /** Opens a file (relative to the home) in a tab, at a line. */
+  onOpenFile: (path: string, line?: number) => void;
+  /** Opens a thread in a tab beside the open one. */
+  onOpenThread: (sessionId: string) => void;
+  /** Shows a thread in the main view instead of the panel. */
+  onOpenInMain: (sessionId: string) => void;
+  /** Closes a file or thread tab. */
+  onCloseTab: (tab: DynamicTab) => void;
+};
 
 /**
- * The floating right-hand panel next to a thread: the agent's status, its other
- * conversations, quick files, terminal and live activity, and the way into
- * its settings.
+ * The floating right-hand panel next to a thread: a tabbed workspace with the
+ * changes, files, terminal and live activity of the agent, the agent's status
+ * and other conversations, and tabs for open files and threads beside this
+ * one.
  */
 export function AgentPanel({
   agent,
@@ -55,6 +79,7 @@ export function AgentPanel({
   onTab,
   onWide,
   onClose,
+  actions,
 }: {
   agent: Agent;
   access: Access;
@@ -64,11 +89,13 @@ export function AgentPanel({
   onTab: (t: PanelTab) => void;
   onWide: (w: boolean) => void;
   onClose: () => void;
+  actions: PanelActions;
 }) {
-  const tabs: { id: PanelTab; label: string }[] = [
+  const tabs: { id: BuiltinTab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
-    { id: 'git', label: 'Git' },
+    { id: 'diff', label: 'Diff' },
     { id: 'files', label: 'Files' },
+    { id: 'git', label: 'Git' },
     ...(access.canUse
       ? [
           { id: 'terminal' as const, label: 'Terminal' },
@@ -76,6 +103,16 @@ export function AgentPanel({
         ]
       : []),
   ];
+  const open = usePanelTabs(agent.id, tab);
+  // A link straight to a file or thread tab keeps it open like any other.
+  useEffect(() => {
+    if (!isBuiltinTab(tab)) openPanelTab(agent.id, tab);
+  }, [agent.id, tab]);
+  const sessions = useQuery(sessionsQuery(agent.id));
+  const session = sessions.data?.find((s) => s.id === sessionId);
+  const active = parseTab(tab);
+  const fills =
+    tab === 'activity' || tab === 'diff' || active.kind !== 'builtin';
   return (
     <>
       <div
@@ -92,7 +129,11 @@ export function AgentPanel({
       >
         <div className="flex min-h-0 w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl shadow-black/30 xl:shadow-none">
           <div className="flex shrink-0 items-center gap-1 border-b px-2 py-2">
-            <div role="tablist" className="flex flex-1 items-center gap-0.5">
+            <div
+              role="tablist"
+              aria-label="Workspace"
+              className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
+            >
               {tabs.map((t) => (
                 <button
                   key={t.id}
@@ -101,7 +142,7 @@ export function AgentPanel({
                   aria-selected={tab === t.id}
                   onClick={() => onTab(t.id)}
                   className={cn(
-                    'rounded-lg px-2.5 py-1 text-sm',
+                    'shrink-0 rounded-lg px-2.5 py-1 text-sm',
                     tab === t.id
                       ? 'bg-accent font-medium text-foreground'
                       : 'text-muted-foreground hover:text-foreground',
@@ -135,20 +176,75 @@ export function AgentPanel({
               <X className="size-4" />
             </Button>
           </div>
+          {open.length > 0 && (
+            <div
+              role="tablist"
+              aria-label="Open tabs"
+              className="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-2 py-1.5"
+            >
+              {open.map((t) => (
+                <OpenTab
+                  key={t}
+                  tab={t}
+                  active={t === tab}
+                  title={tabTitle(t, sessions.data)}
+                  onSelect={() => onTab(t)}
+                  onClose={() => actions.onCloseTab(t)}
+                />
+              ))}
+            </div>
+          )}
           <div
             className={cn(
-              'min-h-0 flex-1 p-4',
-              // The log scrolls on its own and takes the panel's height.
-              tab === 'activity'
-                ? 'flex flex-col overflow-hidden'
-                : 'overflow-y-auto',
+              'min-h-0 flex-1',
+              // These scroll on their own and take the panel's height.
+              fills ? 'flex flex-col overflow-hidden' : 'overflow-y-auto p-4',
+              tab === 'activity' && 'p-4',
             )}
           >
             {tab === 'overview' && (
               <Overview agent={agent} access={access} sessionId={sessionId} />
             )}
+            {tab === 'diff' && (
+              <PanelDiff
+                agent={agent}
+                access={access}
+                repoPath={session?.git?.repoPath ?? session?.cwd}
+                composer={composerKey(agent.id, sessionId)}
+                onOpenFile={actions.onOpenFile}
+              />
+            )}
             {tab === 'git' && <PanelGit agent={agent} access={access} />}
-            {tab === 'files' && <PanelFiles agent={agent} access={access} />}
+            {tab === 'files' && (
+              <PanelFiles
+                agent={agent}
+                access={access}
+                onOpenFile={(p) => actions.onOpenFile(p)}
+              />
+            )}
+            {active.kind === 'file' && (
+              <FileViewer
+                key={active.path}
+                agentId={agent.id}
+                path={active.path}
+                line={active.line}
+                canUse={access.canUse}
+                composerKey={
+                  access.canUse ? composerKey(agent.id, sessionId) : undefined
+                }
+                onOpenFile={actions.onOpenFile}
+              />
+            )}
+            {active.kind === 'thread' && (
+              <ThreadTab
+                key={active.sessionId}
+                agent={agent}
+                access={access}
+                sessionId={active.sessionId}
+                sessions={sessions.data}
+                actions={actions}
+              />
+            )}
             {tab === 'activity' && access.canUse && (
               <LiveLog key={agent.id} agentId={agent.id} live fill />
             )}
@@ -171,6 +267,165 @@ export function AgentPanel({
   );
 }
 
+function tabTitle(t: DynamicTab, sessions: Session[] | undefined): string {
+  const p = parseTab(t);
+  if (p.kind === 'file')
+    return `${baseName(p.path)}${p.line ? `:${p.line}` : ''}`;
+  if (p.kind === 'thread')
+    return sessions?.find((s) => s.id === p.sessionId)?.title || 'Thread';
+  return t;
+}
+
+function OpenTab({
+  tab,
+  active,
+  title,
+  onSelect,
+  onClose,
+}: {
+  tab: DynamicTab;
+  active: boolean;
+  title: string;
+  onSelect: () => void;
+  onClose: () => void;
+}) {
+  const p = parseTab(tab);
+  const Icon = p.kind === 'thread' ? MessagesSquare : FileText;
+  return (
+    <span
+      className={cn(
+        'group flex max-w-52 shrink-0 items-center rounded-md border text-xs',
+        active
+          ? 'border-border bg-accent text-foreground'
+          : 'border-transparent text-muted-foreground hover:text-foreground',
+      )}
+    >
+      <button
+        type="button"
+        role="tab"
+        aria-selected={active}
+        title={p.kind === 'file' ? p.path : title}
+        onClick={onSelect}
+        onAuxClick={(e) => {
+          if (e.button === 1) {
+            e.preventDefault();
+            onClose();
+          }
+        }}
+        className="flex min-w-0 items-center gap-1.5 py-1 pr-1 pl-2"
+      >
+        <Icon className="size-3.5 shrink-0" aria-hidden />
+        <span className="truncate">{title}</span>
+      </button>
+      <button
+        type="button"
+        aria-label={`Close ${title}`}
+        title="Close tab"
+        onClick={onClose}
+        className="mr-0.5 rounded p-0.5 opacity-60 hover:bg-background hover:opacity-100"
+      >
+        <X className="size-3" aria-hidden />
+      </button>
+    </span>
+  );
+}
+
+/** Another thread beside the open one: watch it and talk to it. */
+function ThreadTab({
+  agent,
+  access,
+  sessionId,
+  sessions,
+  actions,
+}: {
+  agent: Agent;
+  access: Access;
+  sessionId: string;
+  sessions?: Session[];
+  actions: PanelActions;
+}) {
+  const s = sessions?.find((x) => x.id === sessionId);
+  const children = (sessions ?? []).filter(
+    (x) => x.origin?.agentId === agent.id && x.origin.sessionId === sessionId,
+  );
+  return (
+    <div data-testid="panel-thread" className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1.5">
+        {s?.running ? (
+          <Loader2
+            role="img"
+            aria-label="running"
+            className="size-3.5 shrink-0 animate-spin text-sky-400"
+          />
+        ) : (
+          <MessagesSquare
+            className="size-3.5 shrink-0 text-muted-foreground"
+            aria-hidden
+          />
+        )}
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+          {s?.title || 'Thread'}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={() => actions.onOpenInMain(sessionId)}
+        >
+          <ArrowUpLeft className="size-3.5" aria-hidden />
+          Open in main view
+        </Button>
+      </div>
+      <Suspense fallback={<Loading />}>
+        <ChatView
+          sessionId={sessionId}
+          agentId={agent.id}
+          subthreads={children}
+          canUse={access.canUse}
+          agentState={agent.state}
+          initialRunning={s?.running}
+          compact
+          onOpenFile={(p, line) =>
+            actions.onOpenFile(resolveFileRef(p, s?.cwd), line)
+          }
+          onOpenSubthread={actions.onOpenThread}
+          onOpenSubthreadInMain={actions.onOpenInMain}
+        />
+      </Suspense>
+    </div>
+  );
+}
+
+function PanelDiff({
+  agent,
+  access,
+  repoPath,
+  composer,
+  onOpenFile,
+}: {
+  agent: Agent;
+  access: Access;
+  repoPath?: string;
+  composer: string;
+  onOpenFile: (path: string, line?: number) => void;
+}) {
+  const { action, busy } = useAgentActions(agent);
+  return (
+    <>
+      <DiffPane
+        agentId={agent.id}
+        canUse={access.canUse}
+        repoPath={repoPath}
+        composerKey={access.canUse ? composer : undefined}
+        onOpenFile={onOpenFile}
+        starting={busy}
+        onStart={() => action.mutate('start')}
+      />
+      <ErrorText error={action.error} />
+    </>
+  );
+}
+
 function PanelGit({ agent, access }: { agent: Agent; access: Access }) {
   const { action, busy } = useAgentActions(agent);
   return (
@@ -186,7 +441,15 @@ function PanelGit({ agent, access }: { agent: Agent; access: Access }) {
   );
 }
 
-function PanelFiles({ agent, access }: { agent: Agent; access: Access }) {
+function PanelFiles({
+  agent,
+  access,
+  onOpenFile,
+}: {
+  agent: Agent;
+  access: Access;
+  onOpenFile: (path: string) => void;
+}) {
   const { action, busy } = useAgentActions(agent);
   return (
     <>
@@ -195,6 +458,7 @@ function PanelFiles({ agent, access }: { agent: Agent; access: Access }) {
         canUse={access.canUse}
         starting={busy}
         onStart={() => action.mutate('start')}
+        onOpenFile={onOpenFile}
       />
       <ErrorText error={action.error} />
     </>

@@ -497,12 +497,12 @@ it('streams the activity log in its own panel tab', async () => {
     'waiting for sandboxd',
   );
   expect(calls.some((c) => c.key === 'GET /agents/a1/activity')).toBe(true);
-  // The tabs: Overview, Git, Files, Terminal, Activity.
+  // The workspace tabs: Overview, Diff, Files, Git, Terminal, Activity.
   expect(
     within(panel)
       .getAllByRole('tab')
       .map((t) => t.textContent),
-  ).toEqual(['Overview', 'Git', 'Files', 'Terminal', 'Activity']);
+  ).toEqual(['Overview', 'Diff', 'Files', 'Git', 'Terminal', 'Activity']);
   await userEvent.click(within(panel).getByRole('tab', { name: 'Overview' }));
   expect(router.state.location.search).toEqual({ s: 's1', panel: 'overview' });
   expect(screen.queryByTestId('live-log')).toBeNull();
@@ -980,8 +980,31 @@ it('visualizes sub-threads and lets you jump into a codex sub-thread and back ou
   const jumpIn = within(bar).getByRole('link', { name: /Review auth diff/ });
   expect(jumpIn).toHaveAttribute('href', '/a/a1?s=s2');
 
+  // A click opens it beside the parent, in a panel tab.
   await userEvent.click(jumpIn);
-  await waitFor(() => expect(router.state.location.href).toBe('/a/a1?s=s2'));
+  await waitFor(() =>
+    expect(router.state.location.search).toEqual({
+      s: 's1',
+      panel: 'thread:s2',
+    }),
+  );
+  const panel = screen.getByRole('complementary', { name: 'Agent panel' });
+  expect(
+    within(panel).getByRole('tab', { name: 'Review auth diff' }),
+  ).toHaveAttribute('aria-selected', 'true');
+  expect(within(panel).getByTestId('panel-thread')).toBeVisible();
+
+  // From there it moves to the main view, and the tab closes.
+  await userEvent.click(
+    within(panel).getByRole('button', { name: 'Open in main view' }),
+  );
+  await waitFor(() =>
+    expect(router.state.location.search).toEqual({
+      s: 's2',
+      panel: 'overview',
+    }),
+  );
+  expect(screen.queryByTestId('panel-thread')).toBeNull();
 
   // Sub-thread shows a Back to parent jump-out bar, Codex label, and shared worktree.
   const banner = await screen.findByTestId('subthread-banner');

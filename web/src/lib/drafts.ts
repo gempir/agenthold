@@ -9,7 +9,8 @@ export const agentDraftKey = (agentId: string) => `agent:${agentId}`;
 /** Draft key of the home page's new thread box. */
 export const NEW_DRAFT_KEY = 'new';
 
-function read(key: string): string {
+/** The persisted unsent text of one composer, outside React. */
+export function getDraft(key: string): string {
   try {
     return localStorage.getItem(PREFIX + key) ?? '';
   } catch {
@@ -39,12 +40,12 @@ const subscribe = (l: () => void) => {
 
 /** The persisted unsent text of one composer; survives switching threads and reloads. */
 export function useDraft(key: string): [string, (v: string) => void] {
-  const text = useSyncExternalStore(subscribe, () => read(key));
+  const text = useSyncExternalStore(subscribe, () => getDraft(key));
   const set = useCallback((v: string) => setDraft(key, v), [key]);
   return [text, set];
 }
 
 /** Whether the thread with this draft key has unsent text. */
 export function useHasDraft(key: string): boolean {
-  return useSyncExternalStore(subscribe, () => read(key).trim() !== '');
+  return useSyncExternalStore(subscribe, () => getDraft(key).trim() !== '');
 }

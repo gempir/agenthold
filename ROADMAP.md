@@ -32,7 +32,7 @@ Update checkboxes as each milestone merges cleanly to `main` with `make test` an
   - Extend `sandboxd` + controller API for structured git diffs (`turn`, `uncommitted`, `branch`, `commits` + commit detail), file read/write (UTF-8 text & raw preview, line range), and workspace file search (for `@` file picker).
   - Support reading `agenthold.json` (with fallback to `t3.json`) in project root for project scripts (`Setup` on worktree create, `Dev` with `previewUrl` + `stopOnSettle`, `Test`, `Clean` on settle) and executing them via services/exec.
   - Add optional `isolation: "worktree"` to `start_subthread` platform tool.
-- [ ] **1C. Right Panel Tabs: Diff Pane, File Viewer/Editor, Side-by-Side Sub-threads & Thread Details Card**
+- [x] **1C. Right Panel Tabs: Diff Pane, File Viewer/Editor, Side-by-Side Sub-threads & Thread Details Card**
   - Upgrade right panel to multi-tab `RightPanelTabs`: Diff pane (Turn / Uncommitted / Branch / Commits, unified/split toggle, `Cmd+F` find-in-diff, inline line-range review comments → composer chips), File Viewer/Editor (syntax highlighting, rendered/raw Markdown/HTML/CSV/PDF, save edits), side-by-side Sub-thread & Side Chat tabs, and a T3-style Thread Details popover/card (environment, project scripts, branch, dev servers, linked PRs).
   - Clickable `[file:line]` links & syntax-highlighted code blocks with copy button in `Markdown.tsx`.
 - [ ] **1D. Upgraded Composer (`@` / `$` / `/` / `#`, General Attachments, Quote-to-Cite, Stash, Multi-Model)**

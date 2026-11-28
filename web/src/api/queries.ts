@@ -425,3 +425,83 @@ export const projectStatusQuery = (projectId: string, includeSettled = false) =>
     refetchInterval: RUNNING_POLL_MS,
     retry: false,
   });
+export type GitDiff = components['schemas']['GitDiff'];
+export type GitDiffFile = components['schemas']['GitDiffFile'];
+export type GitCommit = components['schemas']['GitCommit'];
+export type GitDiffMode = GitDiff['mode'];
+
+/** A structured diff of the repository a directory (relative to home) is in. */
+export const gitDiffQuery = (
+  agentId: string,
+  path: string,
+  mode: GitDiffMode,
+  ref?: string,
+) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'git', 'diff', path, mode, ref ?? ''],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/git/diff', {
+          params: {
+            path: { agentId },
+            query: {
+              ...(path && { path }),
+              mode,
+              ...(ref && { ref }),
+            },
+          },
+        }),
+      ),
+    // The working tree changes while the agent works.
+    refetchInterval: mode === 'commit' ? false : RUNNING_POLL_MS,
+    retry: false,
+  });
+
+/** The latest commits of a repository's branch. */
+export const gitCommitsQuery = (agentId: string, path: string) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'git', 'commits', path],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/git/commits', {
+          params: {
+            path: { agentId },
+            query: { ...(path && { path }), limit: 100 },
+          },
+        }),
+      ),
+    retry: false,
+  });
+
+export type TextFile = components['schemas']['TextFile'];
+
+/** A workspace file as text (path relative to the home). */
+export const fileTextQuery = (agentId: string, path: string) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'files', 'read', path],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/files/read', {
+          params: { path: { agentId }, query: { path } },
+        }),
+      ),
+    retry: false,
+  });
+
+export type ProjectScript = components['schemas']['ProjectScript'];
+export type ProjectScripts = components['schemas']['ProjectScripts'];
+export type ProjectScriptRun = components['schemas']['ProjectScriptRun'];
+
+/** The scripts of agenthold.json (or t3.json) in a directory. */
+export const projectScriptsQuery = (agentId: string, path: string) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'scripts', path],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/scripts', {
+          params: { path: { agentId }, query: { ...(path && { path }) } },
+        }),
+      ),
+    refetchInterval: RUNNING_POLL_MS,
+    retry: false,
+  });

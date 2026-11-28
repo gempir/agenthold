@@ -35,7 +35,7 @@ Update checkboxes as each milestone merges cleanly to `main` with `make test` an
 - [x] **1C. Right Panel Tabs: Diff Pane, File Viewer/Editor, Side-by-Side Sub-threads & Thread Details Card**
   - Upgrade right panel to multi-tab `RightPanelTabs`: Diff pane (Turn / Uncommitted / Branch / Commits, unified/split toggle, `Cmd+F` find-in-diff, inline line-range review comments → composer chips), File Viewer/Editor (syntax highlighting, rendered/raw Markdown/HTML/CSV/PDF, save edits), side-by-side Sub-thread & Side Chat tabs, and a T3-style Thread Details popover/card (environment, project scripts, branch, dev servers, linked PRs).
   - Clickable `[file:line]` links & syntax-highlighted code blocks with copy button in `Markdown.tsx`.
-- [ ] **1D. Upgraded Composer (`@` / `$` / `/` / `#`, General Attachments, Quote-to-Cite, Stash, Multi-Model)**
+- [x] **1D. Upgraded Composer (`@` / `$` / `/` / `#`, General Attachments, Quote-to-Cite, Stash, Multi-Model)**
   - Queue & steer UI while running (with queued message list: Send now / Edit / Remove).
   - Inline context chips for files, quoted assistant messages (select text → Cite in composer), diff review comments, threads (`@`), models (`@`), skills (`$`), slash commands (`/`).
   - General file attachments (upload to workspace) + 32 KiB+ large paste → file chip.

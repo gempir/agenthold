@@ -57,14 +57,24 @@ export interface HarnessChoice {
   catalog?: ModelCatalog;
 }
 
+/** A model target chosen for parallel multi-model thread launch on a draft. */
+export interface DraftModelTarget {
+  harness: string;
+  model: string;
+  options: Record<string, string>;
+  label: string;
+}
+
 /**
- * Lets the picker switch the agent's harness: the other harnesses get their
+ * Lets the picker switch the harness: the other harnesses get their
  * own place in the rail, and picking one of their models asks to confirm.
- * The harness belongs to the agent, so the switch applies to all its threads.
+ * When `scope` is `'thread'`, the switch applies only to the current thread.
  */
 export interface HarnessSwitch {
   agentName: string;
   others: HarnessChoice[];
+  /** 'thread' switches only this thread; 'agent' (default) switches the agent default. */
+  scope?: 'thread' | 'agent';
   /** Does the switch (rejects with the reason it could not). */
   onSwitch: (harness: string, model: string) => Promise<unknown>;
   /** A conversation is running: the harness cannot be stopped now. */
@@ -173,6 +183,9 @@ export function ModelPicker({
   label = 'Model',
   harness,
   harnessSwitch,
+  multiSelect = false,
+  selectedModels = [],
+  onSelectedModelsChange,
   className,
 }: {
   catalog: ModelCatalog | undefined;
@@ -190,6 +203,10 @@ export function ModelPicker({
   /** The harness the catalog is of (its id is also in the catalog). */
   harness?: { id: string; name: string; iconUrl?: string };
   harnessSwitch?: HarnessSwitch;
+  /** Allow Shift+clicking multiple models to launch parallel threads (drafts only). */
+  multiSelect?: boolean;
+  selectedModels?: DraftModelTarget[];
+  onSelectedModelsChange?: (models: DraftModelTarget[]) => void;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -216,12 +233,17 @@ export function ModelPicker({
     iconUrl: harness?.iconUrl,
   };
   const [name, ...rest] = choiceParts(catalog, value, defaultLabel);
+  const isMulti = multiSelect && selectedModels.length > 1;
+  const accessibleChoice = isMulti
+    ? `${selectedModels.length} models (${selectedModels.map((m) => m.label).join(', ')})`
+    : choiceLabel(catalog, value, defaultLabel);
   return (
     <div ref={root} className={cn('relative min-w-0', className)}>
       <button
         ref={trigger}
         type="button"
-        aria-label={`${label}: ${choiceLabel(catalog, value, defaultLabel)}`}
+        data-model-picker-trigger="true"
+        aria-label={`${label}: ${accessibleChoice}`}
         aria-haspopup="dialog"
         aria-expanded={open}
         disabled={disabled}
@@ -234,15 +256,26 @@ export function ModelPicker({
           iconUrl={current.iconUrl}
           className="size-3.5"
         />
-        <span className="truncate">
-          {name}
-          {rest.length > 0 && (
-            <>
-              {' '}
-              <span className="text-muted-foreground">{rest.join(' · ')}</span>
-            </>
-          )}
-        </span>
+        {isMulti ? (
+          <span className="flex min-w-0 items-center gap-1 truncate">
+            <span className="truncate">{selectedModels[0].label}</span>
+            <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+              +{selectedModels.length - 1}
+            </span>
+          </span>
+        ) : (
+          <span className="truncate">
+            {name}
+            {rest.length > 0 && (
+              <>
+                {' '}
+                <span className="text-muted-foreground">
+                  {rest.join(' · ')}
+                </span>
+              </>
+            )}
+          </span>
+        )}
         <ChevronDown className="size-3 shrink-0 opacity-70" aria-hidden />
       </button>
       {open && (
@@ -258,6 +291,9 @@ export function ModelPicker({
           label={label}
           current={current}
           harnessSwitch={harnessSwitch}
+          multiSelect={multiSelect}
+          selectedModels={selectedModels}
+          onSelectedModelsChange={onSelectedModelsChange}
         />
       )}
     </div>
@@ -276,6 +312,9 @@ function PickerPanel({
   label,
   current,
   harnessSwitch,
+  multiSelect,
+  selectedModels,
+  onSelectedModelsChange,
 }: {
   catalog: ModelCatalog | undefined;
   value: Choice;
@@ -288,6 +327,9 @@ function PickerPanel({
   label: string;
   current: { id: string; name: string; iconUrl?: string };
   harnessSwitch?: HarnessSwitch;
+  multiSelect?: boolean;
+  selectedModels?: DraftModelTarget[];
+  onSelectedModelsChange?: (models: DraftModelTarget[]) => void;
 }) {
   const id = useId();
   const listId = `${id}-list`;
@@ -474,11 +516,67 @@ function PickerPanel({
   const activeRow = index >= 0 ? rows[index] : undefined;
   const moveTo = (i: number) => setActiveKey(entryKey(rows[i].entry));
 
+  const targetOfEntry = (e: Entry): DraftModelTarget => {
+    if (e.kind === 'other') {
+      const h = harnessOf(e.harness);
+      const lbl = e.id
+        ? modelName(h?.catalog, e.id)
+        : `${h?.name ?? e.harness} default`;
+      return { harness: e.harness, model: e.id, options: {}, label: lbl };
+    }
+    const m = entryModel(e);
+    const opts = keepOptions(catalog, m, value.options);
+    return {
+      harness: current.id,
+      model: m,
+      options: opts,
+      label: choiceLabel(catalog, { model: m, options: opts }, defaultLabel),
+    };
+  };
+
+  const toggleMulti = (e: Entry) => {
+    if (!onSelectedModelsChange) return;
+    setPending(undefined);
+    const target = targetOfEntry(e);
+    const base: DraftModelTarget[] =
+      selectedModels && selectedModels.length > 0
+        ? selectedModels
+        : [
+            {
+              harness: current.id,
+              model: value.model,
+              options: value.options,
+              label: choiceLabel(catalog, value, defaultLabel),
+            },
+          ];
+    const exists = base.some(
+      (x) => x.harness === target.harness && x.model === target.model,
+    );
+    const next = exists
+      ? base.filter(
+          (x) => !(x.harness === target.harness && x.model === target.model),
+        )
+      : [...base, target];
+    if (next.length <= 1) {
+      onSelectedModelsChange([]);
+      if (next.length === 1 && next[0].harness === current.id) {
+        onChange({ model: next[0].model, options: next[0].options });
+      }
+    } else {
+      onSelectedModelsChange(next);
+    }
+  };
+
   const pick = (model: string) => {
     setPending(undefined);
+    if (selectedModels?.length) onSelectedModelsChange?.([]);
     onChange({ model, options: keepOptions(catalog, model, value.options) });
   };
-  const activate = (e: Entry) => {
+  const activate = (e: Entry, shiftKey = false) => {
+    if (multiSelect && shiftKey && onSelectedModelsChange) {
+      toggleMulti(e);
+      return;
+    }
     if (e.kind === 'other') setPending({ harness: e.harness, model: e.id });
     else pick(entryModel(e));
   };
@@ -523,7 +621,7 @@ function PickerPanel({
         break;
       case 'Enter':
         e.preventDefault();
-        if (activeRow) activate(activeRow.entry);
+        if (activeRow) activate(activeRow.entry, e.shiftKey);
         break;
     }
   };
@@ -532,7 +630,19 @@ function PickerPanel({
     const key = entryKey(r.entry);
     const i = rows.indexOf(r);
     const model = isCurrentEntry(r.entry) ? entryModel(r.entry) : undefined;
-    const isCurrent = model !== undefined && model === value.model;
+    const isMultiSelected =
+      !!multiSelect &&
+      !!selectedModels &&
+      selectedModels.length > 1 &&
+      selectedModels.some((x) =>
+        r.entry.kind === 'other'
+          ? x.harness === r.entry.harness && x.model === r.entry.id
+          : x.harness === current.id && x.model === model,
+      );
+    const isCurrent =
+      !(multiSelect && selectedModels && selectedModels.length > 1) &&
+      model !== undefined &&
+      model === value.model;
     const chosenForSwitch =
       r.entry.kind === 'other' &&
       pending?.harness === r.entry.harness &&
@@ -547,12 +657,13 @@ function PickerPanel({
         aria-selected={i === index}
         aria-label={r.title}
         aria-description={r.description}
-        data-current={isCurrent || undefined}
+        data-current={isCurrent || isMultiSelected || undefined}
+        data-multi-selected={isMultiSelected || undefined}
         data-pending={chosenForSwitch || undefined}
         title={r.entry.kind === 'default' ? undefined : r.entry.id || undefined}
         onMouseMove={() => i !== index && setActiveKey(key)}
         onMouseDown={(ev) => ev.preventDefault()}
-        onClick={() => activate(r.entry)}
+        onClick={(ev) => activate(r.entry, ev.shiftKey)}
         className={cn(
           'group flex h-10 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-sm',
           i === index && 'bg-accent',
@@ -560,9 +671,12 @@ function PickerPanel({
       >
         <BrandIcon brand={r.icon} />
         <span className="min-w-0 truncate">{r.title}</span>
-        {(isCurrent || chosenForSwitch) && (
+        {(isCurrent || isMultiSelected || chosenForSwitch) && (
           <Check
-            className={cn('size-4 shrink-0', chosenForSwitch && 'text-sky-500')}
+            className={cn(
+              'size-4 shrink-0',
+              (chosenForSwitch || isMultiSelected) && 'text-sky-500',
+            )}
             aria-hidden
           />
         )}
@@ -614,6 +728,7 @@ function PickerPanel({
     );
   };
 
+  const isThreadScope = harnessSwitch?.scope === 'thread';
   // What the list says before the rows of another harness.
   const intro = !q && viewed && viewed.id !== current.id && harnessSwitch && (
     <li
@@ -621,8 +736,9 @@ function PickerPanel({
       className="grid gap-1 px-2.5 pt-1.5 pb-2 text-xs text-muted-foreground"
     >
       <span>
-        A model here switches {harnessSwitch.agentName} to {viewed.name} (all
-        threads).
+        {isThreadScope
+          ? `A model here switches this thread to ${viewed.name}.`
+          : `A model here switches ${harnessSwitch.agentName} to ${viewed.name} (all threads).`}
         {!viewed.catalog?.models.length &&
           ` Its models show once ${harnessSwitch.agentName} has run on ${viewed.name}.`}
       </span>
@@ -806,7 +922,10 @@ function PickerPanel({
                         {s.label}
                         {q && s.harness !== current.id && harnessSwitch && (
                           <span className="tracking-normal normal-case">
-                            · switches {harnessSwitch.agentName}
+                            · switches{' '}
+                            {isThreadScope
+                              ? 'this thread'
+                              : harnessSwitch.agentName}
                           </span>
                         )}
                       </li>
@@ -853,26 +972,50 @@ function PickerPanel({
           )}
         </aside>
       </div>
-      {toggles.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t px-3 py-2">
-          {toggles.map((o) => {
-            const [off, on] = toggleLabels(o);
-            return (
-              <Segmented
-                key={o.id}
-                label={off === 'Standard' ? 'Speed' : o.name}
-                ariaLabel={o.name}
-                hint={o.description}
-                values={[
-                  { value: o.values[0].value, name: off },
-                  { value: onValue(o), name: on },
-                ]}
-                // Nothing chosen is the harness's default: off.
-                selected={value.options[o.id] ?? o.values[0].value}
-                onSelect={(v) => setOption(o, v)}
-              />
-            );
-          })}
+      {(toggles.length > 0 || multiSelect) && (
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t px-3 py-2">
+          {toggles.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              {toggles.map((o) => {
+                const [off, on] = toggleLabels(o);
+                return (
+                  <Segmented
+                    key={o.id}
+                    label={off === 'Standard' ? 'Speed' : o.name}
+                    ariaLabel={o.name}
+                    hint={o.description}
+                    values={[
+                      { value: o.values[0].value, name: off },
+                      { value: onValue(o), name: on },
+                    ]}
+                    // Nothing chosen is the harness's default: off.
+                    selected={value.options[o.id] ?? o.values[0].value}
+                    onSelect={(v) => setOption(o, v)}
+                  />
+                );
+              })}
+            </div>
+          )}
+          {multiSelect && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {selectedModels && selectedModels.length > 1 ? (
+                <>
+                  <span className="font-medium text-foreground">
+                    {selectedModels.length} models selected (parallel threads)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onSelectedModelsChange?.([])}
+                    className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    Clear
+                  </button>
+                </>
+              ) : (
+                <span>Shift-click to select multiple models</span>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -978,7 +1121,9 @@ function SwitchConfirm({
       <p className="flex items-center gap-2 font-medium">
         <HarnessIcon harness={target.id} iconUrl={target.iconUrl} />
         <span>
-          Switches {sw.agentName} to {target.name} (all threads)
+          {sw.scope === 'thread'
+            ? `Switches this thread to ${target.name}`
+            : `Switches ${sw.agentName} to ${target.name} (all threads)`}
         </span>
       </p>
       <p className="text-xs text-muted-foreground">
@@ -987,8 +1132,9 @@ function SwitchConfirm({
       </p>
       {sw.busy && (
         <p role="alert" className="text-xs text-amber-600 dark:text-amber-400">
-          A thread is still running. Switch once it has finished (or stop it):
-          the harness restarts.
+          {sw.scope === 'thread'
+            ? 'This thread is still running. Switch once it has finished (or stop it).'
+            : 'A thread is still running. Switch once it has finished (or stop it): the harness restarts.'}
         </p>
       )}
       {problem && (

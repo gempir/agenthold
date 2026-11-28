@@ -155,14 +155,14 @@ it('appends review comments to the draft while no rich composer is mounted', () 
 
 it('hands review comments to a mounted rich composer instead', () => {
   const { result, unmount } = renderHook(() => useComposerContext('s2'));
-  expect(result.current).toEqual([]);
+  expect(result.current.chips).toEqual([]);
   act(() => {
     expect(attachToComposer('s2', comment({ id: 'x' }))).toBe(true);
   });
-  expect(result.current.map((c) => c.id)).toEqual(['x']);
+  expect(result.current.chips.map((c) => c.id)).toEqual(['x']);
   expect(getDraft('s2')).toBe('');
   act(() => removeComposerContext('s2', 'x'));
-  expect(result.current).toEqual([]);
+  expect(result.current.chips).toEqual([]);
   unmount();
   // Unmounted: back to the draft.
   expect(attachToComposer('s2', comment())).toBe(false);

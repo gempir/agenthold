@@ -1,5 +1,11 @@
 import { stubGlobal } from '@/test-setup';
-import { waitFor, render, screen, within } from '@testing-library/react';
+import {
+  fireEvent,
+  waitFor,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, setSystemTime, vi } from 'bun:test';
 import {
@@ -1025,4 +1031,114 @@ it('visualizes sub-threads and lets you jump into a codex sub-thread and back ou
   // Jump right back out to the parent thread.
   await userEvent.click(backLink);
   await waitFor(() => expect(router.state.location.href).toBe('/a/a1?s=s1'));
+});
+
+it('switches harness and permission mode per thread without mutating the agent', async () => {
+  stubGlobal('WebSocket', FakeSocket);
+  const { calls } = mockApi({
+    'GET /me': me,
+    'GET /harnesses': harnessTypes,
+    'GET /agents/a1': agent({ role: 'owner', state: 'running' }),
+    'GET /agents/a1/sessions': [session({ id: 's1', harness: 'claude-code' })],
+    'GET /agents/a1/models': claudeModels,
+    'GET /agents/a1/models?harness=codex': codexModels,
+    'GET /agents/a1/models?harness=opencode': opencodeModels,
+    'GET /sessions/s1/queue': [],
+    'PATCH /sessions/s1/harness': session({ id: 's1', harness: 'codex' }),
+    'PATCH /sessions/s1/settings': session({
+      id: 's1',
+      permissionMode: 'plan',
+    }),
+  });
+  renderApp('/a/a1?s=s1');
+  const user = userEvent.setup();
+
+  // Switch harness inside thread -> PATCH /sessions/s1/harness (NEVER PATCH /agents/a1)
+  await user.click(
+    await screen.findByRole('button', { name: /Model for this conversation/ }),
+  );
+  await user.click(await screen.findByRole('tab', { name: 'Codex' }));
+  await user.click(screen.getByRole('option', { name: 'Default model' }));
+  const confirm = screen.getByRole('group', { name: 'Switch to Codex' });
+  expect(confirm).toHaveTextContent('Switches this thread to Codex');
+  await user.click(
+    within(confirm).getByRole('button', { name: 'Switch to Codex' }),
+  );
+  await waitFor(() =>
+    expect(
+      calls.find((c) => c.key === 'PATCH /sessions/s1/harness')?.body,
+    ).toEqual({ harness: 'codex', modelOptions: {} }),
+  );
+  expect(calls.some((c) => c.key === 'PATCH /agents/a1')).toBe(false);
+
+  // Switch permission mode -> PATCH /sessions/s1/settings
+  await user.click(
+    screen.getByRole('button', { name: 'Permission mode: Full access' }),
+  );
+  await user.click(screen.getByRole('menuitem', { name: /Plan/ }));
+  await waitFor(() =>
+    expect(
+      calls.find((c) => c.key === 'PATCH /sessions/s1/settings')?.body,
+    ).toEqual({ permissionMode: 'plan' }),
+  );
+});
+
+it('launches parallel project worktree threads for Shift-clicked multi-models and supports Cmd+Enter background start', async () => {
+  stubGlobal('WebSocket', FakeSocket);
+  let seq = 0;
+  const { calls } = mockApi({
+    'GET /me': me,
+    'GET /harnesses': harnessTypes,
+    'GET /agents/a1': agent({ role: 'owner', state: 'running' }),
+    'GET /agents/a1/sessions': [],
+    'GET /projects': [project()],
+    'GET /agents/a1/models': {
+      ...claudeModels,
+      models: [
+        { id: 'opus', name: 'Opus 5.5', group: 'Anthropic' },
+        { id: 'sonnet', name: 'Sonnet 5.5', group: 'Anthropic' },
+      ],
+    },
+    'GET /agents/a1/models?harness=codex': codexModels,
+    'GET /agents/a1/models?harness=opencode': opencodeModels,
+    'POST /projects/p1/threads': () => ({
+      status: 201,
+      body: session({ id: `s${++seq}`, title: `Run ${seq}` }),
+    }),
+    'PATCH /sessions/s1/settings': session({ id: 's1' }),
+    'PATCH /sessions/s2/settings': session({ id: 's2' }),
+    'POST /sessions/s1/prompt': { status: 202 },
+    'POST /sessions/s2/prompt': { status: 202 },
+  });
+  const { router } = renderApp('/a/a1');
+  const user = userEvent.setup();
+
+  // Select project
+  await user.click(await screen.findByRole('button', { name: 'Project' }));
+  await user.click(screen.getByRole('menuitem', { name: /agenthold/ }));
+
+  // Shift-click two models
+  await user.click(
+    await screen.findByRole('button', { name: /Model for this conversation/ }),
+  );
+  await user.click(screen.getByRole('option', { name: 'Opus 5.5' }));
+  fireEvent.click(screen.getByRole('option', { name: 'Sonnet 5.5' }), {
+    shiftKey: true,
+  });
+  await user.keyboard('{Escape}');
+
+  // Background start via Cmd+Enter -> stays on /a/a1, creates 2 separate worktree threads
+  const box = screen.getByRole('textbox', { name: 'Message' });
+  await user.type(box, 'Compare solutions');
+  fireEvent.keyDown(box, { key: 'Enter', metaKey: true });
+
+  expect(await screen.findByTestId('background-started')).toHaveTextContent(
+    'Started 2 threads in background',
+  );
+  expect(router.state.location.href).toBe('/a/a1');
+  expect(
+    calls.filter((c) => c.key === 'POST /projects/p1/threads'),
+  ).toHaveLength(2);
+  expect(calls.some((c) => c.key === 'POST /sessions/s1/prompt')).toBe(true);
+  expect(calls.some((c) => c.key === 'POST /sessions/s2/prompt')).toBe(true);
 });

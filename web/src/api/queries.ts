@@ -116,6 +116,11 @@ export const agentQuery = (agentId: string) =>
 
 export type Session = components['schemas']['Session'];
 export type SessionGit = components['schemas']['SessionGit'];
+export type PermissionMode = components['schemas']['PermissionMode'];
+export type QueuedMessage = components['schemas']['QueuedMessage'];
+export type Skill = components['schemas']['Skill'];
+export type FileSearchResult = components['schemas']['FileSearchResult'];
+export type FileMatch = components['schemas']['FileMatch'];
 export type HarnessType = components['schemas']['HarnessType'];
 export type CustomHarness = components['schemas']['CustomHarness'];
 export type CustomHarnessInput = components['schemas']['CustomHarnessInput'];
@@ -124,6 +129,59 @@ export type AcpRegistryAgent = components['schemas']['AcpRegistryAgent'];
 export type AcpRegistrySearchResponse =
   components['schemas']['AcpRegistrySearchResponse'];
 export type HarnessAuthFlow = components['schemas']['HarnessAuthFlow'];
+
+export const sessionQueueQuery = (sessionId: string) =>
+  queryOptions({
+    queryKey: ['sessions', sessionId, 'queue'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/sessions/{sessionId}/queue', {
+          params: { path: { sessionId } },
+        }),
+      ),
+    retry: false,
+  });
+
+export const skillsQuery = queryOptions({
+  queryKey: ['skills'],
+  queryFn: () => unwrap(api.GET('/skills')),
+  staleTime: 30_000,
+  retry: false,
+});
+
+export const agentSkillsQuery = (agentId: string) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'skills'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/skills', {
+          params: { path: { agentId } },
+        }),
+      ),
+    staleTime: 30_000,
+    retry: false,
+  });
+
+export const fileSearchQuery = (
+  agentId: string,
+  q: string,
+  path?: string,
+  limit = 10,
+) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'files', 'search', path ?? '', q, limit],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/files/search', {
+          params: {
+            path: { agentId },
+            query: { ...(path ? { path } : {}), q, limit },
+          },
+        }),
+      ),
+    staleTime: 10_000,
+    retry: false,
+  });
 
 export const sessionsQuery = (agentId: string) =>
   queryOptions({

@@ -1,8 +1,8 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowUp, Paperclip, Square, X } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { IMAGE_TYPES, type Attachment } from "@/lib/attachments";
-import { Lightbox } from "@/components/chat/Lightbox";
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { ArrowUp, Paperclip, Square, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { IMAGE_TYPES, type Attachment } from '@/lib/attachments';
+import { Lightbox } from '@/components/chat/Lightbox';
 
 const MAX_HEIGHT = 240;
 
@@ -60,14 +60,14 @@ export function Composer({
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
-    el.style.height = "auto";
+    el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`;
   }, [value]);
 
   return (
     <form
       className={cn(
-        "relative rounded-2xl border bg-card shadow-lg shadow-black/10 transition-colors focus-within:border-foreground/20",
+        'relative rounded-2xl border bg-card shadow-lg shadow-black/10 transition-colors focus-within:border-foreground/20',
         className,
       )}
       onSubmit={(e) => {
@@ -115,10 +115,10 @@ export function Composer({
             multiple
             hidden
             aria-label="Attach images"
-            accept={IMAGE_TYPES.join(",")}
+            accept={IMAGE_TYPES.join(',')}
             onChange={(e) => {
               onAttach(Array.from(e.target.files ?? []));
-              e.target.value = "";
+              e.target.value = '';
             }}
           />
           <button
@@ -145,12 +145,12 @@ export function Composer({
         onPaste={(e) => {
           if (!onAttach) return;
           const files = Array.from(e.clipboardData.files);
-          if (!files.some((f) => f.type.startsWith("image/"))) return;
+          if (!files.some((f) => f.type.startsWith('image/'))) return;
           e.preventDefault();
           onAttach(files);
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
             if (canSend) onSubmit();
           }

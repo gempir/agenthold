@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 
 /** The workspace tabs every panel has. */
 export type BuiltinTab =
-  'overview' | 'diff' | 'git' | 'files' | 'terminal' | 'activity';
+  'overview' | 'diff' | 'git' | 'files' | 'preview' | 'terminal' | 'activity';
 
 /**
  * A right-panel tab: a built-in one, a workspace file ("file:<path>" with an
@@ -17,6 +17,7 @@ const BUILTIN: readonly string[] = [
   'diff',
   'git',
   'files',
+  'preview',
   'terminal',
   'activity',
 ];

@@ -3,6 +3,7 @@ package sandboxd
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ServeMCP runs the platform MCP server on stdio ("sandboxd mcp"). The
@@ -109,6 +111,10 @@ func ServeMCP(in io.Reader, out io.Writer) error {
 				reply(map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": err.Error()}}})
 				continue
 			}
+			if blocks, ok := mcpContent(res, home); ok {
+				reply(map[string]any{"content": blocks})
+				continue
+			}
 			var text string
 			if json.Unmarshal(res, &text) != nil {
 				text = string(res)
@@ -119,4 +125,51 @@ func ServeMCP(in io.Reader, out io.Writer) error {
 		}
 	}
 	return sc.Err()
+}
+
+// mcpMaxImage bounds an image file inlined into a tool result.
+const mcpMaxImage = 8 << 20
+
+// mcpContent turns a result of the form {"mcpContent": [blocks]} into MCP
+// content blocks. An image block naming a file (below the screenshots
+// directory of the home) is read and inlined here, in the sandbox.
+func mcpContent(res json.RawMessage, home string) ([]any, bool) {
+	var r struct {
+		Content []struct {
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			Data     string `json:"data"`
+			MimeType string `json:"mimeType"`
+			File     string `json:"file"`
+		} `json:"mcpContent"`
+	}
+	if len(res) == 0 || res[0] != '{' || json.Unmarshal(res, &r) != nil || len(r.Content) == 0 {
+		return nil, false
+	}
+	dir := filepath.Join(home, ScreenshotDir) + string(filepath.Separator)
+	out := make([]any, 0, len(r.Content))
+	for _, b := range r.Content {
+		switch b.Type {
+		case "text":
+			out = append(out, map[string]any{"type": "text", "text": b.Text})
+		case "image":
+			data := b.Data
+			if b.File != "" {
+				f := filepath.Clean(b.File)
+				fi, err := os.Stat(f)
+				if !strings.HasPrefix(f, dir) || err != nil || fi.Size() > mcpMaxImage {
+					continue
+				}
+				raw, err := os.ReadFile(f)
+				if err != nil {
+					continue
+				}
+				data = base64.StdEncoding.EncodeToString(raw)
+			}
+			if data != "" {
+				out = append(out, map[string]any{"type": "image", "data": data, "mimeType": b.MimeType})
+			}
+		}
+	}
+	return out, len(out) > 0
 }

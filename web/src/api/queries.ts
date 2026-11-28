@@ -226,6 +226,25 @@ export const exposuresQuery = (agentId: string) =>
     retry: false,
   });
 
+export type BrowserState = components['schemas']['BrowserState'];
+export type BrowserElement = components['schemas']['BrowserElement'];
+export type BrowserRect = components['schemas']['BrowserRect'];
+export type BrowserInteractInput =
+  components['schemas']['BrowserInteractInput'];
+
+/** The machine's headless browser (never starts it). */
+export const browserStatusQuery = (agentId: string) =>
+  queryOptions({
+    queryKey: ['agents', agentId, 'browser', 'status'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/browser/status', {
+          params: { path: { agentId } },
+        }),
+      ),
+    retry: false,
+  });
+
 export type Service = components['schemas']['Service'];
 export type ServiceStatus = components['schemas']['ServiceStatus'];
 

@@ -59,6 +59,9 @@ const (
 	// OpFSSearch searches file paths below Path (inside the home) for Query
 	// and answers with a FileSearchReply.
 	OpFSSearch = "fs.search"
+	// OpBrowser drives the sandbox's headless browser (see BrowserRequest)
+	// and answers with a data-framed BrowserReply.
+	OpBrowser = "browser"
 )
 
 // Open is the first frame on every stream.
@@ -106,6 +109,9 @@ type Open struct {
 	EndLine   int    `json:"endLine,omitempty"`
 	Query     string `json:"query,omitempty"`
 	Limit     int    `json:"limit,omitempty"`
+
+	// browser
+	Browser *BrowserRequest `json:"browser,omitempty"`
 
 	// platform (opened by sandboxd): a platform tool call from an MCP client.
 	Tool    string          `json:"tool,omitempty"`

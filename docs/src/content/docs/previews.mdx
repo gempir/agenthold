@@ -119,6 +119,35 @@ Scripts can send an agenthold API token as `Authorization: Bearer ahp_...`. An `
 contains an agenthold token (any scheme) never reaches the app. Signing out of agenthold also ends all preview
 sessions; `/_agenthold/logout` (a POST; GET shows a button) ends one. Paths under `/_agenthold/` are reserved.
 
+## Preview panel and the sandbox browser
+
+The thread's right-hand panel has a **Preview** tab with two views:
+
+- **Live app** lists the machine's exposures as chips and shows the chosen one in a frame, with an address bar,
+  reload, open in a new tab and viewport presets (Fill, Desktop 1280×800, Tablet 768×1024, Mobile 390×844, each
+  rotatable). Everyone who can open the agent sees it.
+- **Sandbox browser** (for those who may use the agent) drives a headless Chromium *inside the machine*, so
+  `http://localhost:<port>` reaches any server there, exposed or not, and external sites load as the machine sees
+  them. The panel shows its viewport as a screenshot: clicks on it are scaled to the page, keys and the type box go
+  to the page, the wheel scrolls; back, forward, reload, viewport presets, a screenshot refresh and an **Auto**
+  refresh (every 3 s, while you watch the agent work) sit above it. **Annotate** lets you click an element (matched
+  against the page's interactive elements) or drag a region, write a note and **Send to composer**: the note goes to
+  the thread's next message with the page URL, viewport, the element's role, name, CSS selector and box (or the
+  region).
+
+sandboxd starts one Chromium per machine on first use (`--headless=new`, profile in
+`~/.agenthold/browser-profile`, the egress CA trusted), finds it at `$CHROME_BIN` or on the `PATH` (the base image
+ships it) and stops it after 15 minutes without use. Only `http` and `https` URLs open; a machine without Chromium
+answers `503`. The API is under `/agents/{id}/browser/` (`status`, `navigate`, `screenshot`, `interact`,
+`snapshot`, `close`); navigation, input and closing are audited (typed text only by its length). `interact`'s
+`eval` action is a read-only DOM query: it returns the elements matching a CSS selector and runs no script of the
+caller's.
+
+Agents get the same browser as platform tools: `preview_navigate(url, width?, height?)`, `preview_snapshot()` (URL,
+title, console errors, visible text and interactive elements with selectors and boxes), `preview_interact(action,
+selector?, text?, key?, x?, y?, dx?, dy?)` and `preview_screenshot(width?, height?)`, which returns the screenshot as
+an image and saves it to `~/.agenthold/screenshots/<time>.png`.
+
 ## Identity headers
 
 agenthold removes every incoming `X-Agenthold-*`, `X-Forwarded-*` and `Forwarded` header (also spelled with

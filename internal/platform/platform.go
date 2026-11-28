@@ -49,6 +49,9 @@ type Service struct {
 	Apps *apps.Manager
 	// Projects works with projects; their tools are listed when it is set.
 	Projects *project.Service
+	// Machine reaches the calling agent's machine for the browser tools
+	// (preview_*), which are listed when it (or Projects.Machine) is set.
+	Machine project.MachineFunc
 }
 
 // Tools are the platform tools in MCP form.
@@ -130,6 +133,9 @@ func (p *Service) tools() []map[string]any {
 	if p.Projects != nil {
 		out = append(out, projectTools...)
 	}
+	if p.machine() != nil {
+		out = append(out, browserTools...)
+	}
 	return out
 }
 
@@ -174,6 +180,9 @@ func (p *Service) Call(ctx context.Context, callerID, sessionID, tool string, ar
 	}
 	if p.Projects != nil && isProjectTool(tool) {
 		return p.projectCall(ctx, caller, sessionID, tool, args)
+	}
+	if isBrowserTool(tool) {
+		return p.browserCall(ctx, caller, tool, args)
 	}
 	var in toolArgs
 	if len(args) > 0 {

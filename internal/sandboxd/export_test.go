@@ -23,3 +23,11 @@ func SetHarnessTestHooks(beforeWait func(pid int), afterStop func()) {
 
 // ProcessExited exposes processExited.
 var ProcessExited = processExited
+
+// SetBrowserTiming changes how long input settles and when an unused browser
+// stops, and returns a restore function.
+func SetBrowserTiming(settle, idle time.Duration) func() {
+	a, b := browserSettle, browserIdle
+	browserSettle, browserIdle = settle, idle
+	return func() { browserSettle, browserIdle = a, b }
+}

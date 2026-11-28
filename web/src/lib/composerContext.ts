@@ -3,7 +3,8 @@ import { agentDraftKey, getDraft, setDraft } from '@/lib/drafts';
 
 /**
  * Context the user attaches to a thread's next message from outside the
- * composer: review comments on diff and file lines, for now.
+ * composer: review comments on diff and file lines, and annotations on
+ * pages of the machine's browser.
  *
  * A rich composer (chips) registers itself with useComposerContext(key) and
  * gets the items to show; without one, attachToComposer appends the item as
@@ -25,7 +26,25 @@ export type ReviewComment = {
   body: string;
 };
 
-export type ComposerContextItem = ReviewComment;
+/** A box on a page, in viewport CSS pixels. */
+export type PageRect = { x: number; y: number; width: number; height: number };
+
+/**
+ * A note on a page of the machine's browser: on an element the user picked
+ * or a region they drew on its screenshot.
+ */
+export type BrowserAnnotation = {
+  kind: 'browser';
+  id: string;
+  url: string;
+  title?: string;
+  viewport: { width: number; height: number };
+  element?: { role: string; name: string; selector: string; rect: PageRect };
+  region?: PageRect;
+  body: string;
+};
+
+export type ComposerContextItem = ReviewComment | BrowserAnnotation;
 
 /** The draft key of the composer a page's context goes to. */
 export const composerKey = (agentId: string, sessionId?: string) =>
@@ -47,8 +66,28 @@ const lineLabel = (c: ReviewComment) =>
     ? `line ${c.startLine}`
     : `lines ${c.startLine}-${c.endLine}`;
 
+const box = (r: PageRect) =>
+  `${Math.round(r.width)}×${Math.round(r.height)} at (${Math.round(r.x)}, ${Math.round(r.y)})`;
+
+function formatAnnotation(c: BrowserAnnotation): string {
+  const page = c.title ? `${c.url} ("${c.title}")` : c.url;
+  const lines = [
+    `Annotation on ${page}, viewport ${c.viewport.width}×${c.viewport.height}:`,
+  ];
+  if (c.element) {
+    const name = c.element.name ? ` "${c.element.name}"` : '';
+    lines.push(
+      `- element: ${c.element.role}${name}, selector \`${c.element.selector}\`, ${box(c.element.rect)}`,
+    );
+  }
+  if (c.region) lines.push(`- region: ${box(c.region)}`);
+  lines.push(c.body.trim());
+  return lines.join('\n');
+}
+
 /** The text an item stands for in the prompt. */
 export function formatContext(c: ComposerContextItem): string {
+  if (c.kind === 'browser') return formatAnnotation(c);
   const where = `\`${c.path}\` ${lineLabel(c)}${c.side === 'old' ? ' (removed)' : ''}`;
   const lines = [`Review comment on ${where} (${c.source}):`];
   if (c.excerpt.trim()) {

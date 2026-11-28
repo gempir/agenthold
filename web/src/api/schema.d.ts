@@ -4,8531 +4,8514 @@
  */
 
 export interface paths {
-  '/version': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['getVersion'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sandbox/limits': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['getSandboxLimits'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/auth/providers': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['listAuthProviders'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/auth/login/{provider}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['login'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/auth/callback/{provider}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['loginCallback'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/auth/local': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * @description Sign in as the local admin configured in `auth.local`. Sets the
-     *     session cookie. Attempts are rate limited per client address.
-     */
-    post: operations['localLogin'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/auth/logout': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['logout'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['getMe'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/admin/users': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Every user of this installation with its role: the role sign-in configuration gives it, the override an admin set (if any) and the role that results. Admins only. */
-    get: operations['listAdminUsers'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/admin/users/{userId}/role': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    /** @description Overrides a user's role (it then wins over configuration) or, with `override: null`, removes the override so configuration decides again. Takes effect at the user's next request. Admins only; the local admin and your own account cannot be changed. */
-    put: operations['setUserRoleOverride'];
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/nodes': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Nodes that run agents and their status. Admins only. */
-    get: operations['listNodes'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/admin/overview': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Everything running on this installation: every node, and every machine (agents and apps, of all owners) with its state, owner, configured size and live usage. Admins only (the same notion as the node endpoints: the local admin and users listed in auth.admins). Live usage comes from inside running machines, fetched concurrently with a short timeout and cached for a few seconds; a machine that does not answer keeps its row and gets a `usageReason` instead. Sleeping machines are never woken. Machines of an offline node are `unreachable` and are not contacted. */
-    get: operations['getAdminOverview'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/admin/slack': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description The Slack app this installation is connected to, if any, and the state of its Socket Mode connection. Tokens are never returned. Admins only. */
-    get: operations['getSlackSettings'];
-    /** @description Connects a Slack app: the bot token is checked with auth.test and the app-level token by opening a Socket Mode connection; the workspace and bot user are recorded, the tokens stored encrypted and the connection (re)started. A token Slack refuses is answered with 400 and Slack's error. Admins only. */
-    put: operations['configureSlack'];
-    post?: never;
-    /** @description Disconnects the Slack app and forgets its tokens. Linked users and threads are kept. Admins only. */
-    delete: operations['deleteSlack'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/admin/slack/manifest': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description The Slack app manifest for this server (Socket Mode, the /agenthold command, App Home, the bot scopes and events the integration uses). Create the app from it at api.slack.com. Admins only. */
-    get: operations['getSlackManifest'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/nodes/join-tokens': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Creates a single-use token for `agenthold node --join <token>`. The token is shown once and expires after ttlMinutes (default 60, at most 1440). Admins only. */
-    post: operations['createNodeJoinToken'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/nodes/{nodeId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        nodeId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    /** @description Removes an edge node and disconnects it. Refused while the node hosts agents, unless the node is offline and force is set: then its agents are forgotten (their disks stay on that machine). Admins only. */
-    delete: operations['deleteNode'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/images': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Lists the built-in base image and all custom enterprise images. All signed-in users may list images to pick one when creating an agent or app; build-time secret IDs are included for admins only. */
-    get: operations['listImages'];
-    put?: never;
-    /** @description Creates a custom image recipe. Admins only. */
-    post: operations['createImage'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/images/{imageId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        imageId: string;
-      };
-      cookie?: never;
-    };
-    /** @description Returns a custom image and its build history. */
-    get: operations['getImage'];
-    put?: never;
-    post?: never;
-    /** @description Deletes a custom image when no machine references it. Admins only. */
-    delete: operations['deleteImage'];
-    options?: never;
-    head?: never;
-    /** @description Updates a custom image recipe or its default status. Admins only. */
-    patch: operations['updateImage'];
-    trace?: never;
-  };
-  '/images/{imageId}/builds': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        imageId: string;
-      };
-      cookie?: never;
-    };
-    /** @description Lists builds of a custom image, newest revision first. Admins only. */
-    get: operations['listImageBuilds'];
-    put?: never;
-    /** @description Starts a new revision build of the image on one connected node per architecture. Admins only. */
-    post: operations['startImageBuild'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/images/{imageId}/builds/{buildId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        imageId: string;
-        buildId: string;
-      };
-      cookie?: never;
-    };
-    /** @description Returns a build's status and full/live log output. Admins only. */
-    get: operations['getImageBuild'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Agents you own and agents shared with you. Templates are left out unless asked for. */
-    get: operations['listAgents'];
-    put?: never;
-    /** @description Create an agent. You become its owner. It is placed on the connected node with the most available memory unless an admin names a node in `nodeId`. */
-    post: operations['createAgent'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get: operations['getAgent'];
-    put?: never;
-    post?: never;
-    /** @description Destroys the sandbox and its home volume, then the agent. Runs in the background. */
-    delete: operations['deleteAgent'];
-    options?: never;
-    head?: never;
-    /** @description Resource changes take effect after a system reset (see `needsRebuild`). */
-    patch: operations['updateAgent'];
-    trace?: never;
-  };
-  '/agents/{agentId}/start': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['startAgent'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/stop': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['stopAgent'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/rebuild': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Owner only. */
-    post: operations['rebuildAgent'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/clone': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * @description Clone the machine: a new agent with a copy of its system and home disks and of its settings,
-     *     attached MCP servers, skills and secrets (not its shares, sessions, schedules or webhooks).
-     *     A running machine is stopped for the copy and started again afterwards (409 while it works on a
-     *     prompt). 409 also when its system needs a reset first: it is on an older base image than the current
-     *     one, or has pending changes, and a clone would inherit that. The clone is placed on
-     *     the same node and provisioned in the background. A template is cloned the same way ("new agent
-     *     from template"). Owner only: the home disk can hold harness credentials.
-     *
-     *     Cloning is machine-level: for an app id it makes a new app (kind `app`, owned by you, managed by
-     *     no agent) with a copy of its disks and services but not its exposures; its name must be a free
-     *     app name and `apps.max_per_owner` applies. Apps can be templates under the same rules.
-     */
-    post: operations['cloneAgent'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/apps': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Apps you own and apps shared with you. */
-    get: operations['listApps'];
-    put?: never;
-    /** @description Create an app (a machine without a harness). You become its owner. */
-    post: operations['createApp'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/apps/{appId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: components['parameters']['AppId'];
-      };
-      cookie?: never;
-    };
-    get: operations['getApp'];
-    put?: never;
-    post?: never;
-    /** @description Owner only. Destroys the machine and its disks. Runs in the background. */
-    delete: operations['deleteApp'];
-    options?: never;
-    head?: never;
-    /** @description Owner only. Resource changes take effect after a system reset (see `needsRebuild`). */
-    patch: operations['updateApp'];
-    trace?: never;
-  };
-  '/apps/{appId}/start': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: components['parameters']['AppId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['startApp'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/apps/{appId}/stop': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: components['parameters']['AppId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['stopApp'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/apps/{appId}/rebuild': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: components['parameters']['AppId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Owner only. Resets the system disk; the home disk (with the deployed releases) is kept. */
-    post: operations['rebuildApp'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/apps/{appId}/take-over': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: components['parameters']['AppId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * @description Owner only. The agent that created the app stops managing it: it can
-     *     no longer deploy to it, run commands in it, read its logs, restart,
-     *     stop or delete it. No agent manages it afterwards; this cannot be
-     *     undone (an agent can only deploy a new app under another name).
-     */
-    post: operations['takeOverApp'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/apps/{appId}/deploy': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: components['parameters']['AppId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * @description Owner only. Copy a directory of a source machine (one you may open a
-     *     terminal in) into a new release of the app (`~/app/releases/<n>`),
-     *     point `~/app/current` at it, define the service `app` (the command
-     *     runs in `~/app/current` with `PORT`), (re)start it, expose the port and
-     *     wait up to 60 s for it to accept connections. A copy that fails
-     *     leaves the previous release serving; a release whose port does not
-     *     come up is rolled back (`ready` false, `rolledBack` true, `logs` set).
-     *     Sleeping machines are woken. The last 3 releases are kept.
-     */
-    post: operations['deployApp'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/terminal': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    /**
-     * @description WebSocket upgrade to an interactive shell in the sandbox (owner or shared user).
-     *     A sleeping agent is woken. Binary messages carry terminal input and
-     *     output. Text messages are JSON: the client sends
-     *     `{"type":"resize","cols":N,"rows":N}`; the server sends
-     *     `{"type":"status","message":"..."}` while waking,
-     *     `{"type":"exit","code":N}` and `{"type":"error","message":"..."}`.
-     */
-    get: operations['openTerminal'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/files': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    /** @description List a directory. Relative paths are relative to /home/agent. The agent must be running. */
-    get: operations['listFiles'];
-    put?: never;
-    post?: never;
-    delete: operations['deleteFile'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/files/content': {
-    parameters: {
-      query: {
-        path: string;
-      };
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get: operations['downloadFile'];
-    /** @description Create or replace a file (owner or shared user). Missing parent directories are created. */
-    put: operations['uploadFile'];
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/files/mkdir': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['makeDirectory'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/egress/ca.pem': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description The installation's egress CA certificate (trusted inside sandboxes). */
-    get: operations['getEgressCA'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/secrets/presets': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['listSecretPresets'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/secrets': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Your secrets. Values are never returned. */
-    get: operations['listSecrets'];
-    put?: never;
-    post: operations['createSecret'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/secrets/{secretId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        secretId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    delete: operations['deleteSecret'];
-    options?: never;
-    head?: never;
-    patch: operations['updateSecret'];
-    trace?: never;
-  };
-  '/agents/{agentId}/secrets': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get: operations['listAgentSecrets'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/secrets/{secretId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        secretId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    /**
-     * @description Attach one of your secrets to an agent you own.
-     *     Injection works immediately; a changed environment variable needs a system reset.
-     */
-    put: operations['attachSecret'];
-    post?: never;
-    delete: operations['detachSecret'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/harnesses': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['listHarnesses'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/acp-registry': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Search the official ACP Registry (ACP Store) for downloadable ACP coding agents. */
-    get: operations['searchAcpRegistry'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/harnesses': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description List your added ACP Store and local ACP command harnesses. */
-    get: operations['listCustomHarnesses'];
-    put?: never;
-    /** @description Add an ACP Registry agent or a local ACP command harness. */
-    post: operations['createCustomHarness'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/harnesses/{harnessId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        harnessId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    /** @description Remove a custom harness. Refused while agents still use it. */
-    delete: operations['deleteCustomHarness'];
-    options?: never;
-    head?: never;
-    /** @description Update settings of a custom harness (name, args, env, custom models, auth method). */
-    patch: operations['updateCustomHarness'];
-    trace?: never;
-  };
-  '/agents/{agentId}/harness/auth/start': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Start an interactive browser/code sign-in flow (such as Antigravity Google sign-in via `agy acp --login`) inside the agent's sandbox and return the authorization URL. */
-    post: operations['startHarnessAuth'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/harness/auth/submit': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Submit the pasted authorization code or callback URL to finish an interactive harness sign-in flow. */
-    post: operations['submitHarnessAuth'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/harness/auth/cancel': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Cancel an in-progress interactive harness sign-in flow. */
-    post: operations['cancelHarnessAuth'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/harness': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    /** @description The agent's harness. With connect=true the harness is started (waking the agent) to discover login methods. */
-    get: operations['getHarness'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/models': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    /**
-     * @description The models the agent's harness offers and their options (reasoning effort, fast mode), as the harness last
-     *     reported them, or agenthold's small fallback list for the harness when it never did. Does not wake the agent.
-     *     With `harness`, the catalog the agent would have on that other harness (what is stored for it, else the
-     *     fallback list), together with the login it would use: what the model picker shows for switching harness.
-     *     Only for users who may configure the agent.
-     */
-    get: operations['listModels'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/sessions': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get: operations['listSessions'];
-    put?: never;
-    post: operations['createSession'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sessions/{sessionId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    get: operations['getSession'];
-    put?: never;
-    post?: never;
-    delete: operations['deleteSession'];
-    options?: never;
-    head?: never;
-    patch: operations['renameSession'];
-    trace?: never;
-  };
-  '/sessions/{sessionId}/model': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    /**
-     * @description The session's own model and options. An empty model with no options returns the session to the agent's
-     *     default. It applies from the next message on (a running turn keeps its model).
-     */
-    put: operations['setSessionModel'];
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sessions/{sessionId}/prompt': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Start a turn (owner or shared user). Wakes the agent if it sleeps. Progress arrives on the event stream. */
-    post: operations['promptSession'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sessions/{sessionId}/settle': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * @description Settle the thread: mark it done and move it out of the active list. It stays readable and usable; a new
-     *     message unsettles it. Needs the right to send prompts to the agent. Settling a settled thread changes nothing.
-     */
-    post: operations['settleSession'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sessions/{sessionId}/unsettle': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * @description Move a settled thread back into the active list. The auto-settle period starts over. Needs the right to send
-     *     prompts to the agent.
-     */
-    post: operations['unsettleSession'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sessions/{sessionId}/cancel': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['cancelSession'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sessions/{sessionId}/permissions/{requestId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-        requestId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['answerPermission'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sessions/{sessionId}/events': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    /** @description Stored events after a cursor. For live updates use the stream. */
-    get: operations['listSessionEvents'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sessions/{sessionId}/stream': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    /**
-     * @description WebSocket. The server sends every event after `after` as a JSON text
-     *     message (a SessionEvent), then live events as they happen. After a
-     *     reconnect, pass the last seq received to continue without gaps.
-     *     `{"type":"status","running":bool}` messages report whether a turn runs;
-     *     `{"type":"presence","viewers":[{id,name,avatarUrl,role}]}` lists who is watching.
-     */
-    get: operations['streamSession'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/shares': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    /** @description The agent's owner and the users it is shared with. */
-    get: operations['listShares'];
-    put?: never;
-    /**
-     * @description Share the agent with another user (owner only), found by verified
-     *     email. A user exists once they have signed in. Shared users can use
-     *     the agent (threads, terminal, files) but not configure, share or delete it.
-     */
-    post: operations['shareAgent'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/shares/{userId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        userId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    /** @description Stop sharing with a user (owner), or leave an agent shared with you. */
-    delete: operations['unshareAgent'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/audit': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    /** @description Who did what to this agent (owner only). Newest first. */
-    get: operations['listAgentAudit'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/activity': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    /**
-     * @description What the platform is doing for this agent right now, oldest first: waking its machine (resume or cold
-     *     boot, and why), the guest's boot console, sandboxd's tunnel attempts, the harness start (process, ACP
-     *     initialize, session setup, first answer, with timings) and the harness's stderr. In memory on the
-     *     controller and bounded (the latest few hundred entries); poll with `after` for new ones. Anyone who can
-     *     use the agent.
-     */
-    get: operations['listAgentActivity'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/exposures': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    /**
-     * @description The machine's exposed ports (owner or shared user). `enabled` is false
-     *     when the server has no `preview.host_suffix`; the list is then empty.
-     */
-    get: operations['listExposures'];
-    put?: never;
-    /**
-     * @description Expose a TCP port of the machine over HTTP at
-     *     `<name><preview.host_suffix>` (owner only). The name defaults to
-     *     `<agent-name>-<port>`. A port can be exposed once.
-     */
-    post: operations['createExposure'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/exposures/{exposureId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        exposureId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    /** @description Stop exposing the port (owner only). */
-    delete: operations['deleteExposure'];
-    options?: never;
-    head?: never;
-    /** @description Rename an exposure or change who may open it (owner only). */
-    patch: operations['updateExposure'];
-    trace?: never;
-  };
-  '/agents/{agentId}/services': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    /**
-     * @description The machine's services (owner or shared user), with their live status
-     *     while the machine runs (`running` false: the machine is not connected
-     *     and every service is down; enabled services start with it).
-     */
-    get: operations['listServices'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/services/{serviceName}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serviceName: components['parameters']['ServiceName'];
-      };
-      cookie?: never;
-    };
-    get: operations['getService'];
-    /**
-     * @description Create or replace a service (owner only) and apply it to the running
-     *     machine: a new or changed service (re)starts, an unchanged one keeps
-     *     running. The command runs with `sh -lc` as the agent account in
-     *     `workdir` (relative to the home). Secrets reach services through
-     *     attached secrets' placeholders, never through `env`.
-     */
-    put: operations['putService'];
-    post?: never;
-    /** @description Stop and remove a service (owner only). */
-    delete: operations['deleteService'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/services/{serviceName}/start': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serviceName: components['parameters']['ServiceName'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Enable the service and start it if the machine runs (owner only). */
-    post: operations['startService'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/services/{serviceName}/stop': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serviceName: components['parameters']['ServiceName'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Disable the service and stop it with everything it started (owner only). */
-    post: operations['stopService'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/services/{serviceName}/restart': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serviceName: components['parameters']['ServiceName'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Restart the service now, resetting its backoff (owner only; the machine must run). */
-    post: operations['restartService'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/services/{serviceName}/logs': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serviceName: components['parameters']['ServiceName'];
-      };
-      cookie?: never;
-    };
-    /**
-     * @description The last `lines` lines (default 200, at most 10000) of the service's
-     *     output, as plain text (owner or shared user; the machine must run).
-     *     Lines starting with `agenthold:` are written by the supervisor
-     *     (starts, exits, restarts).
-     */
-    get: operations['getServiceLogs'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/services/{serviceName}/logs/stream': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serviceName: components['parameters']['ServiceName'];
-      };
-      cookie?: never;
-    };
-    /**
-     * @description WebSocket. The server sends the last `lines` lines, then new output
-     *     as it is written, as text messages of raw log text. It sends
-     *     `{"type":"error","message":"..."}` as a text message starting with
-     *     `{` only when following fails, then closes.
-     */
-    get: operations['streamServiceLogs'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/preview/authorize': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * @description Exposure hosts send browsers here when they have no preview cookie.
-     *     Only top-level navigations are served (`Sec-Fetch-Dest: document`,
-     *     `Sec-Fetch-Mode: navigate` when the browser sends them). Requires a
-     *     signed-in user (otherwise redirects to the login page and back),
-     *     checks access to the exposure, asks for consent when the exposure is
-     *     `authenticated` and the user has no access to the machine, and
-     *     redirects to `<exposure host>/_agenthold/callback` with a single-use
-     *     code bound to the exposure and to `state`.
-     */
-    get: operations['authorizePreview'];
-    put?: never;
-    /** @description The consent page's form. Records consent and continues like the GET. */
-    post: operations['confirmPreview'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/mcp-servers': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    /** @description The agent's own servers and attached library servers. */
-    get: operations['listAgentMCPServers'];
-    put?: never;
-    /** @description A server only this agent uses (owner only). */
-    post: operations['createAgentMCPServer'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/mcp-servers/{serverId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serverId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    /** @description Attach one of your library servers (owner only). Takes effect in the next session. */
-    put: operations['attachMCPServer'];
-    post?: never;
-    /** @description Detach a library server, or delete one of the agent's own servers. */
-    delete: operations['detachMCPServer'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/mcp-servers': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['listMCPServers'];
-    put?: never;
-    post: operations['createMCPServer'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/mcp-servers/{serverId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        serverId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put: operations['updateMCPServer'];
-    post?: never;
-    delete: operations['deleteMCPServer'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/skills': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['listSkills'];
-    put?: never;
-    post: operations['createSkill'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/skills/{skillId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        skillId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put: operations['updateSkill'];
-    post?: never;
-    delete: operations['deleteSkill'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/skills': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get: operations['listAgentSkills'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/skills/{skillId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        skillId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    /** @description Attach one of your skills (owner only). It is written into the sandbox for the next session. */
-    put: operations['attachSkill'];
-    post?: never;
-    delete: operations['detachSkill'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/settings': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['getMySettings'];
-    /** @description Change your settings. Fields left out keep their value. */
-    put: operations['updateMySettings'];
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/tokens': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['listTokens'];
-    put?: never;
-    /**
-     * @description Create a personal access token. It acts as you, with your permissions.
-     *     Send it as `Authorization: Bearer <token>`. The token is shown once.
-     */
-    post: operations['createToken'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/tokens/{tokenId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        tokenId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    delete: operations['deleteToken'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/provider-logins': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * @description Harnesses whose login can live on your account, whether you connected
-     *     each, and which agents use your logins. Credentials are never returned.
-     */
-    get: operations['listProviderLogins'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/provider-logins/{provider}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description Harness id (claude-code, codex). */
-        provider: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    /**
-     * @description Connect (or replace) your login for a harness. The credential is
-     *     checked, stored encrypted and never shown again. Only from a browser
-     *     session, not with an API token.
-     */
-    put: operations['connectProviderLogin'];
-    post?: never;
-    /** @description Delete your login for a harness. Agents using it lose access at once. */
-    delete: operations['disconnectProviderLogin'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/slack': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description The Slack users linked to your account. Everything they do in Slack runs as you. */
-    get: operations['listSlackLinks'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/slack/links': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Links the Slack user a code was issued to (the bot sends the code as a link) to your account. A code works once and expires 15 minutes after it was issued. The bot then confirms in a direct message. Only a signed-in session can link (403 with an API token): a link must not outlive a token's revocation. */
-    post: operations['linkSlack'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/slack/links/{code}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        code: string;
-      };
-      cookie?: never;
-    };
-    /** @description What a link code would link, without using it. 404 for an unknown, used or expired code. */
-    get: operations['getSlackLink'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/slack/{teamId}/{slackUserId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: string;
-        slackUserId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    /** @description Unlinks one of your Slack users; it can no longer act as you. */
-    delete: operations['unlinkSlack'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/login': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    /**
-     * @description Make the agent's harness use your account logins. Owner only. Users
-     *     the agent is shared with then use your login through it.
-     */
-    put: operations['useMyLogins'];
-    post?: never;
-    /**
-     * @description Stop using account logins: the harness then uses what is signed in
-     *     inside its sandbox. The agent's owner, and the login's owner.
-     */
-    delete: operations['stopUsingLogins'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/schedules': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get: operations['listSchedules'];
-    put?: never;
-    /** @description Owner only. The schedule prompts its own session as you. */
-    post: operations['createSchedule'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/schedules/{scheduleId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        scheduleId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put: operations['updateSchedule'];
-    post?: never;
-    delete: operations['deleteSchedule'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/schedules/{scheduleId}/run': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        scheduleId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Run now (owner or shared user). */
-    post: operations['runSchedule'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/webhooks': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get: operations['listWebhooks'];
-    put?: never;
-    /** @description Owner only. The URL is shown once; deliveries prompt the webhook's session as you. */
-    post: operations['createWebhook'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/webhooks/{webhookId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        webhookId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put: operations['updateWebhook'];
-    post?: never;
-    delete: operations['deleteWebhook'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/hooks/{token}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        token: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * @description Inbound webhook (no session or token: the URL is the secret). The
-     *     request body (up to 256 KiB) becomes part of the prompt, clearly marked
-     *     as untrusted. If the webhook has a signing secret, the signature
-     *     header must hold the HMAC-SHA256 of the body ("sha256=<hex>" or hex).
-     */
-    post: operations['deliverWebhook'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/git': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Your git author identity and connected HTTPS credentials. */
-    get: operations['getGitSettings'];
-    /** @description Update your git author name and email (empty values fall back to your account profile). */
-    put: operations['updateGitSettings'];
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/git/credentials': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Store or replace an HTTPS git credential for a host. Tokens are encrypted at rest and injected by the egress proxy. */
-    post: operations['upsertGitCredential'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/git/credentials/{credentialId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        credentialId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    delete: operations['deleteGitCredential'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/git/github/device': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Start connecting your GitHub account with GitHub's device flow. Open verificationUri, enter userCode, then poll until the status is connected. The device code and the resulting token stay on the server. */
-    post: operations['startGitHubConnect'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/git/github/device/{flowId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        flowId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Check whether you approved the connection at GitHub. agenthold asks GitHub at most once per interval; on approval the account is stored as your github.com credential (replacing a token stored for it). */
-    post: operations['pollGitHubConnect'];
-    delete: operations['cancelGitHubConnect'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/git/repos': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    /** @description Discover git repositories and worktrees inside a running agent's home directory. */
-    get: operations['listAgentGitRepos'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/git/status': {
-    parameters: {
-      query?: {
-        /** @description Relative path inside the agent's home directory (empty for home). */
-        path?: string;
-      };
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    /** @description Inspect git repository status and branches for a directory in a running agent. */
-    get: operations['getAgentGitStatus'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/git/clone': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Clone a git repository into a running agent's home directory. */
-    post: operations['cloneAgentGitRepo'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/git/checkout': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Switch to or create a branch in a repository inside a running agent. */
-    post: operations['checkoutAgentGitBranch'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/git/worktrees': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Create a new git worktree for a repository inside a running agent. */
-    post: operations['createAgentGitWorktree'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/git/pull': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Fetch or pull updates in a repository inside a running agent. */
-    post: operations['pullAgentGitRepo'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/git/push': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Push the branch a repository inside a running agent is on. A branch without an upstream is pushed to origin (or the only remote) and tracks it. force uses --force-with-lease. */
-    post: operations['pushAgentGitRepo'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/agents/{agentId}/git/worktrees/remove': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Remove a linked worktree inside a running agent (its branch stays). force removes it even with uncommitted changes. Returns the state of its main repository. */
-    post: operations['removeAgentGitWorktree'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sessions/{sessionId}/git': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** @description Update a session's working directory or refresh its detected git project and branch. */
-    patch: operations['updateSessionGit'];
-    trace?: never;
-  };
-  '/me/executor': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Status of the current user's managed Executor instance. */
-    get: operations['getExecutorStatus'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/executor/start': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Start the current user's managed Executor instance if it is not running yet. */
-    post: operations['startExecutor'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/executor/restart': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Restart the current user's managed Executor instance. */
-    post: operations['restartExecutor'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/executor/overview': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Apps, connected accounts and account links in the current user's Executor instance. */
-    get: operations['getExecutorOverview'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/executor/catalog': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Official apps available to install from the Executor catalog. */
-    get: operations['listExecutorCatalog'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/executor/catalog/import': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Install an app from the Executor catalog into the user's Executor instance. */
-    post: operations['importExecutorCatalogApp'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/executor/apps/import': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Import a remote MCP server as an Executor app. */
-    post: operations['importExecutorCustomApp'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/executor/apps/{appId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    /** @description Remove an installed app from the user's Executor instance. */
-    delete: operations['deleteExecutorApp'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/executor/apps/{appId}/accounts/{scope}/{requirement}/connect': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: string;
-        scope: 'user' | 'app';
-        requirement: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Create an Executor account connection session for an app requirement, returning its auth methods, secret fields and browser URL. */
-    post: operations['startExecutorAccountConnect'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/executor/connections/submit': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Submit secret credentials for a pending Executor connection session. Credentials are encrypted by Executor and never enter sandboxes. */
-    post: operations['submitExecutorAccountConnect'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/executor/apps/{appId}/accounts/{scope}/{requirement}/{accountId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: string;
-        scope: 'user' | 'app';
-        requirement: string;
-        accountId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    /** @description Link an existing saved Executor account to an app requirement. */
-    put: operations['linkExecutorAccount'];
-    post?: never;
-    /** @description Unlink an Executor account from an app requirement. */
-    delete: operations['unlinkExecutorAccount'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/me/executor/accounts/{accountId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        accountId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    /** @description Disconnect and remove a saved Executor account. */
-    delete: operations['deleteExecutorAccount'];
-    options?: never;
-    head?: never;
-    /** @description Rename an Executor account or update its agent-facing description. */
-    patch: operations['updateExecutorAccount'];
-    trace?: never;
-  };
-  '/me/executor/accounts/{accountId}/health': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        accountId: string;
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Check the credential health of a saved Executor account. */
-    post: operations['checkExecutorAccountHealth'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
+    "/version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sandbox/limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getSandboxLimits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAuthProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/login/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["login"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/callback/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["loginCallback"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/local": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Sign in as the local admin configured in `auth.local`. Sets the
+         *     session cookie. Attempts are rate limited per client address.
+         */
+        post: operations["localLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getMe"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Every user of this installation with its role: the role sign-in configuration gives it, the override an admin set (if any) and the role that results. Admins only. */
+        get: operations["listAdminUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{userId}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Overrides a user's role (it then wins over configuration) or, with `override: null`, removes the override so configuration decides again. Takes effect at the user's next request. Admins only; the local admin and your own account cannot be changed. */
+        put: operations["setUserRoleOverride"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Nodes that run agents and their status. Admins only. */
+        get: operations["listNodes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Everything running on this installation: every node, and every machine (agents and apps, of all owners) with its state, owner, configured size and live usage. Admins only (the same notion as the node endpoints: the local admin and users listed in auth.admins). Live usage comes from inside running machines, fetched concurrently with a short timeout and cached for a few seconds; a machine that does not answer keeps its row and gets a `usageReason` instead. Sleeping machines are never woken. Machines of an offline node are `unreachable` and are not contacted. */
+        get: operations["getAdminOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/slack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The Slack app this installation is connected to, if any, and the state of its Socket Mode connection. Tokens are never returned. Admins only. */
+        get: operations["getSlackSettings"];
+        /** @description Connects a Slack app: the bot token is checked with auth.test and the app-level token by opening a Socket Mode connection; the workspace and bot user are recorded, the tokens stored encrypted and the connection (re)started. A token Slack refuses is answered with 400 and Slack's error. Admins only. */
+        put: operations["configureSlack"];
+        post?: never;
+        /** @description Disconnects the Slack app and forgets its tokens. Linked users and threads are kept. Admins only. */
+        delete: operations["deleteSlack"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/slack/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The Slack app manifest for this server (Socket Mode, the /agenthold command, App Home, the bot scopes and events the integration uses). Create the app from it at api.slack.com. Admins only. */
+        get: operations["getSlackManifest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/nodes/join-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Creates a single-use token for `agenthold node --join <token>`. The token is shown once and expires after ttlMinutes (default 60, at most 1440). Admins only. */
+        post: operations["createNodeJoinToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/nodes/{nodeId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Removes an edge node and disconnects it. Refused while the node hosts agents, unless the node is offline and force is set: then its agents are forgotten (their disks stay on that machine). Admins only. */
+        delete: operations["deleteNode"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Lists the built-in base image and all custom enterprise images. All signed-in users may list images to pick one when creating an agent or app; build-time secret IDs are included for admins only. */
+        get: operations["listImages"];
+        put?: never;
+        /** @description Creates a custom image recipe. Admins only. */
+        post: operations["createImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/images/{imageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        /** @description Returns a custom image and its build history. */
+        get: operations["getImage"];
+        put?: never;
+        post?: never;
+        /** @description Deletes a custom image when no machine references it. Admins only. */
+        delete: operations["deleteImage"];
+        options?: never;
+        head?: never;
+        /** @description Updates a custom image recipe or its default status. Admins only. */
+        patch: operations["updateImage"];
+        trace?: never;
+    };
+    "/images/{imageId}/builds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        /** @description Lists builds of a custom image, newest revision first. Admins only. */
+        get: operations["listImageBuilds"];
+        put?: never;
+        /** @description Starts a new revision build of the image on one connected node per architecture. Admins only. */
+        post: operations["startImageBuild"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/images/{imageId}/builds/{buildId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+                buildId: string;
+            };
+            cookie?: never;
+        };
+        /** @description Returns a build's status and full/live log output. Admins only. */
+        get: operations["getImageBuild"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Agents you own and agents shared with you. Templates are left out unless asked for. */
+        get: operations["listAgents"];
+        put?: never;
+        /** @description Create an agent. You become its owner. It is placed on the connected node with the most available memory unless an admin names a node in `nodeId`. */
+        post: operations["createAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get: operations["getAgent"];
+        put?: never;
+        post?: never;
+        /** @description Destroys the sandbox and its home volume, then the agent. Runs in the background. */
+        delete: operations["deleteAgent"];
+        options?: never;
+        head?: never;
+        /** @description Resource changes take effect after a system reset (see `needsRebuild`). */
+        patch: operations["updateAgent"];
+        trace?: never;
+    };
+    "/agents/{agentId}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["startAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["stopAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/rebuild": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Owner only. */
+        post: operations["rebuildAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Clone the machine: a new agent with a copy of its system and home disks and of its settings,
+         *     attached MCP servers, skills and secrets (not its shares, sessions, schedules or webhooks).
+         *     A running machine is stopped for the copy and started again afterwards (409 while it works on a
+         *     prompt). 409 also when its system needs a reset first: it is on an older base image than the current
+         *     one, or has pending changes, and a clone would inherit that. The clone is placed on
+         *     the same node and provisioned in the background. A template is cloned the same way ("new agent
+         *     from template"). Owner only: the home disk can hold harness credentials.
+         *
+         *     Cloning is machine-level: for an app id it makes a new app (kind `app`, owned by you, managed by
+         *     no agent) with a copy of its disks and services but not its exposures; its name must be a free
+         *     app name and `apps.max_per_owner` applies. Apps can be templates under the same rules.
+         */
+        post: operations["cloneAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Apps you own and apps shared with you. */
+        get: operations["listApps"];
+        put?: never;
+        /** @description Create an app (a machine without a harness). You become its owner. */
+        post: operations["createApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps/{appId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        get: operations["getApp"];
+        put?: never;
+        post?: never;
+        /** @description Owner only. Destroys the machine and its disks. Runs in the background. */
+        delete: operations["deleteApp"];
+        options?: never;
+        head?: never;
+        /** @description Owner only. Resource changes take effect after a system reset (see `needsRebuild`). */
+        patch: operations["updateApp"];
+        trace?: never;
+    };
+    "/apps/{appId}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["startApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps/{appId}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["stopApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps/{appId}/rebuild": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Owner only. Resets the system disk; the home disk (with the deployed releases) is kept. */
+        post: operations["rebuildApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps/{appId}/take-over": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Owner only. The agent that created the app stops managing it: it can
+         *     no longer deploy to it, run commands in it, read its logs, restart,
+         *     stop or delete it. No agent manages it afterwards; this cannot be
+         *     undone (an agent can only deploy a new app under another name).
+         */
+        post: operations["takeOverApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/apps/{appId}/deploy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Owner only. Copy a directory of a source machine (one you may open a
+         *     terminal in) into a new release of the app (`~/app/releases/<n>`),
+         *     point `~/app/current` at it, define the service `app` (the command
+         *     runs in `~/app/current` with `PORT`), (re)start it, expose the port and
+         *     wait up to 60 s for it to accept connections. A copy that fails
+         *     leaves the previous release serving; a release whose port does not
+         *     come up is rolled back (`ready` false, `rolledBack` true, `logs` set).
+         *     Sleeping machines are woken. The last 3 releases are kept.
+         */
+        post: operations["deployApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/terminal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description WebSocket upgrade to an interactive shell in the sandbox (owner or shared user).
+         *     A sleeping agent is woken. Binary messages carry terminal input and
+         *     output. Text messages are JSON: the client sends
+         *     `{"type":"resize","cols":N,"rows":N}`; the server sends
+         *     `{"type":"status","message":"..."}` while waking,
+         *     `{"type":"exit","code":N}` and `{"type":"error","message":"..."}`.
+         */
+        get: operations["openTerminal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description List a directory. Relative paths are relative to /home/agent. The agent must be running. */
+        get: operations["listFiles"];
+        put?: never;
+        post?: never;
+        delete: operations["deleteFile"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/files/content": {
+        parameters: {
+            query: {
+                path: string;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get: operations["downloadFile"];
+        /** @description Create or replace a file (owner or shared user). Missing parent directories are created. */
+        put: operations["uploadFile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/files/mkdir": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["makeDirectory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/egress/ca.pem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The installation's egress CA certificate (trusted inside sandboxes). */
+        get: operations["getEgressCA"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/secrets/presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listSecretPresets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Your secrets. Values are never returned. */
+        get: operations["listSecrets"];
+        put?: never;
+        post: operations["createSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/secrets/{secretId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteSecret"];
+        options?: never;
+        head?: never;
+        patch: operations["updateSecret"];
+        trace?: never;
+    };
+    "/agents/{agentId}/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get: operations["listAgentSecrets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/secrets/{secretId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * @description Attach one of your secrets to an agent you own.
+         *     Injection works immediately; a changed environment variable needs a system reset.
+         */
+        put: operations["attachSecret"];
+        post?: never;
+        delete: operations["detachSecret"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/harnesses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listHarnesses"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/acp-registry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Search the official ACP Registry (ACP Store) for downloadable ACP coding agents. */
+        get: operations["searchAcpRegistry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/harnesses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description List your added ACP Store and local ACP command harnesses. */
+        get: operations["listCustomHarnesses"];
+        put?: never;
+        /** @description Add an ACP Registry agent or a local ACP command harness. */
+        post: operations["createCustomHarness"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/harnesses/{harnessId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                harnessId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Remove a custom harness. Refused while agents still use it. */
+        delete: operations["deleteCustomHarness"];
+        options?: never;
+        head?: never;
+        /** @description Update settings of a custom harness (name, args, env, custom models, auth method). */
+        patch: operations["updateCustomHarness"];
+        trace?: never;
+    };
+    "/agents/{agentId}/harness/auth/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Start an interactive browser/code sign-in flow (such as Antigravity Google sign-in via `agy acp --login`) inside the agent's sandbox and return the authorization URL. */
+        post: operations["startHarnessAuth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/harness/auth/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Submit the pasted authorization code or callback URL to finish an interactive harness sign-in flow. */
+        post: operations["submitHarnessAuth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/harness/auth/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Cancel an in-progress interactive harness sign-in flow. */
+        post: operations["cancelHarnessAuth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/harness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description The agent's harness. With connect=true the harness is started (waking the agent) to discover login methods. */
+        get: operations["getHarness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description The models the agent's harness offers and their options (reasoning effort, fast mode), as the harness last
+         *     reported them, or agenthold's small fallback list for the harness when it never did. Does not wake the agent.
+         *     With `harness`, the catalog the agent would have on that other harness (what is stored for it, else the
+         *     fallback list), together with the login it would use: what the model picker shows for switching harness.
+         *     Only for users who may configure the agent.
+         */
+        get: operations["listModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get: operations["listSessions"];
+        put?: never;
+        post: operations["createSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get: operations["getSession"];
+        put?: never;
+        post?: never;
+        delete: operations["deleteSession"];
+        options?: never;
+        head?: never;
+        patch: operations["renameSession"];
+        trace?: never;
+    };
+    "/sessions/{sessionId}/model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * @description The session's own model and options. An empty model with no options returns the session to the agent's
+         *     default. It applies from the next message on (a running turn keeps its model).
+         */
+        put: operations["setSessionModel"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/prompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Start a turn (owner or shared user). Wakes the agent if it sleeps. Progress arrives on the event stream. */
+        post: operations["promptSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/settle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Settle the thread: mark it done and move it out of the active list. It stays readable and usable; a new
+         *     message unsettles it. Needs the right to send prompts to the agent. Settling a settled thread changes nothing.
+         */
+        post: operations["settleSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/unsettle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Move a settled thread back into the active list. The auto-settle period starts over. Needs the right to send
+         *     prompts to the agent.
+         */
+        post: operations["unsettleSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancelSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/permissions/{requestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["answerPermission"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        /** @description Stored events after a cursor. For live updates use the stream. */
+        get: operations["listSessionEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description WebSocket. The server sends every event after `after` as a JSON text
+         *     message (a SessionEvent), then live events as they happen. After a
+         *     reconnect, pass the last seq received to continue without gaps.
+         *     `{"type":"status","running":bool}` messages report whether a turn runs;
+         *     `{"type":"presence","viewers":[{id,name,avatarUrl,role}]}` lists who is watching.
+         */
+        get: operations["streamSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description The agent's owner and the users it is shared with. */
+        get: operations["listShares"];
+        put?: never;
+        /**
+         * @description Share the agent with another user (owner only), found by verified
+         *     email. A user exists once they have signed in. Shared users can use
+         *     the agent (threads, terminal, files) but not configure, share or delete it.
+         */
+        post: operations["shareAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/shares/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                userId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Stop sharing with a user (owner), or leave an agent shared with you. */
+        delete: operations["unshareAgent"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description Who did what to this agent (owner only). Newest first. */
+        get: operations["listAgentAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description What the platform is doing for this agent right now, oldest first: waking its machine (resume or cold
+         *     boot, and why), the guest's boot console, sandboxd's tunnel attempts, the harness start (process, ACP
+         *     initialize, session setup, first answer, with timings) and the harness's stderr. In memory on the
+         *     controller and bounded (the latest few hundred entries); poll with `after` for new ones. Anyone who can
+         *     use the agent.
+         */
+        get: operations["listAgentActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/exposures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description The machine's exposed ports (owner or shared user). `enabled` is false
+         *     when the server has no `preview.host_suffix`; the list is then empty.
+         */
+        get: operations["listExposures"];
+        put?: never;
+        /**
+         * @description Expose a TCP port of the machine over HTTP at
+         *     `<name><preview.host_suffix>` (owner only). The name defaults to
+         *     `<agent-name>-<port>`. A port can be exposed once.
+         */
+        post: operations["createExposure"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/exposures/{exposureId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                exposureId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Stop exposing the port (owner only). */
+        delete: operations["deleteExposure"];
+        options?: never;
+        head?: never;
+        /** @description Rename an exposure or change who may open it (owner only). */
+        patch: operations["updateExposure"];
+        trace?: never;
+    };
+    "/agents/{agentId}/services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description The machine's services (owner or shared user), with their live status
+         *     while the machine runs (`running` false: the machine is not connected
+         *     and every service is down; enabled services start with it).
+         */
+        get: operations["listServices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/services/{serviceName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        get: operations["getService"];
+        /**
+         * @description Create or replace a service (owner only) and apply it to the running
+         *     machine: a new or changed service (re)starts, an unchanged one keeps
+         *     running. The command runs with `sh -lc` as the agent account in
+         *     `workdir` (relative to the home). Secrets reach services through
+         *     attached secrets' placeholders, never through `env`.
+         */
+        put: operations["putService"];
+        post?: never;
+        /** @description Stop and remove a service (owner only). */
+        delete: operations["deleteService"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/services/{serviceName}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Enable the service and start it if the machine runs (owner only). */
+        post: operations["startService"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/services/{serviceName}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Disable the service and stop it with everything it started (owner only). */
+        post: operations["stopService"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/services/{serviceName}/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Restart the service now, resetting its backoff (owner only; the machine must run). */
+        post: operations["restartService"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/services/{serviceName}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description The last `lines` lines (default 200, at most 10000) of the service's
+         *     output, as plain text (owner or shared user; the machine must run).
+         *     Lines starting with `agenthold:` are written by the supervisor
+         *     (starts, exits, restarts).
+         */
+        get: operations["getServiceLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/services/{serviceName}/logs/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description WebSocket. The server sends the last `lines` lines, then new output
+         *     as it is written, as text messages of raw log text. It sends
+         *     `{"type":"error","message":"..."}` as a text message starting with
+         *     `{` only when following fails, then closes.
+         */
+        get: operations["streamServiceLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/preview/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Exposure hosts send browsers here when they have no preview cookie.
+         *     Only top-level navigations are served (`Sec-Fetch-Dest: document`,
+         *     `Sec-Fetch-Mode: navigate` when the browser sends them). Requires a
+         *     signed-in user (otherwise redirects to the login page and back),
+         *     checks access to the exposure, asks for consent when the exposure is
+         *     `authenticated` and the user has no access to the machine, and
+         *     redirects to `<exposure host>/_agenthold/callback` with a single-use
+         *     code bound to the exposure and to `state`.
+         */
+        get: operations["authorizePreview"];
+        put?: never;
+        /** @description The consent page's form. Records consent and continues like the GET. */
+        post: operations["confirmPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/mcp-servers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description The agent's own servers and attached library servers. */
+        get: operations["listAgentMCPServers"];
+        put?: never;
+        /** @description A server only this agent uses (owner only). */
+        post: operations["createAgentMCPServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/mcp-servers/{serverId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serverId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Attach one of your library servers (owner only). Takes effect in the next session. */
+        put: operations["attachMCPServer"];
+        post?: never;
+        /** @description Detach a library server, or delete one of the agent's own servers. */
+        delete: operations["detachMCPServer"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mcp-servers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listMCPServers"];
+        put?: never;
+        post: operations["createMCPServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mcp-servers/{serverId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                serverId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateMCPServer"];
+        post?: never;
+        delete: operations["deleteMCPServer"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listSkills"];
+        put?: never;
+        post: operations["createSkill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/skills/{skillId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateSkill"];
+        post?: never;
+        delete: operations["deleteSkill"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get: operations["listAgentSkills"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/skills/{skillId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Attach one of your skills (owner only). It is written into the sandbox for the next session. */
+        put: operations["attachSkill"];
+        post?: never;
+        delete: operations["detachSkill"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getMySettings"];
+        /** @description Change your settings. Fields left out keep their value. */
+        put: operations["updateMySettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listTokens"];
+        put?: never;
+        /**
+         * @description Create a personal access token. It acts as you, with your permissions.
+         *     Send it as `Authorization: Bearer <token>`. The token is shown once.
+         */
+        post: operations["createToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/tokens/{tokenId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tokenId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/provider-logins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Harnesses whose login can live on your account, whether you connected
+         *     each, and which agents use your logins. Credentials are never returned.
+         */
+        get: operations["listProviderLogins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/provider-logins/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Harness id (claude-code, codex). */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * @description Connect (or replace) your login for a harness. The credential is
+         *     checked, stored encrypted and never shown again. Only from a browser
+         *     session, not with an API token.
+         */
+        put: operations["connectProviderLogin"];
+        post?: never;
+        /** @description Delete your login for a harness. Agents using it lose access at once. */
+        delete: operations["disconnectProviderLogin"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/slack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The Slack users linked to your account. Everything they do in Slack runs as you. */
+        get: operations["listSlackLinks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/slack/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Links the Slack user a code was issued to (the bot sends the code as a link) to your account. A code works once and expires 15 minutes after it was issued. The bot then confirms in a direct message. Only a signed-in session can link (403 with an API token): a link must not outlive a token's revocation. */
+        post: operations["linkSlack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/slack/links/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        /** @description What a link code would link, without using it. 404 for an unknown, used or expired code. */
+        get: operations["getSlackLink"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/slack/{teamId}/{slackUserId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: string;
+                slackUserId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Unlinks one of your Slack users; it can no longer act as you. */
+        delete: operations["unlinkSlack"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * @description Make the agent's harness use your account logins. Owner only. Users
+         *     the agent is shared with then use your login through it.
+         */
+        put: operations["useMyLogins"];
+        post?: never;
+        /**
+         * @description Stop using account logins: the harness then uses what is signed in
+         *     inside its sandbox. The agent's owner, and the login's owner.
+         */
+        delete: operations["stopUsingLogins"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get: operations["listSchedules"];
+        put?: never;
+        /** @description Owner only. The schedule prompts its own session as you. */
+        post: operations["createSchedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/schedules/{scheduleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scheduleId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateSchedule"];
+        post?: never;
+        delete: operations["deleteSchedule"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/schedules/{scheduleId}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scheduleId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Run now (owner or shared user). */
+        post: operations["runSchedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get: operations["listWebhooks"];
+        put?: never;
+        /** @description Owner only. The URL is shown once; deliveries prompt the webhook's session as you. */
+        post: operations["createWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/{webhookId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhookId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateWebhook"];
+        post?: never;
+        delete: operations["deleteWebhook"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/hooks/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Inbound webhook (no session or token: the URL is the secret). The
+         *     request body (up to 256 KiB) becomes part of the prompt, clearly marked
+         *     as untrusted. If the webhook has a signing secret, the signature
+         *     header must hold the HMAC-SHA256 of the body ("sha256=<hex>" or hex).
+         */
+        post: operations["deliverWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/git": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Your git author identity and connected HTTPS credentials. */
+        get: operations["getGitSettings"];
+        /** @description Update your git author name and email (empty values fall back to your account profile). */
+        put: operations["updateGitSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/git/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Store or replace an HTTPS git credential for a host. Tokens are encrypted at rest and injected by the egress proxy. */
+        post: operations["upsertGitCredential"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/git/credentials/{credentialId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credentialId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteGitCredential"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/git/github/device": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Start connecting your GitHub account with GitHub's device flow. Open verificationUri, enter userCode, then poll until the status is connected. The device code and the resulting token stay on the server. */
+        post: operations["startGitHubConnect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/git/github/device/{flowId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                flowId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Check whether you approved the connection at GitHub. agenthold asks GitHub at most once per interval; on approval the account is stored as your github.com credential (replacing a token stored for it). */
+        post: operations["pollGitHubConnect"];
+        delete: operations["cancelGitHubConnect"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/repos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description Discover git repositories and worktrees inside a running agent's home directory. */
+        get: operations["listAgentGitRepos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/status": {
+        parameters: {
+            query?: {
+                /** @description Relative path inside the agent's home directory (empty for home). */
+                path?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description Inspect git repository status and branches for a directory in a running agent. */
+        get: operations["getAgentGitStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Clone a git repository into a running agent's home directory. */
+        post: operations["cloneAgentGitRepo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/checkout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Switch to or create a branch in a repository inside a running agent. */
+        post: operations["checkoutAgentGitBranch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/worktrees": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Create a new git worktree for a repository inside a running agent. */
+        post: operations["createAgentGitWorktree"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/pull": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Fetch or pull updates in a repository inside a running agent. */
+        post: operations["pullAgentGitRepo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/push": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Push the branch a repository inside a running agent is on. A branch without an upstream is pushed to origin (or the only remote) and tracks it. force uses --force-with-lease. */
+        post: operations["pushAgentGitRepo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/worktrees/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Remove a linked worktree inside a running agent (its branch stays). force removes it even with uncommitted changes. Returns the state of its main repository. */
+        post: operations["removeAgentGitWorktree"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/git": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Update a session's working directory or refresh its detected git project and branch. */
+        patch: operations["updateSessionGit"];
+        trace?: never;
+    };
+    "/me/executor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Status of the current user's managed Executor instance. */
+        get: operations["getExecutorStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Start the current user's managed Executor instance if it is not running yet. */
+        post: operations["startExecutor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Restart the current user's managed Executor instance. */
+        post: operations["restartExecutor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Apps, connected accounts and account links in the current user's Executor instance. */
+        get: operations["getExecutorOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Official apps available to install from the Executor catalog. */
+        get: operations["listExecutorCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/catalog/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Install an app from the Executor catalog into the user's Executor instance. */
+        post: operations["importExecutorCatalogApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/apps/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Import a remote MCP server as an Executor app. */
+        post: operations["importExecutorCustomApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/apps/{appId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Remove an installed app from the user's Executor instance. */
+        delete: operations["deleteExecutorApp"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/apps/{appId}/accounts/{scope}/{requirement}/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+                scope: "user" | "app";
+                requirement: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Create an Executor account connection session for an app requirement, returning its auth methods, secret fields and browser URL. */
+        post: operations["startExecutorAccountConnect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/connections/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Submit secret credentials for a pending Executor connection session. Credentials are encrypted by Executor and never enter sandboxes. */
+        post: operations["submitExecutorAccountConnect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/apps/{appId}/accounts/{scope}/{requirement}/{accountId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+                scope: "user" | "app";
+                requirement: string;
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Link an existing saved Executor account to an app requirement. */
+        put: operations["linkExecutorAccount"];
+        post?: never;
+        /** @description Unlink an Executor account from an app requirement. */
+        delete: operations["unlinkExecutorAccount"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/executor/accounts/{accountId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Disconnect and remove a saved Executor account. */
+        delete: operations["deleteExecutorAccount"];
+        options?: never;
+        head?: never;
+        /** @description Rename an Executor account or update its agent-facing description. */
+        patch: operations["updateExecutorAccount"];
+        trace?: never;
+    };
+    "/me/executor/accounts/{accountId}/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Check the credential health of a saved Executor account. */
+        post: operations["checkExecutorAccountHealth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
-  schemas: {
-    SlackSettings: {
-      /** @description Tokens are stored. */
-      configured: boolean;
-      enabled: boolean;
-      teamId?: string;
-      teamName?: string;
-      botUserId?: string;
-      /** @description The Socket Mode connection is up. */
-      connected: boolean;
-      /** @description Why the connection last failed. */
-      lastError?: string;
-      /** Format: date-time */
-      updatedAt?: string;
-    };
-    SlackTokens: {
-      /** @description Bot User OAuth Token (xoxb-…). */
-      botToken: string;
-      /** @description App-level token with connections:write (xapp-…). */
-      appToken: string;
-    };
-    SlackIdentity: {
-      teamId: string;
-      teamName: string;
-      slackUserId: string;
-      slackUserName: string;
-      /** Format: date-time */
-      createdAt: string;
-    };
-    SlackLinkPreview: {
-      teamId: string;
-      teamName: string;
-      slackUserId: string;
-      slackUserName: string;
-      /** Format: date-time */
-      expiresAt: string;
-    };
-    Error: {
-      error: string;
-    };
-    Version: {
-      version: string;
-      commit: string;
-    };
-    AuthProvider: {
-      id: string;
-      name: string;
-      /**
-       * @description local: sign in with username and password (POST /auth/local).
-       * @enum {string}
-       */
-      type: 'oidc' | 'github' | 'local';
-    };
-    LocalLoginInput: {
-      username: string;
-      password: string;
-    };
-    User: {
-      id: string;
-      email: string;
-      name: string;
-      avatarUrl: string;
-    };
-    Me: {
-      user: components['schemas']['User'];
-      role: components['schemas']['Role'];
-      /** @description The Admin role: manages the installation. */
-      admin: boolean;
-      agents: components['schemas']['AgentQuota'];
-    };
-    /**
-     * @description What a user may do. admin: everything, including the installation-wide admin pages, with no agent limit. user: its own and shared agents, and creating agents up to its quota. disabled: nothing but signing out.
-     * @enum {string}
-     */
-    Role: 'admin' | 'user' | 'disabled';
-    AgentQuota: {
-      /** @description Agents the user owns (templates and clones included). */
-      used: number;
-      /** @description The most the user may own (auth.user_max_agents); absent means no limit. */
-      max?: number;
-    };
-    AdminUser: {
-      user: components['schemas']['User'];
-      role: components['schemas']['Role'];
-      configRole: components['schemas']['Role'];
-      override?: components['schemas']['Role'];
-      /** @description The provider id the user signs in with (local for auth.local). */
-      provider: string;
-      username: string;
-      agents: number;
-      /** @description The local admin; its role is always admin. */
-      local: boolean;
-      /** Format: date-time */
-      createdAt: string;
-      /** Format: date-time */
-      lastLoginAt?: string;
-    };
-    /** @enum {string} */
-    SandboxState:
-      | 'creating'
-      | 'starting'
-      | 'running'
-      | 'stopping'
-      | 'sleeping'
-      | 'rebuilding'
-      | 'destroying'
-      | 'error'
-      | 'unreachable';
-    NodeInfo: {
-      id: string;
-      name: string;
-      online: boolean;
-      /** @description The controller's built-in node. */
-      local: boolean;
-      /** @description CPU architecture of the node (arm64 or amd64), when known. */
-      arch?: string;
-      /** @description Agents placed on this node. */
-      agents: number;
-      /** @description Logical CPUs reported by the node. */
-      cpus?: number;
-      /**
-       * Format: int64
-       * @description Available memory at the last report.
-       */
-      availableMemoryBytes?: number;
-      /**
-       * Format: int64
-       * @description Free data filesystem space at the last report.
-       */
-      freeDiskBytes?: number;
-      /**
-       * Format: date-time
-       * @description Last successful node contact.
-       */
-      lastSeen?: string;
-    };
-    /** @description Configured size (not usage) summed over a set of machines. */
-    OverviewAllocation: {
-      machines: number;
-      /**
-       * Format: float
-       * @description Sum of the machines' vCPUs.
-       */
-      cpus: number;
-      /**
-       * Format: int64
-       * @description Sum of the machines' memory in MiB.
-       */
-      memoryMb: number;
-    };
-    /** @description A node. `allocated` sums the configured size of every machine placed on it, whatever its state; `running` only of those running now. */
-    OverviewNode: {
-      id: string;
-      name: string;
-      online: boolean;
-      /** @description The controller's built-in node. */
-      local: boolean;
-      /** @description The agenthold release the node runs, if known. */
-      version?: string;
-      /** Format: date-time */
-      lastSeen?: string;
-      /** @description Logical CPUs (the last report if the node is offline). */
-      cpus?: number;
-      /**
-       * Format: int64
-       * @description Installed memory at the last report, if the node reports it.
-       */
-      memoryTotalBytes?: number;
-      /**
-       * Format: int64
-       * @description Available host memory at the last report.
-       */
-      availableMemoryBytes?: number;
-      /**
-       * Format: int64
-       * @description Free data filesystem space at the last report.
-       */
-      freeDiskBytes?: number;
-      /**
-       * Format: int64
-       * @description Space the machines' disk files occupy on the node (blocks actually allocated, not their sparse size), at the last report. Absent when the node does not report it.
-       */
-      diskAllocatedBytes?: number;
-      allocated: components['schemas']['OverviewAllocation'];
-      running: components['schemas']['OverviewAllocation'];
-    };
-    /** @description Usage measured inside a running machine. */
-    OverviewUsage: {
-      /** Format: date-time */
-      sampledAt: string;
-      /**
-       * Format: float
-       * @description Share of the machine's vCPUs in use (0 to 100) between the two latest samples. Absent until there are two samples, and from guests that do not report it.
-       */
-      cpuPercent?: number;
-      /** Format: int64 */
-      memUsedBytes?: number;
-      /** Format: int64 */
-      memTotalBytes?: number;
-      /**
-       * Format: int64
-       * @description Used space on the persistent home volume.
-       */
-      homeUsedBytes?: number;
-      /**
-       * Format: int64
-       * @description Size of the home volume.
-       */
-      homeTotalBytes?: number;
-      /**
-       * Format: int64
-       * @description Used space on the system volume (overlay).
-       */
-      rootUsedBytes?: number;
-      /**
-       * Format: int64
-       * @description Size of the system volume.
-       */
-      rootTotalBytes?: number;
-    };
-    OverviewMachine: {
-      id: string;
-      name: string;
-      /** @enum {string} */
-      kind: 'agent' | 'app';
-      isTemplate: boolean;
-      owner: components['schemas']['User'];
-      nodeId?: string;
-      nodeName?: string;
-      state: components['schemas']['SandboxState'];
-      stateError: string;
-      /** Format: date-time */
-      stateChangedAt: string;
-      /** @description Agents only. */
-      harness?: string;
-      /** @description Agents only; empty is the harness default. */
-      model?: string;
-      /**
-       * Format: float
-       * @description Configured vCPUs.
-       */
-      cpus: number;
-      /**
-       * Format: int64
-       * @description Configured memory in MiB.
-       */
-      memoryMb: number;
-      /** @description Minutes without activity before it sleeps; 0 means never. */
-      idleMinutes?: number;
-      /**
-       * Format: date-time
-       * @description Only while running.
-       */
-      lastActivityAt?: string;
-      /**
-       * Format: date-time
-       * @description Only while running and not busy.
-       */
-      sleepsAt?: string;
-      /** Format: date-time */
-      createdAt: string;
-      usage?: components['schemas']['OverviewUsage'];
-      /**
-       * @description Why a running machine has no usage.
-       * @enum {string}
-       */
-      usageReason?:
-        'node_offline' | 'not_connected' | 'timeout' | 'unsupported' | 'error';
-    };
-    OverviewTotals: {
-      machines: number;
-      /** @description Machines per sandbox state (offline nodes' machines count as unreachable). */
-      byState: {
-        [key: string]: number;
-      };
-      allocated: components['schemas']['OverviewAllocation'];
-      running: components['schemas']['OverviewAllocation'];
-    };
-    AdminOverview: {
-      /** Format: date-time */
-      generatedAt: string;
-      nodes: components['schemas']['OverviewNode'][];
-      machines: components['schemas']['OverviewMachine'][];
-      totals: components['schemas']['OverviewTotals'];
-    };
-    CreateNodeJoinToken: {
-      /** @description Name for the node; by default the node proposes its hostname. */
-      name?: string;
-      ttlMinutes?: number;
-    };
-    NodeJoinToken: {
-      token: string;
-      /** Format: date-time */
-      expiresAt: string;
-      /** @description The command to run on the new node. */
-      command: string;
-    };
-    /**
-     * @description owner: full control. shared: use the agent (threads, terminal, files), not configure it.
-     * @enum {string}
-     */
-    AgentRole: 'owner' | 'shared';
-    Agent: {
-      id: string;
-      name: string;
-      owner: components['schemas']['User'];
-      /** @description Assigned node ID; absent before placement. */
-      nodeId?: string;
-      /** @description Assigned node name when known. */
-      nodeName?: string;
-      /** @description Custom image ID, or empty string for the built-in agenthold Base image. */
-      imageId?: string;
-      /** @description Display name of the machine's image. */
-      imageName?: string;
-      /**
-       * Format: int64
-       * @description Pinned custom image revision (0 for built-in base).
-       */
-      imageRevision?: number;
-      /** @description True when the machine's custom image has a newer ready revision. */
-      imageUpdateAvailable?: boolean;
-      harness: string;
-      cpus: number;
-      /** Format: int64 */
-      memoryMb: number;
-      idleMinutes: number;
-      state: components['schemas']['SandboxState'];
-      stateError: string;
-      /** Format: date-time */
-      stateChangedAt: string;
-      /** @description Resources or environment changed since the sandbox was built. */
-      needsRebuild: boolean;
-      /** @description The default model ('' is the harness's own default). */
-      model: string;
-      /** @description Default model options, by harness config option id (see ModelCatalog). */
-      modelOptions: {
-        [key: string]: string;
-      };
-      /** @enum {string} */
-      permissionPolicy: 'auto-approve' | 'ask';
-      /** @description Expose the owner's Executor accounts and apps to this agent through the built-in executor MCP server. */
-      executorEnabled: boolean;
-      executorApprovalMode: components['schemas']['ExecutorApprovalMode'];
-      /** @description A harness login was completed inside the sandbox; the agent can read its own credentials. */
-      credentialsInSandbox: boolean;
-      /** @description The machine is a template. It cannot be started, chatted with or scheduled; clone it for a new machine. */
-      isTemplate: boolean;
-      /** @description Id of the agent this one was cloned from, shown to the owner only. The source may no longer exist. */
-      clonedFrom?: string;
-      login: components['schemas']['AgentLogin'];
-      /**
-       * Format: date-time
-       * @description Last activity while running (prompts, terminals, files, CPU use in the sandbox).
-       */
-      lastActivityAt?: string;
-      /**
-       * Format: date-time
-       * @description When the agent goes to sleep if nothing happens. Absent while busy or not running.
-       */
-      sleepsAt?: string;
-      role: components['schemas']['AgentRole'];
-      /** Format: date-time */
-      createdAt: string;
-      /** Format: date-time */
-      updatedAt: string;
-    };
-    AgentInput: {
-      name: string;
-      cpus?: number;
-      /** Format: int64 */
-      memoryMb?: number;
-      idleMinutes?: number;
-      /** @description Harness id (see /harnesses). Default claude-code. */
-      harness?: string;
-      model?: string;
-      /** @enum {string} */
-      permissionPolicy?: 'auto-approve' | 'ask';
-      /** @description Expose the owner's Executor accounts and apps to this agent via MCP. Default false. */
-      executorEnabled?: boolean;
-      executorApprovalMode?: components['schemas']['ExecutorApprovalMode'];
-      /** @description Custom image ID to build the machine from, "base" for the built-in base image, or omit to use the installation's default image. */
-      imageId?: string;
-      /** @description Place the agent on this node (an `id` from `GET /nodes`). Omit it for automatic placement. Admins only (403 otherwise). 400 if the node does not exist; 409 if it is offline, cannot report its capacity or has less available memory than `memoryMb`. The agent stays on the node for its whole life. */
-      nodeId?: string;
-    };
-    CloneInput: {
-      name: string;
-      /** @description Create the clone as a template instead of a machine. */
-      asTemplate?: boolean;
-    };
-    AgentPatch: {
-      /**
-       * @description Convert the machine to a template or back to a normal machine. It is stopped first (409 while it
-       *     works on a prompt). Converting to a template disables its schedules and webhooks; they stay
-       *     disabled when it is converted back, and cannot be enabled while it is a template.
-       */
-      isTemplate?: boolean;
-      name?: string;
-      cpus?: number;
-      /** Format: int64 */
-      memoryMb?: number;
-      idleMinutes?: number;
-      /** @description Harness id (see /harnesses). Default claude-code. */
-      harness?: string;
-      /** @description The default model. Changing the harness without a model resets it. */
-      model?: string;
-      /** @description Default model options, by harness config option id. Changing the harness resets them. */
-      modelOptions?: {
-        [key: string]: string;
-      };
-      /** @enum {string} */
-      permissionPolicy?: 'auto-approve' | 'ask';
-      /** @description Expose the owner's Executor accounts and apps to this agent via MCP. Default false. */
-      executorEnabled?: boolean;
-      executorApprovalMode?: components['schemas']['ExecutorApprovalMode'];
-      /** @description Switch to another custom image ID (pinned to its latest ready revision), or "base" for the built-in base image. Takes effect after Reset system (needsRebuild). */
-      imageId?: string;
-      /**
-       * Format: int64
-       * @description Upgrade or pin a specific ready revision of the machine's current custom image. Takes effect after Reset system (needsRebuild).
-       */
-      imageRevision?: number;
-    };
-    ModelChoice: {
-      /** @description Model id ('' keeps the default). */
-      model: string;
-      /** @description Values by option id (ModelOption.id). */
-      options?: {
-        [key: string]: string;
-      };
-    };
-    ModelCatalog: {
-      harness: string;
-      /**
-       * @description harness: what the harness reported the last time it ran (seenAt). fallback: agenthold's list for the
-       *     harness, shown until the harness has reported its own; it may not match what the account can use.
-       * @enum {string}
-       */
-      source: 'harness' | 'fallback';
-      /**
-       * Format: date-time
-       * @description When the harness reported the list (source harness).
-       */
-      seenAt?: string;
-      /**
-       * @description The harness switches models within a conversation, from the next message on. Otherwise a new default
-       *     applies when the harness restarts, and conversations cannot choose their own.
-       */
-      switchable: boolean;
-      /** @description The harness accepts model ids it does not list (OpenCode's provider/model). */
-      customModels: boolean;
-      models: components['schemas']['CatalogModel'][];
-      /** @description Which login the agent has on this harness (its own, or the one asked for with `harness`). */
-      login?: components['schemas']['AgentLogin'];
-      /**
-       * @description Effort levels the harness reported for other models, for the models whose options are still unknown
-       *     (a harness describes only its current model; agenthold probes the others once the agent is idle).
-       *     The harness has the last word at the next message: a level the model lacks is refused with a notice.
-       */
-      provisionalOptions?: components['schemas']['ModelOption'][];
-    };
-    CatalogModel: {
-      id: string;
-      name: string;
-      description?: string;
-      /** @description Heading in the picker (provider or family). */
-      group?: string;
-      /** @description The model's options; absent while unknown (the harness describes a model's options only while it is the current one, agenthold learns the others when the agent is idle). */
-      options?: components['schemas']['ModelOption'][];
-    };
-    ModelOption: {
-      /** @description The harness's config option id. */
-      id: string;
-      name: string;
-      description?: string;
-      /**
-       * @description effort: reasoning effort levels. toggle: on/off (fast mode); its values are off then on.
-       * @enum {string}
-       */
-      kind: 'effort' | 'toggle';
-      values: components['schemas']['ModelOptionValue'][];
-    };
-    ModelOptionValue: {
-      value: string;
-      name: string;
-      description?: string;
-    };
-    SandboxLimits: {
-      driver: string;
-      defaultCpus: number;
-      /** Format: int64 */
-      defaultMemoryMb: number;
-      maxCpus: number;
-      /** Format: int64 */
-      maxMemoryMb: number;
-      /**
-       * Format: int64
-       * @description Smallest memory an agent can be given; smaller guests cannot run a harness.
-       */
-      minMemoryMb: number;
-    };
-    FileEntry: {
-      name: string;
-      /** Format: int64 */
-      size: number;
-      mode: string;
-      isDir: boolean;
-      isLink: boolean;
-      /** Format: date-time */
-      modTime: string;
-    };
-    DirListing: {
-      /** @description Absolute path of the directory. */
-      path: string;
-      entries: components['schemas']['FileEntry'][];
-    };
-    SecretRule: {
-      /** @description Exact host names or "*.example.com". */
-      hosts: string[];
-      header: string;
-      /** @description Header value; {{.Value}} is the secret. Function: base64. */
-      template: string;
-    };
-    SecretPreset: {
-      id: string;
-      name: string;
-      rule: components['schemas']['SecretRule'];
-      envVar: string;
-      description: string;
-    };
-    Secret: {
-      id: string;
-      name: string;
-      rule: components['schemas']['SecretRule'];
-      /** @description What sandboxes see instead of the value. */
-      placeholder: string;
-      owner: components['schemas']['User'];
-      canManage: boolean;
-      /** Format: date-time */
-      createdAt: string;
-      /** Format: date-time */
-      updatedAt: string;
-    };
-    SecretInput: {
-      name: string;
-      value: string;
-      /** @description Use a preset's rule. */
-      preset?: string;
-      rule?: components['schemas']['SecretRule'];
-    };
-    SecretPatch: {
-      name?: string;
-      value?: string;
-      rule?: components['schemas']['SecretRule'];
-    };
-    AttachedSecret: {
-      secret: components['schemas']['Secret'];
-      envVar: string;
-    };
-    HarnessType: {
-      id: string;
-      /** @description Its login can live on the user's account (/me/provider-logins). */
-      accountLogins: boolean;
-      /** @description Used when an agent does not name a harness. */
-      default: boolean;
-      name: string;
-      /** @enum {string} */
-      source?: 'builtin' | 'registry' | 'local';
-      /** @enum {string} */
-      protocol?: 'acp' | 'codex' | 'claude';
-      description?: string;
-      version?: string;
-      iconUrl?: string;
-      secretPresets: string[];
-    };
-    AcpRegistryAgent: {
-      id: string;
-      name: string;
-      version: string;
-      description: string;
-      authors?: string[];
-      license?: string;
-      website?: string;
-      repository?: string;
-      icon?: string;
-      distributions: string[];
-      /** @description Set when agenthold already ships a built-in harness for this agent. */
-      builtinId?: string;
-      /** @description ID of your already-added custom harness, if any. */
-      addedId?: string;
-    };
-    AcpRegistrySearchResponse: {
-      version: string;
-      agents: components['schemas']['AcpRegistryAgent'][];
-    };
-    CustomHarness: {
-      id: string;
-      /** @enum {string} */
-      kind: 'registry' | 'local';
-      name: string;
-      description: string;
-      registryId?: string;
-      registryVersion?: string;
-      distribution?: string;
-      command?: string;
-      args: string[];
-      env: {
-        [key: string]: string;
-      };
-      iconUrl?: string;
-      websiteUrl?: string;
-      repositoryUrl?: string;
-      customModels: string[];
-      authMethod?: string;
-      /** Format: date-time */
-      createdAt: string;
-      /** Format: date-time */
-      updatedAt: string;
-    };
-    CustomHarnessInput: {
-      /** @enum {string} */
-      kind: 'registry' | 'local';
-      /** @description Required when kind=registry. */
-      registryId?: string;
-      /**
-       * @description Preferred distribution for registry agents.
-       * @enum {string}
-       */
-      distribution?: 'auto' | 'binary' | 'npx' | 'uvx';
-      name?: string;
-      description?: string;
-      /** @description Required when kind=local; optional executable override for kind=registry. */
-      command?: string;
-      args?: string[];
-      env?: {
-        [key: string]: string;
-      };
-      customModels?: string[];
-      authMethod?: string;
-    };
-    CustomHarnessPatch: {
-      name?: string;
-      description?: string;
-      /** @enum {string} */
-      distribution?: 'auto' | 'binary' | 'npx' | 'uvx';
-      command?: string;
-      args?: string[];
-      env?: {
-        [key: string]: string;
-      };
-      customModels?: string[];
-      authMethod?: string;
-    };
-    HarnessAuthFlow: {
-      flowId: string;
-      /** @enum {string} */
-      status: 'waiting_for_code' | 'completed' | 'failed';
-      authorizationUrl?: string;
-      message?: string;
-    };
-    /** @description Which login the agent's harness uses. */
-    AgentLogin: {
-      /**
-       * @description account: the account login of `user`. secret: an API key secret attached to the agent wins.
-       *     sandbox: whatever is signed in inside the sandbox. unsupported: the harness has no account logins.
-       * @enum {string}
-       */
-      source: 'account' | 'secret' | 'sandbox' | 'unsupported';
-      /** @description Whose account logins the agent uses. */
-      user?: components['schemas']['User'];
-      /** @description You are that user. */
-      mine: boolean;
-      /** @description That user has connected a login for the agent's harness. */
-      connected: boolean;
-      /** @description How that login was connected. */
-      kind?: string;
-      /** @enum {string} */
-      status?: 'ok' | 'error';
-      /** @description Why the account login is not used although a user is set. */
-      reason?: string;
-    };
-    ProviderLoginKind: {
-      id: string;
-      name: string;
-      description: string;
-      /** @description What to run on your own computer to get the credential. */
-      command?: string;
-      inputLabel: string;
-      multiline: boolean;
-    };
-    ProviderLogin: {
-      kind: string;
-      /** @description Describes the login without revealing it. */
-      label: string;
-      /** @enum {string} */
-      status: 'ok' | 'error';
-      statusMessage: string;
-      /** Format: date-time */
-      expiresAt?: string;
-      /** Format: date-time */
-      connectedAt: string;
-      /** Format: date-time */
-      lastUsedAt?: string;
-    };
-    ProviderLoginInfo: {
-      /** @description Harness id. */
-      provider: string;
-      name: string;
-      kinds: components['schemas']['ProviderLoginKind'][];
-      login?: components['schemas']['ProviderLogin'];
-      /** @description Agents with this harness that use your logins. */
-      agents: components['schemas']['LoginAgent'][];
-    };
-    LoginAgent: {
-      id: string;
-      name: string;
-    };
-    ProviderLoginInput: {
-      kind: string;
-      /** @description The token, key or file contents. Never returned. */
-      credential: string;
-    };
-    AuthMethodInfo: {
-      id: string;
-      name: string;
-      description: string;
-      /** @description "terminal": run it in the agent terminal (terminal?auth=<id>). */
-      type: string;
-    };
-    HarnessState: {
-      harness: string;
-      connected: boolean;
-      agentName: string;
-      agentVersion: string;
-      loadSession: boolean;
-      authMethods: components['schemas']['AuthMethodInfo'][];
-    };
-    Session: {
-      id: string;
-      agentId: string;
-      /** @description Set when another agent started the session (send_message or ask). */
-      origin?: {
-        agentId: string;
-        agentName: string;
-        /** @description The other agent's session that sent the messages. */
-        sessionId: string;
-      };
-      title: string;
-      running: boolean;
-      /** @description Working directory relative to the agent's home directory. */
-      cwd?: string;
-      /** @description The git project and branch this session is on; absent when not in a git repository. */
-      git?: components['schemas']['SessionGit'];
-      /** @description The session's own model choice; absent when it uses the agent's default. */
-      model?: components['schemas']['ModelChoice'];
-      createdBy: components['schemas']['User'];
-      /** Format: date-time */
-      createdAt: string;
-      /** Format: date-time */
-      updatedAt: string;
-      /**
-       * Format: date-time
-       * @description When the thread was settled (done, out of the active list); absent while it is active.
-       */
-      settledAt?: string;
-      /**
-       * @description Who settled it: a user, the agent itself (platform tools), or the auto-settle job after the agent owner's period without activity. Absent while it is active.
-       * @enum {string}
-       */
-      settledBy?: 'user' | 'agent' | 'auto';
-    };
-    UserSettings: {
-      /** @description Threads of your agents settle themselves after this many days without activity; 0 = never. It applies to every thread of the agents you own, also those that people you share with started. */
-      threadAutoSettleDays: number;
-    };
-    UserSettingsUpdate: {
-      threadAutoSettleDays?: number;
-    };
-    SessionEvent: {
-      /** Format: int64 */
-      seq: number;
-      /** Format: date-time */
-      at: string;
-      /**
-       * @description prompt: {text, user{id,name}}; update: an ACP SessionUpdate
-       *     (discriminated by "sessionUpdate"); permission: {requestId,
-       *     toolCall, options[{optionId,name,kind}], policy};
-       *     permission_resolved: {requestId, optionId, by}; turn_end:
-       *     {stopReason}; error/notice: {message}.
-       * @enum {string}
-       */
-      type:
-        | 'prompt'
-        | 'update'
-        | 'permission'
-        | 'permission_resolved'
-        | 'turn_end'
-        | 'error'
-        | 'notice';
-      userId?: string;
-      data: {
-        [key: string]: unknown;
-      };
-    };
-    ActivityEntry: {
-      /** Format: int64 */
-      seq: number;
-      /** Format: date-time */
-      at: string;
-      /** @enum {string} */
-      level: 'debug' | 'info' | 'warn' | 'error';
-      /** @description What wrote it: machine, guest, tunnel, harness, stderr, acp, server. */
-      source: string;
-      message: string;
-    };
-    ShareInput: {
-      /** @description The verified email of a user who has signed in before. */
-      email: string;
-    };
-    Share: {
-      user: components['schemas']['User'];
-      /** Format: date-time */
-      createdAt: string;
-    };
-    AccessList: {
-      owner: components['schemas']['User'];
-      shares: components['schemas']['Share'][];
-    };
-    AuditEntry: {
-      /** Format: int64 */
-      id: number;
-      /** Format: date-time */
-      at: string;
-      user: components['schemas']['User'];
-      action: string;
-      target: string;
-      details: {
-        [key: string]: unknown;
-      };
-    };
-    /**
-     * @description Who may open an exposure: `private` (the owner and users the machine
-     *     is shared with), `authenticated` (anyone signed in to this agenthold)
-     *     or `public` (anyone).
-     * @enum {string}
-     */
-    ExposureAccess: 'private' | 'authenticated' | 'public';
-    Exposure: {
-      id: string;
-      agentId: string;
-      port: number;
-      name: string;
-      access: components['schemas']['ExposureAccess'];
-      /**
-       * @description Whether visitors who are neither the owner nor a shared user wake a
-       *     sleeping machine (and keep it awake). Owner and shared users always do.
-       */
-      wakeOnRequest: boolean;
-      /** @description The full URL of the exposure. */
-      url: string;
-      /** @description The id of the user who created it, or `agent:<id>` for the agent itself. */
-      createdBy: string;
-      /** Format: date-time */
-      createdAt: string;
-    };
-    ExposureList: {
-      /** @description Whether the server has preview URLs configured. */
-      enabled: boolean;
-      hostSuffix: string;
-      exposures: components['schemas']['Exposure'][];
-    };
-    ExposureInput: {
-      port: number;
-      /**
-       * @description Lowercase letters, digits and hyphens, 1 to 40 characters. Some names
-       *     (www, api, admin, ...) and names starting with xn-- are reserved.
-       */
-      name?: string;
-      access?: components['schemas']['ExposureAccess'];
-      wakeOnRequest?: boolean;
-    };
-    ExposurePatch: {
-      name?: string;
-      access?: components['schemas']['ExposureAccess'];
-      wakeOnRequest?: boolean;
-    };
-    ServiceInput: {
-      /** @description Run with `sh -lc` as the agent account. */
-      command: string;
-      /** @description Relative to the home (default the home). */
-      workdir?: string;
-      env?: {
-        [key: string]: string;
-      };
-      /** @description Default true. */
-      enabled?: boolean;
-    };
-    ServiceStatus: {
-      /** @enum {string} */
-      state: 'running' | 'backoff' | 'stopped' | 'failed';
-      pid?: number;
-      restarts: number;
-      /** @description Exit code of the last run (absent when a signal ended it). */
-      exitCode?: number;
-      /** @description Signal that ended the last run. */
-      signal?: string;
-      /** @description Why it could not be started (state failed). */
-      error?: string;
-      /** Format: date-time */
-      startedAt?: string;
-    };
-    Service: {
-      name: string;
-      command: string;
-      workdir: string;
-      env: {
-        [key: string]: string;
-      };
-      enabled: boolean;
-      status?: components['schemas']['ServiceStatus'];
-      /** Format: date-time */
-      createdAt: string;
-      /** Format: date-time */
-      updatedAt: string;
-    };
-    ServiceList: {
-      /** @description Whether the machine is connected (its services can run). */
-      running: boolean;
-      /** @description Why the live status is missing although the machine runs. */
-      error?: string;
-      services: components['schemas']['Service'][];
-    };
-    App: {
-      id: string;
-      name: string;
-      owner: components['schemas']['User'];
-      nodeId?: string;
-      nodeName?: string;
-      /** @description Custom image ID, or empty string for the built-in agenthold Base image. */
-      imageId?: string;
-      /** @description Display name of the app's image. */
-      imageName?: string;
-      /**
-       * Format: int64
-       * @description Pinned custom image revision (0 for built-in base).
-       */
-      imageRevision?: number;
-      /** @description True when the app's custom image has a newer ready revision. */
-      imageUpdateAvailable?: boolean;
-      cpus: number;
-      /** Format: int64 */
-      memoryMb: number;
-      /** @description 0 means always on (never sleeps for idleness). */
-      idleMinutes: number;
-      state: components['schemas']['SandboxState'];
-      stateError: string;
-      /** Format: date-time */
-      stateChangedAt: string;
-      needsRebuild: boolean;
-      /** @description The app is a template: it is never started; clone it (POST /agents/{id}/clone). */
-      isTemplate: boolean;
-      role: components['schemas']['AgentRole'];
-      /**
-       * @description The agent that created the app with deploy_app and manages it (it may since have
-       *     been deleted). Absent once the owner took the app over.
-       */
-      createdByAgent?: {
-        id: string;
-        /** @description Empty when the agent was deleted. */
-        name: string;
-      };
-      /** @description The app's primary preview URL */
-      url?: string;
-      /** Format: date-time */
-      lastActivityAt?: string;
-      /** Format: date-time */
-      sleepsAt?: string;
-      /** @description Where the machine sub-resources of this app are. */
-      links: {
-        services: string;
-        exposures: string;
-        files: string;
-        terminal: string;
-        shares: string;
-        secrets: string;
-        audit: string;
-      };
-      /** Format: date-time */
-      createdAt: string;
-      /** Format: date-time */
-      updatedAt: string;
-    };
-    AppInput: {
-      /** @description A DNS label: lowercase letters, digits and hyphens, unique among your apps. */
-      name: string;
-      cpus?: number;
-      /** Format: int64 */
-      memoryMb?: number;
-      /** @description Default 0 (always on). */
-      idleMinutes?: number;
-      /** @description Custom image ID, "base" for built-in base, or omit for the installation default. */
-      imageId?: string;
-    };
-    AppPatch: {
-      /** @description Convert to a template (it is stopped first) or back */
-      isTemplate?: boolean;
-      name?: string;
-      cpus?: number;
-      /** Format: int64 */
-      memoryMb?: number;
-      idleMinutes?: number;
-      /** @description Switch image (takes effect after Reset system). */
-      imageId?: string;
-      /**
-       * Format: int64
-       * @description Switch to a specific ready revision (takes effect after Reset system).
-       */
-      imageRevision?: number;
-    };
-    BuiltinBaseImage: {
-      id: string;
-      name: string;
-      description: string;
-      isDefault: boolean;
-    };
-    ImageInput: {
-      name: string;
-      description?: string;
-      aptPackages?: string[];
-      /** @description Bash script executed as root inside an isolated builder microVM. */
-      setupScript?: string;
-      /** @description Environment variables written to /etc/agenthold/image.env.d/10-custom.env. PATH supports $PATH/${PATH}. */
-      env?: {
-        [key: string]: string;
-      };
-      /** @description Secret IDs injected via the egress proxy during image builds only (never baked into the image). */
-      secretIds?: string[];
-      /** @description Make this custom image the installation default for new agents and apps. */
-      isDefault?: boolean;
-    };
-    CustomImage: {
-      id: string;
-      name: string;
-      description: string;
-      aptPackages: string[];
-      setupScript: string;
-      env: {
-        [key: string]: string;
-      };
-      secretIds: string[];
-      isDefault: boolean;
-      /** Format: int64 */
-      latestRevision: number;
-      readyArches: string[];
-      building: boolean;
-      /** Format: int64 */
-      agentCount: number;
-      /** @enum {string} */
-      latestBuildStatus?: 'queued' | 'building' | 'ready' | 'failed';
-      /** Format: date-time */
-      createdAt: string;
-      /** Format: date-time */
-      updatedAt: string;
-    };
-    ImageBuild: {
-      id: string;
-      imageId: string;
-      /** Format: int64 */
-      revision: number;
-      arch: string;
-      nodeId: string;
-      /** @enum {string} */
-      status: 'queued' | 'building' | 'ready' | 'failed';
-      error: string;
-      baseKey?: string;
-      layerSha256: string;
-      /** Format: int64 */
-      layerSize: number;
-      /** Format: int64 */
-      zstdSize: number;
-      /** Format: date-time */
-      startedAt?: string;
-      /** Format: date-time */
-      finishedAt?: string;
-      /** Format: date-time */
-      createdAt: string;
-    };
-    ImageBuildDetail: components['schemas']['ImageBuild'] & {
-      log: string;
-    };
-    CustomImageDetail: components['schemas']['CustomImage'] & {
-      builds: components['schemas']['ImageBuild'][];
-    };
-    ImageList: {
-      base: components['schemas']['BuiltinBaseImage'];
-      images: components['schemas']['CustomImage'][];
-    };
-    DeployInput: {
-      /** @description The machine to copy from. */
-      sourceAgentId: string;
-      /** @description Directory in the source machine */
-      sourceDir: string;
-      /** @description Runs in `~/app/current` with `PORT` set. */
-      command: string;
-      port: number;
-      env?: {
-        [key: string]: string;
-      };
-      access?: components['schemas']['ExposureAccess'];
-      /** @description Names (any depth) or relative paths left out. Default [".git"]. */
-      exclude?: string[];
-    };
-    DeployResult: {
-      release: number;
-      /** @description The port accepted connections. */
-      ready: boolean;
-      /** @description The new release did not come up and the previous one serves again. */
-      rolledBack: boolean;
-      /** @description The service's last log lines when it did not come up. */
-      logs: string;
-      url?: string;
-      exposure?: components['schemas']['Exposure'];
-      service?: components['schemas']['ServiceStatus'];
-    };
-    MCPServerInput: {
-      /** @description Letters, digits, dashes and underscores. */
-      name: string;
-      /** @enum {string} */
-      transport: 'stdio' | 'http';
-      /** @description stdio only; runs inside the sandbox. */
-      command?: string;
-      args?: string[];
-      /** @description stdio only. Values may reference secrets as {{secret:NAME}}. */
-      env?: {
-        [key: string]: string;
-      };
-      /** @description http only. */
-      url?: string;
-      /** @description http only. Values may reference secrets as {{secret:NAME}}; the sandbox sees a placeholder and the egress proxy injects the value. */
-      headers?: {
-        [key: string]: string;
-      };
-    };
-    MCPServer: components['schemas']['MCPServerInput'] & {
-      id: string;
-      ownerId: string;
-      /**
-       * @description library: in your library, attachable to your agents. agent: belongs to one agent.
-       * @enum {string}
-       */
-      scope: 'library' | 'agent';
-      agentId?: string;
-      secretRefs: string[];
-      /** Format: date-time */
-      createdAt: string;
-      /** Format: date-time */
-      updatedAt: string;
-    };
-    SkillInput: {
-      /** @description Lowercase letters, digits and dashes. */
-      name: string;
-      /** @description When the agent should use the skill. */
-      description: string;
-      /** @description The SKILL.md instructions (Markdown). */
-      content: string;
-    };
-    Skill: components['schemas']['SkillInput'] & {
-      id: string;
-      ownerId: string;
-      /** Format: date-time */
-      createdAt: string;
-      /** Format: date-time */
-      updatedAt: string;
-    };
-    APIToken: {
-      id: string;
-      name: string;
-      /** @description The first characters of the token. */
-      prefix: string;
-      /** Format: date-time */
-      createdAt: string;
-      /** Format: date-time */
-      lastUsedAt?: string;
-      /** Format: date-time */
-      expiresAt?: string;
-    };
-    CreatedAPIToken: components['schemas']['APIToken'] & {
-      token: string;
-    };
-    ScheduleInput: {
-      name: string;
-      /** @description Five fields (minute hour day month weekday) or @hourly, @daily, @weekly. */
-      cron: string;
-      /** @description IANA time zone. Default UTC. */
-      timezone?: string;
-      prompt: string;
-      enabled?: boolean;
-    };
-    Schedule: components['schemas']['ScheduleInput'] & {
-      id: string;
-      agentId: string;
-      sessionId: string;
-      createdBy: components['schemas']['User'];
-      /** Format: date-time */
-      nextRunAt: string;
-      /** Format: date-time */
-      lastRunAt?: string;
-      lastError: string;
-      /** Format: date-time */
-      createdAt: string;
-    };
-    WebhookInput: {
-      name: string;
-      /** @description {{payload}} marks where the delimited request body goes; otherwise it is appended. */
-      promptTemplate: string;
-      /** @description Set to require HMAC-SHA256 signatures; "" removes it; omit to keep. */
-      signingSecret?: string;
-      /** @description Header holding the signature. Default X-Hub-Signature-256. */
-      signatureHeader?: string;
-      enabled?: boolean;
-    };
-    Webhook: {
-      id: string;
-      agentId: string;
-      sessionId: string;
-      name: string;
-      promptTemplate: string;
-      signed: boolean;
-      signatureHeader: string;
-      enabled: boolean;
-      createdBy: components['schemas']['User'];
-      /** Format: date-time */
-      lastDeliveryAt?: string;
-      lastError: string;
-      /** Format: date-time */
-      createdAt: string;
-    };
-    CreatedWebhook: components['schemas']['Webhook'] & {
-      /** @description The secret delivery URL. Shown once. */
-      url: string;
-    };
-    SessionGit: {
-      project: string;
-      branch: string;
-      repoPath?: string;
-    };
-    GitCredentialInput: {
-      /** @description Hostname, e.g. github.com or gitlab.com. */
-      host: string;
-      /** @description Optional HTTP Basic username (defaults to x-access-token for github.com, oauth2 for gitlab.com, git otherwise). */
-      username?: string;
-      token: string;
-      label?: string;
-    };
-    GitCredential: {
-      id: string;
-      host: string;
-      username: string;
-      label: string;
-      /**
-       * @description token: pasted. github: a GitHub account connected through the device flow.
-       * @enum {string}
-       */
-      source: 'token' | 'github';
-      /** @description The connected GitHub login. */
-      account?: string;
-      /** @description Scopes GitHub granted the connected token (empty for GitHub Apps). */
-      scopes?: string;
-      /**
-       * Format: date-time
-       * @description When the token expires; agenthold refreshes refreshable tokens before then.
-       */
-      expiresAt?: string;
-      /** Format: date-time */
-      createdAt: string;
-      /** Format: date-time */
-      updatedAt: string;
-    };
-    GitHubConnectInfo: {
-      /** @description Whether this server can connect GitHub accounts (git.github.client_id). */
-      enabled: boolean;
-      /** @description The git host connected accounts are stored for. */
-      host: string;
-    };
-    GitHubDeviceFlow: {
-      id: string;
-      userCode: string;
-      verificationUri: string;
-      /** Format: date-time */
-      expiresAt: string;
-      /** @description Seconds to wait between polls. */
-      interval: number;
-    };
-    GitHubDevicePoll: {
-      /** @enum {string} */
-      status: 'pending' | 'connected' | 'denied' | 'expired';
-      credential?: components['schemas']['GitCredential'];
-    };
-    GitSettings: {
-      github: components['schemas']['GitHubConnectInfo'];
-      authorName: string;
-      authorEmail: string;
-      defaultAuthorName: string;
-      defaultAuthorEmail: string;
-      credentials: components['schemas']['GitCredential'][];
-    };
-    GitRepo: {
-      path: string;
-      project: string;
-      remoteUrl?: string;
-      branch: string;
-      detached: boolean;
-      dirty: boolean;
-      ahead: number;
-      behind: number;
-      isWorktree: boolean;
-      mainPath?: string;
-    };
-    GitRepoList: {
-      connected: boolean;
-      repos: components['schemas']['GitRepo'][];
-    };
-    GitRepoStatus: {
-      repo?: components['schemas']['GitRepo'];
-      branches: string[];
-    };
-    /**
-     * @description How Executor tool approvals are answered for this agent: model (default; the agent asks you in chat and resumes), automatic (Executor approves immediately; the harness's own tool confirmation guards it), browser (pauses with a signed-in Executor approval link).
-     * @enum {string}
-     */
-    ExecutorApprovalMode: 'model' | 'automatic' | 'browser';
-    ExecutorStatus: {
-      /** @description True when an Executor runtime binary is present on the controller. */
-      available: boolean;
-      /** @description False when executor.disabled is set in configuration. */
-      enabled: boolean;
-      /** @description True when this user's isolated Executor process is currently running. */
-      running: boolean;
-      /** @description Executor runtime version when known. */
-      version?: string;
-      /** @description Dedicated Agenthold-authenticated URL for the full Executor dashboard (requires preview.host_suffix or executor.public_url). */
-      dashboardUrl?: string;
-      /** @description True when an HTTPS Executor dashboard origin is configured for OAuth2 provider callbacks. */
-      oauthReady: boolean;
-      /** @description True when custom MCP server and custom app imports are allowed (executor.allow_private_fetch). */
-      customAppsEnabled: boolean;
-      /** @description Why Executor is unavailable or disabled. */
-      reason?: string;
-    };
-    ExecutorOverview: {
-      status: components['schemas']['ExecutorStatus'];
-      apps: components['schemas']['ExecutorApp'][];
-      accounts: components['schemas']['ExecutorAccount'][];
-    };
-    ExecutorApp: {
-      id: string;
-      slug: string;
-      name: string;
-      activeVersion?: string;
-      builtin?: boolean;
-      requirements: components['schemas']['ExecutorRequirement'][];
-    };
-    ExecutorRequirement: {
-      name: string;
-      /** @enum {string} */
-      scope: 'user' | 'app';
-      providerId: string;
-      providerName: string;
-      many: boolean;
-      authMethods: components['schemas']['ExecutorAuthMethod'][];
-      linkedAccountIds: string[];
-    };
-    ExecutorAuthMethod: {
-      name: string;
-      /** @enum {string} */
-      kind: 'secrets' | 'oauth2' | 'other';
-      label?: string;
-      guide?: string;
-      fields?: components['schemas']['ExecutorSecretField'][];
-    };
-    ExecutorSecretField: {
-      name: string;
-      title?: string;
-      description?: string;
-      required: boolean;
-      secret?: boolean;
-    };
-    ExecutorAccount: {
-      id: string;
-      providerId: string;
-      providerName: string;
-      label: string;
-      description?: string;
-      method: string;
-      /** @description ready, needs_reauth, error, or unknown. */
-      status: string;
-      /** @description Provider email or username when available. */
-      identity?: string;
-      linkedApps: string[];
-    };
-    ExecutorAccountHealth: {
-      status: string;
-      message?: string;
-    };
-    ExecutorCatalog: {
-      apps: components['schemas']['ExecutorCatalogEntry'][];
-    };
-    ExecutorCatalogEntry: {
-      id: string;
-      package?: string;
-      name: string;
-      description?: string;
-      category?: string;
-      iconUrl?: string;
-      auth: string[];
-    };
-    ExecutorConnectionSession: {
-      connectionId: string;
-      token: string;
-      /** @description Direct URL on the Executor dashboard host for OAuth2 or browser connection. */
-      browserUrl?: string;
-      /** Format: date-time */
-      expiresAt?: string;
-      providerId: string;
-      providerName: string;
-      methods: components['schemas']['ExecutorAuthMethod'][];
-    };
-  };
-  responses: {
-    /** @description Error. */
-    Error: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/json': components['schemas']['Error'];
-      };
-    };
-  };
-  parameters: {
-    SessionId: string;
-    /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-    AgentId: string;
-    AppId: string;
-    ServiceName: string;
-  };
-  requestBodies: never;
-  headers: never;
-  pathItems: never;
+    schemas: {
+        SlackSettings: {
+            /** @description Tokens are stored. */
+            configured: boolean;
+            enabled: boolean;
+            teamId?: string;
+            teamName?: string;
+            botUserId?: string;
+            /** @description The Socket Mode connection is up. */
+            connected: boolean;
+            /** @description Why the connection last failed. */
+            lastError?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+        };
+        SlackTokens: {
+            /** @description Bot User OAuth Token (xoxb-…). */
+            botToken: string;
+            /** @description App-level token with connections:write (xapp-…). */
+            appToken: string;
+        };
+        SlackIdentity: {
+            teamId: string;
+            teamName: string;
+            slackUserId: string;
+            slackUserName: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        SlackLinkPreview: {
+            teamId: string;
+            teamName: string;
+            slackUserId: string;
+            slackUserName: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        Error: {
+            error: string;
+        };
+        Version: {
+            version: string;
+            commit: string;
+        };
+        AuthProvider: {
+            id: string;
+            name: string;
+            /**
+             * @description local: sign in with username and password (POST /auth/local).
+             * @enum {string}
+             */
+            type: "oidc" | "github" | "local";
+        };
+        LocalLoginInput: {
+            username: string;
+            password: string;
+        };
+        User: {
+            id: string;
+            email: string;
+            name: string;
+            avatarUrl: string;
+        };
+        Me: {
+            user: components["schemas"]["User"];
+            role: components["schemas"]["Role"];
+            /** @description The Admin role: manages the installation. */
+            admin: boolean;
+            agents: components["schemas"]["AgentQuota"];
+        };
+        /**
+         * @description What a user may do. admin: everything, including the installation-wide admin pages, with no agent limit. user: its own and shared agents, and creating agents up to its quota. disabled: nothing but signing out.
+         * @enum {string}
+         */
+        Role: "admin" | "user" | "disabled";
+        AgentQuota: {
+            /** @description Agents the user owns (templates and clones included). */
+            used: number;
+            /** @description The most the user may own (auth.user_max_agents); absent means no limit. */
+            max?: number;
+        };
+        AdminUser: {
+            user: components["schemas"]["User"];
+            role: components["schemas"]["Role"];
+            configRole: components["schemas"]["Role"];
+            override?: components["schemas"]["Role"];
+            /** @description The provider id the user signs in with (local for auth.local). */
+            provider: string;
+            username: string;
+            agents: number;
+            /** @description The local admin; its role is always admin. */
+            local: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            lastLoginAt?: string;
+        };
+        /** @enum {string} */
+        SandboxState: "creating" | "starting" | "running" | "stopping" | "sleeping" | "rebuilding" | "destroying" | "error" | "unreachable";
+        NodeInfo: {
+            id: string;
+            name: string;
+            online: boolean;
+            /** @description The controller's built-in node. */
+            local: boolean;
+            /** @description CPU architecture of the node (arm64 or amd64), when known. */
+            arch?: string;
+            /** @description Agents placed on this node. */
+            agents: number;
+            /** @description Logical CPUs reported by the node. */
+            cpus?: number;
+            /**
+             * Format: int64
+             * @description Available memory at the last report.
+             */
+            availableMemoryBytes?: number;
+            /**
+             * Format: int64
+             * @description Free data filesystem space at the last report.
+             */
+            freeDiskBytes?: number;
+            /**
+             * Format: date-time
+             * @description Last successful node contact.
+             */
+            lastSeen?: string;
+        };
+        /** @description Configured size (not usage) summed over a set of machines. */
+        OverviewAllocation: {
+            machines: number;
+            /**
+             * Format: float
+             * @description Sum of the machines' vCPUs.
+             */
+            cpus: number;
+            /**
+             * Format: int64
+             * @description Sum of the machines' memory in MiB.
+             */
+            memoryMb: number;
+        };
+        /** @description A node. `allocated` sums the configured size of every machine placed on it, whatever its state; `running` only of those running now. */
+        OverviewNode: {
+            id: string;
+            name: string;
+            online: boolean;
+            /** @description The controller's built-in node. */
+            local: boolean;
+            /** @description The agenthold release the node runs, if known. */
+            version?: string;
+            /** Format: date-time */
+            lastSeen?: string;
+            /** @description Logical CPUs (the last report if the node is offline). */
+            cpus?: number;
+            /**
+             * Format: int64
+             * @description Installed memory at the last report, if the node reports it.
+             */
+            memoryTotalBytes?: number;
+            /**
+             * Format: int64
+             * @description Available host memory at the last report.
+             */
+            availableMemoryBytes?: number;
+            /**
+             * Format: int64
+             * @description Free data filesystem space at the last report.
+             */
+            freeDiskBytes?: number;
+            /**
+             * Format: int64
+             * @description Space the machines' disk files occupy on the node (blocks actually allocated, not their sparse size), at the last report. Absent when the node does not report it.
+             */
+            diskAllocatedBytes?: number;
+            allocated: components["schemas"]["OverviewAllocation"];
+            running: components["schemas"]["OverviewAllocation"];
+        };
+        /** @description Usage measured inside a running machine. */
+        OverviewUsage: {
+            /** Format: date-time */
+            sampledAt: string;
+            /**
+             * Format: float
+             * @description Share of the machine's vCPUs in use (0 to 100) between the two latest samples. Absent until there are two samples, and from guests that do not report it.
+             */
+            cpuPercent?: number;
+            /** Format: int64 */
+            memUsedBytes?: number;
+            /** Format: int64 */
+            memTotalBytes?: number;
+            /**
+             * Format: int64
+             * @description Used space on the persistent home volume.
+             */
+            homeUsedBytes?: number;
+            /**
+             * Format: int64
+             * @description Size of the home volume.
+             */
+            homeTotalBytes?: number;
+            /**
+             * Format: int64
+             * @description Used space on the system volume (overlay).
+             */
+            rootUsedBytes?: number;
+            /**
+             * Format: int64
+             * @description Size of the system volume.
+             */
+            rootTotalBytes?: number;
+        };
+        OverviewMachine: {
+            id: string;
+            name: string;
+            /** @enum {string} */
+            kind: "agent" | "app";
+            isTemplate: boolean;
+            owner: components["schemas"]["User"];
+            nodeId?: string;
+            nodeName?: string;
+            state: components["schemas"]["SandboxState"];
+            stateError: string;
+            /** Format: date-time */
+            stateChangedAt: string;
+            /** @description Agents only. */
+            harness?: string;
+            /** @description Agents only; empty is the harness default. */
+            model?: string;
+            /**
+             * Format: float
+             * @description Configured vCPUs.
+             */
+            cpus: number;
+            /**
+             * Format: int64
+             * @description Configured memory in MiB.
+             */
+            memoryMb: number;
+            /** @description Minutes without activity before it sleeps; 0 means never. */
+            idleMinutes?: number;
+            /**
+             * Format: date-time
+             * @description Only while running.
+             */
+            lastActivityAt?: string;
+            /**
+             * Format: date-time
+             * @description Only while running and not busy.
+             */
+            sleepsAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+            usage?: components["schemas"]["OverviewUsage"];
+            /**
+             * @description Why a running machine has no usage.
+             * @enum {string}
+             */
+            usageReason?: "node_offline" | "not_connected" | "timeout" | "unsupported" | "error";
+        };
+        OverviewTotals: {
+            machines: number;
+            /** @description Machines per sandbox state (offline nodes' machines count as unreachable). */
+            byState: {
+                [key: string]: number;
+            };
+            allocated: components["schemas"]["OverviewAllocation"];
+            running: components["schemas"]["OverviewAllocation"];
+        };
+        AdminOverview: {
+            /** Format: date-time */
+            generatedAt: string;
+            nodes: components["schemas"]["OverviewNode"][];
+            machines: components["schemas"]["OverviewMachine"][];
+            totals: components["schemas"]["OverviewTotals"];
+        };
+        CreateNodeJoinToken: {
+            /** @description Name for the node; by default the node proposes its hostname. */
+            name?: string;
+            ttlMinutes?: number;
+        };
+        NodeJoinToken: {
+            token: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** @description The command to run on the new node. */
+            command: string;
+        };
+        /**
+         * @description owner: full control. shared: use the agent (threads, terminal, files), not configure it.
+         * @enum {string}
+         */
+        AgentRole: "owner" | "shared";
+        Agent: {
+            id: string;
+            name: string;
+            owner: components["schemas"]["User"];
+            /** @description Assigned node ID; absent before placement. */
+            nodeId?: string;
+            /** @description Assigned node name when known. */
+            nodeName?: string;
+            /** @description Custom image ID, or empty string for the built-in agenthold Base image. */
+            imageId?: string;
+            /** @description Display name of the machine's image. */
+            imageName?: string;
+            /**
+             * Format: int64
+             * @description Pinned custom image revision (0 for built-in base).
+             */
+            imageRevision?: number;
+            /** @description True when the machine's custom image has a newer ready revision. */
+            imageUpdateAvailable?: boolean;
+            harness: string;
+            cpus: number;
+            /** Format: int64 */
+            memoryMb: number;
+            idleMinutes: number;
+            state: components["schemas"]["SandboxState"];
+            stateError: string;
+            /** Format: date-time */
+            stateChangedAt: string;
+            /** @description Resources or environment changed since the sandbox was built. */
+            needsRebuild: boolean;
+            /** @description The default model ('' is the harness's own default). */
+            model: string;
+            /** @description Default model options, by harness config option id (see ModelCatalog). */
+            modelOptions: {
+                [key: string]: string;
+            };
+            /** @enum {string} */
+            permissionPolicy: "auto-approve" | "ask";
+            /** @description Expose the owner's Executor accounts and apps to this agent through the built-in executor MCP server. */
+            executorEnabled: boolean;
+            executorApprovalMode: components["schemas"]["ExecutorApprovalMode"];
+            /** @description A harness login was completed inside the sandbox; the agent can read its own credentials. */
+            credentialsInSandbox: boolean;
+            /** @description The machine is a template. It cannot be started, chatted with or scheduled; clone it for a new machine. */
+            isTemplate: boolean;
+            /** @description Id of the agent this one was cloned from, shown to the owner only. The source may no longer exist. */
+            clonedFrom?: string;
+            login: components["schemas"]["AgentLogin"];
+            /**
+             * Format: date-time
+             * @description Last activity while running (prompts, terminals, files, CPU use in the sandbox).
+             */
+            lastActivityAt?: string;
+            /**
+             * Format: date-time
+             * @description When the agent goes to sleep if nothing happens. Absent while busy or not running.
+             */
+            sleepsAt?: string;
+            role: components["schemas"]["AgentRole"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        AgentInput: {
+            name: string;
+            cpus?: number;
+            /** Format: int64 */
+            memoryMb?: number;
+            idleMinutes?: number;
+            /** @description Harness id (see /harnesses). Default claude-code. */
+            harness?: string;
+            model?: string;
+            /** @enum {string} */
+            permissionPolicy?: "auto-approve" | "ask";
+            /** @description Expose the owner's Executor accounts and apps to this agent via MCP. Default false. */
+            executorEnabled?: boolean;
+            executorApprovalMode?: components["schemas"]["ExecutorApprovalMode"];
+            /** @description Custom image ID to build the machine from, "base" for the built-in base image, or omit to use the installation's default image. */
+            imageId?: string;
+            /** @description Place the agent on this node (an `id` from `GET /nodes`). Omit it for automatic placement. Admins only (403 otherwise). 400 if the node does not exist; 409 if it is offline, cannot report its capacity or has less available memory than `memoryMb`. The agent stays on the node for its whole life. */
+            nodeId?: string;
+        };
+        CloneInput: {
+            name: string;
+            /** @description Create the clone as a template instead of a machine. */
+            asTemplate?: boolean;
+        };
+        AgentPatch: {
+            /**
+             * @description Convert the machine to a template or back to a normal machine. It is stopped first (409 while it
+             *     works on a prompt). Converting to a template disables its schedules and webhooks; they stay
+             *     disabled when it is converted back, and cannot be enabled while it is a template.
+             */
+            isTemplate?: boolean;
+            name?: string;
+            cpus?: number;
+            /** Format: int64 */
+            memoryMb?: number;
+            idleMinutes?: number;
+            /** @description Harness id (see /harnesses). Default claude-code. */
+            harness?: string;
+            /** @description The default model. Changing the harness without a model resets it. */
+            model?: string;
+            /** @description Default model options, by harness config option id. Changing the harness resets them. */
+            modelOptions?: {
+                [key: string]: string;
+            };
+            /** @enum {string} */
+            permissionPolicy?: "auto-approve" | "ask";
+            /** @description Expose the owner's Executor accounts and apps to this agent via MCP. Default false. */
+            executorEnabled?: boolean;
+            executorApprovalMode?: components["schemas"]["ExecutorApprovalMode"];
+            /** @description Switch to another custom image ID (pinned to its latest ready revision), or "base" for the built-in base image. Takes effect after Reset system (needsRebuild). */
+            imageId?: string;
+            /**
+             * Format: int64
+             * @description Upgrade or pin a specific ready revision of the machine's current custom image. Takes effect after Reset system (needsRebuild).
+             */
+            imageRevision?: number;
+        };
+        ModelChoice: {
+            /** @description Model id ('' keeps the default). */
+            model: string;
+            /** @description Values by option id (ModelOption.id). */
+            options?: {
+                [key: string]: string;
+            };
+        };
+        ModelCatalog: {
+            harness: string;
+            /**
+             * @description harness: what the harness reported the last time it ran (seenAt). fallback: agenthold's list for the
+             *     harness, shown until the harness has reported its own; it may not match what the account can use.
+             * @enum {string}
+             */
+            source: "harness" | "fallback";
+            /**
+             * Format: date-time
+             * @description When the harness reported the list (source harness).
+             */
+            seenAt?: string;
+            /**
+             * @description The harness switches models within a conversation, from the next message on. Otherwise a new default
+             *     applies when the harness restarts, and conversations cannot choose their own.
+             */
+            switchable: boolean;
+            /** @description The harness accepts model ids it does not list (OpenCode's provider/model). */
+            customModels: boolean;
+            models: components["schemas"]["CatalogModel"][];
+            /** @description Which login the agent has on this harness (its own, or the one asked for with `harness`). */
+            login?: components["schemas"]["AgentLogin"];
+            /**
+             * @description Effort levels the harness reported for other models, for the models whose options are still unknown
+             *     (a harness describes only its current model; agenthold probes the others once the agent is idle).
+             *     The harness has the last word at the next message: a level the model lacks is refused with a notice.
+             */
+            provisionalOptions?: components["schemas"]["ModelOption"][];
+        };
+        CatalogModel: {
+            id: string;
+            name: string;
+            description?: string;
+            /** @description Heading in the picker (provider or family). */
+            group?: string;
+            /** @description The model's options; absent while unknown (the harness describes a model's options only while it is the current one, agenthold learns the others when the agent is idle). */
+            options?: components["schemas"]["ModelOption"][];
+        };
+        ModelOption: {
+            /** @description The harness's config option id. */
+            id: string;
+            name: string;
+            description?: string;
+            /**
+             * @description effort: reasoning effort levels. toggle: on/off (fast mode); its values are off then on.
+             * @enum {string}
+             */
+            kind: "effort" | "toggle";
+            values: components["schemas"]["ModelOptionValue"][];
+        };
+        ModelOptionValue: {
+            value: string;
+            name: string;
+            description?: string;
+        };
+        SandboxLimits: {
+            driver: string;
+            defaultCpus: number;
+            /** Format: int64 */
+            defaultMemoryMb: number;
+            maxCpus: number;
+            /** Format: int64 */
+            maxMemoryMb: number;
+            /**
+             * Format: int64
+             * @description Smallest memory an agent can be given; smaller guests cannot run a harness.
+             */
+            minMemoryMb: number;
+        };
+        FileEntry: {
+            name: string;
+            /** Format: int64 */
+            size: number;
+            mode: string;
+            isDir: boolean;
+            isLink: boolean;
+            /** Format: date-time */
+            modTime: string;
+        };
+        DirListing: {
+            /** @description Absolute path of the directory. */
+            path: string;
+            entries: components["schemas"]["FileEntry"][];
+        };
+        SecretRule: {
+            /** @description Exact host names or "*.example.com". */
+            hosts: string[];
+            header: string;
+            /** @description Header value; {{.Value}} is the secret. Function: base64. */
+            template: string;
+        };
+        SecretPreset: {
+            id: string;
+            name: string;
+            rule: components["schemas"]["SecretRule"];
+            envVar: string;
+            description: string;
+        };
+        Secret: {
+            id: string;
+            name: string;
+            rule: components["schemas"]["SecretRule"];
+            /** @description What sandboxes see instead of the value. */
+            placeholder: string;
+            owner: components["schemas"]["User"];
+            canManage: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        SecretInput: {
+            name: string;
+            value: string;
+            /** @description Use a preset's rule. */
+            preset?: string;
+            rule?: components["schemas"]["SecretRule"];
+        };
+        SecretPatch: {
+            name?: string;
+            value?: string;
+            rule?: components["schemas"]["SecretRule"];
+        };
+        AttachedSecret: {
+            secret: components["schemas"]["Secret"];
+            envVar: string;
+        };
+        HarnessType: {
+            id: string;
+            /** @description Its login can live on the user's account (/me/provider-logins). */
+            accountLogins: boolean;
+            /** @description Used when an agent does not name a harness. */
+            default: boolean;
+            name: string;
+            /** @enum {string} */
+            source?: "builtin" | "registry" | "local";
+            /** @enum {string} */
+            protocol?: "acp" | "codex" | "claude";
+            description?: string;
+            version?: string;
+            iconUrl?: string;
+            secretPresets: string[];
+        };
+        AcpRegistryAgent: {
+            id: string;
+            name: string;
+            version: string;
+            description: string;
+            authors?: string[];
+            license?: string;
+            website?: string;
+            repository?: string;
+            icon?: string;
+            distributions: string[];
+            /** @description Set when agenthold already ships a built-in harness for this agent. */
+            builtinId?: string;
+            /** @description ID of your already-added custom harness, if any. */
+            addedId?: string;
+        };
+        AcpRegistrySearchResponse: {
+            version: string;
+            agents: components["schemas"]["AcpRegistryAgent"][];
+        };
+        CustomHarness: {
+            id: string;
+            /** @enum {string} */
+            kind: "registry" | "local";
+            name: string;
+            description: string;
+            registryId?: string;
+            registryVersion?: string;
+            distribution?: string;
+            command?: string;
+            args: string[];
+            env: {
+                [key: string]: string;
+            };
+            iconUrl?: string;
+            websiteUrl?: string;
+            repositoryUrl?: string;
+            customModels: string[];
+            authMethod?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        CustomHarnessInput: {
+            /** @enum {string} */
+            kind: "registry" | "local";
+            /** @description Required when kind=registry. */
+            registryId?: string;
+            /**
+             * @description Preferred distribution for registry agents.
+             * @enum {string}
+             */
+            distribution?: "auto" | "binary" | "npx" | "uvx";
+            name?: string;
+            description?: string;
+            /** @description Required when kind=local; optional executable override for kind=registry. */
+            command?: string;
+            args?: string[];
+            env?: {
+                [key: string]: string;
+            };
+            customModels?: string[];
+            authMethod?: string;
+        };
+        CustomHarnessPatch: {
+            name?: string;
+            description?: string;
+            /** @enum {string} */
+            distribution?: "auto" | "binary" | "npx" | "uvx";
+            command?: string;
+            args?: string[];
+            env?: {
+                [key: string]: string;
+            };
+            customModels?: string[];
+            authMethod?: string;
+        };
+        HarnessAuthFlow: {
+            flowId: string;
+            /** @enum {string} */
+            status: "waiting_for_code" | "completed" | "failed";
+            authorizationUrl?: string;
+            message?: string;
+        };
+        /** @description Which login the agent's harness uses. */
+        AgentLogin: {
+            /**
+             * @description account: the account login of `user`. secret: an API key secret attached to the agent wins.
+             *     sandbox: whatever is signed in inside the sandbox. unsupported: the harness has no account logins.
+             * @enum {string}
+             */
+            source: "account" | "secret" | "sandbox" | "unsupported";
+            /** @description Whose account logins the agent uses. */
+            user?: components["schemas"]["User"];
+            /** @description You are that user. */
+            mine: boolean;
+            /** @description That user has connected a login for the agent's harness. */
+            connected: boolean;
+            /** @description How that login was connected. */
+            kind?: string;
+            /** @enum {string} */
+            status?: "ok" | "error";
+            /** @description Why the account login is not used although a user is set. */
+            reason?: string;
+        };
+        ProviderLoginKind: {
+            id: string;
+            name: string;
+            description: string;
+            /** @description What to run on your own computer to get the credential. */
+            command?: string;
+            inputLabel: string;
+            multiline: boolean;
+        };
+        ProviderLogin: {
+            kind: string;
+            /** @description Describes the login without revealing it. */
+            label: string;
+            /** @enum {string} */
+            status: "ok" | "error";
+            statusMessage: string;
+            /** Format: date-time */
+            expiresAt?: string;
+            /** Format: date-time */
+            connectedAt: string;
+            /** Format: date-time */
+            lastUsedAt?: string;
+        };
+        ProviderLoginInfo: {
+            /** @description Harness id. */
+            provider: string;
+            name: string;
+            kinds: components["schemas"]["ProviderLoginKind"][];
+            login?: components["schemas"]["ProviderLogin"];
+            /** @description Agents with this harness that use your logins. */
+            agents: components["schemas"]["LoginAgent"][];
+        };
+        LoginAgent: {
+            id: string;
+            name: string;
+        };
+        ProviderLoginInput: {
+            kind: string;
+            /** @description The token, key or file contents. Never returned. */
+            credential: string;
+        };
+        AuthMethodInfo: {
+            id: string;
+            name: string;
+            description: string;
+            /** @description "terminal": run it in the agent terminal (terminal?auth=<id>). */
+            type: string;
+        };
+        HarnessState: {
+            harness: string;
+            connected: boolean;
+            agentName: string;
+            agentVersion: string;
+            loadSession: boolean;
+            authMethods: components["schemas"]["AuthMethodInfo"][];
+        };
+        Session: {
+            id: string;
+            agentId: string;
+            /** @description Set when another agent started the session (send_message or ask). */
+            origin?: {
+                agentId: string;
+                agentName: string;
+                /** @description The other agent's session that sent the messages. */
+                sessionId: string;
+            };
+            title: string;
+            running: boolean;
+            /** @description Working directory relative to the agent's home directory. */
+            cwd?: string;
+            /** @description The git project and branch this session is on; absent when not in a git repository. */
+            git?: components["schemas"]["SessionGit"];
+            /** @description The session's own model choice; absent when it uses the agent's default. */
+            model?: components["schemas"]["ModelChoice"];
+            createdBy: components["schemas"]["User"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /**
+             * Format: date-time
+             * @description When the thread was settled (done, out of the active list); absent while it is active.
+             */
+            settledAt?: string;
+            /**
+             * @description Who settled it: a user, the agent itself (platform tools), or the auto-settle job after the agent owner's period without activity. Absent while it is active.
+             * @enum {string}
+             */
+            settledBy?: "user" | "agent" | "auto";
+        };
+        UserSettings: {
+            /** @description Threads of your agents settle themselves after this many days without activity; 0 = never. It applies to every thread of the agents you own, also those that people you share with started. */
+            threadAutoSettleDays: number;
+        };
+        UserSettingsUpdate: {
+            threadAutoSettleDays?: number;
+        };
+        SessionEvent: {
+            /** Format: int64 */
+            seq: number;
+            /** Format: date-time */
+            at: string;
+            /**
+             * @description prompt: {text, user{id,name}}; update: an ACP SessionUpdate
+             *     (discriminated by "sessionUpdate"); permission: {requestId,
+             *     toolCall, options[{optionId,name,kind}], policy};
+             *     permission_resolved: {requestId, optionId, by}; turn_end:
+             *     {stopReason}; error/notice: {message}.
+             * @enum {string}
+             */
+            type: "prompt" | "update" | "permission" | "permission_resolved" | "turn_end" | "error" | "notice";
+            userId?: string;
+            data: {
+                [key: string]: unknown;
+            };
+        };
+        ActivityEntry: {
+            /** Format: int64 */
+            seq: number;
+            /** Format: date-time */
+            at: string;
+            /** @enum {string} */
+            level: "debug" | "info" | "warn" | "error";
+            /** @description What wrote it: machine, guest, tunnel, harness, stderr, acp, server. */
+            source: string;
+            message: string;
+        };
+        ShareInput: {
+            /** @description The verified email of a user who has signed in before. */
+            email: string;
+        };
+        Share: {
+            user: components["schemas"]["User"];
+            /** Format: date-time */
+            createdAt: string;
+        };
+        AccessList: {
+            owner: components["schemas"]["User"];
+            shares: components["schemas"]["Share"][];
+        };
+        AuditEntry: {
+            /** Format: int64 */
+            id: number;
+            /** Format: date-time */
+            at: string;
+            user: components["schemas"]["User"];
+            action: string;
+            target: string;
+            details: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * @description Who may open an exposure: `private` (the owner and users the machine
+         *     is shared with), `authenticated` (anyone signed in to this agenthold)
+         *     or `public` (anyone).
+         * @enum {string}
+         */
+        ExposureAccess: "private" | "authenticated" | "public";
+        Exposure: {
+            id: string;
+            agentId: string;
+            port: number;
+            name: string;
+            access: components["schemas"]["ExposureAccess"];
+            /**
+             * @description Whether visitors who are neither the owner nor a shared user wake a
+             *     sleeping machine (and keep it awake). Owner and shared users always do.
+             */
+            wakeOnRequest: boolean;
+            /** @description The full URL of the exposure. */
+            url: string;
+            /** @description The id of the user who created it, or `agent:<id>` for the agent itself. */
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ExposureList: {
+            /** @description Whether the server has preview URLs configured. */
+            enabled: boolean;
+            hostSuffix: string;
+            exposures: components["schemas"]["Exposure"][];
+        };
+        ExposureInput: {
+            port: number;
+            /**
+             * @description Lowercase letters, digits and hyphens, 1 to 40 characters. Some names
+             *     (www, api, admin, ...) and names starting with xn-- are reserved.
+             */
+            name?: string;
+            access?: components["schemas"]["ExposureAccess"];
+            wakeOnRequest?: boolean;
+        };
+        ExposurePatch: {
+            name?: string;
+            access?: components["schemas"]["ExposureAccess"];
+            wakeOnRequest?: boolean;
+        };
+        ServiceInput: {
+            /** @description Run with `sh -lc` as the agent account. */
+            command: string;
+            /** @description Relative to the home (default the home). */
+            workdir?: string;
+            env?: {
+                [key: string]: string;
+            };
+            /** @description Default true. */
+            enabled?: boolean;
+        };
+        ServiceStatus: {
+            /** @enum {string} */
+            state: "running" | "backoff" | "stopped" | "failed";
+            pid?: number;
+            restarts: number;
+            /** @description Exit code of the last run (absent when a signal ended it). */
+            exitCode?: number;
+            /** @description Signal that ended the last run. */
+            signal?: string;
+            /** @description Why it could not be started (state failed). */
+            error?: string;
+            /** Format: date-time */
+            startedAt?: string;
+        };
+        Service: {
+            name: string;
+            command: string;
+            workdir: string;
+            env: {
+                [key: string]: string;
+            };
+            enabled: boolean;
+            status?: components["schemas"]["ServiceStatus"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ServiceList: {
+            /** @description Whether the machine is connected (its services can run). */
+            running: boolean;
+            /** @description Why the live status is missing although the machine runs. */
+            error?: string;
+            services: components["schemas"]["Service"][];
+        };
+        App: {
+            id: string;
+            name: string;
+            owner: components["schemas"]["User"];
+            nodeId?: string;
+            nodeName?: string;
+            /** @description Custom image ID, or empty string for the built-in agenthold Base image. */
+            imageId?: string;
+            /** @description Display name of the app's image. */
+            imageName?: string;
+            /**
+             * Format: int64
+             * @description Pinned custom image revision (0 for built-in base).
+             */
+            imageRevision?: number;
+            /** @description True when the app's custom image has a newer ready revision. */
+            imageUpdateAvailable?: boolean;
+            cpus: number;
+            /** Format: int64 */
+            memoryMb: number;
+            /** @description 0 means always on (never sleeps for idleness). */
+            idleMinutes: number;
+            state: components["schemas"]["SandboxState"];
+            stateError: string;
+            /** Format: date-time */
+            stateChangedAt: string;
+            needsRebuild: boolean;
+            /** @description The app is a template: it is never started; clone it (POST /agents/{id}/clone). */
+            isTemplate: boolean;
+            role: components["schemas"]["AgentRole"];
+            /**
+             * @description The agent that created the app with deploy_app and manages it (it may since have
+             *     been deleted). Absent once the owner took the app over.
+             */
+            createdByAgent?: {
+                id: string;
+                /** @description Empty when the agent was deleted. */
+                name: string;
+            };
+            /** @description The app's primary preview URL */
+            url?: string;
+            /** Format: date-time */
+            lastActivityAt?: string;
+            /** Format: date-time */
+            sleepsAt?: string;
+            /** @description Where the machine sub-resources of this app are. */
+            links: {
+                services: string;
+                exposures: string;
+                files: string;
+                terminal: string;
+                shares: string;
+                secrets: string;
+                audit: string;
+            };
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        AppInput: {
+            /** @description A DNS label: lowercase letters, digits and hyphens, unique among your apps. */
+            name: string;
+            cpus?: number;
+            /** Format: int64 */
+            memoryMb?: number;
+            /** @description Default 0 (always on). */
+            idleMinutes?: number;
+            /** @description Custom image ID, "base" for built-in base, or omit for the installation default. */
+            imageId?: string;
+        };
+        AppPatch: {
+            /** @description Convert to a template (it is stopped first) or back */
+            isTemplate?: boolean;
+            name?: string;
+            cpus?: number;
+            /** Format: int64 */
+            memoryMb?: number;
+            idleMinutes?: number;
+            /** @description Switch image (takes effect after Reset system). */
+            imageId?: string;
+            /**
+             * Format: int64
+             * @description Switch to a specific ready revision (takes effect after Reset system).
+             */
+            imageRevision?: number;
+        };
+        BuiltinBaseImage: {
+            id: string;
+            name: string;
+            description: string;
+            isDefault: boolean;
+        };
+        ImageInput: {
+            name: string;
+            description?: string;
+            aptPackages?: string[];
+            /** @description Bash script executed as root inside an isolated builder microVM. */
+            setupScript?: string;
+            /** @description Environment variables written to /etc/agenthold/image.env.d/10-custom.env. PATH supports $PATH/${PATH}. */
+            env?: {
+                [key: string]: string;
+            };
+            /** @description Secret IDs injected via the egress proxy during image builds only (never baked into the image). */
+            secretIds?: string[];
+            /** @description Make this custom image the installation default for new agents and apps. */
+            isDefault?: boolean;
+        };
+        CustomImage: {
+            id: string;
+            name: string;
+            description: string;
+            aptPackages: string[];
+            setupScript: string;
+            env: {
+                [key: string]: string;
+            };
+            secretIds: string[];
+            isDefault: boolean;
+            /** Format: int64 */
+            latestRevision: number;
+            readyArches: string[];
+            building: boolean;
+            /** Format: int64 */
+            agentCount: number;
+            /** @enum {string} */
+            latestBuildStatus?: "queued" | "building" | "ready" | "failed";
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ImageBuild: {
+            id: string;
+            imageId: string;
+            /** Format: int64 */
+            revision: number;
+            arch: string;
+            nodeId: string;
+            /** @enum {string} */
+            status: "queued" | "building" | "ready" | "failed";
+            error: string;
+            baseKey?: string;
+            layerSha256: string;
+            /** Format: int64 */
+            layerSize: number;
+            /** Format: int64 */
+            zstdSize: number;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ImageBuildDetail: components["schemas"]["ImageBuild"] & {
+            log: string;
+        };
+        CustomImageDetail: components["schemas"]["CustomImage"] & {
+            builds: components["schemas"]["ImageBuild"][];
+        };
+        ImageList: {
+            base: components["schemas"]["BuiltinBaseImage"];
+            images: components["schemas"]["CustomImage"][];
+        };
+        DeployInput: {
+            /** @description The machine to copy from. */
+            sourceAgentId: string;
+            /** @description Directory in the source machine */
+            sourceDir: string;
+            /** @description Runs in `~/app/current` with `PORT` set. */
+            command: string;
+            port: number;
+            env?: {
+                [key: string]: string;
+            };
+            access?: components["schemas"]["ExposureAccess"];
+            /** @description Names (any depth) or relative paths left out. Default [".git"]. */
+            exclude?: string[];
+        };
+        DeployResult: {
+            release: number;
+            /** @description The port accepted connections. */
+            ready: boolean;
+            /** @description The new release did not come up and the previous one serves again. */
+            rolledBack: boolean;
+            /** @description The service's last log lines when it did not come up. */
+            logs: string;
+            url?: string;
+            exposure?: components["schemas"]["Exposure"];
+            service?: components["schemas"]["ServiceStatus"];
+        };
+        MCPServerInput: {
+            /** @description Letters, digits, dashes and underscores. */
+            name: string;
+            /** @enum {string} */
+            transport: "stdio" | "http";
+            /** @description stdio only; runs inside the sandbox. */
+            command?: string;
+            args?: string[];
+            /** @description stdio only. Values may reference secrets as {{secret:NAME}}. */
+            env?: {
+                [key: string]: string;
+            };
+            /** @description http only. */
+            url?: string;
+            /** @description http only. Values may reference secrets as {{secret:NAME}}; the sandbox sees a placeholder and the egress proxy injects the value. */
+            headers?: {
+                [key: string]: string;
+            };
+        };
+        MCPServer: components["schemas"]["MCPServerInput"] & {
+            id: string;
+            ownerId: string;
+            /**
+             * @description library: in your library, attachable to your agents. agent: belongs to one agent.
+             * @enum {string}
+             */
+            scope: "library" | "agent";
+            agentId?: string;
+            secretRefs: string[];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        SkillInput: {
+            /** @description Lowercase letters, digits and dashes. */
+            name: string;
+            /** @description When the agent should use the skill. */
+            description: string;
+            /** @description The SKILL.md instructions (Markdown). */
+            content: string;
+        };
+        Skill: components["schemas"]["SkillInput"] & {
+            id: string;
+            ownerId: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        APIToken: {
+            id: string;
+            name: string;
+            /** @description The first characters of the token. */
+            prefix: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            lastUsedAt?: string;
+            /** Format: date-time */
+            expiresAt?: string;
+        };
+        CreatedAPIToken: components["schemas"]["APIToken"] & {
+            token: string;
+        };
+        ScheduleInput: {
+            name: string;
+            /** @description Five fields (minute hour day month weekday) or @hourly, @daily, @weekly. */
+            cron: string;
+            /** @description IANA time zone. Default UTC. */
+            timezone?: string;
+            prompt: string;
+            enabled?: boolean;
+        };
+        Schedule: components["schemas"]["ScheduleInput"] & {
+            id: string;
+            agentId: string;
+            sessionId: string;
+            createdBy: components["schemas"]["User"];
+            /** Format: date-time */
+            nextRunAt: string;
+            /** Format: date-time */
+            lastRunAt?: string;
+            lastError: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        WebhookInput: {
+            name: string;
+            /** @description {{payload}} marks where the delimited request body goes; otherwise it is appended. */
+            promptTemplate: string;
+            /** @description Set to require HMAC-SHA256 signatures; "" removes it; omit to keep. */
+            signingSecret?: string;
+            /** @description Header holding the signature. Default X-Hub-Signature-256. */
+            signatureHeader?: string;
+            enabled?: boolean;
+        };
+        Webhook: {
+            id: string;
+            agentId: string;
+            sessionId: string;
+            name: string;
+            promptTemplate: string;
+            signed: boolean;
+            signatureHeader: string;
+            enabled: boolean;
+            createdBy: components["schemas"]["User"];
+            /** Format: date-time */
+            lastDeliveryAt?: string;
+            lastError: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        CreatedWebhook: components["schemas"]["Webhook"] & {
+            /** @description The secret delivery URL. Shown once. */
+            url: string;
+        };
+        SessionGit: {
+            project: string;
+            branch: string;
+            repoPath?: string;
+        };
+        GitCredentialInput: {
+            /** @description Hostname, e.g. github.com or gitlab.com. */
+            host: string;
+            /** @description Optional HTTP Basic username (defaults to x-access-token for github.com, oauth2 for gitlab.com, git otherwise). */
+            username?: string;
+            token: string;
+            label?: string;
+        };
+        GitCredential: {
+            id: string;
+            host: string;
+            username: string;
+            label: string;
+            /**
+             * @description token: pasted. github: a GitHub account connected through the device flow.
+             * @enum {string}
+             */
+            source: "token" | "github";
+            /** @description The connected GitHub login. */
+            account?: string;
+            /** @description Scopes GitHub granted the connected token (empty for GitHub Apps). */
+            scopes?: string;
+            /**
+             * Format: date-time
+             * @description When the token expires; agenthold refreshes refreshable tokens before then.
+             */
+            expiresAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        GitHubConnectInfo: {
+            /** @description Whether this server can connect GitHub accounts (git.github.client_id). */
+            enabled: boolean;
+            /** @description The git host connected accounts are stored for. */
+            host: string;
+        };
+        GitHubDeviceFlow: {
+            id: string;
+            userCode: string;
+            verificationUri: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** @description Seconds to wait between polls. */
+            interval: number;
+        };
+        GitHubDevicePoll: {
+            /** @enum {string} */
+            status: "pending" | "connected" | "denied" | "expired";
+            credential?: components["schemas"]["GitCredential"];
+        };
+        GitSettings: {
+            github: components["schemas"]["GitHubConnectInfo"];
+            authorName: string;
+            authorEmail: string;
+            defaultAuthorName: string;
+            defaultAuthorEmail: string;
+            credentials: components["schemas"]["GitCredential"][];
+        };
+        GitRepo: {
+            path: string;
+            project: string;
+            remoteUrl?: string;
+            branch: string;
+            detached: boolean;
+            dirty: boolean;
+            ahead: number;
+            behind: number;
+            isWorktree: boolean;
+            mainPath?: string;
+        };
+        GitRepoList: {
+            connected: boolean;
+            repos: components["schemas"]["GitRepo"][];
+        };
+        GitRepoStatus: {
+            repo?: components["schemas"]["GitRepo"];
+            branches: string[];
+        };
+        /**
+         * @description How Executor tool approvals are answered for this agent: model (default; the agent asks you in chat and resumes), automatic (Executor approves immediately; the harness's own tool confirmation guards it), browser (pauses with a signed-in Executor approval link).
+         * @enum {string}
+         */
+        ExecutorApprovalMode: "model" | "automatic" | "browser";
+        ExecutorStatus: {
+            /** @description True when an Executor runtime binary is present on the controller. */
+            available: boolean;
+            /** @description False when executor.disabled is set in configuration. */
+            enabled: boolean;
+            /** @description True when this user's isolated Executor process is currently running. */
+            running: boolean;
+            /** @description Executor runtime version when known. */
+            version?: string;
+            /** @description Dedicated Agenthold-authenticated URL for the full Executor dashboard (requires preview.host_suffix or executor.public_url). */
+            dashboardUrl?: string;
+            /** @description True when an HTTPS Executor dashboard origin is configured for OAuth2 provider callbacks. */
+            oauthReady: boolean;
+            /** @description True when custom MCP server and custom app imports are allowed (executor.allow_private_fetch). */
+            customAppsEnabled: boolean;
+            /** @description Why Executor is unavailable or disabled. */
+            reason?: string;
+        };
+        ExecutorOverview: {
+            status: components["schemas"]["ExecutorStatus"];
+            apps: components["schemas"]["ExecutorApp"][];
+            accounts: components["schemas"]["ExecutorAccount"][];
+        };
+        ExecutorApp: {
+            id: string;
+            slug: string;
+            name: string;
+            activeVersion?: string;
+            builtin?: boolean;
+            requirements: components["schemas"]["ExecutorRequirement"][];
+        };
+        ExecutorRequirement: {
+            name: string;
+            /** @enum {string} */
+            scope: "user" | "app";
+            providerId: string;
+            providerName: string;
+            many: boolean;
+            authMethods: components["schemas"]["ExecutorAuthMethod"][];
+            linkedAccountIds: string[];
+        };
+        ExecutorAuthMethod: {
+            name: string;
+            /** @enum {string} */
+            kind: "secrets" | "oauth2" | "other";
+            label?: string;
+            guide?: string;
+            fields?: components["schemas"]["ExecutorSecretField"][];
+        };
+        ExecutorSecretField: {
+            name: string;
+            title?: string;
+            description?: string;
+            required: boolean;
+            secret?: boolean;
+        };
+        ExecutorAccount: {
+            id: string;
+            providerId: string;
+            providerName: string;
+            label: string;
+            description?: string;
+            method: string;
+            /** @description ready, needs_reauth, error, or unknown. */
+            status: string;
+            /** @description Provider email or username when available. */
+            identity?: string;
+            linkedApps: string[];
+        };
+        ExecutorAccountHealth: {
+            status: string;
+            message?: string;
+        };
+        ExecutorCatalog: {
+            apps: components["schemas"]["ExecutorCatalogEntry"][];
+        };
+        ExecutorCatalogEntry: {
+            id: string;
+            package?: string;
+            name: string;
+            description?: string;
+            category?: string;
+            iconUrl?: string;
+            auth: string[];
+        };
+        ExecutorConnectionSession: {
+            connectionId: string;
+            token: string;
+            /** @description Direct URL on the Executor dashboard host for OAuth2 or browser connection. */
+            browserUrl?: string;
+            /** Format: date-time */
+            expiresAt?: string;
+            providerId: string;
+            providerName: string;
+            methods: components["schemas"]["ExecutorAuthMethod"][];
+        };
+    };
+    responses: {
+        /** @description Error. */
+        Error: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+    };
+    parameters: {
+        SessionId: string;
+        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+        AgentId: string;
+        AppId: string;
+        ServiceName: string;
+    };
+    requestBodies: never;
+    headers: never;
+    pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-  getVersion: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Build information. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Version'];
-        };
-      };
-    };
-  };
-  getSandboxLimits: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Defaults and limits for agent sandboxes. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SandboxLimits'];
-        };
-      };
-    };
-  };
-  listAuthProviders: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Configured sign-in providers. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['AuthProvider'][];
-        };
-      };
-    };
-  };
-  login: {
-    parameters: {
-      query?: {
-        /** @description Local path to return to after login. Defaults to "/". */
-        redirect?: string;
-      };
-      header?: never;
-      path: {
-        provider: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Redirect to the identity provider. */
-      302: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  loginCallback: {
-    parameters: {
-      query?: {
-        code?: string;
-        state?: string;
-        error?: string;
-      };
-      header?: never;
-      path: {
-        provider: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Session cookie set, redirect into the app. */
-      302: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      400: components['responses']['Error'];
-    };
-  };
-  localLogin: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['LocalLoginInput'];
-      };
-    };
-    responses: {
-      /** @description Signed in; session cookie set. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      400: components['responses']['Error'];
-      401: components['responses']['Error'];
-      404: components['responses']['Error'];
-      429: components['responses']['Error'];
-    };
-  };
-  logout: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Session ended. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  getMe: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The signed-in user. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Me'];
-        };
-      };
-      401: components['responses']['Error'];
-    };
-  };
-  listAdminUsers: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The users, oldest first. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['AdminUser'][];
-        };
-      };
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-    };
-  };
-  setUserRoleOverride: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        userId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          /**
-           * @description The role to give the user, or null to let configuration decide.
-           * @enum {string|null}
-           */
-          override: 'admin' | 'user' | 'disabled' | null;
-        };
-      };
-    };
-    responses: {
-      /** @description The user with its new role. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['AdminUser'];
-        };
-      };
-      400: components['responses']['Error'];
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  listNodes: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Nodes and their last reported capacity. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['NodeInfo'][];
-        };
-      };
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-    };
-  };
-  getAdminOverview: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The overview. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['AdminOverview'];
-        };
-      };
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-    };
-  };
-  getSlackSettings: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The Slack settings. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SlackSettings'];
-        };
-      };
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  configureSlack: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SlackTokens'];
-      };
-    };
-    responses: {
-      /** @description Connected. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SlackSettings'];
-        };
-      };
-      400: components['responses']['Error'];
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  deleteSlack: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Disconnected. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  getSlackManifest: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The manifest. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            [key: string]: unknown;
-          };
-        };
-      };
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  createNodeJoinToken: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreateNodeJoinToken'];
-      };
-    };
-    responses: {
-      /** @description The new token. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['NodeJoinToken'];
-        };
-      };
-      400: components['responses']['Error'];
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  deleteNode: {
-    parameters: {
-      query?: {
-        force?: boolean;
-      };
-      header?: never;
-      path: {
-        nodeId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Removed. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  listImages: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Images. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ImageList'];
-        };
-      };
-    };
-  };
-  createImage: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ImageInput'];
-      };
-    };
-    responses: {
-      /** @description Created. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['CustomImage'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  getImage: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        imageId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Image details. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['CustomImageDetail'];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  deleteImage: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        imageId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Deleted. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  updateImage: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        imageId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ImageInput'];
-      };
-    };
-    responses: {
-      /** @description Updated. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['CustomImage'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  listImageBuilds: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        imageId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Builds. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ImageBuild'][];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  startImageBuild: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        imageId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Build started. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ImageBuild'][];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  getImageBuild: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        imageId: string;
-        buildId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Build details with logs. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ImageBuildDetail'];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  listAgents: {
-    parameters: {
-      query?: {
-        /** @description `false` (default) lists the machines that are not templates, `true` only templates, `all` both. */
-        template?: 'true' | 'false' | 'all';
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Agents. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Agent'][];
-        };
-      };
-    };
-  };
-  createAgent: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['AgentInput'];
-      };
-    };
-    responses: {
-      /** @description Created. The sandbox is provisioned in the background. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Agent'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      409: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  getAgent: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The agent. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Agent'];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  deleteAgent: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Destruction started. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  updateAgent: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['AgentPatch'];
-      };
-    };
-    responses: {
-      /** @description Updated. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Agent'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  startAgent: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Starting. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Agent'];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  stopAgent: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Stopping. The home volume is kept. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Agent'];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  rebuildAgent: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Resetting the system and applying current resources; the home disk is kept. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Agent'];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  cloneAgent: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CloneInput'];
-      };
-    };
-    responses: {
-      /** @description Created. The disks are copied in the background; the new agent is `creating` until then. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Agent'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  listApps: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Apps. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['App'][];
-        };
-      };
-    };
-  };
-  createApp: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['AppInput'];
-      };
-    };
-    responses: {
-      /** @description Created. The machine is provisioned in the background. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['App'];
-        };
-      };
-      400: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  getApp: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: components['parameters']['AppId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The app. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['App'];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  deleteApp: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: components['parameters']['AppId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Destruction started. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  updateApp: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: components['parameters']['AppId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['AppPatch'];
-      };
-    };
-    responses: {
-      /** @description Updated. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['App'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  startApp: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: components['parameters']['AppId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Starting. Its services start with it. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['App'];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  stopApp: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: components['parameters']['AppId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Stopping. Its services stop; the disks are kept. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['App'];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  rebuildApp: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: components['parameters']['AppId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Resetting. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['App'];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  takeOverApp: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: components['parameters']['AppId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Taken over. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['App'];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  deployApp: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: components['parameters']['AppId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['DeployInput'];
-      };
-    };
-    responses: {
-      /** @description Deployed (see `ready`). */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['DeployResult'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  openTerminal: {
-    parameters: {
-      query?: {
-        cols?: number;
-        rows?: number;
-        /** @description Run this harness login method (owner only) instead of a shell. */
-        auth?: string;
-      };
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Switching to WebSocket. */
-      101: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  listFiles: {
-    parameters: {
-      query?: {
-        path?: string;
-      };
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Directory listing. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['DirListing'];
-        };
-      };
-      400: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  deleteFile: {
-    parameters: {
-      query: {
-        path: string;
-        recursive?: boolean;
-      };
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Deleted. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  downloadFile: {
-    parameters: {
-      query: {
-        path: string;
-      };
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description File content. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/octet-stream': string;
-        };
-      };
-      400: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  uploadFile: {
-    parameters: {
-      query: {
-        path: string;
-      };
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/octet-stream': string;
-      };
-    };
-    responses: {
-      /** @description Written. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  makeDirectory: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          path: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Created. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  getEgressCA: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description PEM certificate. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/x-pem-file': string;
-        };
-      };
-    };
-  };
-  listSecretPresets: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Injection rule presets for common providers. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SecretPreset'][];
-        };
-      };
-    };
-  };
-  listSecrets: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Secrets. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Secret'][];
-        };
-      };
-    };
-  };
-  createSecret: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SecretInput'];
-      };
-    };
-    responses: {
-      /** @description Created. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Secret'];
-        };
-      };
-      400: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  deleteSecret: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        secretId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Deleted and detached from all agents. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  updateSecret: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        secretId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SecretPatch'];
-      };
-    };
-    responses: {
-      /** @description Updated. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Secret'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  listAgentSecrets: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Secrets attached to the agent. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['AttachedSecret'][];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  attachSecret: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        secretId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          /** @description Variable that holds the placeholder in the sandbox. */
-          envVar?: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Attached. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['AttachedSecret'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  detachSecret: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        secretId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Detached. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  listHarnesses: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Available harnesses (built-in plus your ACP Store and local ACP harnesses). */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HarnessType'][];
-        };
-      };
-    };
-  };
-  searchAcpRegistry: {
-    parameters: {
-      query?: {
-        q?: string;
-        limit?: number;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Matching ACP Registry agents. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['AcpRegistrySearchResponse'];
-        };
-      };
-      502: components['responses']['Error'];
-    };
-  };
-  listCustomHarnesses: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Custom harnesses. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['CustomHarness'][];
-        };
-      };
-    };
-  };
-  createCustomHarness: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CustomHarnessInput'];
-      };
-    };
-    responses: {
-      /** @description Added. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['CustomHarness'];
-        };
-      };
-      400: components['responses']['Error'];
-      502: components['responses']['Error'];
-    };
-  };
-  deleteCustomHarness: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        harnessId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Deleted. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  updateCustomHarness: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        harnessId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CustomHarnessPatch'];
-      };
-    };
-    responses: {
-      /** @description Updated. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['CustomHarness'];
-        };
-      };
-      400: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  startHarnessAuth: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: {
-      content: {
-        'application/json': {
-          /** @description Optional auth method id (default oauth-personal for Antigravity). */
-          method?: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Sign-in flow started. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HarnessAuthFlow'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  submitHarnessAuth: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          flowId: string;
-          /** @description Authorization code or full callback URL shown on the provider's sign-in page. */
-          code: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Sign-in completed. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HarnessAuthFlow'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  cancelHarnessAuth: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: {
-      content: {
-        'application/json': {
-          flowId?: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Cancelled. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  getHarness: {
-    parameters: {
-      query?: {
-        connect?: boolean;
-      };
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Harness state. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HarnessState'];
-        };
-      };
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  listModels: {
-    parameters: {
-      query?: {
-        /** @description Another harness id (see /harnesses). Default is the agent's own. */
-        harness?: string;
-      };
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The model catalog. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ModelCatalog'];
-        };
-      };
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  listSessions: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Sessions, most recently active first. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Session'][];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  createSession: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: {
-      content: {
-        'application/json': {
-          title?: string;
-          /** @description Optional working directory relative to the agent's home directory. */
-          cwd?: string;
-          /** @description Optional branch to check out or create when starting in a git repository. */
-          gitBranch?: string;
-          /** @description Create gitBranch if it does not exist. */
-          createBranch?: boolean;
-          /** @description Create a new git worktree on gitBranch for this session. */
-          createWorktree?: boolean;
-        };
-      };
-    };
-    responses: {
-      /** @description Created. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Session'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  getSession: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The session. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Session'];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  deleteSession: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Deleted. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  renameSession: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          title: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Renamed. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Session'];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  setSessionModel: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ModelChoice'];
-      };
-    };
-    responses: {
-      /** @description Set. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Session'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  promptSession: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          /** @description The message. May be empty when images are attached. */
-          text: string;
-          /** @description Images attached to the message (PNG, JPEG, GIF or WebP, up to 5 MiB each). */
-          images?: {
-            /** @enum {string} */
-            mimeType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
-            /** @description Base64 encoded image bytes, without a data URL prefix. */
-            data: string;
-          }[];
-        };
-      };
-    };
-    responses: {
-      /** @description The turn started. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  settleSession: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Settled. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Session'];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  unsettleSession: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Active again. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Session'];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  cancelSession: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Cancellation requested. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  answerPermission: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-        requestId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          optionId: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Answered. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  listSessionEvents: {
-    parameters: {
-      query?: {
-        after?: number;
-        limit?: number;
-      };
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Events in order. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SessionEvent'][];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  streamSession: {
-    parameters: {
-      query?: {
-        after?: number;
-      };
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Switching to WebSocket. */
-      101: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  listShares: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Access list. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['AccessList'];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  shareAgent: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ShareInput'];
-      };
-    };
-    responses: {
-      /** @description Shared (or already shared). */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Share'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  unshareAgent: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        userId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Removed. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  listAgentAudit: {
-    parameters: {
-      query?: {
-        before?: number;
-        limit?: number;
-      };
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Audit entries. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['AuditEntry'][];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  listAgentActivity: {
-    parameters: {
-      query?: {
-        /** @description Only entries after this seq. */
-        after?: number;
-      };
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Entries in order. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ActivityEntry'][];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  listExposures: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Exposures. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ExposureList'];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  createExposure: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ExposureInput'];
-      };
-    };
-    responses: {
-      /** @description Exposed. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Exposure'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  deleteExposure: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        exposureId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Removed. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  updateExposure: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        exposureId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ExposurePatch'];
-      };
-    };
-    responses: {
-      /** @description Updated. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Exposure'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  listServices: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Services. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ServiceList'];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  getService: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serviceName: components['parameters']['ServiceName'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The service. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Service'];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  putService: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serviceName: components['parameters']['ServiceName'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ServiceInput'];
-      };
-    };
-    responses: {
-      /** @description Saved. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Service'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  deleteService: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serviceName: components['parameters']['ServiceName'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Removed. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  startService: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serviceName: components['parameters']['ServiceName'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Started. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Service'];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  stopService: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serviceName: components['parameters']['ServiceName'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Stopped. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Service'];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  restartService: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serviceName: components['parameters']['ServiceName'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Restarted. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Service'];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  getServiceLogs: {
-    parameters: {
-      query?: {
-        lines?: number;
-      };
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serviceName: components['parameters']['ServiceName'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Log output. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'text/plain': string;
-        };
-      };
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  streamServiceLogs: {
-    parameters: {
-      query?: {
-        lines?: number;
-      };
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serviceName: components['parameters']['ServiceName'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Switching to WebSocket. */
-      101: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  authorizePreview: {
-    parameters: {
-      query: {
-        host: string;
-        /** @description Path on the exposure host to return to. Defaults to "/". */
-        return?: string;
-        /** @description Hash of the exposure host's state cookie; binds the code to the browser. */
-        state: string;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Consent page: an authenticated exposure of a machine you have no access to asks to see your identity. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Redirect to the exposure host or the login page. */
-      302: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description No access to this exposure (HTML page). */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description No such exposure (HTML page). */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  confirmPreview: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/x-www-form-urlencoded': {
-          host: string;
-          return?: string;
-          state?: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Redirect to the exposure host. */
-      302: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Refused (HTML page). */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  listAgentMCPServers: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description MCP servers used by the agent. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['MCPServer'][];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  createAgentMCPServer: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['MCPServerInput'];
-      };
-    };
-    responses: {
-      /** @description Created. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['MCPServer'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  attachMCPServer: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serverId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Attached. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  detachMCPServer: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        serverId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Detached. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  listMCPServers: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Your MCP server library (attachable to your agents). */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['MCPServer'][];
-        };
-      };
-    };
-  };
-  createMCPServer: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['MCPServerInput'];
-      };
-    };
-    responses: {
-      /** @description Created. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['MCPServer'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  updateMCPServer: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        serverId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['MCPServerInput'];
-      };
-    };
-    responses: {
-      /** @description Updated. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['MCPServer'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  deleteMCPServer: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        serverId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Deleted (and detached everywhere). */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  listSkills: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Your skills library. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Skill'][];
-        };
-      };
-    };
-  };
-  createSkill: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SkillInput'];
-      };
-    };
-    responses: {
-      /** @description Created. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Skill'];
-        };
-      };
-      400: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  updateSkill: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        skillId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SkillInput'];
-      };
-    };
-    responses: {
-      /** @description Updated. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Skill'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  deleteSkill: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        skillId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Deleted. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  listAgentSkills: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Skills attached to the agent. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Skill'][];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  attachSkill: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        skillId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Attached. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  detachSkill: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-        skillId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Detached; removed from the sandbox in the next session. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  getMySettings: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Your settings. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['UserSettings'];
-        };
-      };
-    };
-  };
-  updateMySettings: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['UserSettingsUpdate'];
-      };
-    };
-    responses: {
-      /** @description Your settings. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['UserSettings'];
-        };
-      };
-      400: components['responses']['Error'];
-    };
-  };
-  listTokens: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Your personal access tokens (without their values). */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['APIToken'][];
-        };
-      };
-    };
-  };
-  createToken: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          name: string;
-          expiresInDays?: number;
-        };
-      };
-    };
-    responses: {
-      /** @description Created. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['CreatedAPIToken'];
-        };
-      };
-      400: components['responses']['Error'];
-    };
-  };
-  deleteToken: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        tokenId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Revoked. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  listProviderLogins: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description One entry per harness with account logins. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProviderLoginInfo'][];
-        };
-      };
-    };
-  };
-  connectProviderLogin: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description Harness id (claude-code, codex). */
-        provider: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ProviderLoginInput'];
-      };
-    };
-    responses: {
-      /** @description Connected. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProviderLoginInfo'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  disconnectProviderLogin: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description Harness id (claude-code, codex). */
-        provider: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Disconnected. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  listSlackLinks: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Linked Slack users. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SlackIdentity'][];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  linkSlack: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          code: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Linked. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SlackIdentity'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  getSlackLink: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        code: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The Slack user and workspace. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SlackLinkPreview'];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  unlinkSlack: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: string;
-        slackUserId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Unlinked. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  useMyLogins: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The agent. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Agent'];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  stopUsingLogins: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The agent. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Agent'];
-        };
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  listSchedules: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The agent's schedules. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Schedule'][];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  createSchedule: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ScheduleInput'];
-      };
-    };
-    responses: {
-      /** @description Created. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Schedule'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  updateSchedule: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        scheduleId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ScheduleInput'];
-      };
-    };
-    responses: {
-      /** @description Updated. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Schedule'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  deleteSchedule: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        scheduleId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Deleted. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  runSchedule: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        scheduleId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The turn started. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  listWebhooks: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The agent's webhooks. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Webhook'][];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  createWebhook: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['WebhookInput'];
-      };
-    };
-    responses: {
-      /** @description Created. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['CreatedWebhook'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  updateWebhook: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        webhookId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['WebhookInput'];
-      };
-    };
-    responses: {
-      /** @description Updated. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Webhook'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  deleteWebhook: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        webhookId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Deleted. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-    };
-  };
-  deliverWebhook: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        token: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: {
-      content: {
-        '*/*': string;
-      };
-    };
-    responses: {
-      /** @description The turn started. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      401: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-      413: components['responses']['Error'];
-    };
-  };
-  getGitSettings: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Current git settings. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['GitSettings'];
-        };
-      };
-    };
-  };
-  updateGitSettings: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          authorName: string;
-          authorEmail: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Updated git settings. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['GitSettings'];
-        };
-      };
-      400: components['responses']['Error'];
-    };
-  };
-  upsertGitCredential: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['GitCredentialInput'];
-      };
-    };
-    responses: {
-      /** @description Stored credential metadata. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['GitCredential'];
-        };
-      };
-      400: components['responses']['Error'];
-    };
-  };
-  deleteGitCredential: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        credentialId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Deleted. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  startGitHubConnect: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The code to enter at GitHub. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['GitHubDeviceFlow'];
-        };
-      };
-      502: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  pollGitHubConnect: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        flowId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The state of the connection attempt. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['GitHubDevicePoll'];
-        };
-      };
-      404: components['responses']['Error'];
-      502: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  cancelGitHubConnect: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        flowId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Cancelled. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  listAgentGitRepos: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Discovered repositories. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['GitRepoList'];
-        };
-      };
-      404: components['responses']['Error'];
-    };
-  };
-  getAgentGitStatus: {
-    parameters: {
-      query?: {
-        /** @description Relative path inside the agent's home directory (empty for home). */
-        path?: string;
-      };
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Repository status and branch list. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['GitRepoStatus'];
-        };
-      };
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  cloneAgentGitRepo: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          url: string;
-          /** @description Optional target directory relative to home. */
-          path?: string;
-          /** @description Optional branch to check out. */
-          branch?: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Cloned repository. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['GitRepo'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  checkoutAgentGitBranch: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          path: string;
-          branch: string;
-          create?: boolean;
-          fromRef?: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Updated repository state. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['GitRepo'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  createAgentGitWorktree: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          /** @description Repository path relative to home. */
-          path: string;
-          branch: string;
-          /** @description Create a new branch for the worktree. */
-          create?: boolean;
-          /** @description Optional base ref when creating a new branch. */
-          fromRef?: string;
-          /** @description Optional worktree path relative to home. */
-          worktreePath?: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Created worktree. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['GitRepo'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  pullAgentGitRepo: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          path: string;
-          fetchOnly?: boolean;
-        };
-      };
-    };
-    responses: {
-      /** @description Updated repository state. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['GitRepo'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  pushAgentGitRepo: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          path: string;
-          force?: boolean;
-        };
-      };
-    };
-    responses: {
-      /** @description Repository state after the push. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['GitRepo'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  removeAgentGitWorktree: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
-        agentId: components['parameters']['AgentId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          /** @description Worktree path relative to home. */
-          path: string;
-          force?: boolean;
-        };
-      };
-    };
-    responses: {
-      /** @description The worktree's main repository. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['GitRepo'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  updateSessionGit: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        sessionId: components['parameters']['SessionId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          /** @description Working directory relative to home (empty clears). */
-          cwd?: string;
-          /** @description Re-detect git project and branch from the running sandbox. */
-          refresh?: boolean;
-        };
-      };
-    };
-    responses: {
-      /** @description Updated session. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Session'];
-        };
-      };
-      400: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-    };
-  };
-  getExecutorStatus: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Executor status. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ExecutorStatus'];
-        };
-      };
-    };
-  };
-  startExecutor: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Executor status. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ExecutorStatus'];
-        };
-      };
-      502: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  restartExecutor: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Executor status. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ExecutorStatus'];
-        };
-      };
-      502: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  getExecutorOverview: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Executor overview. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ExecutorOverview'];
-        };
-      };
-      502: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  listExecutorCatalog: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Catalog entries. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ExecutorCatalog'];
-        };
-      };
-      502: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  importExecutorCatalogApp: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          entry: string;
-          name: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Installed app. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ExecutorApp'];
-        };
-      };
-      400: components['responses']['Error'];
-      409: components['responses']['Error'];
-      422: components['responses']['Error'];
-      502: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  importExecutorCustomApp: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          name: string;
-          url: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Installed app. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ExecutorApp'];
-        };
-      };
-      400: components['responses']['Error'];
-      409: components['responses']['Error'];
-      422: components['responses']['Error'];
-      502: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  deleteExecutorApp: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Deleted. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-      502: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  startExecutorAccountConnect: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: string;
-        scope: 'user' | 'app';
-        requirement: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: {
-      content: {
-        'application/json': {
-          /** @description Optional existing account ID to reconnect or update credentials for. */
-          accountId?: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Connection session ready. */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ExecutorConnectionSession'];
-        };
-      };
-      400: components['responses']['Error'];
-      404: components['responses']['Error'];
-      502: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  submitExecutorAccountConnect: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          connectionId: string;
-          token: string;
-          method: string;
-          label?: string;
-          description?: string;
-          fields: {
-            [key: string]: string;
-          };
-        };
-      };
-    };
-    responses: {
-      /** @description Connected account. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ExecutorAccount'];
-        };
-      };
-      400: components['responses']['Error'];
-      401: components['responses']['Error'];
-      404: components['responses']['Error'];
-      502: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  linkExecutorAccount: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: string;
-        scope: 'user' | 'app';
-        requirement: string;
-        accountId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Linked. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      400: components['responses']['Error'];
-      404: components['responses']['Error'];
-      502: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  unlinkExecutorAccount: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        appId: string;
-        scope: 'user' | 'app';
-        requirement: string;
-        accountId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Unlinked. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      400: components['responses']['Error'];
-      404: components['responses']['Error'];
-      502: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  deleteExecutorAccount: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        accountId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Deleted. */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-      502: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  updateExecutorAccount: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        accountId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          label?: string;
-          /** @description Agent-facing description. Send an empty string to clear. */
-          description?: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Updated account. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ExecutorAccount'];
-        };
-      };
-      400: components['responses']['Error'];
-      404: components['responses']['Error'];
-      502: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  checkExecutorAccountHealth: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        accountId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Health check result. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ExecutorAccountHealth'];
-        };
-      };
-      404: components['responses']['Error'];
-      502: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
+    getVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Build information. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Version"];
+                };
+            };
+        };
+    };
+    getSandboxLimits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Defaults and limits for agent sandboxes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SandboxLimits"];
+                };
+            };
+        };
+    };
+    listAuthProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Configured sign-in providers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthProvider"][];
+                };
+            };
+        };
+    };
+    login: {
+        parameters: {
+            query?: {
+                /** @description Local path to return to after login. Defaults to "/". */
+                redirect?: string;
+            };
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirect to the identity provider. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    loginCallback: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                error?: string;
+            };
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session cookie set, redirect into the app. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    localLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalLoginInput"];
+            };
+        };
+        responses: {
+            /** @description Signed in; session cookie set. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session ended. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The signed-in user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+            401: components["responses"]["Error"];
+        };
+    };
+    listAdminUsers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The users, oldest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"][];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    setUserRoleOverride: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description The role to give the user, or null to let configuration decide.
+                     * @enum {string|null}
+                     */
+                    override: "admin" | "user" | "disabled" | null;
+                };
+            };
+        };
+        responses: {
+            /** @description The user with its new role. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    listNodes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Nodes and their last reported capacity. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeInfo"][];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    getAdminOverview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The overview. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminOverview"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    getSlackSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Slack settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackSettings"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    configureSlack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SlackTokens"];
+            };
+        };
+        responses: {
+            /** @description Connected. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackSettings"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteSlack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disconnected. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    getSlackManifest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The manifest. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    createNodeJoinToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateNodeJoinToken"];
+            };
+        };
+        responses: {
+            /** @description The new token. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeJoinToken"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    deleteNode: {
+        parameters: {
+            query?: {
+                force?: boolean;
+            };
+            header?: never;
+            path: {
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    listImages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Images. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageList"];
+                };
+            };
+        };
+    };
+    createImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageInput"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomImage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Image details. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomImageDetail"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageInput"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomImage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    listImageBuilds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Builds. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageBuild"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    startImageBuild: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Build started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageBuild"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getImageBuild: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                imageId: string;
+                buildId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Build details with logs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageBuildDetail"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listAgents: {
+        parameters: {
+            query?: {
+                /** @description `false` (default) lists the machines that are not templates, `true` only templates, `all` both. */
+                template?: "true" | "false" | "all";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Agents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"][];
+                };
+            };
+        };
+    };
+    createAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentInput"];
+            };
+        };
+        responses: {
+            /** @description Created. The sandbox is provisioned in the background. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    getAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Destruction started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentPatch"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    startAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Starting. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    stopAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stopping. The home volume is kept. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    rebuildAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resetting the system and applying current resources; the home disk is kept. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    cloneAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloneInput"];
+            };
+        };
+        responses: {
+            /** @description Created. The disks are copied in the background; the new agent is `creating` until then. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    listApps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Apps. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["App"][];
+                };
+            };
+        };
+    };
+    createApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppInput"];
+            };
+        };
+        responses: {
+            /** @description Created. The machine is provisioned in the background. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["App"];
+                };
+            };
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The app. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["App"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Destruction started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppPatch"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["App"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    startApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Starting. Its services start with it. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["App"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    stopApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stopping. Its services stop; the disks are kept. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["App"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    rebuildApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resetting. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["App"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    takeOverApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Taken over. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["App"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deployApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: components["parameters"]["AppId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeployInput"];
+            };
+        };
+        responses: {
+            /** @description Deployed (see `ready`). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeployResult"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    openTerminal: {
+        parameters: {
+            query?: {
+                cols?: number;
+                rows?: number;
+                /** @description Run this harness login method (owner only) instead of a shell. */
+                auth?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Switching to WebSocket. */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listFiles: {
+        parameters: {
+            query?: {
+                path?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Directory listing. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirListing"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    deleteFile: {
+        parameters: {
+            query: {
+                path: string;
+                recursive?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    downloadFile: {
+        parameters: {
+            query: {
+                path: string;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description File content. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    uploadFile: {
+        parameters: {
+            query: {
+                path: string;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Written. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    makeDirectory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    path: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getEgressCA: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PEM certificate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-pem-file": string;
+                };
+            };
+        };
+    };
+    listSecretPresets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Injection rule presets for common providers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretPreset"][];
+                };
+            };
+        };
+    };
+    listSecrets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Secrets. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Secret"][];
+                };
+            };
+        };
+    };
+    createSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretInput"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Secret"];
+                };
+            };
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    deleteSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted and detached from all agents. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    updateSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretPatch"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Secret"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listAgentSecrets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Secrets attached to the agent. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachedSecret"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    attachSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Variable that holds the placeholder in the sandbox. */
+                    envVar?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Attached. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachedSecret"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    detachSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Detached. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listHarnesses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Available harnesses (built-in plus your ACP Store and local ACP harnesses). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HarnessType"][];
+                };
+            };
+        };
+    };
+    searchAcpRegistry: {
+        parameters: {
+            query?: {
+                q?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching ACP Registry agents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcpRegistrySearchResponse"];
+                };
+            };
+            502: components["responses"]["Error"];
+        };
+    };
+    listCustomHarnesses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Custom harnesses. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomHarness"][];
+                };
+            };
+        };
+    };
+    createCustomHarness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomHarnessInput"];
+            };
+        };
+        responses: {
+            /** @description Added. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomHarness"];
+                };
+            };
+            400: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+        };
+    };
+    deleteCustomHarness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                harnessId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateCustomHarness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                harnessId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomHarnessPatch"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomHarness"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    startHarnessAuth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Optional auth method id (default oauth-personal for Antigravity). */
+                    method?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Sign-in flow started. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HarnessAuthFlow"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    submitHarnessAuth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    flowId: string;
+                    /** @description Authorization code or full callback URL shown on the provider's sign-in page. */
+                    code: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Sign-in completed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HarnessAuthFlow"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    cancelHarnessAuth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    flowId?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Cancelled. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    getHarness: {
+        parameters: {
+            query?: {
+                connect?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Harness state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HarnessState"];
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    listModels: {
+        parameters: {
+            query?: {
+                /** @description Another harness id (see /harnesses). Default is the agent's own. */
+                harness?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The model catalog. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCatalog"];
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    listSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sessions, most recently active first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    title?: string;
+                    /** @description Optional working directory relative to the agent's home directory. */
+                    cwd?: string;
+                    /** @description Optional branch to check out or create when starting in a git repository. */
+                    gitBranch?: string;
+                    /** @description Create gitBranch if it does not exist. */
+                    createBranch?: boolean;
+                    /** @description Create a new git worktree on gitBranch for this session. */
+                    createWorktree?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The session. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    renameSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    title: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Renamed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    setSessionModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelChoice"];
+            };
+        };
+        responses: {
+            /** @description Set. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    promptSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The message. May be empty when images are attached. */
+                    text: string;
+                    /** @description Images attached to the message (PNG, JPEG, GIF or WebP, up to 5 MiB each). */
+                    images?: {
+                        /** @enum {string} */
+                        mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+                        /** @description Base64 encoded image bytes, without a data URL prefix. */
+                        data: string;
+                    }[];
+                };
+            };
+        };
+        responses: {
+            /** @description The turn started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    settleSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Settled. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    unsettleSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active again. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    cancelSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancellation requested. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    answerPermission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    optionId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Answered. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listSessionEvents: {
+        parameters: {
+            query?: {
+                after?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Events in order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionEvent"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    streamSession: {
+        parameters: {
+            query?: {
+                after?: number;
+            };
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Switching to WebSocket. */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    listShares: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Access list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessList"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    shareAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareInput"];
+            };
+        };
+        responses: {
+            /** @description Shared (or already shared). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Share"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    unshareAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listAgentAudit: {
+        parameters: {
+            query?: {
+                before?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Audit entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditEntry"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listAgentActivity: {
+        parameters: {
+            query?: {
+                /** @description Only entries after this seq. */
+                after?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Entries in order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityEntry"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    listExposures: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Exposures. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExposureList"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createExposure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExposureInput"];
+            };
+        };
+        responses: {
+            /** @description Exposed. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Exposure"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    deleteExposure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                exposureId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    updateExposure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                exposureId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExposurePatch"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Exposure"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    listServices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Services. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceList"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    getService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The service. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Service"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    putService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServiceInput"];
+            };
+        };
+        responses: {
+            /** @description Saved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Service"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    deleteService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    startService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Started. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Service"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    stopService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stopped. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Service"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    restartService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Restarted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Service"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getServiceLogs: {
+        parameters: {
+            query?: {
+                lines?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Log output. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    streamServiceLogs: {
+        parameters: {
+            query?: {
+                lines?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serviceName: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Switching to WebSocket. */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    authorizePreview: {
+        parameters: {
+            query: {
+                host: string;
+                /** @description Path on the exposure host to return to. Defaults to "/". */
+                return?: string;
+                /** @description Hash of the exposure host's state cookie; binds the code to the browser. */
+                state: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Consent page: an authenticated exposure of a machine you have no access to asks to see your identity. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Redirect to the exposure host or the login page. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No access to this exposure (HTML page). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such exposure (HTML page). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirmPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    host: string;
+                    return?: string;
+                    state?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Redirect to the exposure host. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Refused (HTML page). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listAgentMCPServers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description MCP servers used by the agent. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPServer"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createAgentMCPServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPServerInput"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPServer"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    attachMCPServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serverId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attached. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    detachMCPServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                serverId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Detached. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listMCPServers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Your MCP server library (attachable to your agents). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPServer"][];
+                };
+            };
+        };
+    };
+    createMCPServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPServerInput"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPServer"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateMCPServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                serverId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPServerInput"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPServer"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteMCPServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                serverId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted (and detached everywhere). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listSkills: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Your skills library. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Skill"][];
+                };
+            };
+        };
+    };
+    createSkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillInput"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Skill"];
+                };
+            };
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateSkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillInput"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Skill"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteSkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listAgentSkills: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Skills attached to the agent. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Skill"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    attachSkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attached. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    detachSkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Detached; removed from the sandbox in the next session. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    getMySettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Your settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSettings"];
+                };
+            };
+        };
+    };
+    updateMySettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Your settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSettings"];
+                };
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    listTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Your personal access tokens (without their values). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIToken"][];
+                };
+            };
+        };
+    };
+    createToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    expiresInDays?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedAPIToken"];
+                };
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    deleteToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tokenId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    listProviderLogins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One entry per harness with account logins. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderLoginInfo"][];
+                };
+            };
+        };
+    };
+    connectProviderLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Harness id (claude-code, codex). */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderLoginInput"];
+            };
+        };
+        responses: {
+            /** @description Connected. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderLoginInfo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    disconnectProviderLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Harness id (claude-code, codex). */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disconnected. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    listSlackLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Linked Slack users. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackIdentity"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    linkSlack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    code: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Linked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackIdentity"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    getSlackLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Slack user and workspace. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackLinkPreview"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    unlinkSlack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: string;
+                slackUserId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unlinked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    useMyLogins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    stopUsingLogins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listSchedules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent's schedules. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Schedule"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleInput"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Schedule"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    updateSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scheduleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleInput"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Schedule"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scheduleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    runSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scheduleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The turn started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    listWebhooks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent's webhooks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Webhook"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookInput"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedWebhook"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    updateWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhookId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookInput"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Webhook"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhookId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deliverWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "*/*": string;
+            };
+        };
+        responses: {
+            /** @description The turn started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            413: components["responses"]["Error"];
+        };
+    };
+    getGitSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current git settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitSettings"];
+                };
+            };
+        };
+    };
+    updateGitSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    authorName: string;
+                    authorEmail: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated git settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitSettings"];
+                };
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    upsertGitCredential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GitCredentialInput"];
+            };
+        };
+        responses: {
+            /** @description Stored credential metadata. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitCredential"];
+                };
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    deleteGitCredential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credentialId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    startGitHubConnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The code to enter at GitHub. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubDeviceFlow"];
+                };
+            };
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    pollGitHubConnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                flowId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The state of the connection attempt. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubDevicePoll"];
+                };
+            };
+            404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    cancelGitHubConnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                flowId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancelled. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listAgentGitRepos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Discovered repositories. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepoList"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    getAgentGitStatus: {
+        parameters: {
+            query?: {
+                /** @description Relative path inside the agent's home directory (empty for home). */
+                path?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Repository status and branch list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepoStatus"];
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    cloneAgentGitRepo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    url: string;
+                    /** @description Optional target directory relative to home. */
+                    path?: string;
+                    /** @description Optional branch to check out. */
+                    branch?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Cloned repository. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    checkoutAgentGitBranch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    path: string;
+                    branch: string;
+                    create?: boolean;
+                    fromRef?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated repository state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    createAgentGitWorktree: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Repository path relative to home. */
+                    path: string;
+                    branch: string;
+                    /** @description Create a new branch for the worktree. */
+                    create?: boolean;
+                    /** @description Optional base ref when creating a new branch. */
+                    fromRef?: string;
+                    /** @description Optional worktree path relative to home. */
+                    worktreePath?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created worktree. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    pullAgentGitRepo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    path: string;
+                    fetchOnly?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated repository state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    pushAgentGitRepo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    path: string;
+                    force?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Repository state after the push. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    removeAgentGitWorktree: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Worktree path relative to home. */
+                    path: string;
+                    force?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description The worktree's main repository. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateSessionGit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Working directory relative to home (empty clears). */
+                    cwd?: string;
+                    /** @description Re-detect git project and branch from the running sandbox. */
+                    refresh?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated session. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getExecutorStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Executor status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorStatus"];
+                };
+            };
+        };
+    };
+    startExecutor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Executor status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorStatus"];
+                };
+            };
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    restartExecutor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Executor status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorStatus"];
+                };
+            };
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    getExecutorOverview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Executor overview. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorOverview"];
+                };
+            };
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    listExecutorCatalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Catalog entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorCatalog"];
+                };
+            };
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    importExecutorCatalogApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    entry: string;
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Installed app. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorApp"];
+                };
+            };
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    importExecutorCustomApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    url: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Installed app. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorApp"];
+                };
+            };
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    deleteExecutorApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    startExecutorAccountConnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+                scope: "user" | "app";
+                requirement: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Optional existing account ID to reconnect or update credentials for. */
+                    accountId?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Connection session ready. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorConnectionSession"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    submitExecutorAccountConnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    connectionId: string;
+                    token: string;
+                    method: string;
+                    label?: string;
+                    description?: string;
+                    fields: {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Connected account. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorAccount"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    linkExecutorAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+                scope: "user" | "app";
+                requirement: string;
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Linked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    unlinkExecutorAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+                scope: "user" | "app";
+                requirement: string;
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unlinked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    deleteExecutorAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    updateExecutorAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    label?: string;
+                    /** @description Agent-facing description. Send an empty string to clear. */
+                    description?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated account. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorAccount"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    checkExecutorAccountHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Health check result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutorAccountHealth"];
+                };
+            };
+            404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
 }

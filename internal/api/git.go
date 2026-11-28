@@ -289,7 +289,7 @@ func (a *API) GetAgentGitStatus(ctx context.Context, req gen.GetAgentGitStatusRe
 	if err != nil {
 		return nil, err
 	}
-	s, err := a.connected(ctx, req.AgentId, authz.AgentRead)
+	s, err := a.connected(ctx, req.AgentId)
 	if err != nil {
 		return nil, err
 	}

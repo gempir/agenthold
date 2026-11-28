@@ -35,6 +35,7 @@ func (a *API) SettleSession(ctx context.Context, req gen.SettleSessionRequestObj
 	}
 	if changed {
 		a.record(ctx, mustAgent(ctx, a, s.AgentID), audit.SessionSettle, s.ID, map[string]any{"session": s.Title})
+		a.Projects.SettleHooks(ctx, s)
 	}
 	g, err := a.apiSession(ctx, s)
 	if err != nil {

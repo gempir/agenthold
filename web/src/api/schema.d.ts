@@ -717,6 +717,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agentId}/files/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description Read a file inside the agent's home for the file viewer and editor. Text (UTF-8) files come back as content (at most maxBytes, cut at a character); binary files only with their metadata (isBinary), use files/content to download or preview them. With startLine or endLine only those lines (1-based, inclusive) are returned. The agent must be running. */
+        get: operations["readFileText"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/files/write": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Save a text file inside the agent's home from the editor (owner or shared user). The file is replaced atomically and keeps its mode; missing parent directories are created. */
+        put: operations["writeFileText"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/files/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description Fuzzy-search file and directory paths below a directory of the agent's home (for the composer's file picker and the command palette). Inside a git repository its files are searched (tracked and untracked, not ignored ones); elsewhere dependency, cache and build directories (node_modules, .venv, dist, target, ...) are skipped. An empty query lists the shallowest paths. */
+        get: operations["searchFiles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/scripts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description The project scripts of a directory: agenthold.json there, or T3 Code's t3.json when there is none (same schema). A directory without either has no scripts; a file that does not parse is reported in error. */
+        get: operations["getProjectScripts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/scripts/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Run a project script of a directory (needs terminal access). A long-running script (with a previewUrl or stopOnSettle) starts as a supervised service and the call returns at once; others run to completion (up to 10 minutes) and return their output and exit code. */
+        post: operations["runProjectScript"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/egress/ca.pem": {
         parameters: {
             query?: never;
@@ -2289,6 +2389,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agentId}/git/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description A structured diff of the repository a directory is in. uncommitted: staged, unstaged and untracked changes against HEAD. branch: the work tree (committed and uncommitted changes, untracked files) against the merge base with base (default origin/HEAD, origin/main, origin/master, main or master). commit: the commit ref against its first parent. Large and binary files come without a patch (truncated, binary). */
+        get: operations["getAgentGitDiff"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/commits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /** @description The latest commits of the branch a repository inside a running agent is on. */
+        get: operations["listAgentGitCommits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/git/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Commit in a repository or worktree inside a running agent: what is staged, or with all everything (git add -A first). */
+        post: operations["commitAgentGitRepo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{sessionId}/git": {
         parameters: {
             query?: never;
@@ -3261,6 +3421,85 @@ export interface components {
             path: string;
             entries: components["schemas"]["FileEntry"][];
         };
+        TextFile: {
+            /** @description Path relative to the home. */
+            path: string;
+            /** Format: int64 */
+            size: number;
+            /** Format: date-time */
+            modTime: string;
+            mimeType: string;
+            isBinary: boolean;
+            /** @description Content holds only the start of the file (or of the line range). */
+            truncated: boolean;
+            /** @description UTF-8 text; empty for binary files. */
+            content: string;
+            /** @description First line in content (with a line range). */
+            startLine?: number;
+            /** @description Last line in content (with a line range). */
+            endLine?: number;
+            /** @description Lines in the file (with a line range, when it was read to the end). */
+            totalLines?: number;
+        };
+        FileMatch: {
+            /** @description Path relative to the search base. */
+            path: string;
+            name: string;
+            isDir: boolean;
+        };
+        FileSearchResult: {
+            /** @description The search base relative to the home. */
+            base: string;
+            results: components["schemas"]["FileMatch"][];
+            /** @description There are more matches (or not every file was searched). */
+            truncated: boolean;
+        };
+        ProjectScript: {
+            /** @description The name as a slug, unique in the file. */
+            id: string;
+            name: string;
+            command: string;
+            /** @enum {string} */
+            icon: "play" | "test" | "lint" | "configure" | "build" | "debug";
+            runOnWorktreeCreate: boolean;
+            /** @description With runOnWorktreeCreate: do not wait for it to finish. */
+            async: boolean;
+            stopOnSettle: boolean;
+            runOnSettle: boolean;
+            previewUrl?: string;
+            autoOpenPreview: boolean;
+            /** @description Runs as a supervised service (it has a previewUrl or stops on settle). */
+            longRunning: boolean;
+            /** @description The service a long-running script runs as. */
+            service?: string;
+            status?: components["schemas"]["ServiceStatus"];
+        };
+        ProjectScripts: {
+            /** @description The directory relative to the home. */
+            path: string;
+            /**
+             * @description The file the scripts come from (none when absent).
+             * @enum {string}
+             */
+            source?: "agenthold.json" | "t3.json";
+            iconPath?: string;
+            /** @enum {string} */
+            defaultThreadEnvMode?: "local" | "worktree";
+            scripts: components["schemas"]["ProjectScript"][];
+            /** @description Why the file could not be read. */
+            error?: string;
+        };
+        ProjectScriptRun: {
+            script: components["schemas"]["ProjectScript"];
+            /** @enum {string} */
+            mode: "exec" | "service";
+            /** @description The service it runs as (mode service). */
+            service?: string;
+            exitCode?: number;
+            output?: string;
+            truncated?: boolean;
+            timedOut?: boolean;
+        };
         SecretRule: {
             /** @description Exact host names or "*.example.com". */
             hosts: string[];
@@ -4189,6 +4428,61 @@ export interface components {
         GitRepoStatus: {
             repo?: components["schemas"]["GitRepo"];
             branches: string[];
+        };
+        GitDiffFile: {
+            /** @description Path relative to the repository root. */
+            path: string;
+            /** @description The previous path of a renamed file. */
+            oldPath?: string;
+            /**
+             * @description Added, modified, deleted, renamed or untracked (?).
+             * @enum {string}
+             */
+            status: "A" | "M" | "D" | "R" | "?";
+            additions: number;
+            deletions: number;
+            binary: boolean;
+            /** @description The patch is left out because it is too large. */
+            truncated: boolean;
+            /** @description Unified diff of the file. */
+            patch?: string;
+        };
+        GitDiff: {
+            /** @enum {string} */
+            mode: "uncommitted" | "branch" | "commit";
+            repo: components["schemas"]["GitRepo"];
+            /** @description The branch a branch diff compares with. */
+            base?: string;
+            /** @description The commit the branch forked from. */
+            mergeBase?: string;
+            /** @description The commit a commit diff shows (full SHA). */
+            ref?: string;
+            files: components["schemas"]["GitDiffFile"][];
+            additions: number;
+            deletions: number;
+            /** @description More files changed than are listed. */
+            truncated: boolean;
+        };
+        GitCommit: {
+            sha: string;
+            shortSha: string;
+            subject: string;
+            body: string;
+            author: string;
+            email: string;
+            /** Format: date-time */
+            date: string;
+            filesChanged: number;
+            additions: number;
+            deletions: number;
+        };
+        GitCommitList: {
+            repo: components["schemas"]["GitRepo"];
+            commits: components["schemas"]["GitCommit"][];
+        };
+        GitCommitResult: {
+            repo: components["schemas"]["GitRepo"];
+            commit: components["schemas"]["GitCommit"];
         };
         /**
          * @description How Executor tool approvals are answered for this agent: model (default; the agent asks you in chat and resumes), automatic (Executor approves immediately; the harness's own tool confirmation guards it), browser (pauses with a signed-in Executor approval link).
@@ -5599,6 +5893,170 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    readFileText: {
+        parameters: {
+            query: {
+                /** @description File path relative to the home. */
+                path: string;
+                maxBytes?: number;
+                startLine?: number;
+                endLine?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TextFile"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    writeFileText: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description File path relative to the home. */
+                    path: string;
+                    content: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The written file (without content). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TextFile"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    searchFiles: {
+        parameters: {
+            query?: {
+                /** @description Base directory relative to the home (default the home). */
+                path?: string;
+                q?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching paths, best first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileSearchResult"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getProjectScripts: {
+        parameters: {
+            query?: {
+                /** @description Directory relative to the home (a repository or workspace root). */
+                path?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The scripts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectScripts"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    runProjectScript: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Directory relative to the home. */
+                    path?: string;
+                    /** @description The script's id or name. */
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description What the script did. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectScriptRun"];
+                };
             };
             400: components["responses"]["Error"];
             403: components["responses"]["Error"];
@@ -8462,6 +8920,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GitRepo"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getAgentGitDiff: {
+        parameters: {
+            query?: {
+                /** @description A directory of the repository, relative to the home. */
+                path?: string;
+                mode?: "uncommitted" | "branch" | "commit";
+                /** @description The commit (mode commit). */
+                ref?: string;
+                /** @description The branch to compare with (mode branch). */
+                base?: string;
+                /** @description Context lines. */
+                context?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The diff. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitDiff"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    listAgentGitCommits: {
+        parameters: {
+            query?: {
+                /** @description A directory of the repository, relative to the home. */
+                path?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Commits, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitCommitList"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    commitAgentGitRepo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    path: string;
+                    message: string;
+                    /** @description Stage all changes (git add -A) first. */
+                    all?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description The new commit and the repository after it. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitCommitResult"];
                 };
             };
             400: components["responses"]["Error"];

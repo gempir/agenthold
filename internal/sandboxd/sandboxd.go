@@ -284,6 +284,12 @@ func (d *Daemon) handle(ctx context.Context, st net.Conn, o tunnel.Open) {
 		err = d.exec(ctx, st, o)
 	case tunnel.OpGit:
 		err = d.git(ctx, st, o)
+	case tunnel.OpFSReadText:
+		err = d.fsReadText(st, o)
+	case tunnel.OpFSWriteText:
+		err = d.fsWriteText(st, o)
+	case tunnel.OpFSSearch:
+		err = d.fsSearch(ctx, st, o)
 	default:
 		err = fmt.Errorf("unknown operation %q", o.Op)
 	}

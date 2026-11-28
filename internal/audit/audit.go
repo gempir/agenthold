@@ -73,6 +73,9 @@ const (
 	GitWorktreeAdd      = "git.worktree_add"
 	GitPull             = "git.pull"
 	GitMerge            = "git.merge"
+	GitCommit           = "git.commit"
+
+	ScriptRun = "script.run"
 
 	ProjectThreadStart = "project.thread_start"
 	ProjectMerge       = "project.merge"

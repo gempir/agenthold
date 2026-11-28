@@ -48,6 +48,7 @@ import (
 	"github.com/gempir/agenthold/internal/project"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
+	"github.com/gempir/agenthold/internal/scripts"
 	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/server"
 	"github.com/gempir/agenthold/internal/session"
@@ -245,7 +246,7 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	e.sessions.SetResolver(resolver)
 	e.sessions.SetLogins(e.logins)
 	e.sessions.SetAudit(&audit.Log{Store: st})
-	e.projects = &project.Service{Store: st, Machine: project.NodeMachine(n), Sessions: e.sessions}
+	e.projects = &project.Service{Store: st, Machine: project.NodeMachine(n), Sessions: e.sessions, Scripts: &scripts.Runner{Apps: e.apps}}
 	e.sessions.SetWorkspaces(e.projects)
 	e.logins.Restart = e.sessions.Restart
 	e.sessions.SetTools(tools.Provider{Store: st, PlatformCommand: sandboxdBin})

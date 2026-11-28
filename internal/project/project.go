@@ -22,7 +22,9 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/gempir/agenthold/internal/scripts"
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
@@ -209,7 +211,10 @@ type Service struct {
 	Machine MachineFunc
 	// Sessions creates and prompts threads.
 	Sessions *session.Manager
-	Log      *slog.Logger
+	// Scripts runs the project scripts of new worktrees and settled
+	// threads (nil: none run).
+	Scripts *scripts.Runner
+	Log     *slog.Logger
 }
 
 func (s *Service) logger() *slog.Logger {
@@ -284,6 +289,7 @@ func (s *Service) Prepare(ctx context.Context, ts *tunnel.Session, sess db.Agent
 		return "", fmt.Errorf("project: %w", err)
 	}
 	cwd := ThreadCwd(p, sess)
+	var created []string // worktrees made now
 	for _, src := range sources {
 		main, def, err := s.ensureMain(ctx, ts, p, src)
 		if err != nil {
@@ -324,6 +330,7 @@ func (s *Service) Prepare(ctx context.Context, ts *tunnel.Session, sess db.Agent
 		if _, err := gitDo(ctx, ts, req); err != nil {
 			return "", fmt.Errorf("%s: %w", src.Name, err)
 		}
+		created = append(created, wt)
 	}
 	if err := ts.Mkdir(ctx, cwd, true); err != nil {
 		return "", fmt.Errorf("project directory: %w", err)
@@ -338,7 +345,64 @@ func (s *Service) Prepare(ctx context.Context, ts *tunnel.Session, sess db.Agent
 			return "", fmt.Errorf("write %s: %w", name, err)
 		}
 	}
+	if s.Scripts != nil {
+		for _, wt := range created {
+			s.Scripts.OnWorktreeCreate(ctx, ts, sess.AgentID, wt)
+		}
+	}
 	return cwd, nil
+}
+
+// ScriptDirs are the directories whose project scripts belong to a thread:
+// each repository of an isolated project thread's workspace, else its
+// working directory (none for the home).
+func (s *Service) ScriptDirs(ctx context.Context, sess db.AgentSession) []string {
+	if sess.ProjectID != "" && sess.ProjectBranch != "" {
+		p, sources, err := s.Load(ctx, sess.ProjectID)
+		if err != nil {
+			return nil
+		}
+		ws := WorkspacePath(p, sess.ProjectBranch)
+		dirs := make([]string, 0, len(sources))
+		for _, src := range sources {
+			dirs = append(dirs, path.Join(ws, src.Name))
+		}
+		return dirs
+	}
+	if sess.Cwd == "" {
+		return nil
+	}
+	return []string{sess.Cwd}
+}
+
+// SettleHooks starts OnSettle in the background for a thread that was just
+// settled.
+func (s *Service) SettleHooks(ctx context.Context, sess db.AgentSession) {
+	if s == nil || s.Scripts == nil || len(s.ScriptDirs(ctx, sess)) == 0 {
+		return
+	}
+	go func() {
+		bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), (scripts.ExecTimeout+60)*time.Second)
+		defer cancel()
+		s.OnSettle(bctx, sess)
+	}()
+}
+
+// OnSettle runs the settle hooks of the thread's project scripts
+// (stopOnSettle, runOnSettle) when its agent's machine runs. Best effort.
+func (s *Service) OnSettle(ctx context.Context, sess db.AgentSession) {
+	if s == nil || s.Scripts == nil || s.Machine == nil {
+		return
+	}
+	dirs := s.ScriptDirs(ctx, sess)
+	if len(dirs) == 0 {
+		return
+	}
+	ts, err := s.Machine(ctx, sess.AgentID)
+	if err != nil || ts == nil {
+		return
+	}
+	s.Scripts.OnSettle(ctx, ts, sess.AgentID, dirs)
 }
 
 // relPath is target (relative to the home) relative to the directory dir

@@ -89,6 +89,19 @@ func (d *Daemon) git(ctx context.Context, st net.Conn, o tunnel.Open) error {
 		reply, err = d.gitMerge(ctx, req)
 	case tunnel.GitBranchDelete:
 		reply, err = d.gitBranchDelete(ctx, req)
+	case tunnel.GitDiff, tunnel.GitLog:
+		if req.Action == tunnel.GitDiff {
+			reply, err = d.gitDiff(ctx, req)
+		} else {
+			reply, err = d.gitLog(ctx, req)
+		}
+		if err != nil {
+			return err
+		}
+		reply.Home = d.acct.home
+		return tunnel.WriteJSONData(st, reply)
+	case tunnel.GitCreateCommit:
+		reply, err = d.gitCommit(ctx, req)
 	default:
 		err = fmt.Errorf("git: unknown action %q", req.Action)
 	}
@@ -103,6 +116,23 @@ func (d *Daemon) git(ctx context.Context, st net.Conn, o tunnel.Open) error {
 // output. A failure's error carries the output, with credentials in URLs
 // scrubbed; callers scrub what they pass on themselves.
 func (d *Daemon) runGit(ctx context.Context, timeout time.Duration, dir string, args ...string) (string, error) {
+	r := d.runGitCapped(ctx, timeout, dir, gitMaxOutput, false, args...)
+	return r.out, r.err
+}
+
+// gitResult is the outcome of runGitCapped.
+type gitResult struct {
+	out       string
+	truncated bool
+	code      int
+	err       error
+}
+
+// runGitCapped runs git like runGit, keeping up to maxOut bytes of output.
+// With stdoutOnly the output is stdout alone, and exit code 1 is not an
+// error (git diff --quiet and --no-index exit 1 on differences): callers
+// check code.
+func (d *Daemon) runGitCapped(ctx context.Context, timeout time.Duration, dir string, maxOut int, stdoutOnly bool, args ...string) gitResult {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
@@ -124,23 +154,35 @@ func (d *Daemon) runGit(ctx context.Context, timeout time.Duration, dir string, 
 		return nil
 	}
 	cmd.WaitDelay = time.Second
-	out := &cappedBuffer{max: gitMaxOutput}
-	cmd.Stdout, cmd.Stderr = out, out
+	out := &cappedBuffer{max: maxOut}
+	errOut := out
+	if stdoutOnly {
+		errOut = &cappedBuffer{max: gitMaxOutput}
+	}
+	cmd.Stdout, cmd.Stderr = out, errOut
 	err := cmd.Run()
 	out.mu.Lock()
-	text := out.buf.String()
+	text, truncated := out.buf.String(), out.truncated
 	out.mu.Unlock()
-	if err != nil {
-		if ctx.Err() != nil {
-			return text, fmt.Errorf("git %s: %w", args[0], ctx.Err())
-		}
-		msg := strings.TrimSpace(scrubCredentials(text))
-		if msg == "" {
-			msg = err.Error()
-		}
-		return text, fmt.Errorf("git %s: %s", args[0], msg)
+	res := gitResult{out: text, truncated: truncated, code: exitCode(err)}
+	if err == nil {
+		return res
 	}
-	return text, nil
+	if ctx.Err() != nil {
+		res.err = fmt.Errorf("git %s: %w", args[0], ctx.Err())
+		return res
+	}
+	if stdoutOnly && res.code == 1 {
+		return res
+	}
+	errOut.mu.Lock()
+	msg := strings.TrimSpace(scrubCredentials(errOut.buf.String()))
+	errOut.mu.Unlock()
+	if msg == "" {
+		msg = err.Error()
+	}
+	res.err = fmt.Errorf("git %s: %s", args[0], msg)
+	return res
 }
 
 var credInURL = regexp.MustCompile(`(://)[^/@\s]+@`)

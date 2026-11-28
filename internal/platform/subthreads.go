@@ -5,13 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/harness"
+	"github.com/gempir/agenthold/internal/id"
+	"github.com/gempir/agenthold/internal/project"
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store/db"
+	"github.com/gempir/agenthold/internal/tunnel"
 )
 
 var subthreadTools = []map[string]any{
@@ -23,11 +27,14 @@ var subthreadTools = []map[string]any{
 	},
 	{
 		"name": "start_subthread",
-		"description": "Start a sub-thread of your current thread on the SAME agent machine and in the EXACT SAME working " +
-			"directory / git worktree so both threads can see and edit the same files. You can run the sub-thread on " +
-			"another harness (for example harness=\"codex\" from a Claude Code thread, or vice versa) and optionally pick " +
-			"a model. By default wait=true waits for the sub-thread's final answer; pass wait=false to run sub-threads " +
-			"in parallel and collect them later with wait_subthread or read_thread.",
+		"description": "Start a sub-thread of your current thread on the SAME agent machine. By default " +
+			"(isolation=\"shared\") it works in the EXACT SAME working directory / git worktree so both threads can see " +
+			"and edit the same files; isolation=\"worktree\" gives it a fresh git worktree of your repository on a new " +
+			"branch (agenthold/sub-...) instead, so parallel sub-threads do not get in each other's way (merge its branch " +
+			"when it is done). You can run the sub-thread on another harness (for example harness=\"codex\" from a " +
+			"Claude Code thread, or vice versa) and optionally pick a model. By default wait=true waits for the " +
+			"sub-thread's final answer; pass wait=false to run sub-threads in parallel and collect them later with " +
+			"wait_subthread or read_thread.",
 		"inputSchema": map[string]any{
 			"type":     "object",
 			"required": []string{"text"},
@@ -38,6 +45,10 @@ var subthreadTools = []map[string]any{
 				"model":            map[string]any{"type": "string", "description": "Optional model id for the chosen harness (defaults to that harness's default model)."},
 				"reasoning_effort": map[string]any{"type": "string", "description": "Optional reasoning effort level (e.g. \"low\", \"medium\", \"high\")."},
 				"wait":             map[string]any{"type": "boolean", "description": "Wait for the sub-thread to finish and return its final answer (default true). Set false to run in the background."},
+				"isolation": map[string]any{
+					"type": "string", "enum": []string{IsolationShared, IsolationWorktree},
+					"description": "\"shared\" (default): work in your working directory. \"worktree\": work in a new git worktree of your repository on a branch of its own.",
+				},
 			},
 		},
 	},
@@ -83,7 +94,14 @@ type subthreadArgs struct {
 	Model           string `json:"model"`
 	ReasoningEffort string `json:"reasoning_effort"`
 	Wait            *bool  `json:"wait"`
+	Isolation       string `json:"isolation"`
 }
+
+// Sub-thread isolation modes.
+const (
+	IsolationShared   = "shared"
+	IsolationWorktree = "worktree"
+)
 
 func (p *Service) subthreadCall(ctx context.Context, caller db.Agent, sessionID, tool string, raw json.RawMessage) (any, error) {
 	var in subthreadArgs
@@ -176,11 +194,23 @@ func (p *Service) startSubthread(ctx context.Context, caller db.Agent, parentSes
 		}
 	}
 
+	isolation := strings.TrimSpace(in.Isolation)
+	switch isolation {
+	case "":
+		isolation = IsolationShared
+	case IsolationShared, IsolationWorktree:
+	default:
+		return "", fmt.Errorf("isolation must be %q or %q", IsolationShared, IsolationWorktree)
+	}
+
 	// Inherit the parent thread's exact worktree / working directory and git
 	// metadata so the sub-thread works directly alongside the parent thread.
 	opts := session.CreateOpts{Harness: pinnedHarness}
+	var parent db.AgentSession
+	hasParent := false
 	if parentSessionID != "" {
-		if parent, err := p.Store.GetAgentSession(ctx, parentSessionID); err == nil && parent.AgentID == caller.ID {
+		if ps, err := p.Store.GetAgentSession(ctx, parentSessionID); err == nil && ps.AgentID == caller.ID {
+			parent, hasParent = ps, true
 			opts.Cwd = parent.Cwd
 			opts.GitProject = parent.GitProject
 			opts.GitBranch = parent.GitBranch
@@ -196,6 +226,16 @@ func (p *Service) startSubthread(ctx context.Context, caller db.Agent, parentSes
 				}
 			}
 		}
+	}
+	if isolation == IsolationWorktree {
+		if !hasParent {
+			return "", errors.New(`isolation "worktree" needs a current thread to branch off`)
+		}
+		wt, err := p.subthreadWorktree(ctx, caller, parent)
+		if err != nil {
+			return "", err
+		}
+		opts.Cwd, opts.GitRepoPath, opts.GitBranch, opts.GitProject = wt.cwd, wt.repo.Path, wt.repo.Branch, wt.repo.Project
 	}
 
 	title := strings.TrimSpace(in.Title)
@@ -278,13 +318,7 @@ func (p *Service) startSubthread(ctx context.Context, caller db.Agent, parentSes
 			emitStatus("failed", err.Error())
 			return "", err
 		}
-		b, _ := json.MarshalIndent(map[string]any{
-			"thread_id": child.ID,
-			"title":     displayTitle,
-			"harness":   effectiveHarness,
-			"cwd":       child.Cwd,
-			"status":    "running",
-		}, "", "  ")
+		b, _ := json.MarshalIndent(subthreadResult(child, displayTitle, effectiveHarness, isolation, "running", ""), "", "  ")
 		return string(b), nil
 	}
 
@@ -303,15 +337,79 @@ func (p *Service) startSubthread(ctx context.Context, caller db.Agent, parentSes
 		answer = "(no answer text)"
 	}
 	emitStatus("completed", answer)
-	b, _ := json.MarshalIndent(map[string]any{
-		"thread_id": child.ID,
-		"title":     displayTitle,
-		"harness":   effectiveHarness,
-		"cwd":       child.Cwd,
-		"status":    "completed",
-		"answer":    answer,
-	}, "", "  ")
+	b, _ := json.MarshalIndent(subthreadResult(child, displayTitle, effectiveHarness, isolation, "completed", answer), "", "  ")
 	return string(b), nil
+}
+
+// subthreadResult is what start_subthread returns.
+func subthreadResult(child db.AgentSession, title, harness, isolation, status, answer string) map[string]any {
+	out := map[string]any{
+		"thread_id": child.ID,
+		"title":     title,
+		"harness":   harness,
+		"cwd":       child.Cwd,
+		"isolation": isolation,
+		"status":    status,
+	}
+	if child.GitBranch != "" {
+		out["branch"] = child.GitBranch
+	}
+	if answer != "" {
+		out["answer"] = answer
+	}
+	return out
+}
+
+// subthreadWT is a worktree made for a sub-thread.
+type subthreadWT struct {
+	repo tunnel.GitRepo
+	cwd  string // the parent's working directory's counterpart in it
+}
+
+// subthreadWorktree adds a linked worktree of the repository the parent
+// thread works in, on a new branch from its HEAD, and runs the scripts the
+// repository runs on worktree creation.
+func (p *Service) subthreadWorktree(ctx context.Context, caller db.Agent, parent db.AgentSession) (subthreadWT, error) {
+	if p.Projects == nil || p.Projects.Machine == nil {
+		return subthreadWT{}, errors.New(`isolation "worktree" is not available on this server`)
+	}
+	ts, err := p.Projects.Machine(ctx, caller.ID)
+	if err != nil {
+		return subthreadWT{}, fmt.Errorf("isolation \"worktree\": %w", err)
+	}
+	dirs := []string{parent.Cwd}
+	if parent.GitRepoPath != "" && parent.GitRepoPath != parent.Cwd {
+		dirs = append(dirs, parent.GitRepoPath)
+	}
+	var repo *tunnel.GitRepo
+	for _, dir := range dirs {
+		if r, err := ts.Git(ctx, tunnel.GitRequest{Action: tunnel.GitStatus, Path: dir}); err == nil && r.Repo != nil {
+			repo = r.Repo
+			break
+		}
+	}
+	if repo == nil {
+		return subthreadWT{}, errors.New(`isolation "worktree" needs the current thread to work in a git repository; use isolation "shared"`)
+	}
+	branch := project.BranchPrefix + "sub-" + project.ThreadKey(id.New("sub"))
+	r, err := ts.Git(ctx, tunnel.GitRequest{Action: tunnel.GitWorktreeAdd, Path: repo.Path, Branch: branch, Create: true})
+	if err != nil {
+		return subthreadWT{}, fmt.Errorf("create a worktree for the sub-thread: %w", err)
+	}
+	if r.Repo == nil {
+		return subthreadWT{}, errors.New("create a worktree for the sub-thread: the machine did not describe it")
+	}
+	cwd := r.Repo.Path
+	if rest, ok := strings.CutPrefix(parent.Cwd, repo.Path+"/"); ok {
+		cwd = path.Join(cwd, rest)
+	}
+	p.agentAudit(ctx, caller, caller.ID, audit.GitWorktreeAdd, r.Repo.Path, map[string]any{
+		"repo": repo.Path, "branch": branch, "subthread": true, "parentSession": parent.ID,
+	})
+	if p.Projects.Scripts != nil {
+		p.Projects.Scripts.OnWorktreeCreate(ctx, ts, caller.ID, r.Repo.Path)
+	}
+	return subthreadWT{repo: *r.Repo, cwd: cwd}, nil
 }
 
 func (p *Service) messageSubthread(ctx context.Context, caller db.Agent, parentSessionID string, in subthreadArgs) (string, error) {

@@ -49,6 +49,7 @@ import (
 	"github.com/gempir/agenthold/internal/runtimeassets"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/firecracker"
+	"github.com/gempir/agenthold/internal/scripts"
 	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/server"
 	"github.com/gempir/agenthold/internal/session"
@@ -306,7 +307,10 @@ func run() error {
 	sessions.SetLogins(loginSvc)
 	sessions.SetModelProbe(true)
 	sessions.SetAudit(auditLog)
-	projects := &project.Service{Store: st, Machine: project.NodeMachine(cluster), Sessions: sessions, Log: logger}
+	projects := &project.Service{
+		Store: st, Machine: project.NodeMachine(cluster), Sessions: sessions, Log: logger,
+		Scripts: &scripts.Runner{Apps: appsMgr, Log: logger},
+	}
 	sessions.SetWorkspaces(projects)
 	go (&session.AutoSettler{Store: st, Audit: auditLog, Log: logger}).Run(ctx)
 	loginSvc.Restart = sessions.Restart

@@ -17,10 +17,10 @@ import (
 
 const maxUpload = 1 << 30 // 1 GiB
 
-// connected returns the agent's tunnel session after an authorization check.
-// File operations do not wake sleeping agents.
-func (a *API) connected(ctx context.Context, agentID string, action authz.Action) (*tunnel.Session, error) {
-	s, _, err := a.connectedAgent(ctx, agentID, action)
+// connected returns the agent's tunnel session after checking that the user
+// may read the agent. File operations do not wake sleeping agents.
+func (a *API) connected(ctx context.Context, agentID string) (*tunnel.Session, error) {
+	s, _, err := a.connectedAgent(ctx, agentID, authz.AgentRead)
 	return s, err
 }
 
@@ -59,7 +59,7 @@ func requirePath(p *string) (string, error) {
 
 // ListFiles implements gen.StrictServerInterface.
 func (a *API) ListFiles(ctx context.Context, req gen.ListFilesRequestObject) (gen.ListFilesResponseObject, error) {
-	s, err := a.connected(ctx, req.AgentId, authz.AgentRead)
+	s, err := a.connected(ctx, req.AgentId)
 	if err != nil {
 		return nil, err
 	}
@@ -91,18 +91,7 @@ func (a *API) DownloadFile(ctx context.Context, req gen.DownloadFileRequestObjec
 	if err != nil {
 		return nil, err
 	}
-	// Users who cannot open a terminal must not read harness logins and
-	// sandboxd's boot file through downloads. (Everyone with a terminal can
-	// read them there; such agents are marked credentialsInSandbox.)
-	var deny []string
-	if !authz.Can(acc.Role, authz.AgentTerminal) {
-		deny = append(deny, "/etc/agenthold")
-		if ad, ok, _ := a.resolveAdapter(ctx, acc.Row.Agent.Harness); ok {
-			for _, p := range ad.CredentialPaths {
-				deny = append(deny, "~/"+p)
-			}
-		}
-	}
+	deny := a.fileDeny(ctx, acc)
 	pr, pw := ioPipe()
 	sizeCh := make(chan int64, 1)
 	errCh := make(chan error, 1)
@@ -122,6 +111,23 @@ func (a *API) DownloadFile(ctx context.Context, req gen.DownloadFileRequestObjec
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+}
+
+// fileDeny lists the paths users who cannot open a terminal must not read
+// (or overwrite) through file operations: harness logins and sandboxd's
+// boot file. (Everyone with a terminal can read them there; such agents are
+// marked credentialsInSandbox.)
+func (a *API) fileDeny(ctx context.Context, acc authz.AgentAccess) []string {
+	if authz.Can(acc.Role, authz.AgentTerminal) {
+		return nil
+	}
+	deny := []string{"/etc/agenthold"}
+	if ad, ok, _ := a.resolveAdapter(ctx, acc.Row.Agent.Harness); ok {
+		for _, p := range ad.CredentialPaths {
+			deny = append(deny, "~/"+p)
+		}
+	}
+	return deny
 }
 
 type downloadResponse struct {

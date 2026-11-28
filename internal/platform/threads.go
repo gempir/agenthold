@@ -154,6 +154,7 @@ func (p *Service) settleThread(ctx context.Context, caller db.Agent, id, current
 		return fmt.Sprintf("Thread %s (%q) is settled already.", s.ID, s.Title), nil
 	}
 	p.agentAudit(ctx, caller, caller.ID, audit.SessionSettle, s.ID, map[string]any{"session": s.Title})
+	p.Projects.SettleHooks(ctx, s)
 	return fmt.Sprintf("Settled thread %s (%q). A new message in it makes it active again.", s.ID, s.Title), nil
 }
 

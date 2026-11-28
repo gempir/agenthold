@@ -8,6 +8,7 @@
 package tunnel
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -96,6 +97,32 @@ func ReadJSON(r io.Reader, v any) error {
 		return &RemoteError{Msg: string(b)}
 	}
 	return fmt.Errorf("expected JSON frame, got type %d", t)
+}
+
+// WriteJSONData writes v as JSON in data frames followed by an EOF frame,
+// for replies that can be larger than one frame.
+func WriteJSONData(w io.Writer, v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	if _, err := DataWriter(w).Write(b); err != nil {
+		return err
+	}
+	return WriteFrame(w, FrameEOF, nil)
+}
+
+// ReadJSONData reads JSON written by WriteJSONData into v; a reply larger
+// than maxBytes fails.
+func ReadJSONData(r io.Reader, v any, maxBytes int64) error {
+	var buf bytes.Buffer
+	if _, err := CopyData(&CappedWriter{W: &buf, Max: maxBytes}, r, nil); err != nil {
+		if errors.Is(err, ErrCapped) {
+			return fmt.Errorf("reply larger than %d bytes", maxBytes)
+		}
+		return err
+	}
+	return json.Unmarshal(buf.Bytes(), v)
 }
 
 // DataWriter returns a writer that wraps each Write in a data frame.

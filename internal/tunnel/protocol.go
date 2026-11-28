@@ -49,6 +49,16 @@ const (
 	// OpGit runs a git action (see GitRequest) as the agent account and
 	// answers with a GitReply.
 	OpGit = "git"
+	// OpFSReadText reads a file inside the home for a viewer or editor and
+	// answers with a TextFile as data-framed JSON (see WriteJSONData).
+	OpFSReadText = "fs.read_text"
+	// OpFSWriteText replaces a file inside the home with the data frames
+	// that follow (atomically, keeping an existing file's mode) and answers
+	// with a TextFile (no content) after the EOF frame.
+	OpFSWriteText = "fs.write_text"
+	// OpFSSearch searches file paths below Path (inside the home) for Query
+	// and answers with a FileSearchReply.
+	OpFSSearch = "fs.search"
 )
 
 // Open is the first frame on every stream.
@@ -89,6 +99,13 @@ type Open struct {
 
 	// git
 	Git *GitRequest `json:"git,omitempty"`
+
+	// fs.read_text: an optional 1-based inclusive line range (0: unbounded).
+	// fs.search: Query and Limit.
+	StartLine int    `json:"startLine,omitempty"`
+	EndLine   int    `json:"endLine,omitempty"`
+	Query     string `json:"query,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
 
 	// platform (opened by sandboxd): a platform tool call from an MCP client.
 	Tool    string          `json:"tool,omitempty"`
@@ -285,6 +302,23 @@ const (
 	// GitBranchDelete deletes the branch Branch of the repository Path
 	// (Force: also when it is not merged).
 	GitBranchDelete = "branch_delete"
+	// GitDiff reports a structured diff of the repository Path is in (see
+	// DiffMode); the reply (Diff) is data-framed JSON (see WriteJSONData).
+	GitDiff = "diff"
+	// GitLog reports the last Limit commits of HEAD (Commits), as
+	// data-framed JSON.
+	GitLog = "log"
+	// GitCreateCommit commits what is staged (All: everything, git add -A
+	// first) with Message; the reply carries the repository and the new
+	// Commit.
+	GitCreateCommit = "commit"
+)
+
+// Diff modes of GitDiff.
+const (
+	DiffUncommitted = "uncommitted" // staged, unstaged and untracked changes against HEAD
+	DiffBranch      = "branch"      // the work tree against the merge base with Base (default: the default branch)
+	DiffCommit      = "commit"      // the commit Ref against its first parent
 )
 
 // GitRequest is the body of an OpGit stream. Paths are relative to the home
@@ -302,6 +336,14 @@ type GitRequest struct {
 	AuthorName   string `json:"authorName,omitempty"`
 	AuthorEmail  string `json:"authorEmail,omitempty"`
 	Message      string `json:"message,omitempty"`
+	// diff and log
+	Mode    string `json:"mode,omitempty"`
+	Ref     string `json:"ref,omitempty"`
+	Base    string `json:"base,omitempty"`
+	Context *int   `json:"context,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
+	// commit: stage everything first
+	All bool `json:"all,omitempty"`
 }
 
 // GitRepo describes one repository (or worktree). Path and MainPath are
@@ -327,6 +369,82 @@ type GitReply struct {
 	Branches []string      `json:"branches,omitempty"`
 	Output   string        `json:"output,omitempty"`
 	Changes  *GitChangeSet `json:"changes,omitempty"`
+	Diff     *GitDiffSet   `json:"diff,omitempty"`
+	Commits  []GitCommit   `json:"commits,omitempty"`
+	Commit   *GitCommit    `json:"commit,omitempty"`
+}
+
+// GitDiffSet answers GitDiff. Paths are relative to the repository root.
+type GitDiffSet struct {
+	Mode string `json:"mode"`
+	// Base is the ref a branch diff compares with, MergeBase the commit it
+	// forked from; Ref is the commit a commit diff shows.
+	Base      string        `json:"base,omitempty"`
+	MergeBase string        `json:"mergeBase,omitempty"`
+	Ref       string        `json:"ref,omitempty"`
+	Files     []GitDiffFile `json:"files"`
+	Additions int           `json:"additions"`
+	Deletions int           `json:"deletions"`
+	// Truncated: more files changed than are listed.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// GitDiffFile is one changed file. Status is A, M, D, R or ? (untracked).
+// Truncated: the patch was left out or cut because it is too large.
+type GitDiffFile struct {
+	Path      string `json:"path"`
+	OldPath   string `json:"oldPath,omitempty"`
+	Status    string `json:"status"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Binary    bool   `json:"binary,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Patch     string `json:"patch,omitempty"`
+}
+
+// GitCommit describes one commit. Date is unix seconds (author date).
+type GitCommit struct {
+	SHA          string `json:"sha"`
+	ShortSHA     string `json:"shortSha"`
+	Subject      string `json:"subject"`
+	Body         string `json:"body,omitempty"`
+	Author       string `json:"author"`
+	Email        string `json:"email"`
+	Date         int64  `json:"date"`
+	FilesChanged int    `json:"filesChanged"`
+	Additions    int    `json:"additions"`
+	Deletions    int    `json:"deletions"`
+}
+
+// TextFile answers fs.read_text and fs.write_text. Path is relative to the
+// home. Content is the text (empty for binary files); with a line range,
+// StartLine and EndLine are the lines it holds and TotalLines is set when
+// the whole file was read.
+type TextFile struct {
+	Path       string `json:"path"`
+	Size       int64  `json:"size"`
+	ModTime    int64  `json:"modTime"`
+	MimeType   string `json:"mimeType"`
+	IsBinary   bool   `json:"isBinary"`
+	Truncated  bool   `json:"truncated"`
+	Content    string `json:"content"`
+	StartLine  int    `json:"startLine,omitempty"`
+	EndLine    int    `json:"endLine,omitempty"`
+	TotalLines int    `json:"totalLines,omitempty"`
+}
+
+// FileMatch is one fs.search result; Path is relative to the search base.
+type FileMatch struct {
+	Path  string `json:"path"`
+	Name  string `json:"name"`
+	IsDir bool   `json:"isDir,omitempty"`
+}
+
+// FileSearchReply answers fs.search. Base is relative to the home.
+type FileSearchReply struct {
+	Base      string      `json:"base"`
+	Results   []FileMatch `json:"results"`
+	Truncated bool        `json:"truncated,omitempty"`
 }
 
 // GitChangeSet answers GitChanges. Files are relative to the repository root;

@@ -936,6 +936,140 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /agents/{agentId}/files/read:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: readFileText
+      tags: [files]
+      description: >-
+        Read a file inside the agent's home for the file viewer and editor. Text (UTF-8) files come back as
+        content (at most maxBytes, cut at a character); binary files only with their metadata (isBinary), use
+        files/content to download or preview them. With startLine or endLine only those lines (1-based,
+        inclusive) are returned. The agent must be running.
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string, maxLength: 4096 }, description: "File path relative to the home." }
+        - { name: maxBytes, in: query, schema: { type: integer, minimum: 1, maximum: 8388608, default: 524288 } }
+        - { name: startLine, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: endLine, in: query, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: The file.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TextFile" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/files/write:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    put:
+      operationId: writeFileText
+      tags: [files]
+      description: >-
+        Save a text file inside the agent's home from the editor (owner or shared user). The file is replaced
+        atomically and keeps its mode; missing parent directories are created.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, content]
+              properties:
+                path: { type: string, minLength: 1, maxLength: 4096, description: "File path relative to the home." }
+                content: { type: string, maxLength: 33554432 }
+      responses:
+        "200":
+          description: The written file (without content).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TextFile" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/files/search:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: searchFiles
+      tags: [files]
+      description: >-
+        Fuzzy-search file and directory paths below a directory of the agent's home (for the composer's file
+        picker and the command palette). Inside a git repository its files are searched (tracked and untracked,
+        not ignored ones); elsewhere dependency, cache and build directories (node_modules, .venv, dist,
+        target, ...) are skipped. An empty query lists the shallowest paths.
+      parameters:
+        - { name: path, in: query, schema: { type: string, maxLength: 4096 }, description: "Base directory relative to the home (default the home)." }
+        - { name: q, in: query, schema: { type: string, maxLength: 256 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 50 } }
+      responses:
+        "200":
+          description: Matching paths, best first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileSearchResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/scripts:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: getProjectScripts
+      tags: [projects]
+      description: >-
+        The project scripts of a directory: agenthold.json there, or T3 Code's t3.json when there is none (same
+        schema). A directory without either has no scripts; a file that does not parse is reported in error.
+      parameters:
+        - { name: path, in: query, schema: { type: string, maxLength: 4096 }, description: "Directory relative to the home (a repository or workspace root)." }
+      responses:
+        "200":
+          description: The scripts.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectScripts" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/scripts/run:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: runProjectScript
+      tags: [projects]
+      description: >-
+        Run a project script of a directory (needs terminal access). A long-running script (with a previewUrl
+        or stopOnSettle) starts as a supervised service and the call returns at once; others run to completion
+        (up to 10 minutes) and return their output and exit code.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                path: { type: string, maxLength: 4096, description: "Directory relative to the home." }
+                name: { type: string, minLength: 1, maxLength: 100, description: "The script's id or name." }
+      responses:
+        "200":
+          description: What the script did.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectScriptRun" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
   /egress/ca.pem:
     get:
       operationId: getEgressCA
@@ -2841,6 +2975,86 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /agents/{agentId}/git/diff:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: getAgentGitDiff
+      tags: [git]
+      description: >-
+        A structured diff of the repository a directory is in. uncommitted: staged, unstaged and untracked
+        changes against HEAD. branch: the work tree (committed and uncommitted changes, untracked files) against
+        the merge base with base (default origin/HEAD, origin/main, origin/master, main or master). commit: the
+        commit ref against its first parent. Large and binary files come without a patch (truncated, binary).
+      parameters:
+        - { name: path, in: query, schema: { type: string, maxLength: 4096 }, description: "A directory of the repository, relative to the home." }
+        - name: mode
+          in: query
+          schema: { type: string, enum: [uncommitted, branch, commit], default: uncommitted }
+        - { name: ref, in: query, schema: { type: string, maxLength: 255 }, description: "The commit (mode commit)." }
+        - { name: base, in: query, schema: { type: string, maxLength: 255 }, description: "The branch to compare with (mode branch)." }
+        - { name: context, in: query, schema: { type: integer, minimum: 0, maximum: 1000, default: 3 }, description: "Context lines." }
+      responses:
+        "200":
+          description: The diff.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitDiff" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/git/commits:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: listAgentGitCommits
+      tags: [git]
+      description: The latest commits of the branch a repository inside a running agent is on.
+      parameters:
+        - { name: path, in: query, schema: { type: string, maxLength: 4096 }, description: "A directory of the repository, relative to the home." }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 50 } }
+      responses:
+        "200":
+          description: Commits, newest first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitCommitList" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/git/commit:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: commitAgentGitRepo
+      tags: [git]
+      description: >-
+        Commit in a repository or worktree inside a running agent: what is staged, or with all everything
+        (git add -A first).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, message]
+              properties:
+                path: { type: string, maxLength: 4096 }
+                message: { type: string, minLength: 1, maxLength: 65536 }
+                all: { type: boolean, description: "Stage all changes (git add -A) first." }
+      responses:
+        "201":
+          description: The new commit and the repository after it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitCommitResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
   /sessions/{sessionId}/git:
     parameters:
       - $ref: "#/components/parameters/SessionId"
@@ -4020,6 +4234,82 @@ components:
           type: array
           items: { $ref: "#/components/schemas/FileEntry" }
 
+    TextFile:
+      type: object
+      required: [path, size, modTime, mimeType, isBinary, truncated, content]
+      properties:
+        path: { type: string, description: Path relative to the home. }
+        size: { type: integer, format: int64 }
+        modTime: { type: string, format: date-time }
+        mimeType: { type: string }
+        isBinary: { type: boolean }
+        truncated: { type: boolean, description: Content holds only the start of the file (or of the line range). }
+        content: { type: string, description: UTF-8 text; empty for binary files. }
+        startLine: { type: integer, description: First line in content (with a line range). }
+        endLine: { type: integer, description: Last line in content (with a line range). }
+        totalLines: { type: integer, description: "Lines in the file (with a line range, when it was read to the end)." }
+
+    FileMatch:
+      type: object
+      required: [path, name, isDir]
+      properties:
+        path: { type: string, description: Path relative to the search base. }
+        name: { type: string }
+        isDir: { type: boolean }
+
+    FileSearchResult:
+      type: object
+      required: [base, results, truncated]
+      properties:
+        base: { type: string, description: The search base relative to the home. }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/FileMatch" }
+        truncated: { type: boolean, description: There are more matches (or not every file was searched). }
+
+    ProjectScript:
+      type: object
+      required: [id, name, command, icon, runOnWorktreeCreate, async, stopOnSettle, runOnSettle, autoOpenPreview, longRunning]
+      properties:
+        id: { type: string, description: "The name as a slug, unique in the file." }
+        name: { type: string }
+        command: { type: string }
+        icon: { type: string, enum: [play, test, lint, configure, build, debug] }
+        runOnWorktreeCreate: { type: boolean }
+        async: { type: boolean, description: "With runOnWorktreeCreate: do not wait for it to finish." }
+        stopOnSettle: { type: boolean }
+        runOnSettle: { type: boolean }
+        previewUrl: { type: string }
+        autoOpenPreview: { type: boolean }
+        longRunning: { type: boolean, description: Runs as a supervised service (it has a previewUrl or stops on settle). }
+        service: { type: string, description: The service a long-running script runs as. }
+        status: { $ref: "#/components/schemas/ServiceStatus" }
+
+    ProjectScripts:
+      type: object
+      required: [path, scripts]
+      properties:
+        path: { type: string, description: The directory relative to the home. }
+        source: { type: string, enum: [agenthold.json, t3.json], description: The file the scripts come from (none when absent). }
+        iconPath: { type: string }
+        defaultThreadEnvMode: { type: string, enum: [local, worktree] }
+        scripts:
+          type: array
+          items: { $ref: "#/components/schemas/ProjectScript" }
+        error: { type: string, description: Why the file could not be read. }
+
+    ProjectScriptRun:
+      type: object
+      required: [script, mode]
+      properties:
+        script: { $ref: "#/components/schemas/ProjectScript" }
+        mode: { type: string, enum: [exec, service] }
+        service: { type: string, description: The service it runs as (mode service). }
+        exitCode: { type: integer }
+        output: { type: string }
+        truncated: { type: boolean }
+        timedOut: { type: boolean }
+
     SecretRule:
       type: object
       required: [hosts, header, template]
@@ -5112,6 +5402,66 @@ components:
         branches:
           type: array
           items: { type: string }
+
+    GitDiffFile:
+      type: object
+      required: [path, status, additions, deletions, binary, truncated]
+      properties:
+        path: { type: string, description: Path relative to the repository root. }
+        oldPath: { type: string, description: The previous path of a renamed file. }
+        status: { type: string, enum: [A, M, D, R, "?"], description: "Added, modified, deleted, renamed or untracked (?)." }
+        additions: { type: integer }
+        deletions: { type: integer }
+        binary: { type: boolean }
+        truncated: { type: boolean, description: The patch is left out because it is too large. }
+        patch: { type: string, description: Unified diff of the file. }
+
+    GitDiff:
+      type: object
+      required: [mode, repo, files, additions, deletions, truncated]
+      properties:
+        mode: { type: string, enum: [uncommitted, branch, commit] }
+        repo: { $ref: "#/components/schemas/GitRepo" }
+        base: { type: string, description: The branch a branch diff compares with. }
+        mergeBase: { type: string, description: The commit the branch forked from. }
+        ref: { type: string, description: The commit a commit diff shows (full SHA). }
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/GitDiffFile" }
+        additions: { type: integer }
+        deletions: { type: integer }
+        truncated: { type: boolean, description: More files changed than are listed. }
+
+    GitCommit:
+      type: object
+      required: [sha, shortSha, subject, body, author, email, date, filesChanged, additions, deletions]
+      properties:
+        sha: { type: string }
+        shortSha: { type: string }
+        subject: { type: string }
+        body: { type: string }
+        author: { type: string }
+        email: { type: string }
+        date: { type: string, format: date-time }
+        filesChanged: { type: integer }
+        additions: { type: integer }
+        deletions: { type: integer }
+
+    GitCommitList:
+      type: object
+      required: [repo, commits]
+      properties:
+        repo: { $ref: "#/components/schemas/GitRepo" }
+        commits:
+          type: array
+          items: { $ref: "#/components/schemas/GitCommit" }
+
+    GitCommitResult:
+      type: object
+      required: [repo, commit]
+      properties:
+        repo: { $ref: "#/components/schemas/GitRepo" }
+        commit: { $ref: "#/components/schemas/GitCommit" }
 
     ExecutorApprovalMode:
       type: string

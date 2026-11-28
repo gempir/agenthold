@@ -44,6 +44,8 @@ import (
 	"github.com/gempir/agenthold/internal/node/enrollment"
 	"github.com/gempir/agenthold/internal/password"
 	"github.com/gempir/agenthold/internal/platform"
+	"github.com/gempir/agenthold/internal/pr"
+	"github.com/gempir/agenthold/internal/pr/prtest"
 	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/project"
 	"github.com/gempir/agenthold/internal/sandbox"
@@ -83,6 +85,9 @@ type env struct {
 	preview  *preview.Service
 	identity *preview.Signer
 	platform *platform.Service
+	// prs is the pull request hub, talking to the fake GitHub prGitHub.
+	prs      *pr.Service
+	prGitHub *prtest.GitHub
 	apps     *apps.Manager
 	images   *images.Manager
 	acpStore *acpstore.Catalog
@@ -258,7 +263,20 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		t.Fatal(err)
 	}
 	e.apps.Preview = e.preview
-	platformSvc := &platform.Service{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}, Preview: e.preview, Apps: e.apps, Projects: e.projects}
+	e.prGitHub = prtest.NewGitHub(t)
+	e.prs = &pr.Service{
+		Store: st, Tokens: e.git, Sessions: e.sessions, Workspace: pr.MachineWorkspace(project.NodeMachine(n)), Audit: &audit.Log{Store: st},
+		Providers: func(host string) pr.Provider {
+			if host != "github.com" {
+				return nil
+			}
+			return &pr.GitHub{Host: host, API: e.prGitHub.URL}
+		},
+	}
+	platformSvc := &platform.Service{
+		Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}, Preview: e.preview, Apps: e.apps, Projects: e.projects,
+		PullRequests: e.prs,
+	}
 	e.platform = platformSvc
 	go func() {
 		for {
@@ -288,7 +306,8 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Node: n, Nodes: nodes, Limits: cfg.Sandbox,
 		Box: box, Egress: e.directory, Sessions: e.sessions, Idle: e.sleeper, Audit: &audit.Log{Store: st}, ShowTestHarness: true,
 		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins, Git: e.git, Projects: e.projects,
-		Preview: e.preview, Identity: e.identity, Apps: e.apps, Images: e.images, Activity: e.activity, UserMaxAgents: cfg.Auth.UserMaxAgents,
+		PullRequests: e.prs,
+		Preview:      e.preview, Identity: e.identity, Apps: e.apps, Images: e.images, Activity: e.activity, UserMaxAgents: cfg.Auth.UserMaxAgents,
 		Org: cfg.Org, ACPStore: e.acpStore, Harnesses: resolver,
 	})
 	e.api, e.auth, e.box = a, authSvc, box

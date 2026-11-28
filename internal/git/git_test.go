@@ -244,6 +244,13 @@ func TestCredentials(t *testing.T) {
 	if tok, err := f.box.Open(row.Ciphertext, []byte(gh.ID)); err != nil || string(tok) != "ghp_two" {
 		t.Fatalf("open updated = %q %v", tok, err)
 	}
+	// The server's own API calls read the current token.
+	if tok, err := f.svc.Token(ctx, "usr_1", "github.com"); err != nil || tok != "ghp_two" {
+		t.Fatalf("token = %q %v", tok, err)
+	}
+	if _, err := f.svc.Token(ctx, "usr_1", "nowhere.example"); !errors.Is(err, git.ErrNotFound) {
+		t.Fatalf("token for a host without a credential: %v", err)
+	}
 
 	s, err := f.svc.GetSettings(ctx, f.user)
 	if err != nil || len(s.Credentials) != 4 {

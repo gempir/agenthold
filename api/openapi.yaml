@@ -4631,6 +4631,262 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 
+  # --- Phase 3C: Pull requests ---
+  /pull-requests:
+    get:
+      operationId: listPullRequests
+      tags: [pullRequests]
+      description: >-
+        Pull requests on every git host the user stored a credential for (or only host), newest activity first. Hosts
+        that fail are reported in errors, the others listed.
+      parameters:
+        - name: state
+          in: query
+          description: "open (default), closed, merged or all."
+          schema: { type: string, maxLength: 16 }
+        - name: filter
+          in: query
+          description: "Whose pull requests: involved (default), authored or review_requested."
+          schema:
+            type: string
+            enum: [involved, authored, review_requested]
+            x-enum-varnames: [PullRequestFilterInvolved, PullRequestFilterAuthored, PullRequestFilterReviewRequested]
+        - name: repo
+          in: query
+          description: Only this repository (owner/name).
+          schema: { type: string, maxLength: 201 }
+        - name: q
+          in: query
+          description: Free-text search.
+          schema: { type: string, maxLength: 256 }
+        - name: host
+          in: query
+          schema: { type: string, maxLength: 253 }
+      responses:
+        "200":
+          description: Pull requests.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PullRequestList" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /pull-requests/{owner}/{repo}/{number}:
+    parameters:
+      - $ref: "#/components/parameters/PullRequestOwner"
+      - $ref: "#/components/parameters/PullRequestRepo"
+      - $ref: "#/components/parameters/PullRequestNumber"
+      - $ref: "#/components/parameters/PullRequestHost"
+    get:
+      operationId: getPullRequest
+      tags: [pullRequests]
+      description: A pull request with its checks, reviews and comments, and changed files with their patches.
+      responses:
+        "200":
+          description: The pull request.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PullRequestDetail" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+
+  /pull-requests/{owner}/{repo}/{number}/comments:
+    parameters:
+      - $ref: "#/components/parameters/PullRequestOwner"
+      - $ref: "#/components/parameters/PullRequestRepo"
+      - $ref: "#/components/parameters/PullRequestNumber"
+      - $ref: "#/components/parameters/PullRequestHost"
+    post:
+      operationId: commentOnPullRequest
+      tags: [pullRequests]
+      description: Comment on a pull request, or review it (approve, request changes).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body: { type: string, maxLength: 65536 }
+                event: { type: string, enum: [comment, approve, request_changes] }
+      responses:
+        "204": { description: Commented. }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+
+  /pull-requests/{owner}/{repo}/{number}/merge:
+    parameters:
+      - $ref: "#/components/parameters/PullRequestOwner"
+      - $ref: "#/components/parameters/PullRequestRepo"
+      - $ref: "#/components/parameters/PullRequestNumber"
+      - $ref: "#/components/parameters/PullRequestHost"
+    post:
+      operationId: mergePullRequest
+      tags: [pullRequests]
+      description: >-
+        Merge a pull request. headSha is the head commit the user reviewed: the merge is refused (409) when the pull
+        request got new commits since.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [headSha]
+              properties:
+                method:
+                  type: string
+                  enum: [merge, squash, rebase]
+                  x-enum-varnames: [PullRequestMergeMethodMerge, PullRequestMergeMethodSquash, PullRequestMergeMethodRebase]
+                headSha: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        "200":
+          description: The merge.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PullRequestMergeResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+
+  /pull-requests/{owner}/{repo}/{number}/work:
+    parameters:
+      - $ref: "#/components/parameters/PullRequestOwner"
+      - $ref: "#/components/parameters/PullRequestRepo"
+      - $ref: "#/components/parameters/PullRequestNumber"
+      - $ref: "#/components/parameters/PullRequestHost"
+    post:
+      operationId: workOnPullRequest
+      tags: [pullRequests]
+      description: >-
+        Start a thread of a running agent on the pull request's branch: the repository is cloned when the agent has no
+        checkout of it, a worktree is added on the branch, and the pull request is linked to the new thread (and the
+        prompt sent, when given).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agentId]
+              properties:
+                agentId: { type: string }
+                prompt: { type: string, maxLength: 65536 }
+      responses:
+        "201":
+          description: The new thread.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PullRequestWork" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/pull-requests:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    get:
+      operationId: listSessionPullRequests
+      tags: [pullRequests, sessions]
+      description: The pull requests linked to a thread (their state refreshed when it is older than a minute).
+      responses:
+        "200":
+          description: Linked pull requests.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [pullRequests]
+                properties:
+                  pullRequests:
+                    type: array
+                    items: { $ref: "#/components/schemas/SessionPullRequest" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: linkSessionPullRequest
+      tags: [pullRequests, sessions]
+      description: >-
+        Link a pull request to the thread (url: its URL or owner/repo#number; number alone: of the thread's
+        repository), or with create push the thread's branch and open a pull request for it (one already open for the
+        branch is linked instead). watch starts watching it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url: { type: string, maxLength: 2048 }
+                number: { type: integer, minimum: 1 }
+                watch: { type: boolean }
+                create:
+                  type: object
+                  properties:
+                    title: { type: string, maxLength: 256 }
+                    body: { type: string, maxLength: 65536 }
+                    base: { type: string, maxLength: 256 }
+                    draft: { type: boolean }
+                    push: { type: boolean, description: "Push the branch first (default true)." }
+      responses:
+        "201":
+          description: The link.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionPullRequest" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/pull-requests/{prId}:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+      - name: prId
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      operationId: updateSessionPullRequest
+      tags: [pullRequests, sessions]
+      description: >-
+        Start or stop watching a linked pull request around the clock. Sub-threads cannot watch (their parent thread
+        does).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [watching]
+              properties:
+                watching: { type: boolean }
+      responses:
+        "200":
+          description: The link.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionPullRequest" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: unlinkSessionPullRequest
+      tags: [pullRequests, sessions]
+      description: Unlink a pull request from the thread.
+      responses:
+        "204": { description: Unlinked. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
 security:
   - session: []
   - token: []
@@ -4678,6 +4934,28 @@ components:
       in: path
       required: true
       schema: { type: string }
+
+    PullRequestOwner:
+      name: owner
+      in: path
+      required: true
+      schema: { type: string, maxLength: 100 }
+    PullRequestRepo:
+      name: repo
+      in: path
+      required: true
+      schema: { type: string, maxLength: 100 }
+    PullRequestNumber:
+      name: number
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    PullRequestHost:
+      name: host
+      in: query
+      description: The git host (default github.com, or the user's only host).
+      schema: { type: string, maxLength: 253 }
+
   responses:
     Error:
       description: Error.
@@ -7061,3 +7339,151 @@ components:
       properties:
         to: { $ref: "#/components/schemas/User" }
         message: { type: string }
+
+    # --- Phase 3C: Pull requests ---
+    PullRequestState:
+      type: string
+      enum: [open, draft, merged, closed]
+      x-enum-varnames: [PullRequestStateOpen, PullRequestStateDraft, PullRequestStateMerged, PullRequestStateClosed]
+
+    PullRequestChecksState:
+      type: string
+      description: The verdict of the head commit's checks.
+      enum: [none, pending, success, failure]
+      x-enum-varnames: [PullRequestChecksStateNone, PullRequestChecksStatePending, PullRequestChecksStateSuccess, PullRequestChecksStateFailure]
+
+    PullRequestSummary:
+      type: object
+      required: [host, repo, number, url, title, state, draft, author, comments, createdAt, updatedAt]
+      properties:
+        host: { type: string }
+        repo: { type: string, description: owner/name }
+        number: { type: integer }
+        url: { type: string }
+        title: { type: string }
+        state: { $ref: "#/components/schemas/PullRequestState" }
+        draft: { type: boolean }
+        author: { type: string }
+        headRef: { type: string }
+        headSha: { type: string }
+        baseRef: { type: string }
+        comments: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    PullRequestList:
+      type: object
+      required: [pullRequests, hosts, errors]
+      properties:
+        pullRequests:
+          type: array
+          items: { $ref: "#/components/schemas/PullRequestSummary" }
+        hosts:
+          type: array
+          description: The hosts listed (none without a credential for a supported host).
+          items: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            required: [host, error]
+            properties:
+              host: { type: string }
+              error: { type: string }
+
+    PullRequestCheck:
+      type: object
+      required: [name, status]
+      properties:
+        name: { type: string }
+        status: { type: string, description: "queued, in_progress or completed." }
+        conclusion: { type: string }
+        url: { type: string }
+
+    PullRequestComment:
+      type: object
+      required: [id, kind, author, body, createdAt]
+      properties:
+        id: { type: integer, format: int64 }
+        kind: { type: string, enum: [comment, review, review_comment] }
+        author: { type: string }
+        body: { type: string }
+        state: { type: string, description: "A review's state (APPROVED, CHANGES_REQUESTED, COMMENTED)." }
+        path: { type: string }
+        line: { type: integer }
+        url: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    PullRequestFile:
+      type: object
+      required: [path, status, additions, deletions]
+      properties:
+        path: { type: string }
+        previousPath: { type: string }
+        status: { type: string, enum: [A, M, D, R] }
+        additions: { type: integer }
+        deletions: { type: integer }
+        patch: { type: string }
+
+    PullRequestDetail:
+      type: object
+      required: [pullRequest, body, additions, deletions, changedFiles, checks, checksState, comments, files, conflicted]
+      properties:
+        pullRequest: { $ref: "#/components/schemas/PullRequestSummary" }
+        body: { type: string }
+        mergeable: { type: boolean, description: "Unset while the host computes it." }
+        mergeableState: { type: string }
+        conflicted: { type: boolean }
+        baseSha: { type: string }
+        headRepo: { type: string }
+        additions: { type: integer }
+        deletions: { type: integer }
+        changedFiles: { type: integer }
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/PullRequestCheck" }
+        checksState: { $ref: "#/components/schemas/PullRequestChecksState" }
+        comments:
+          type: array
+          items: { $ref: "#/components/schemas/PullRequestComment" }
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/PullRequestFile" }
+        viewer: { type: string, description: The login of the user's account on the host. }
+
+    PullRequestMergeResult:
+      type: object
+      required: [merged]
+      properties:
+        merged: { type: boolean }
+        sha: { type: string }
+        message: { type: string }
+
+    SessionPullRequest:
+      type: object
+      required: [id, sessionId, host, repo, number, url, title, state, headSha, checksState, watching, wakeCount, failCount, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        sessionId: { type: string }
+        host: { type: string }
+        repo: { type: string }
+        number: { type: integer }
+        url: { type: string }
+        title: { type: string }
+        state: { $ref: "#/components/schemas/PullRequestState" }
+        headSha: { type: string }
+        checksState: { $ref: "#/components/schemas/PullRequestChecksState" }
+        watching: { type: boolean }
+        wakeCount: { type: integer, description: How often the watcher woke the thread for it. }
+        failCount: { type: integer, description: Failed reads in a row. }
+        lastCheckedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    PullRequestWork:
+      type: object
+      required: [session, pullRequest, worktree]
+      properties:
+        session: { $ref: "#/components/schemas/Session" }
+        pullRequest: { $ref: "#/components/schemas/SessionPullRequest" }
+        worktree: { type: string, description: The worktree the thread works in (relative to the home). }

@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import {
   Bug,
   ExternalLink,
+  Eye,
+  EyeOff,
   FolderGit2,
   GitBranch,
+  GitPullRequestCreate,
   Hammer,
   Info,
   Loader2,
@@ -21,14 +25,21 @@ import {
   gitDiffQuery,
   projectScriptsQuery,
   servicesQuery,
+  sessionPullRequestsQuery,
   type Agent,
   type ProjectScript,
   type ProjectScriptRun,
   type Session,
+  type SessionPullRequest,
 } from '@/api/queries';
+import {
+  ChecksIndicator,
+  PullRequestStateBadge,
+} from '@/components/PullRequestBadges';
 import { AgentStateDot, stateLabel } from '@/components/AgentStateBadge';
 import { ErrorText } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { DiffStat } from '@/components/workspace/DiffPane';
 import { useAgentActions } from '@/hooks/useAgentActions';
 import { cn } from '@/lib/utils';
@@ -230,6 +241,16 @@ export function ThreadDetails({
         </Section>
       )}
 
+      {session && (
+        <LinkedPullRequests
+          agentId={a.id}
+          session={session}
+          canUse={canUse}
+          live={live}
+          dir={dir}
+        />
+      )}
+
       {live && scripts.data && scripts.data.scripts.length > 0 && (
         <Section title="Scripts">
           <Scripts
@@ -422,5 +443,188 @@ function Scripts({
         </div>
       )}
     </div>
+  );
+}
+
+const prLink = (p: SessionPullRequest) => `${p.host}/${p.repo}#${p.number}`;
+
+/**
+ * The pull requests linked to the thread: state, CI and the watch toggle,
+ * and Create PR when its branch has commits its base has not.
+ */
+function LinkedPullRequests({
+  agentId,
+  session,
+  canUse,
+  live,
+  dir,
+}: {
+  agentId: string;
+  session: Session;
+  canUse: boolean;
+  live: boolean;
+  dir: string;
+}) {
+  const qc = useQueryClient();
+  const linked = useQuery(sessionPullRequestsQuery(session.id));
+  const prs = linked.data?.pullRequests ?? [];
+  const hasOpen = prs.some((p) => p.state === 'open' || p.state === 'draft');
+  const git = session.git;
+  const branch = useQuery({
+    ...gitDiffQuery(agentId, dir, 'branch'),
+    enabled: live && !!git && !hasOpen && linked.isSuccess,
+  });
+  const ahead = (branch.data?.files.length ?? 0) > 0;
+  const sub =
+    session.parentKind === 'subthread' || session.parentKind === 'side_chat';
+  const [creating, setCreating] = useState(false);
+  const [title, setTitle] = useState(session.title);
+  const refresh = () =>
+    qc.invalidateQueries({
+      queryKey: ['sessions', session.id, 'pull-requests'],
+    });
+  const watch = useMutation({
+    mutationFn: (p: SessionPullRequest) =>
+      unwrap(
+        api.PATCH('/sessions/{sessionId}/pull-requests/{prId}', {
+          params: { path: { sessionId: session.id, prId: p.id } },
+          body: { watching: !p.watching },
+        }),
+      ),
+    onSettled: refresh,
+  });
+  const create = useMutation({
+    mutationFn: () =>
+      unwrap(
+        api.POST('/sessions/{sessionId}/pull-requests', {
+          params: { path: { sessionId: session.id } },
+          body: { create: { title: title.trim() || session.title } },
+        }),
+      ),
+    onSuccess: async () => {
+      setCreating(false);
+      await refresh();
+    },
+  });
+  const canCreate = canUse && live && !!git && !hasOpen && ahead;
+  if (prs.length === 0 && !canCreate) return null;
+  return (
+    <Section title="Pull requests">
+      <ul aria-label="Linked pull requests" className="grid gap-1 text-xs">
+        {prs.map((p) => {
+          const done = p.state === 'merged' || p.state === 'closed';
+          return (
+            <li key={p.id} className="flex min-w-0 items-center gap-2">
+              <PullRequestStateBadge state={p.state} />
+              <ChecksIndicator state={p.checksState} />
+              <Link
+                to="/pulls"
+                search={{ pr: prLink(p) }}
+                className="min-w-0 flex-1 truncate hover:underline"
+                title={`${p.repo}#${p.number}: ${p.title}`}
+              >
+                <span className="text-muted-foreground">#{p.number}</span>{' '}
+                {p.title}
+              </Link>
+              <a
+                href={p.url}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={`Open #${p.number} on the host`}
+                className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <ExternalLink className="size-3.5" aria-hidden />
+              </a>
+              {!done && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-pressed={p.watching}
+                  aria-label={
+                    p.watching
+                      ? `Stop watching #${p.number}`
+                      : `Watch #${p.number}`
+                  }
+                  title={
+                    sub
+                      ? 'Sub-threads cannot watch: their parent thread does'
+                      : p.watching
+                        ? 'Watching: the agent is woken when CI, reviews or the state change'
+                        : 'Watch: wake the agent when CI, reviews or the state change'
+                  }
+                  disabled={!canUse || watch.isPending || (sub && !p.watching)}
+                  onClick={() => watch.mutate(p)}
+                  className={cn(
+                    'h-6 shrink-0 gap-1 px-1.5 text-xs',
+                    p.watching
+                      ? 'text-sky-600 dark:text-sky-400'
+                      : 'text-muted-foreground',
+                  )}
+                >
+                  {p.watching ? (
+                    <Eye className="size-3.5" aria-hidden />
+                  ) : (
+                    <EyeOff className="size-3.5" aria-hidden />
+                  )}
+                  {p.watching ? 'Watching' : 'Watch'}
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {canCreate &&
+        (creating ? (
+          <form
+            className="grid gap-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              create.mutate();
+            }}
+          >
+            <Input
+              aria-label="Pull request title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="h-7 text-xs"
+              autoFocus
+            />
+            <div className="flex justify-end gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs"
+                onClick={() => setCreating(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                disabled={create.isPending}
+              >
+                {create.isPending && (
+                  <Loader2 className="size-3 animate-spin" aria-hidden />
+                )}
+                Push and open
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 w-fit gap-1 px-2 text-xs"
+            onClick={() => setCreating(true)}
+            title={`Push ${git?.branch ?? 'the branch'} and open a pull request`}
+          >
+            <GitPullRequestCreate className="size-3.5" aria-hidden />
+            Create PR
+          </Button>
+        ))}
+      <ErrorText error={watch.error ?? create.error} />
+    </Section>
   );
 }

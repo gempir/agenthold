@@ -8,7 +8,12 @@ import {
   RouterProvider,
 } from '@tanstack/react-router';
 import { expect, it, vi } from 'bun:test';
-import type { Agent, ProjectScript, Session } from '@/api/queries';
+import type {
+  Agent,
+  ProjectScript,
+  Session,
+  SessionPullRequest,
+} from '@/api/queries';
 import { ThreadDetailsCard } from '@/components/agent/ThreadDetailsCard';
 import { mockApi } from '@/test-utils';
 
@@ -63,7 +68,11 @@ const script = (over: Partial<ProjectScript>): ProjectScript => ({
   ...over,
 });
 
-function renderCard(a: Agent, routes: Record<string, unknown> = {}) {
+function renderCard(
+  a: Agent,
+  routes: Record<string, unknown> = {},
+  sess: Session = session,
+) {
   const api = mockApi({
     'GET /agents/a1/git/diff?path=web&mode=uncommitted': {
       mode: 'uncommitted',
@@ -135,7 +144,7 @@ function renderCard(a: Agent, routes: Record<string, unknown> = {}) {
     component: () => (
       <ThreadDetailsCard
         agent={a}
-        session={session}
+        session={sess}
         canUse
         onOpenDiff={onOpenDiff}
       />
@@ -229,4 +238,157 @@ it('offers to wake a sleeping agent and closes on Escape', async () => {
   );
   await userEvent.keyboard('{Escape}');
   expect(screen.queryByRole('dialog', { name: 'Thread details' })).toBeNull();
+});
+
+const linkedPR = (
+  over: Partial<SessionPullRequest> = {},
+): SessionPullRequest => ({
+  id: 'spr1',
+  sessionId: 's1',
+  host: 'github.com',
+  repo: 'o/web',
+  number: 12,
+  url: 'https://github.com/o/web/pull/12',
+  title: 'Fix the login',
+  state: 'open',
+  headSha: 'abc',
+  checksState: 'failure',
+  watching: false,
+  wakeCount: 0,
+  failCount: 0,
+  createdAt: '2030-01-01T00:00:00Z',
+  updatedAt: '2030-01-01T00:00:00Z',
+  ...over,
+});
+
+it('shows linked pull requests and toggles watching', async () => {
+  const { calls } = renderCard(agent(), {
+    'GET /sessions/s1/pull-requests': {
+      pullRequests: [
+        linkedPR(),
+        linkedPR({
+          id: 'spr2',
+          number: 9,
+          title: 'Old one',
+          state: 'merged',
+          checksState: 'none',
+        }),
+      ],
+    },
+    'PATCH /sessions/s1/pull-requests/spr1': () => ({
+      body: linkedPR({ watching: true }),
+    }),
+  });
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Thread details' }),
+  );
+  const list = await screen.findByRole('list', {
+    name: 'Linked pull requests',
+  });
+  const open = within(list).getByText('Fix the login').closest('li')!;
+  expect(open).toHaveTextContent('Open');
+  expect(
+    within(open).getByRole('img', { name: 'Checks failed' }),
+  ).toBeVisible();
+  expect(
+    within(open).getByRole('link', { name: /#12\s*Fix the login/ }),
+  ).toHaveAttribute('href', '/pulls?pr=github.com%2Fo%2Fweb%2312');
+  const merged = within(list).getByText('Old one').closest('li')!;
+  expect(merged).toHaveTextContent('Merged');
+  // Merged pull requests have nothing left to watch.
+  expect(within(merged).queryByRole('button', { name: /Watch/ })).toBeNull();
+  // An open one is linked: no Create PR.
+  expect(screen.queryByRole('button', { name: 'Create PR' })).toBeNull();
+
+  const toggle = within(open).getByRole('button', { name: 'Watch #12' });
+  expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await userEvent.click(toggle);
+  await waitFor(() =>
+    expect(
+      calls.find((c) => c.key === 'PATCH /sessions/s1/pull-requests/spr1')
+        ?.body,
+    ).toEqual({ watching: true }),
+  );
+});
+
+it('offers Create PR when the branch has commits ahead of its base', async () => {
+  let created = false;
+  const { calls } = renderCard(agent(), {
+    'GET /sessions/s1/pull-requests': () => ({
+      body: {
+        pullRequests: created ? [linkedPR({ checksState: 'pending' })] : [],
+      },
+    }),
+    'GET /agents/a1/git/diff?path=web&mode=branch': {
+      mode: 'branch',
+      repo: {
+        path: 'web',
+        project: 'web',
+        branch: 'feat/login',
+        detached: false,
+        dirty: false,
+        ahead: 1,
+        behind: 0,
+        isWorktree: false,
+      },
+      files: [
+        {
+          path: 'login.ts',
+          status: 'M',
+          additions: 3,
+          deletions: 0,
+          binary: false,
+          truncated: false,
+        },
+      ],
+      additions: 3,
+      deletions: 0,
+      truncated: false,
+    },
+    'POST /sessions/s1/pull-requests': () => {
+      created = true;
+      return { status: 201, body: linkedPR({ checksState: 'pending' }) };
+    },
+  });
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Thread details' }),
+  );
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Create PR' }),
+  );
+  const title = screen.getByRole('textbox', { name: 'Pull request title' });
+  expect(title).toHaveValue('Fix login');
+  await userEvent.clear(title);
+  await userEvent.type(title, 'Login page fixes');
+  await userEvent.click(screen.getByRole('button', { name: 'Push and open' }));
+  await waitFor(() =>
+    expect(
+      calls.find((c) => c.key === 'POST /sessions/s1/pull-requests')?.body,
+    ).toEqual({ create: { title: 'Login page fixes' } }),
+  );
+  const list = await screen.findByRole('list', {
+    name: 'Linked pull requests',
+  });
+  expect(
+    await within(list).findByRole('img', { name: 'Checks running' }),
+  ).toBeVisible();
+});
+
+it('does not let a sub-thread watch', async () => {
+  renderCard(
+    agent(),
+    {
+      'GET /sessions/s1/pull-requests': { pullRequests: [linkedPR()] },
+    },
+    { ...session, parentKind: 'subthread' },
+  );
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Thread details' }),
+  );
+  const toggle = await screen.findByRole('button', { name: 'Watch #12' });
+  expect(toggle).toBeDisabled();
+  expect(toggle).toHaveAttribute(
+    'title',
+    expect.stringContaining('parent thread'),
+  );
 });

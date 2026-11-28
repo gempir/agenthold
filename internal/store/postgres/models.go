@@ -460,6 +460,27 @@ type SessionGuestRequest struct {
 	ResolvedAt  sql.NullInt64
 }
 
+type SessionPullRequest struct {
+	ID              string
+	SessionID       string
+	Host            string
+	Repo            string
+	Number          int64
+	Url             string
+	Title           string
+	State           string
+	HeadSha         string
+	ChecksState     string
+	Watching        int64
+	WakeCount       int64
+	CommentStreak   int64
+	FailCount       int64
+	LastCheckedAt   sql.NullInt64
+	LastFingerprint string
+	CreatedAt       int64
+	UpdatedAt       int64
+}
+
 type SessionQueuedMessage struct {
 	ID         string
 	SessionID  string

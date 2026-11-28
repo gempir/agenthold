@@ -471,3 +471,22 @@ func quoteValue(v string) (string, error) {
 	v = strings.ReplaceAll(v, `"`, `\"`)
 	return `"` + v + `"`, nil
 }
+
+// Token returns the user's token for host, for the server's own API calls
+// (the pull request hub and watcher). It never goes to a sandbox: there
+// the egress proxy adds credentials to requests instead. ErrNotFound when
+// the user stored none for host.
+func (s *Service) Token(ctx context.Context, userID, host string) (string, error) {
+	c, err := s.Store.GetGitCredentialByHost(ctx, db.GetGitCredentialByHostParams{UserID: userID, Host: host})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	token, err := s.Box.Open(c.Ciphertext, []byte(c.ID))
+	if err != nil {
+		return "", fmt.Errorf("git credential %s: %w", c.ID, err)
+	}
+	return string(token), nil
+}

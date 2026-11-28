@@ -375,6 +375,11 @@ func (p postgresQueries) DeleteSessionEventsFrom(ctx context.Context, arg db.Del
 	return value, err
 }
 
+func (p postgresQueries) DeleteSessionPullRequest(ctx context.Context, arg db.DeleteSessionPullRequestParams) (int64, error) {
+	value, err := p.q.DeleteSessionPullRequest(ctx, postgres.DeleteSessionPullRequestParams(arg))
+	return value, err
+}
+
 func (p postgresQueries) DeleteSessionQueuedMessage(ctx context.Context, arg db.DeleteSessionQueuedMessageParams) (int64, error) {
 	value, err := p.q.DeleteSessionQueuedMessage(ctx, postgres.DeleteSessionQueuedMessageParams(arg))
 	return value, err
@@ -677,6 +682,16 @@ func (p postgresQueries) GetSessionGuestLinkByTokenHash(ctx context.Context, tok
 func (p postgresQueries) GetSessionGuestRequest(ctx context.Context, arg db.GetSessionGuestRequestParams) (db.SessionGuestRequest, error) {
 	value, err := p.q.GetSessionGuestRequest(ctx, postgres.GetSessionGuestRequestParams(arg))
 	return db.SessionGuestRequest(value), err
+}
+
+func (p postgresQueries) GetSessionPullRequest(ctx context.Context, id string) (db.SessionPullRequest, error) {
+	value, err := p.q.GetSessionPullRequest(ctx, id)
+	return db.SessionPullRequest(value), err
+}
+
+func (p postgresQueries) GetSessionPullRequestByKey(ctx context.Context, arg db.GetSessionPullRequestByKeyParams) (db.SessionPullRequest, error) {
+	value, err := p.q.GetSessionPullRequestByKey(ctx, postgres.GetSessionPullRequestByKeyParams(arg))
+	return db.SessionPullRequest(value), err
 }
 
 func (p postgresQueries) GetSessionQueuedMessage(ctx context.Context, arg db.GetSessionQueuedMessageParams) (db.SessionQueuedMessage, error) {
@@ -1202,6 +1217,18 @@ func (p postgresQueries) ListProviderLogins(ctx context.Context) ([]db.ProviderL
 	return result, nil
 }
 
+func (p postgresQueries) ListPullRequestSessions(ctx context.Context, arg db.ListPullRequestSessionsParams) ([]db.SessionPullRequest, error) {
+	value, err := p.q.ListPullRequestSessions(ctx, postgres.ListPullRequestSessionsParams(arg))
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.SessionPullRequest, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.SessionPullRequest(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListRefreshableGitCredentials(ctx context.Context, expiresAt int64) ([]db.GitCredential, error) {
 	value, err := p.q.ListRefreshableGitCredentials(ctx, expiresAt)
 	if err != nil {
@@ -1282,6 +1309,18 @@ func (p postgresQueries) ListSessionGuestRequests(ctx context.Context, sessionID
 	result := make([]db.SessionGuestRequest, 0, len(value))
 	for _, row := range value {
 		result = append(result, db.SessionGuestRequest(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListSessionPullRequests(ctx context.Context, sessionID string) ([]db.SessionPullRequest, error) {
+	value, err := p.q.ListSessionPullRequests(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.SessionPullRequest, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.SessionPullRequest(row))
 	}
 	return result, nil
 }
@@ -1514,6 +1553,18 @@ func (p postgresQueries) ListUsersWithIdentity(ctx context.Context) ([]db.ListUs
 	return result, nil
 }
 
+func (p postgresQueries) ListWatchedPullRequests(ctx context.Context) ([]db.ListWatchedPullRequestsRow, error) {
+	value, err := p.q.ListWatchedPullRequests(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ListWatchedPullRequestsRow, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.ListWatchedPullRequestsRow{SessionPullRequest: db.SessionPullRequest(row.SessionPullRequest), AgentID: row.AgentID, OwnerID: row.OwnerID, SessionTitle: row.SessionTitle})
+	}
+	return result, nil
+}
+
 func (p postgresQueries) LockUser(ctx context.Context, id string) error {
 	return p.q.LockUser(ctx, id)
 }
@@ -1559,6 +1610,11 @@ func (p postgresQueries) PutSlackInstallation(ctx context.Context, arg db.PutSla
 
 func (p postgresQueries) PutSlackUser(ctx context.Context, arg db.PutSlackUserParams) error {
 	return p.q.PutSlackUser(ctx, postgres.PutSlackUserParams(arg))
+}
+
+func (p postgresQueries) RecordPullRequestPoll(ctx context.Context, arg db.RecordPullRequestPollParams) (int64, error) {
+	value, err := p.q.RecordPullRequestPoll(ctx, postgres.RecordPullRequestPollParams(arg))
+	return value, err
 }
 
 func (p postgresQueries) RecordScheduleRun(ctx context.Context, arg db.RecordScheduleRunParams) error {
@@ -1711,6 +1767,11 @@ func (p postgresQueries) SetProjectSourceDefaultBranch(ctx context.Context, arg 
 
 func (p postgresQueries) SetProviderLoginStatus(ctx context.Context, arg db.SetProviderLoginStatusParams) error {
 	return p.q.SetProviderLoginStatus(ctx, postgres.SetProviderLoginStatusParams(arg))
+}
+
+func (p postgresQueries) SetPullRequestWatching(ctx context.Context, arg db.SetPullRequestWatchingParams) (int64, error) {
+	value, err := p.q.SetPullRequestWatching(ctx, postgres.SetPullRequestWatchingParams(arg))
+	return value, err
 }
 
 func (p postgresQueries) SetRemoteNodesOffline(ctx context.Context) error {
@@ -1936,6 +1997,10 @@ func (p postgresQueries) UpdateProjectSource(ctx context.Context, arg db.UpdateP
 	return p.q.UpdateProjectSource(ctx, postgres.UpdateProjectSourceParams(arg))
 }
 
+func (p postgresQueries) UpdatePullRequestInfo(ctx context.Context, arg db.UpdatePullRequestInfoParams) error {
+	return p.q.UpdatePullRequestInfo(ctx, postgres.UpdatePullRequestInfoParams(arg))
+}
+
 func (p postgresQueries) UpdateSchedule(ctx context.Context, arg db.UpdateScheduleParams) error {
 	return p.q.UpdateSchedule(ctx, postgres.UpdateScheduleParams(arg))
 }
@@ -1979,6 +2044,10 @@ func (p postgresQueries) UpsertOrgProviderLogin(ctx context.Context, arg db.Upse
 
 func (p postgresQueries) UpsertService(ctx context.Context, arg db.UpsertServiceParams) error {
 	return p.q.UpsertService(ctx, postgres.UpsertServiceParams(arg))
+}
+
+func (p postgresQueries) UpsertSessionPullRequest(ctx context.Context, arg db.UpsertSessionPullRequestParams) error {
+	return p.q.UpsertSessionPullRequest(ctx, postgres.UpsertSessionPullRequestParams(arg))
 }
 
 func (p postgresQueries) UpsertSessionShare(ctx context.Context, arg db.UpsertSessionShareParams) error {

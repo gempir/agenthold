@@ -29,6 +29,14 @@ const ACTIONS: Record<string, string> = {
   'browser.navigate': 'Opened a page in the browser',
   'browser.interact': 'Used the browser',
   'browser.close': 'Closed the browser',
+  'pull_request.link': 'Linked a pull request',
+  'pull_request.unlink': 'Unlinked a pull request',
+  'pull_request.watch': 'Started watching a pull request',
+  'pull_request.unwatch': 'Stopped watching a pull request',
+  'pull_request.wake': 'Woken by a watched pull request',
+  'pull_request.create': 'Opened a pull request',
+  'pull_request.review': 'Commented on a pull request',
+  'pull_request.merge': 'Merged a pull request',
 };
 
 /** Human wording for an audit action; the raw action if unknown. */

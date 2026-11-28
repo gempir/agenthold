@@ -97,6 +97,7 @@ type Querier interface {
 	DeleteService(ctx context.Context, arg DeleteServiceParams) (int64, error)
 	DeleteSession(ctx context.Context, tokenHash string) error
 	DeleteSessionEventsFrom(ctx context.Context, arg DeleteSessionEventsFromParams) (int64, error)
+	DeleteSessionPullRequest(ctx context.Context, arg DeleteSessionPullRequestParams) (int64, error)
 	DeleteSessionQueuedMessage(ctx context.Context, arg DeleteSessionQueuedMessageParams) (int64, error)
 	DeleteSessionReviewComment(ctx context.Context, arg DeleteSessionReviewCommentParams) (int64, error)
 	DeleteSessionShare(ctx context.Context, arg DeleteSessionShareParams) (int64, error)
@@ -159,6 +160,8 @@ type Querier interface {
 	GetSessionGuestLink(ctx context.Context, arg GetSessionGuestLinkParams) (SessionGuestLink, error)
 	GetSessionGuestLinkByTokenHash(ctx context.Context, tokenHash string) (SessionGuestLink, error)
 	GetSessionGuestRequest(ctx context.Context, arg GetSessionGuestRequestParams) (SessionGuestRequest, error)
+	GetSessionPullRequest(ctx context.Context, id string) (SessionPullRequest, error)
+	GetSessionPullRequestByKey(ctx context.Context, arg GetSessionPullRequestByKeyParams) (SessionPullRequest, error)
 	GetSessionQueuedMessage(ctx context.Context, arg GetSessionQueuedMessageParams) (SessionQueuedMessage, error)
 	GetSessionReviewComment(ctx context.Context, arg GetSessionReviewCommentParams) (SessionReviewComment, error)
 	GetSessionShare(ctx context.Context, arg GetSessionShareParams) (SessionShare, error)
@@ -223,6 +226,8 @@ type Querier interface {
 	ListProjectSources(ctx context.Context, projectID string) ([]ProjectSource, error)
 	ListProjects(ctx context.Context, ownerID string) ([]Project, error)
 	ListProviderLogins(ctx context.Context) ([]ProviderLogin, error)
+	// The links of one pull request, in every session.
+	ListPullRequestSessions(ctx context.Context, arg ListPullRequestSessionsParams) ([]SessionPullRequest, error)
 	ListRefreshableGitCredentials(ctx context.Context, expiresAt int64) ([]GitCredential, error)
 	ListSandboxSubnets(ctx context.Context) ([]ListSandboxSubnetsRow, error)
 	ListSandboxes(ctx context.Context) ([]Sandbox, error)
@@ -230,6 +235,7 @@ type Querier interface {
 	ListSessionEvents(ctx context.Context, arg ListSessionEventsParams) ([]AgentSessionEvent, error)
 	ListSessionGuestLinks(ctx context.Context, sessionID string) ([]SessionGuestLink, error)
 	ListSessionGuestRequests(ctx context.Context, sessionID string) ([]SessionGuestRequest, error)
+	ListSessionPullRequests(ctx context.Context, sessionID string) ([]SessionPullRequest, error)
 	ListSessionQueuedMessages(ctx context.Context, sessionID string) ([]SessionQueuedMessage, error)
 	ListSessionReviewComments(ctx context.Context, sessionID string) ([]SessionReviewComment, error)
 	ListSessionShares(ctx context.Context, sessionID string) ([]ListSessionSharesRow, error)
@@ -255,6 +261,8 @@ type Querier interface {
 	// The admin users list: every user, the provider and username they signed
 	// in with (the oldest identity) and how many agents they own.
 	ListUsersWithIdentity(ctx context.Context) ([]ListUsersWithIdentityRow, error)
+	// Watched pull requests of active (unsettled) sessions, with whom they act for.
+	ListWatchedPullRequests(ctx context.Context) ([]ListWatchedPullRequestsRow, error)
 	// Serializes quota checks of one owner across API processes (PostgreSQL
 	// row lock until the transaction ends; SQLite transactions are already
 	// serialized).
@@ -271,6 +279,8 @@ type Querier interface {
 	PutSlackChannelAgent(ctx context.Context, arg PutSlackChannelAgentParams) error
 	PutSlackInstallation(ctx context.Context, arg PutSlackInstallationParams) error
 	PutSlackUser(ctx context.Context, arg PutSlackUserParams) error
+	// The watcher's result; only while the pull request is still watched.
+	RecordPullRequestPoll(ctx context.Context, arg RecordPullRequestPollParams) (int64, error)
 	RecordScheduleRun(ctx context.Context, arg RecordScheduleRunParams) error
 	RecordWebhookDelivery(ctx context.Context, arg RecordWebhookDeliveryParams) error
 	RefreshGitCredential(ctx context.Context, arg RefreshGitCredentialParams) (int64, error)
@@ -309,6 +319,8 @@ type Querier interface {
 	// Records the branch a first checkout found, unless one is set.
 	SetProjectSourceDefaultBranch(ctx context.Context, arg SetProjectSourceDefaultBranchParams) error
 	SetProviderLoginStatus(ctx context.Context, arg SetProviderLoginStatusParams) error
+	// Starts (with the baseline fingerprint) or stops watching; counters restart.
+	SetPullRequestWatching(ctx context.Context, arg SetPullRequestWatchingParams) (int64, error)
 	// At controller start no edge node is connected yet.
 	SetRemoteNodesOffline(ctx context.Context) error
 	SetSandboxBuilt(ctx context.Context, arg SetSandboxBuiltParams) error
@@ -366,6 +378,7 @@ type Querier interface {
 	UpdateOrgTool(ctx context.Context, arg UpdateOrgToolParams) error
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) error
 	UpdateProjectSource(ctx context.Context, arg UpdateProjectSourceParams) error
+	UpdatePullRequestInfo(ctx context.Context, arg UpdatePullRequestInfoParams) error
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) error
 	UpdateSecret(ctx context.Context, arg UpdateSecretParams) error
 	UpdateSessionGitStatus(ctx context.Context, arg UpdateSessionGitStatusParams) error
@@ -377,6 +390,9 @@ type Querier interface {
 	UpsertModelCatalog(ctx context.Context, arg UpsertModelCatalogParams) error
 	UpsertOrgProviderLogin(ctx context.Context, arg UpsertOrgProviderLoginParams) error
 	UpsertService(ctx context.Context, arg UpsertServiceParams) error
+	// Links a pull request to a session, or refreshes what is known about a
+	// linked one (its watch state is left alone).
+	UpsertSessionPullRequest(ctx context.Context, arg UpsertSessionPullRequestParams) error
 	UpsertSessionShare(ctx context.Context, arg UpsertSessionShareParams) error
 	UpsertUserGitConfig(ctx context.Context, arg UpsertUserGitConfigParams) error
 	UpsertUserToolPreference(ctx context.Context, arg UpsertUserToolPreferenceParams) error

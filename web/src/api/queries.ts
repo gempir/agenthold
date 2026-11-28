@@ -680,3 +680,56 @@ export const orgProvidersQuery = queryOptions({
   queryFn: () => unwrap(api.GET('/org/providers')),
   retry: false,
 });
+
+export type PullRequestState = components['schemas']['PullRequestState'];
+export type PullRequestChecksState =
+  components['schemas']['PullRequestChecksState'];
+export type PullRequestSummary = components['schemas']['PullRequestSummary'];
+export type PullRequestDetail = components['schemas']['PullRequestDetail'];
+export type PullRequestFile = components['schemas']['PullRequestFile'];
+export type PullRequestComment = components['schemas']['PullRequestComment'];
+export type SessionPullRequest = components['schemas']['SessionPullRequest'];
+export type PullRequestListState = 'open' | 'merged' | 'closed' | 'all';
+export type PullRequestFilter = 'involved' | 'authored' | 'review_requested';
+
+/** Pull requests on the user's git hosts (with their own credentials). */
+export const pullRequestsQuery = (
+  state: PullRequestListState,
+  filter: PullRequestFilter = 'involved',
+) =>
+  queryOptions({
+    queryKey: ['pull-requests', state, filter],
+    queryFn: () =>
+      unwrap(
+        api.GET('/pull-requests', { params: { query: { state, filter } } }),
+      ),
+    retry: false,
+  });
+
+export const pullRequestQuery = (host: string, repo: string, number: number) =>
+  queryOptions({
+    queryKey: ['pull-requests', host, repo, number],
+    queryFn: () => {
+      const [owner = '', name = ''] = repo.split('/');
+      return unwrap(
+        api.GET('/pull-requests/{owner}/{repo}/{number}', {
+          params: { path: { owner, repo: name, number }, query: { host } },
+        }),
+      );
+    },
+    retry: false,
+  });
+
+/** The pull requests linked to a thread. */
+export const sessionPullRequestsQuery = (sessionId: string) =>
+  queryOptions({
+    queryKey: ['sessions', sessionId, 'pull-requests'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/sessions/{sessionId}/pull-requests', {
+          params: { path: { sessionId } },
+        }),
+      ),
+    refetchInterval: 60_000,
+    retry: false,
+  });

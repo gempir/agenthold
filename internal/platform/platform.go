@@ -22,6 +22,7 @@ import (
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/executor"
+	"github.com/gempir/agenthold/internal/pr"
 	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/project"
 	"github.com/gempir/agenthold/internal/session"
@@ -57,6 +58,8 @@ type Service struct {
 	// Machine reaches the calling agent's machine for the browser tools
 	// (preview_*), which are listed when it (or Projects.Machine) is set.
 	Machine project.MachineFunc
+	// PullRequests is the pull request hub; its tools are listed when it is set.
+	PullRequests *pr.Service
 }
 
 // Tools are the platform tools in MCP form.
@@ -143,6 +146,9 @@ func (p *Service) tools() []map[string]any {
 	if p.machine() != nil {
 		out = append(out, browserTools...)
 	}
+	if p.PullRequests != nil {
+		out = append(out, pullRequestTools...)
+	}
 	return out
 }
 
@@ -196,6 +202,9 @@ func (p *Service) Call(ctx context.Context, callerID, sessionID, tool string, ar
 	}
 	if isBrowserTool(tool) {
 		return p.browserCall(ctx, caller, tool, args)
+	}
+	if p.PullRequests != nil && isPullRequestTool(tool) {
+		return p.pullRequestCall(ctx, caller, sessionID, tool, args)
 	}
 	var in toolArgs
 	if len(args) > 0 {

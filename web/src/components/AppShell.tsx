@@ -1,18 +1,18 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Outlet, useRouterState } from "@tanstack/react-router";
-import { meQuery } from "@/api/queries";
-import { NewAgentDialog } from "@/components/AgentsSection";
-import { NoAccess } from "@/components/NoAccess";
-import { ErrorText, Loading } from "@/components/Spinner";
-import { Sidebar } from "@/components/layout/Sidebar";
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Outlet, useRouterState } from '@tanstack/react-router';
+import { meQuery } from '@/api/queries';
+import { NewAgentDialog } from '@/components/AgentsSection';
+import { NoAccess } from '@/components/NoAccess';
+import { ErrorText, Loading } from '@/components/Spinner';
+import { Sidebar } from '@/components/layout/Sidebar';
 import {
   readPref,
   ShellContext,
   writePref,
   type ShellState,
-} from "@/components/layout/shell";
-import { useSwipeDrawer } from "@/components/layout/swipe";
+} from '@/components/layout/shell';
+import { useSwipeDrawer } from '@/components/layout/swipe';
 
 const DEFAULT_WIDTH = 288;
 const clampWidth = (w: number) => Math.min(560, Math.max(220, Math.round(w)));
@@ -30,16 +30,16 @@ export function AppShell() {
   const drawerOpen = drawerAt === href;
   useSwipeDrawer(drawerOpen, (o) => setDrawerAt(o ? href : null));
   const [collapsed, setCollapsedState] = useState(
-    () => readPref("sidebar", "open") === "collapsed",
+    () => readPref('sidebar', 'open') === 'collapsed',
   );
   const [width, setWidth] = useState(() => {
-    const n = Number(readPref("sidebar.width", ""));
+    const n = Number(readPref('sidebar.width', ''));
     return Number.isFinite(n) && n > 0 ? clampWidth(n) : DEFAULT_WIDTH;
   });
   const resize = (w: number) => {
     const c = clampWidth(w);
     setWidth(c);
-    writePref("sidebar.width", String(c));
+    writePref('sidebar.width', String(c));
   };
   const startResize = (e: React.PointerEvent) => {
     e.preventDefault();
@@ -48,12 +48,12 @@ export function AppShell() {
     const move = (ev: PointerEvent) =>
       setWidth(clampWidth(w0 + ev.clientX - x0));
     const up = (ev: PointerEvent) => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
       resize(w0 + ev.clientX - x0);
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
   };
   const [newAgent, setNewAgent] = useState(false);
 
@@ -64,7 +64,7 @@ export function AppShell() {
       collapsed,
       setCollapsed: (c) => {
         setCollapsedState(c);
-        writePref("sidebar", c ? "collapsed" : "open");
+        writePref('sidebar', c ? 'collapsed' : 'open');
       },
       openNewAgent: () => setNewAgent(true),
     }),
@@ -84,7 +84,7 @@ export function AppShell() {
       </div>
     );
 
-  if (me.data.role === "disabled") return <NoAccess user={me.data.user} />;
+  if (me.data.role === 'disabled') return <NoAccess user={me.data.user} />;
 
   return (
     <ShellContext.Provider value={shell}>
@@ -102,8 +102,8 @@ export function AppShell() {
               tabIndex={0}
               onPointerDown={startResize}
               onKeyDown={(e) => {
-                if (e.key === "ArrowLeft") resize(width - 16);
-                else if (e.key === "ArrowRight") resize(width + 16);
+                if (e.key === 'ArrowLeft') resize(width - 16);
+                else if (e.key === 'ArrowRight') resize(width + 16);
                 else return;
                 e.preventDefault();
               }}

@@ -132,6 +132,22 @@ function Content({ c }: { c: ToolContent }) {
   return null;
 }
 
+/** The command, path or query a tool was called with, when the title doesn't already carry it. */
+function toolDetail(tool: ToolCall): string {
+  const input = tool.rawInput;
+  if (!input || typeof input !== 'object') return '';
+  const o = input as Record<string, unknown>;
+  for (const k of ['command', 'cmd', 'file_path', 'path', 'pattern', 'url', 'query']) {
+    let v = o[k];
+    if (Array.isArray(v)) v = v.join(' ');
+    if (typeof v === 'string' && v.trim()) {
+      const d = v.replace(/\s+/g, ' ').trim();
+      return tool.title.includes(d) ? '' : d;
+    }
+  }
+  return '';
+}
+
 /** One tool call as a quiet one-line row that expands to its output. */
 export function ToolCard({ tool }: { tool: ToolCall }) {
   const hasDiff = tool.content.some((c) => c.type === 'diff');
@@ -142,6 +158,7 @@ export function ToolCard({ tool }: { tool: ToolCall }) {
     tool.content.flatMap((c) => (c.type === 'diff' ? [c.path] : [])),
   );
   const locations = tool.locations.filter((l) => !diffPaths.has(l.path));
+  const detail = toolDetail(tool);
   const hasBody = tool.content.length > 0 || locations.length > 0;
   return (
     <div className="text-sm" data-testid="tool-call">
@@ -154,10 +171,15 @@ export function ToolCard({ tool }: { tool: ToolCall }) {
       >
         <Icon className="size-3.5 shrink-0" aria-hidden />
         <span
-          title={tool.title}
-          className={`min-w-0 overflow-hidden text-ellipsis whitespace-nowrap ${tool.toolKind === 'execute' ? 'font-mono' : ''}`}
+          title={detail ? `${tool.title}: ${detail}` : tool.title}
+          className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
         >
           {tool.title.replace(/\s+/g, ' ')}
+          {detail && (
+            <span className="ml-2 font-mono text-muted-foreground/45">
+              {detail}
+            </span>
+          )}
         </span>
         <StatusGlyph status={tool.status} />
         {hasBody && (

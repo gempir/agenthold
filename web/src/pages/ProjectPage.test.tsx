@@ -41,9 +41,7 @@ it('creates a project with a repository', async () => {
     'GET /projects/p1/status': { threads: [], overlaps: [] },
   });
   const { router } = renderApp('/projects?new=true');
-  await waitFor(() =>
-    expect(router.state.location.pathname).toBe('/settings/projects'),
-  );
+  await waitFor(() => expect(router.state.location.pathname).toBe('/projects'));
   const user = userEvent.setup();
   await user.type(await screen.findByRole('textbox', { name: 'Name' }), 'Shop');
   await user.type(

@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, Outlet, useRouterState } from '@tanstack/react-router';
 import {
   Bot,
-  FolderKanban,
   GitBranch,
   KeyRound,
   LayoutDashboard,
@@ -37,7 +36,6 @@ export const ACCOUNT_SETTINGS_NAV: {
 }[] = [
   { to: '/settings/profile', label: 'Profile', icon: UserRound },
   { to: '/settings/threads', label: 'Threads', icon: MessagesSquare },
-  { to: '/settings/projects', label: 'Projects', icon: FolderKanban },
   { to: '/settings/agents', label: 'Agents', icon: Bot },
   { to: '/settings/accounts', label: 'Accounts', icon: Link2 },
   { to: '/settings/secrets', label: 'Secrets', icon: LockKeyhole },

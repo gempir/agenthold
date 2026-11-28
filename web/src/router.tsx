@@ -153,16 +153,12 @@ const appPageRoute = createRoute({
 const projectsRedirectRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/projects',
+  component: () => (
+    <ProjectsPage create={projectsRedirectRoute.useSearch().new} />
+  ),
   validateSearch: (s: Record<string, unknown>): { new?: boolean } => ({
     ...((s.new === true || s.new === 'true') && { new: true }),
   }),
-  beforeLoad: ({ search }) => {
-    throw redirect({
-      to: '/settings/projects',
-      search: search.new ? { new: true } : {},
-      replace: true,
-    });
-  },
 });
 
 const projectRoute = createRoute({
@@ -278,9 +274,8 @@ const projectsSettingsRoute = createRoute({
   validateSearch: (s: Record<string, unknown>): { new?: boolean } => ({
     ...((s.new === true || s.new === 'true') && { new: true }),
   }),
-  component: function ProjectsSettings() {
-    const { new: create } = projectsSettingsRoute.useSearch();
-    return <ProjectsPage key={create ? 'new' : 'list'} create={create} />;
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: '/projects', search, replace: true });
   },
 });
 

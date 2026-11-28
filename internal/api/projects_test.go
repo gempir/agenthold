@@ -22,22 +22,6 @@ func writeCommit(t *testing.T, dir, name, content string) {
 	runGit(t, dir, "commit", "-q", "-m", "change "+name)
 }
 
-// waitIdle waits until the thread runs no turn.
-func (e *env) waitIdle(c *client, sessionID string) gen.Session {
-	e.t.Helper()
-	deadline := time.Now().Add(time.Minute)
-	for {
-		s := e.getSession(c, sessionID)
-		if !s.Running {
-			return s
-		}
-		if time.Now().After(deadline) {
-			e.t.Fatalf("thread %s still running", sessionID)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-}
-
 func (e *env) projectTool(agentID, sessionID, tool string, args any) (string, error) {
 	e.t.Helper()
 	b, _ := json.Marshal(args)
@@ -183,39 +167,6 @@ func TestProjects(t *testing.T) {
 	}
 	expect(t, "merge direct", alice.do("POST", "/sessions/"+direct.Id+"/project/merge", nil, nil), 400)
 
-	// Tasks: assigning one starts a thread that gets the task.
-	var task gen.ProjectTask
-	expect(t, "task without title", alice.do("POST", "/projects/"+p.Id+"/tasks", map[string]any{"title": " "}, nil), 400)
-	expect(t, "task", alice.do("POST", "/projects/"+p.Id+"/tasks", map[string]any{"title": "Add a footer", "body": "On every page."}, &task), 201)
-	if task.Status != "open" || task.CreatedBy != "Alice" {
-		t.Fatalf("task %+v", task)
-	}
-	var asg gen.ProjectTaskAssignment
-	expect(t, "assign", alice.do("POST", "/tasks/"+task.Id+"/assign", map[string]any{"agentId": ag.Id}, &asg), 200)
-	if asg.Task.Status != "in_progress" || asg.Task.SessionId == nil || *asg.Task.SessionId != asg.Session.Id || asg.Session.Project == nil || asg.Session.Project.Direct {
-		t.Fatalf("assignment %+v", asg)
-	}
-	e.waitIdle(alice, asg.Session.Id)
-	var evs []gen.SessionEvent
-	expect(t, "events", alice.do("GET", "/sessions/"+asg.Session.Id+"/events", nil, &evs), 200)
-	if len(evs) == 0 || evs[0].Type != "prompt" || !strings.Contains(evs[0].Data["text"].(string), "Add a footer") {
-		t.Fatalf("task prompt %+v", evs)
-	}
-	// The agent hands it in; the merge marks it done.
-	if out, err := e.projectTool(ag.Id, asg.Session.Id, "update_task", map[string]any{"task_id": task.Id, "status": "review", "note": "Footer added."}); err != nil || !strings.Contains(out, "review") {
-		t.Fatalf("update_task %q %v", out, err)
-	}
-	wsTask := filepath.Join(home, *asg.Session.Cwd)
-	writeCommit(t, filepath.Join(wsTask, "demo"), "footer.html", "<footer>")
-	expect(t, "merge task", alice.do("POST", "/sessions/"+asg.Session.Id+"/project/merge", nil, &res), 200)
-	var tasks []gen.ProjectTask
-	expect(t, "tasks", alice.do("GET", "/projects/"+p.Id+"/tasks", nil, &tasks), 200)
-	if len(tasks) != 1 || tasks[0].Status != "done" || tasks[0].Note != "Footer added." || tasks[0].AgentName == nil || *tasks[0].AgentName != ag.Name {
-		t.Fatalf("tasks %+v", tasks)
-	}
-	expect(t, "bob task", bob.do("PATCH", "/tasks/"+task.Id, map[string]any{"status": "open"}, nil), 404)
-	expect(t, "bad status", alice.do("PATCH", "/tasks/"+task.Id, map[string]any{"status": "nope"}, nil), 400)
-
 	// Editing keeps sources by name; deleting unlinks the threads.
 	expect(t, "update", alice.do("PATCH", "/projects/"+p.Id, map[string]any{
 		"name": "Shop", "sources": []map[string]any{{"url": url}},
@@ -244,56 +195,21 @@ func TestProjectTools(t *testing.T) {
 	if err != nil || !strings.Contains(out, `"name": "Shop"`) || !strings.Contains(out, `"directory": "projects/shop"`) {
 		t.Fatalf("list_projects %q %v", out, err)
 	}
-	// Without a project argument: the current thread's.
-	out, err = e.projectTool(ag.Id, th.Id, "create_task", map[string]any{"title": "Split the CSS"})
-	if err != nil || !strings.Contains(out, "Created task") {
-		t.Fatalf("create_task %q %v", out, err)
-	}
-	taskID := strings.Fields(strings.TrimPrefix(out, "Created task "))[0]
-	if _, err := e.projectTool(ag.Id, "", "create_task", map[string]any{"title": "x"}); err == nil {
-		t.Fatal("create_task without a project or thread succeeded")
-	}
-	if _, err := e.projectTool(ag.Id, th.Id, "list_tasks", map[string]any{"project": "nope"}); err == nil {
-		t.Fatal("unknown project listed")
-	}
-	out, err = e.projectTool(ag.Id, th.Id, "list_tasks", map[string]any{"project": "shop"})
-	if err != nil || !strings.Contains(out, "Split the CSS") {
-		t.Fatalf("list_tasks %q %v", out, err)
-	}
-	// Claim it in the current thread, hand it back, then assign it to a
-	// parallel thread of the same agent.
-	if out, err = e.projectTool(ag.Id, th.Id, "claim_task", map[string]any{"task_id": taskID}); err != nil {
-		t.Fatalf("claim %q %v", out, err)
-	}
-	if _, err = e.projectTool(ag.Id, th.Id, "claim_task", map[string]any{"task_id": taskID}); err == nil {
-		t.Fatal("claimed twice")
-	}
-	if _, err = e.projectTool(ag.Id, th.Id, "update_task", map[string]any{"task_id": taskID, "status": "open", "note": "later"}); err != nil {
-		t.Fatal(err)
-	}
-	out, err = e.projectTool(ag.Id, th.Id, "assign_task", map[string]any{"task_id": taskID, "agent": "me"})
-	if err != nil || !strings.Contains(out, "agenthold/") {
-		t.Fatalf("assign_task %q %v", out, err)
-	}
-	var tasks []gen.ProjectTask
-	expect(t, "tasks", alice.do("GET", "/projects/"+p.Id+"/tasks", nil, &tasks), 200)
-	if len(tasks) != 1 || tasks[0].Status != "in_progress" || tasks[0].SessionId == nil || *tasks[0].SessionId == th.Id || tasks[0].CreatedBy != "agent "+ag.Name {
-		t.Fatalf("tasks %+v", tasks)
-	}
-	child := e.waitIdle(alice, *tasks[0].SessionId)
-	if child.Origin == nil || child.Origin.SessionId != th.Id {
-		t.Fatalf("child thread origin %+v", child.Origin)
+	for _, tool := range []string{"list_tasks", "create_task", "claim_task", "update_task", "assign_task"} {
+		if _, err := e.projectTool(ag.Id, th.Id, tool, nil); err == nil {
+			t.Fatalf("removed task tool %s is still available", tool)
+		}
 	}
 
-	// project_status sees both threads; a file both change overlaps.
+	// project_status still reports the active project thread.
 	home := e.home(ag.Id)
-	for _, s := range []gen.Session{th, child} {
+	for _, s := range []gen.Session{th} {
 		if err := os.WriteFile(filepath.Join(home, *s.Cwd, "demo", "style.css"), []byte(s.Id), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	out, err = e.projectTool(ag.Id, th.Id, "project_status", nil)
-	if err != nil || !strings.Contains(out, `"current": true`) || !strings.Contains(out, `"file": "demo/style.css"`) || !strings.Contains(out, "Split the CSS") {
+	if err != nil || !strings.Contains(out, `"current": true`) {
 		t.Fatalf("project_status %q %v", out, err)
 	}
 }

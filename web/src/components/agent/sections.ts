@@ -1,15 +1,11 @@
 import {
   Activity,
   Cpu,
-  FolderOpen,
-  GitBranch,
-  Globe,
   KeyRound,
   Plug,
   Server,
   Settings2,
   Share2,
-  SquareTerminal,
   Zap,
   type LucideIcon,
 } from 'lucide-react';
@@ -17,10 +13,6 @@ import {
 export type AgentSection =
   | 'general'
   | 'harness'
-  | 'git'
-  | 'files'
-  | 'terminal'
-  | 'preview'
   | 'services'
   | 'secrets'
   | 'tools'
@@ -53,34 +45,6 @@ export const AGENT_SECTIONS: {
     label: 'Harness',
     hint: 'Harness, model, sign-in',
     icon: Cpu,
-    show: () => true,
-  },
-  {
-    id: 'git',
-    label: 'Git',
-    hint: 'Repositories, branches and worktrees',
-    icon: GitBranch,
-    show: () => true,
-  },
-  {
-    id: 'files',
-    label: 'Files',
-    hint: 'Browse the home directory',
-    icon: FolderOpen,
-    show: () => true,
-  },
-  {
-    id: 'terminal',
-    label: 'Terminal',
-    hint: 'A shell in the sandbox',
-    icon: SquareTerminal,
-    show: (a) => a.canUse,
-  },
-  {
-    id: 'preview',
-    label: 'Preview',
-    hint: 'Ports of the machine at preview URLs',
-    icon: Globe,
     show: () => true,
   },
   {

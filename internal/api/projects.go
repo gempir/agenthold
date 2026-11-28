@@ -358,154 +358,6 @@ func (a *API) StartProjectThread(ctx context.Context, req gen.StartProjectThread
 	return gen.StartProjectThread201JSONResponse(g), nil
 }
 
-func (a *API) apiTask(ctx context.Context, t db.ProjectTask) gen.ProjectTask {
-	out := gen.ProjectTask{
-		Id: t.ID, ProjectId: t.ProjectID, Title: t.Title, Body: t.Body, Status: gen.ProjectTaskStatus(t.Status),
-		Note: t.Note, CreatedAt: ts(t.CreatedAt), UpdatedAt: ts(t.UpdatedAt), SessionId: opt(t.SessionID),
-	}
-	if t.AgentID != "" {
-		out.AgentId = &t.AgentID
-		name := "(deleted agent)"
-		if ag, err := a.Store.GetAgent(ctx, t.AgentID); err == nil {
-			name = ag.Name
-		}
-		out.AgentName = &name
-	}
-	out.CreatedBy = t.CreatedBy
-	if agentID, ok := strings.CutPrefix(t.CreatedBy, "agent:"); ok {
-		out.CreatedBy = "agent"
-		if ag, err := a.Store.GetAgent(ctx, agentID); err == nil {
-			out.CreatedBy = "agent " + ag.Name
-		}
-	} else if u, err := a.Store.GetUser(ctx, t.CreatedBy); err == nil {
-		out.CreatedBy = u.Name
-	}
-	return out
-}
-
-// ListProjectTasks implements gen.StrictServerInterface.
-func (a *API) ListProjectTasks(ctx context.Context, req gen.ListProjectTasksRequestObject) (gen.ListProjectTasksResponseObject, error) {
-	p, err := a.ownProject(ctx, req.ProjectId)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := a.Store.ListProjectTasks(ctx, p.ID)
-	if err != nil {
-		return nil, err
-	}
-	out := gen.ListProjectTasks200JSONResponse{}
-	for _, t := range rows {
-		out = append(out, a.apiTask(ctx, t))
-	}
-	return out, nil
-}
-
-// CreateProjectTask implements gen.StrictServerInterface.
-func (a *API) CreateProjectTask(ctx context.Context, req gen.CreateProjectTaskRequestObject) (gen.CreateProjectTaskResponseObject, error) {
-	p, err := a.ownProject(ctx, req.ProjectId)
-	if err != nil {
-		return nil, err
-	}
-	if req.Body == nil {
-		return nil, badRequest("body is required")
-	}
-	t, err := a.Projects.CreateTask(ctx, p.ID, project.TaskInput{Title: req.Body.Title, Body: deref(req.Body.Body), CreatedBy: me(ctx).ID})
-	if err != nil {
-		return nil, err
-	}
-	return gen.CreateProjectTask201JSONResponse(a.apiTask(ctx, t)), nil
-}
-
-// ownTask loads a task of a project of the signed-in user.
-func (a *API) ownTask(ctx context.Context, taskID string) (db.ProjectTask, error) {
-	if a.Projects == nil {
-		return db.ProjectTask{}, errProjectsUnavailable
-	}
-	t, err := a.Store.GetProjectTask(ctx, taskID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return t, errNotFound
-	}
-	if err != nil {
-		return t, err
-	}
-	_, err = a.ownProject(ctx, t.ProjectID)
-	return t, err
-}
-
-// UpdateProjectTask implements gen.StrictServerInterface.
-func (a *API) UpdateProjectTask(ctx context.Context, req gen.UpdateProjectTaskRequestObject) (gen.UpdateProjectTaskResponseObject, error) {
-	t, err := a.ownTask(ctx, req.TaskId)
-	if err != nil {
-		return nil, err
-	}
-	if b := req.Body; b != nil {
-		if b.Title != nil {
-			if title := strings.TrimSpace(*b.Title); title == "" || len(title) > 200 {
-				return nil, badRequest("title must be 1 to 200 characters")
-			}
-			t.Title = strings.TrimSpace(*b.Title)
-		}
-		if b.Body != nil {
-			t.Body = strings.TrimSpace(*b.Body)
-		}
-		if b.Status != nil {
-			t.Status = string(*b.Status)
-		}
-		if b.Note != nil {
-			t.Note = strings.TrimSpace(*b.Note)
-		}
-	}
-	if err := a.Projects.SaveTask(ctx, t); err != nil {
-		return nil, err
-	}
-	t, err = a.Store.GetProjectTask(ctx, t.ID)
-	if err != nil {
-		return nil, err
-	}
-	return gen.UpdateProjectTask200JSONResponse(a.apiTask(ctx, t)), nil
-}
-
-// DeleteProjectTask implements gen.StrictServerInterface.
-func (a *API) DeleteProjectTask(ctx context.Context, req gen.DeleteProjectTaskRequestObject) (gen.DeleteProjectTaskResponseObject, error) {
-	t, err := a.ownTask(ctx, req.TaskId)
-	if err != nil {
-		return nil, err
-	}
-	if err := a.Store.DeleteProjectTask(ctx, t.ID); err != nil {
-		return nil, err
-	}
-	return gen.DeleteProjectTask204Response{}, nil
-}
-
-// AssignProjectTask implements gen.StrictServerInterface.
-func (a *API) AssignProjectTask(ctx context.Context, req gen.AssignProjectTaskRequestObject) (gen.AssignProjectTaskResponseObject, error) {
-	t, err := a.ownTask(ctx, req.TaskId)
-	if err != nil {
-		return nil, err
-	}
-	if req.Body == nil {
-		return nil, badRequest("body is required")
-	}
-	ag, err := a.projectAgent(ctx, req.Body.AgentId)
-	if err != nil {
-		return nil, err
-	}
-	u := me(ctx)
-	t, s, err := a.Projects.AssignTask(ctx, t, project.AssignOpts{AgentID: ag.ID, UserID: u.ID, UserName: u.Name})
-	if err != nil {
-		if errors.Is(err, session.ErrBusy) {
-			return nil, errStatus(http.StatusConflict, err.Error())
-		}
-		return nil, err
-	}
-	a.record(ctx, ag, audit.TaskAssign, s.ID, map[string]any{"task": t.ID, "title": t.Title})
-	g, err := a.apiSession(ctx, s)
-	if err != nil {
-		return nil, err
-	}
-	return gen.AssignProjectTask200JSONResponse{Task: a.apiTask(ctx, t), Session: g}, nil
-}
-
 // projectSession loads a project thread the user may act on (with action)
 // and its running machine.
 func (a *API) projectSession(ctx context.Context, sessionID string, action authz.Action) (db.AgentSession, *tunnel.Session, error) {
@@ -576,9 +428,6 @@ func (a *API) MergeSessionProject(ctx context.Context, req gen.MergeSessionProje
 	for _, r := range rs {
 		failed = failed || r.Error != ""
 	}
-	if !failed {
-		a.Projects.FinishThreadTasks(ctx, s.ID, project.TaskDone)
-	}
 	a.record(ctx, mustAgent(ctx, a, s.AgentID), audit.ProjectMerge, s.ID, map[string]any{"branch": s.ProjectBranch, "failed": failed})
 	return gen.MergeSessionProject200JSONResponse(apiResults(rs)), nil
 }
@@ -606,9 +455,6 @@ func (a *API) CloseSessionProject(ctx context.Context, req gen.CloseSessionProje
 	force := req.Body != nil && deref(req.Body.Force)
 	if err := a.Projects.Close(ctx, ts, s, force); err != nil {
 		return nil, err
-	}
-	if force {
-		a.Projects.FinishThreadTasks(ctx, s.ID, project.TaskOpen)
 	}
 	a.record(ctx, mustAgent(ctx, a, s.AgentID), audit.ProjectClose, s.ID, map[string]any{"branch": s.ProjectBranch, "force": force})
 	s, _, err = session.Settle(ctx, a.Store, s.ID, me(ctx).ID, time.Now())

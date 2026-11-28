@@ -170,7 +170,7 @@ it('the Git tab lists repositories and worktrees with their state', async () => 
     },
     'POST /agents/a1/git/pull': repo(),
   });
-  renderApp('/a/a1/settings?tab=git');
+  renderApp('/a/a1?panel=git');
   const main = await screen.findByRole('main');
   const first = await within(main).findByRole('article', {
     name: 'projects/web',
@@ -203,7 +203,7 @@ it('the Git tab offers Start while the agent sleeps', async () => {
     'GET /agents/a1': agent({ state: 'sleeping' }),
     'GET /agents/a1/git/repos': { connected: false, repos: [] },
   });
-  renderApp('/a/a1/settings?tab=git');
+  renderApp('/a/a1?panel=git');
   expect(await screen.findByRole('button', { name: 'Start' })).toBeVisible();
   expect(screen.queryByRole('form', { name: 'Clone repository' })).toBeNull();
 });
@@ -219,7 +219,7 @@ it('the Git tab clones a repository and links to the credentials', async () => {
       return { status: 201, body: repos[0] };
     },
   });
-  renderApp('/a/a1/settings?tab=git');
+  renderApp('/a/a1?panel=git');
   const form = await screen.findByRole('form', { name: 'Clone repository' });
   expect(
     within(form).getByRole('link', {
@@ -265,7 +265,7 @@ it('the Git tab switches branches and creates a worktree', async () => {
       }),
     },
   });
-  renderApp('/a/a1/settings?tab=git');
+  renderApp('/a/a1?panel=git');
   const card = await screen.findByRole('article', { name: 'projects/web' });
   const user = userEvent.setup();
 
@@ -399,7 +399,7 @@ it('the Git tab pushes a branch and removes a worktree', async () => {
     'POST /agents/a1/git/push': repo(),
     'POST /agents/a1/git/worktrees/remove': repo(),
   });
-  renderApp('/a/a1/settings?tab=git');
+  renderApp('/a/a1?panel=git');
   const main = await screen.findByRole('article', { name: 'projects/web' });
   expect(
     within(main).queryByRole('button', { name: /Remove worktree/ }),

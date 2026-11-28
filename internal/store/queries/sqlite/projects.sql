@@ -39,23 +39,3 @@ UPDATE agent_sessions SET project_id = ?, project_branch = ? WHERE id = ?;
 
 -- name: ClearProjectSessions :exec
 UPDATE agent_sessions SET project_id = '', project_branch = '' WHERE project_id = ?;
-
--- name: CreateProjectTask :exec
-INSERT INTO project_tasks (id, project_id, title, body, status, agent_id, session_id, note, created_by, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-
--- name: GetProjectTask :one
-SELECT * FROM project_tasks WHERE id = ?;
-
--- name: ListProjectTasks :many
-SELECT * FROM project_tasks WHERE project_id = ? ORDER BY created_at DESC, id;
-
--- name: ListSessionTasks :many
-SELECT * FROM project_tasks WHERE session_id = ? ORDER BY created_at, id;
-
--- name: UpdateProjectTask :exec
-UPDATE project_tasks SET title = ?, body = ?, status = ?, agent_id = ?, session_id = ?, note = ?, updated_at = ?
-WHERE id = ?;
-
--- name: DeleteProjectTask :exec
-DELETE FROM project_tasks WHERE id = ?;

@@ -197,10 +197,6 @@ func (p postgresQueries) CreateProjectSource(ctx context.Context, arg db.CreateP
 	return p.q.CreateProjectSource(ctx, postgres.CreateProjectSourceParams(arg))
 }
 
-func (p postgresQueries) CreateProjectTask(ctx context.Context, arg db.CreateProjectTaskParams) error {
-	return p.q.CreateProjectTask(ctx, postgres.CreateProjectTaskParams(arg))
-}
-
 func (p postgresQueries) CreateProviderLogin(ctx context.Context, arg db.CreateProviderLoginParams) error {
 	return p.q.CreateProviderLogin(ctx, postgres.CreateProviderLoginParams(arg))
 }
@@ -315,10 +311,6 @@ func (p postgresQueries) DeleteProject(ctx context.Context, id string) error {
 
 func (p postgresQueries) DeleteProjectSource(ctx context.Context, id string) error {
 	return p.q.DeleteProjectSource(ctx, id)
-}
-
-func (p postgresQueries) DeleteProjectTask(ctx context.Context, id string) error {
-	return p.q.DeleteProjectTask(ctx, id)
 }
 
 func (p postgresQueries) DeleteProviderLogin(ctx context.Context, arg db.DeleteProviderLoginParams) (int64, error) {
@@ -545,11 +537,6 @@ func (p postgresQueries) GetPreviewSessionUser(ctx context.Context, arg db.GetPr
 func (p postgresQueries) GetProject(ctx context.Context, id string) (db.Project, error) {
 	value, err := p.q.GetProject(ctx, id)
 	return db.Project(value), err
-}
-
-func (p postgresQueries) GetProjectTask(ctx context.Context, id string) (db.ProjectTask, error) {
-	value, err := p.q.GetProjectTask(ctx, id)
-	return db.ProjectTask(value), err
 }
 
 func (p postgresQueries) GetProviderLogin(ctx context.Context, arg db.GetProviderLoginParams) (db.ProviderLogin, error) {
@@ -1026,18 +1013,6 @@ func (p postgresQueries) ListProjectSources(ctx context.Context, projectID strin
 	return result, nil
 }
 
-func (p postgresQueries) ListProjectTasks(ctx context.Context, projectID string) ([]db.ProjectTask, error) {
-	value, err := p.q.ListProjectTasks(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]db.ProjectTask, 0, len(value))
-	for _, row := range value {
-		result = append(result, db.ProjectTask(row))
-	}
-	return result, nil
-}
-
 func (p postgresQueries) ListProjects(ctx context.Context, ownerID string) ([]db.Project, error) {
 	value, err := p.q.ListProjects(ctx, ownerID)
 	if err != nil {
@@ -1130,18 +1105,6 @@ func (p postgresQueries) ListSessionQueuedMessages(ctx context.Context, sessionI
 	result := make([]db.SessionQueuedMessage, 0, len(value))
 	for _, row := range value {
 		result = append(result, db.SessionQueuedMessage(row))
-	}
-	return result, nil
-}
-
-func (p postgresQueries) ListSessionTasks(ctx context.Context, sessionID string) ([]db.ProjectTask, error) {
-	value, err := p.q.ListSessionTasks(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]db.ProjectTask, 0, len(value))
-	for _, row := range value {
-		result = append(result, db.ProjectTask(row))
 	}
 	return result, nil
 }
@@ -1699,10 +1662,6 @@ func (p postgresQueries) UpdateProject(ctx context.Context, arg db.UpdateProject
 
 func (p postgresQueries) UpdateProjectSource(ctx context.Context, arg db.UpdateProjectSourceParams) error {
 	return p.q.UpdateProjectSource(ctx, postgres.UpdateProjectSourceParams(arg))
-}
-
-func (p postgresQueries) UpdateProjectTask(ctx context.Context, arg db.UpdateProjectTaskParams) error {
-	return p.q.UpdateProjectTask(ctx, postgres.UpdateProjectTaskParams(arg))
 }
 
 func (p postgresQueries) UpdateSchedule(ctx context.Context, arg db.UpdateScheduleParams) error {

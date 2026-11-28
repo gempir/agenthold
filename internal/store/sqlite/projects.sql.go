@@ -80,42 +80,6 @@ func (q *Queries) CreateProjectSource(ctx context.Context, arg CreateProjectSour
 	return err
 }
 
-const createProjectTask = `-- name: CreateProjectTask :exec
-INSERT INTO project_tasks (id, project_id, title, body, status, agent_id, session_id, note, created_by, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`
-
-type CreateProjectTaskParams struct {
-	ID        string
-	ProjectID string
-	Title     string
-	Body      string
-	Status    string
-	AgentID   string
-	SessionID string
-	Note      string
-	CreatedBy string
-	CreatedAt int64
-	UpdatedAt int64
-}
-
-func (q *Queries) CreateProjectTask(ctx context.Context, arg CreateProjectTaskParams) error {
-	_, err := q.db.ExecContext(ctx, createProjectTask,
-		arg.ID,
-		arg.ProjectID,
-		arg.Title,
-		arg.Body,
-		arg.Status,
-		arg.AgentID,
-		arg.SessionID,
-		arg.Note,
-		arg.CreatedBy,
-		arg.CreatedAt,
-		arg.UpdatedAt,
-	)
-	return err
-}
-
 const deleteProject = `-- name: DeleteProject :exec
 DELETE FROM projects WHERE id = ?
 `
@@ -134,15 +98,6 @@ func (q *Queries) DeleteProjectSource(ctx context.Context, id string) error {
 	return err
 }
 
-const deleteProjectTask = `-- name: DeleteProjectTask :exec
-DELETE FROM project_tasks WHERE id = ?
-`
-
-func (q *Queries) DeleteProjectTask(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteProjectTask, id)
-	return err
-}
-
 const getProject = `-- name: GetProject :one
 SELECT id, owner_id, name, slug, description, instructions, created_at, updated_at FROM projects WHERE id = ?
 `
@@ -157,29 +112,6 @@ func (q *Queries) GetProject(ctx context.Context, id string) (Project, error) {
 		&i.Slug,
 		&i.Description,
 		&i.Instructions,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getProjectTask = `-- name: GetProjectTask :one
-SELECT id, project_id, title, body, status, agent_id, session_id, note, created_by, created_at, updated_at FROM project_tasks WHERE id = ?
-`
-
-func (q *Queries) GetProjectTask(ctx context.Context, id string) (ProjectTask, error) {
-	row := q.db.QueryRowContext(ctx, getProjectTask, id)
-	var i ProjectTask
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.Title,
-		&i.Body,
-		&i.Status,
-		&i.AgentID,
-		&i.SessionID,
-		&i.Note,
-		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -279,45 +211,6 @@ func (q *Queries) ListProjectSources(ctx context.Context, projectID string) ([]P
 	return items, nil
 }
 
-const listProjectTasks = `-- name: ListProjectTasks :many
-SELECT id, project_id, title, body, status, agent_id, session_id, note, created_by, created_at, updated_at FROM project_tasks WHERE project_id = ? ORDER BY created_at DESC, id
-`
-
-func (q *Queries) ListProjectTasks(ctx context.Context, projectID string) ([]ProjectTask, error) {
-	rows, err := q.db.QueryContext(ctx, listProjectTasks, projectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ProjectTask{}
-	for rows.Next() {
-		var i ProjectTask
-		if err := rows.Scan(
-			&i.ID,
-			&i.ProjectID,
-			&i.Title,
-			&i.Body,
-			&i.Status,
-			&i.AgentID,
-			&i.SessionID,
-			&i.Note,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listProjects = `-- name: ListProjects :many
 SELECT id, owner_id, name, slug, description, instructions, created_at, updated_at FROM projects WHERE owner_id = ? ORDER BY name, id
 `
@@ -338,45 +231,6 @@ func (q *Queries) ListProjects(ctx context.Context, ownerID string) ([]Project, 
 			&i.Slug,
 			&i.Description,
 			&i.Instructions,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listSessionTasks = `-- name: ListSessionTasks :many
-SELECT id, project_id, title, body, status, agent_id, session_id, note, created_by, created_at, updated_at FROM project_tasks WHERE session_id = ? ORDER BY created_at, id
-`
-
-func (q *Queries) ListSessionTasks(ctx context.Context, sessionID string) ([]ProjectTask, error) {
-	rows, err := q.db.QueryContext(ctx, listSessionTasks, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ProjectTask{}
-	for rows.Next() {
-		var i ProjectTask
-		if err := rows.Scan(
-			&i.ID,
-			&i.ProjectID,
-			&i.Title,
-			&i.Body,
-			&i.Status,
-			&i.AgentID,
-			&i.SessionID,
-			&i.Note,
-			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -466,36 +320,6 @@ func (q *Queries) UpdateProjectSource(ctx context.Context, arg UpdateProjectSour
 		arg.Path,
 		arg.DefaultBranch,
 		arg.Position,
-		arg.ID,
-	)
-	return err
-}
-
-const updateProjectTask = `-- name: UpdateProjectTask :exec
-UPDATE project_tasks SET title = ?, body = ?, status = ?, agent_id = ?, session_id = ?, note = ?, updated_at = ?
-WHERE id = ?
-`
-
-type UpdateProjectTaskParams struct {
-	Title     string
-	Body      string
-	Status    string
-	AgentID   string
-	SessionID string
-	Note      string
-	UpdatedAt int64
-	ID        string
-}
-
-func (q *Queries) UpdateProjectTask(ctx context.Context, arg UpdateProjectTaskParams) error {
-	_, err := q.db.ExecContext(ctx, updateProjectTask,
-		arg.Title,
-		arg.Body,
-		arg.Status,
-		arg.AgentID,
-		arg.SessionID,
-		arg.Note,
-		arg.UpdatedAt,
 		arg.ID,
 	)
 	return err

@@ -80,6 +80,18 @@ function setup(sessions: Session[]) {
     'GET /agents': [agent()],
     'GET /agents/a1': agent(),
     'GET /agents/a1/sessions': () => ({ body: list }),
+    'POST /sessions/s1/pin': () => ({
+      body: replace('s1', { pinnedAt: '2030-01-01T00:00:00Z' }),
+    }),
+    'POST /sessions/s1/unpin': () => ({
+      body: replace('s1', { pinnedAt: undefined }),
+    }),
+    'POST /sessions/s1/snooze': () => ({
+      body: replace('s1', { snoozed: true }),
+    }),
+    'POST /sessions/s1/unsnooze': () => ({
+      body: replace('s1', { snoozed: false }),
+    }),
     'POST /sessions/s1/settle': () => ({
       body: replace('s1', {
         settledAt: '2030-01-02T00:00:00Z',
@@ -289,6 +301,7 @@ it('switches the sidebar between threads, agents and apps from the footer bar', 
 });
 
 it('nests active sub-threads under their parent thread in the sidebar', async () => {
+  localStorage.setItem('agenthold.sidebar.working', '');
   setup([
     session({ id: 's1', title: 'Parent task' }),
     session({
@@ -311,4 +324,91 @@ it('nests active sub-threads under their parent thread in the sidebar', async ()
   const link = within(subList).getByRole('link', { name: /Codex helper/ });
   expect(link).toHaveAttribute('href', '/a/a1?s=s2');
   expect(within(link).getByRole('img', { name: 'running' })).toBeVisible();
+});
+
+it('separates pinned, working and snoozed threads and groups active projects', async () => {
+  setup([
+    session({
+      id: 'pin',
+      title: 'Pinned work',
+      pinnedAt: '2030-01-01T00:00:00Z',
+    }),
+    session({ id: 'run', title: 'Running work', running: true }),
+    session({ id: 'sleep', title: 'Sleeping work', snoozed: true }),
+    session({ id: 'idle', title: 'Scratch work' }),
+  ]);
+  renderApp('/settings/threads');
+  await screen.findByText('Pinned work');
+  expect(
+    screen.getByRole('list', { name: 'Pinned threads' }),
+  ).toHaveTextContent('Pinned work');
+  expect(
+    screen.getByRole('list', { name: 'Working threads', hidden: true }),
+  ).toHaveTextContent('Running work');
+  expect(
+    screen.getByRole('list', { name: 'Snoozed threads', hidden: true }),
+  ).toHaveTextContent('Sleeping work');
+  await userEvent.click(
+    screen.getByRole('checkbox', { name: 'Group by project' }),
+  );
+  expect(screen.getByText('No project')).toBeInTheDocument();
+});
+
+it('opens the command palette and navigates quick actions by keyboard', async () => {
+  setup([session()]);
+  renderApp('/settings/threads');
+  await screen.findByRole('list', { name: 'Threads' });
+  await userEvent.keyboard('{Control>}k{/Control}');
+  const input = await screen.findByRole('combobox', {
+    name: 'Search commands and threads',
+  });
+  await userEvent.type(input, 'Toggle theme');
+  expect(
+    screen.getByRole('option', { name: 'Toggle theme' }),
+  ).toBeInTheDocument();
+  await userEvent.keyboard('{ArrowDown}{Enter}');
+  expect(screen.queryByRole('dialog', { name: 'Command palette' })).toBeNull();
+});
+
+it('pins a thread and restores it with Undo', async () => {
+  const { calls } = setup([session()]);
+  renderApp('/settings/threads');
+  await screen.findByText('Fix the build');
+  const active = screen.getByRole('list', { name: 'Threads' });
+  await userEvent.click(within(active).getByRole('button', { name: 'Pin' }));
+  await waitFor(() =>
+    expect(
+      screen.getByRole('list', { name: 'Pinned threads' }),
+    ).toHaveTextContent('Fix the build'),
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  await waitFor(() =>
+    expect(calls.some((c) => c.key === 'POST /sessions/s1/unpin')).toBe(true),
+  );
+});
+
+it('snoozes from the actions menu and wakes a thread', async () => {
+  const { calls } = setup([session()]);
+  renderApp('/settings/threads');
+  await screen.findByText('Fix the build');
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Actions for Fix the build' }),
+  );
+  await userEvent.click(screen.getByRole('menuitem', { name: '1 hour' }));
+  await waitFor(() =>
+    expect(
+      screen.getByRole('list', { name: 'Snoozed threads', hidden: true }),
+    ).toHaveTextContent('Fix the build'),
+  );
+  const list = screen.getByRole('list', {
+    name: 'Snoozed threads',
+    hidden: true,
+  });
+  list.closest('details')!.open = true;
+  await userEvent.click(within(list).getByRole('button', { name: 'Wake' }));
+  await waitFor(() =>
+    expect(calls.some((c) => c.key === 'POST /sessions/s1/unsnooze')).toBe(
+      true,
+    ),
+  );
 });

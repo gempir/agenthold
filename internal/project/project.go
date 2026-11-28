@@ -1,5 +1,5 @@
 // Package project manages projects: the repositories and folders a user's
-// agents work on, the workspaces threads work in, and tasks.
+// agents work on, the workspaces threads work in, and threads.
 //
 // A project's sources have one main checkout per agent, at
 // projects/<slug>/<name> (or the source's own path) in the agent's home. A
@@ -36,28 +36,6 @@ const (
 	KindRepo   = "repo"   // cloned from URL
 	KindFolder = "folder" // a directory, made a local repository
 )
-
-// Task statuses.
-const (
-	TaskOpen       = "open"
-	TaskInProgress = "in_progress"
-	TaskReview     = "review"
-	TaskDone       = "done"
-	TaskCancelled  = "cancelled"
-)
-
-// TaskStatuses lists the valid task statuses.
-var TaskStatuses = []string{TaskOpen, TaskInProgress, TaskReview, TaskDone, TaskCancelled}
-
-// ValidTaskStatus reports whether s is a task status.
-func ValidTaskStatus(s string) bool {
-	for _, v := range TaskStatuses {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
 
 // Dir is the directory of projects in agents' homes.
 const Dir = "projects"
@@ -445,8 +423,7 @@ func Guide(p db.Project, sources []db.ProjectSource, sess db.AgentSession) strin
 		fmt.Fprintf(&b, "This thread works directly in the project's main checkouts (`%s/`). Other threads may work "+
 			"here too: check `project_status` before larger changes.\n", Root(p))
 	}
-	b.WriteString("- The agenthold tools `project_status` (who works on what, which files overlap), `list_tasks`, " +
-		"`create_task`, `claim_task`, `update_task` and `assign_task` coordinate work with other threads and agents.\n")
+	b.WriteString("- Use `project_status` to coordinate work with other threads and agents.\n")
 	if strings.TrimSpace(p.Instructions) != "" {
 		b.WriteString("\n## Instructions\n\n" + strings.TrimSpace(p.Instructions) + "\n")
 	}

@@ -227,7 +227,7 @@ it('shared user chats but sees no activity, owner settings or share form', async
 
   await userEvent.click(screen.getByRole('link', { name: 'Agent settings' }));
   const nav = await screen.findByRole('navigation', { name: 'Agent settings' });
-  expect(within(nav).getByRole('link', { name: 'Terminal' })).toBeVisible();
+  expect(within(nav).queryByRole('link', { name: 'Terminal' })).toBeNull();
   expect(within(nav).queryByRole('link', { name: 'Audit log' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
@@ -257,6 +257,7 @@ class FakeSocket {
 }
 
 it('lands in the most recent thread across agents', async () => {
+  localStorage.setItem('agenthold.sidebar.working', '');
   stubGlobal('WebSocket', FakeSocket);
   mockApi({
     'GET /me': me,

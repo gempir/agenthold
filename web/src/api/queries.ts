@@ -394,8 +394,6 @@ export type ProjectInput = components['schemas']['ProjectInput'];
 export type ProjectSourceInput = components['schemas']['ProjectSourceInput'];
 export type ProjectStatus = components['schemas']['ProjectStatus'];
 export type ProjectThread = components['schemas']['ProjectThread'];
-export type ProjectTask = components['schemas']['ProjectTask'];
-export type ProjectTaskStatus = components['schemas']['ProjectTaskStatus'];
 export type ProjectSourceResult = components['schemas']['ProjectSourceResult'];
 
 export const projectsQuery = queryOptions({
@@ -422,19 +420,6 @@ export const projectStatusQuery = (projectId: string, includeSettled = false) =>
       unwrap(
         api.GET('/projects/{projectId}/status', {
           params: { path: { projectId }, query: { includeSettled } },
-        }),
-      ),
-    refetchInterval: RUNNING_POLL_MS,
-    retry: false,
-  });
-
-export const projectTasksQuery = (projectId: string) =>
-  queryOptions({
-    queryKey: ['projects', projectId, 'tasks'],
-    queryFn: () =>
-      unwrap(
-        api.GET('/projects/{projectId}/tasks', {
-          params: { path: { projectId } },
         }),
       ),
     refetchInterval: RUNNING_POLL_MS,

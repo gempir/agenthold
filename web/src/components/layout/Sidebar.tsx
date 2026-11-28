@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Link,
@@ -14,6 +14,9 @@ import {
   ChevronLeft,
   ChevronRight,
   FolderGit2,
+  GitPullRequest,
+  Workflow,
+  ChartNoAxesColumn,
   GitBranch,
   Layers,
   Loader2,
@@ -43,13 +46,13 @@ import { readPref, useShell, writePref } from '@/components/layout/shell';
 import { useChatIndex, type ChatEntry } from '@/hooks/useChatIndex';
 import { useJustFinished } from '@/hooks/useJustFinished';
 import { useLogout } from '@/hooks/useLogout';
+import { UndoToast, type UndoAction } from '@/components/layout/UndoToast';
 import { useSettle } from '@/hooks/useSettle';
 import { getTheme, setTheme, type Theme } from '@/lib/theme';
 import { useHasDraft } from '@/lib/drafts';
 import { relTime, useNow } from '@/lib/time';
 import { cn } from '@/lib/utils';
 
-const THREADS_PAGE = 40;
 const SETTLED_PREVIEW = 10;
 const SETTLED_PAGE = 50;
 /** localStorage key (agenthold.<key>) of the Settled section's fold. */
@@ -74,12 +77,97 @@ export function Sidebar() {
     params.appId ? 'apps' : 'threads',
   );
   const [query, setQuery] = useState('');
-  const [threadLimit, setThreadLimit] = useState(THREADS_PAGE);
   const [settledLimit, setSettledLimit] = useState(SETTLED_PREVIEW);
   const [settledOpen, setSettledOpenState] = useState(
     () => readPref(SETTLED_OPEN_PREF, '') === '1',
   );
   const settle = useSettle();
+  const qc = useQueryClient();
+  const [undo, setUndo] = useState<UndoAction | null>(null);
+  const closeUndo = useCallback(() => setUndo(null), []);
+  const [grouped, setGrouped] = useState(
+    () => readPref('sidebar.groupProjects', '') === '1',
+  );
+  const [working, setWorking] = useState(
+    () => readPref('sidebar.working', '1') === '1',
+  );
+  useEffect(() => {
+    const toggle = () =>
+      setGrouped((v) => {
+        writePref('sidebar.groupProjects', v ? '' : '1');
+        return !v;
+      });
+    window.addEventListener('agenthold:group-projects', toggle);
+    return () => window.removeEventListener('agenthold:group-projects', toggle);
+  }, []);
+  const change = async (
+    c: ChatEntry,
+    action: 'pin' | 'unpin' | 'snooze' | 'unsnooze',
+    until?: string,
+    record = true,
+  ) => {
+    try {
+      const params = { path: { sessionId: c.session.id } };
+      const result =
+        action === 'snooze'
+          ? await unwrap(
+              api.POST('/sessions/{sessionId}/snooze', {
+                params,
+                body: { until },
+              }),
+            )
+          : await unwrap(
+              api.POST(
+                action === 'pin'
+                  ? '/sessions/{sessionId}/pin'
+                  : action === 'unpin'
+                    ? '/sessions/{sessionId}/unpin'
+                    : '/sessions/{sessionId}/unsnooze',
+                { params },
+              ),
+            );
+      qc.setQueryData<ChatEntry['session'][]>(
+        ['agents', c.agent.id, 'sessions'],
+        (list) => list?.map((s) => (s.id === result.id ? result : s)),
+      );
+      await qc.invalidateQueries({
+        queryKey: ['agents', c.agent.id, 'sessions'],
+      });
+      if (record)
+        setUndo({
+          label: 'Thread updated',
+          undo: () => {
+            void change(
+              c,
+              action === 'pin'
+                ? 'unpin'
+                : action === 'unpin'
+                  ? 'pin'
+                  : c.session.snoozed
+                    ? 'snooze'
+                    : 'unsnooze',
+              c.session.snoozedUntil,
+              false,
+            );
+          },
+        });
+    } catch (error) {
+      setActionError(error);
+    }
+  };
+  const [actionError, setActionError] = useState<unknown>(null);
+  const settleThread = (c: ChatEntry, value: boolean) =>
+    settle.mutate(
+      { session: c.session, settle: value },
+      {
+        onSuccess: () =>
+          setUndo({
+            label: value ? 'Thread settled' : 'Thread unsettled',
+            undo: () => settle.mutate({ session: c.session, settle: !value }),
+          }),
+      },
+    );
+
   const settledListId = useId();
   const now = useNow(30_000);
   const done = useJustFinished(
@@ -107,7 +195,21 @@ export function Sidebar() {
       session.git?.branch ?? '',
       session.project?.name ?? '',
     );
-  const active = index.active.filter(threadMatches);
+  const allActive = index.active.filter(threadMatches);
+  const pinned = allActive.filter(
+    (c) => c.session.pinnedAt && !c.session.snoozed,
+  );
+  const snoozed = allActive.filter((c) => c.session.snoozed);
+  const running = allActive.filter(
+    (c) =>
+      !c.session.pinnedAt && !c.session.snoozed && c.session.running && working,
+  );
+  const active = allActive.filter(
+    (c) =>
+      !c.session.pinnedAt &&
+      !c.session.snoozed &&
+      !(working && c.session.running),
+  );
   const settled = index.settled.filter(threadMatches);
   // Group same-agent sub-threads underneath their active parent thread so
   // nested work is visible at a glance without cluttering the top-level list.
@@ -159,8 +261,14 @@ export function Sidebar() {
             <Layers className="size-4" />
           </span>
         </Link>
-        <label className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-muted-foreground focus-within:bg-accent/60 hover:bg-accent/40">
-          <Search className="size-4 shrink-0" aria-hidden />
+        <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-muted-foreground focus-within:bg-accent/60 hover:bg-accent/40">
+          <button
+            type="button"
+            aria-label="Open command palette"
+            onClick={() => window.dispatchEvent(new Event('agenthold:search'))}
+          >
+            <Search className="size-4 shrink-0" aria-hidden />
+          </button>
           <input
             type="search"
             aria-label="Search threads, agents and apps"
@@ -169,7 +277,7 @@ export function Sidebar() {
             onChange={(e) => setQuery(e.target.value)}
             className="min-w-0 flex-1 bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
-        </label>
+        </div>
         <NewThreadLink />
       </div>
 
@@ -178,54 +286,202 @@ export function Sidebar() {
           <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
             <ErrorText error={index.error ?? settle.error} />
 
-            <ul aria-label="Threads" className="mb-3 grid grid-cols-1 gap-1">
-              {index.loading && active.length === 0 && (
-                <SkeletonRows n={4} tall />
-              )}
-              {!index.loading && active.length === 0 && (
-                <li className="px-2 py-1.5 text-muted-foreground">
-                  {q
-                    ? 'No matching active threads.'
-                    : index.settled.length > 0
-                      ? 'No active threads. Settled ones are below.'
-                      : 'No threads yet.'}
-                </li>
-              )}
-              {topActive.slice(0, threadLimit).map((c) => (
-                <ThreadCard
-                  key={c.session.id}
-                  chat={c}
-                  subthreads={childrenByParent.get(c.session.id)}
-                  activeSessionId={search.s}
-                  now={now}
-                  active={search.s === c.session.id}
-                  done={done.has(c.session.id)}
-                  doneIds={done}
-                  me={me.data?.user.id}
-                  onSettle={
-                    canUse(c)
-                      ? () =>
-                          settle.mutate({ session: c.session, settle: true })
-                      : undefined
+            <ErrorText error={actionError} />
+            <div className="flex flex-wrap gap-2 px-2 py-2 text-xs text-muted-foreground">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={grouped}
+                  onChange={() =>
+                    window.dispatchEvent(new Event('agenthold:group-projects'))
                   }
-                  settling={
-                    settle.isPending &&
-                    settle.variables?.session.id === c.session.id
-                  }
-                />
-              ))}
-              {topActive.length > threadLimit && (
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => setThreadLimit((l) => l + THREADS_PAGE)}
-                    className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+                />{' '}
+                Group by project
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={working}
+                  onChange={() => {
+                    setWorking(!working);
+                    writePref('sidebar.working', working ? '' : '1');
+                  }}
+                />{' '}
+                Working section
+              </label>
+            </div>
+            {[
+              { label: 'Pinned', list: pinned, folded: false },
+              { label: 'Active', list: topActive, folded: false },
+              { label: 'Working', list: running, folded: true },
+              { label: 'Snoozed', list: snoozed, folded: true },
+            ]
+              .filter((section) => section.label !== 'Working' || working)
+              .map((section) => {
+                const render = (list: ChatEntry[]) => (
+                  <ul
+                    aria-label={
+                      section.label === 'Active'
+                        ? 'Threads'
+                        : section.label + ' threads'
+                    }
+                    className="grid gap-1"
                   >
-                    Show more
-                  </button>
-                </li>
-              )}
-            </ul>
+                    {list.length === 0 && (
+                      <li className="px-2 text-muted-foreground">
+                        No active threads.
+                      </li>
+                    )}
+                    {list.map((c) => (
+                      <li key={c.session.id} className="group/thread">
+                        <ThreadCard
+                          chat={c}
+                          subthreads={childrenByParent.get(c.session.id)}
+                          activeSessionId={search.s}
+                          now={now}
+                          active={search.s === c.session.id}
+                          done={done.has(c.session.id)}
+                          doneIds={done}
+                          me={me.data?.user.id}
+                          onSettle={
+                            canUse(c) ? () => settleThread(c, true) : undefined
+                          }
+                          settling={settle.isPending}
+                        />
+                        {canUse(c) && (
+                          <div className="flex justify-end gap-2 px-2 text-xs text-muted-foreground opacity-0 group-hover/thread:opacity-100 group-focus-within/thread:opacity-100 [@media(hover:none)]:opacity-100">
+                            <button
+                              title={c.session.pinnedAt ? 'Unpin' : 'Pin'}
+                              onClick={() =>
+                                void change(
+                                  c,
+                                  c.session.pinnedAt ? 'unpin' : 'pin',
+                                )
+                              }
+                            >
+                              {c.session.pinnedAt ? 'Unpin' : 'Pin'}
+                            </button>
+                            {c.session.snoozed ? (
+                              <button
+                                onClick={() => void change(c, 'unsnooze')}
+                              >
+                                Wake
+                              </button>
+                            ) : (
+                              <Menu
+                                align="end"
+                                trigger={({ toggle }) => (
+                                  <button
+                                    aria-label={`Actions for ${c.session.title || 'New thread'}`}
+                                    onClick={toggle}
+                                  >
+                                    Actions
+                                  </button>
+                                )}
+                              >
+                                {(close) => (
+                                  <>
+                                    <MenuItem
+                                      onClick={() => {
+                                        void change(
+                                          c,
+                                          c.session.pinnedAt ? 'unpin' : 'pin',
+                                        );
+                                        close();
+                                      }}
+                                    >
+                                      {c.session.pinnedAt ? 'Unpin' : 'Pin'}
+                                    </MenuItem>
+                                    <MenuItem
+                                      onClick={() => {
+                                        settleThread(c, true);
+                                        close();
+                                      }}
+                                    >
+                                      Settle
+                                    </MenuItem>
+                                    <MenuSeparator />
+                                    <span className="px-2 text-xs text-muted-foreground">
+                                      Snooze
+                                    </span>
+                                    {[
+                                      '1 hour',
+                                      '3 hours',
+                                      'Tomorrow 9:00 AM',
+                                      'Indefinitely',
+                                    ].map((label, i) => (
+                                      <MenuItem
+                                        key={label}
+                                        onClick={() => {
+                                          const tomorrow = new Date();
+                                          tomorrow.setDate(
+                                            tomorrow.getDate() + 1,
+                                          );
+                                          tomorrow.setHours(9, 0, 0, 0);
+                                          void change(
+                                            c,
+                                            'snooze',
+                                            i === 3
+                                              ? undefined
+                                              : i === 2
+                                                ? tomorrow.toISOString()
+                                                : new Date(
+                                                    Date.now() +
+                                                      (i === 0 ? 1 : 3) *
+                                                        3600000,
+                                                  ).toISOString(),
+                                          );
+                                          close();
+                                        }}
+                                      >
+                                        {label}
+                                      </MenuItem>
+                                    ))}
+                                  </>
+                                )}
+                              </Menu>
+                            )}
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                );
+                const groups = new Map<string, ChatEntry[]>();
+                for (const c of section.list) {
+                  const name = c.session.project?.name ?? 'No project';
+                  groups.set(name, [...(groups.get(name) ?? []), c]);
+                }
+                const content =
+                  grouped && section.label === 'Active'
+                    ? [...groups].map(([name, list]) => (
+                        <details key={name} open>
+                          <summary className="px-2 py-1 text-xs">
+                            {name}
+                          </summary>
+                          {render(list)}
+                        </details>
+                      ))
+                    : render(section.list);
+                return section.folded ? (
+                  <details key={section.label}>
+                    <summary className="flex cursor-pointer gap-2 px-2 py-2 text-xs text-muted-foreground">
+                      {section.label === 'Working' && (
+                        <Loader2 className="size-3 animate-spin" />
+                      )}
+                      {section.label} ({section.list.length})
+                    </summary>
+                    {content}
+                  </details>
+                ) : (
+                  <section key={section.label}>
+                    <h2 className="px-2 py-2 text-xs text-muted-foreground">
+                      {section.label}
+                    </h2>
+                    {content}
+                  </section>
+                );
+              })}
           </div>
 
           {index.settled.length > 0 && (
@@ -267,13 +523,7 @@ export function Sidebar() {
                       now={now}
                       active={search.s === c.session.id}
                       onUnsettle={
-                        canUse(c)
-                          ? () =>
-                              settle.mutate({
-                                session: c.session,
-                                settle: false,
-                              })
-                          : undefined
+                        canUse(c) ? () => settleThread(c, false) : undefined
                       }
                     />
                   ))}
@@ -313,6 +563,7 @@ export function Sidebar() {
         <AppsSidebarView query={q} onBack={() => setView('threads')} />
       )}
 
+      <UndoToast action={undo} onClose={closeUndo} />
       <Footer
         view={view}
         onView={setView}
@@ -558,7 +809,7 @@ function ThreadCard({
     </span>
   );
   return (
-    <li>
+    <div>
       <div className="group relative">
         <Link
           to="/a/$agentId"
@@ -660,7 +911,7 @@ function ThreadCard({
           })}
         </ul>
       )}
-    </li>
+    </div>
   );
 }
 
@@ -807,8 +1058,7 @@ function Footer({
   const logout = useLogout();
   const [theme, setThemeState] = useState<Theme>(getTheme);
   const user = me.data?.user;
-  const inSettings =
-    pathname.startsWith('/settings') || pathname.startsWith('/projects');
+  const inSettings = pathname.startsWith('/settings');
 
   return (
     <div className="@container shrink-0 border-t px-2.5 py-2">
@@ -924,7 +1174,33 @@ function Footer({
           <Settings className="size-4" aria-hidden />
         </Link>
 
+        <Link
+          to="/projects"
+          title="Projects"
+          aria-label="Projects"
+          className="p-2"
+        >
+          <FolderGit2 className="size-4" />
+        </Link>
         <div className="ml-auto flex items-center gap-1">
+          {(
+            [
+              ['Pull requests', GitPullRequest],
+              ['Automations', Workflow],
+              ['Usage', ChartNoAxesColumn],
+            ] as const
+          ).map(([label, Icon]) => (
+            <button
+              key={String(label)}
+              type="button"
+              disabled
+              title={String(label) + ' (coming soon)'}
+              aria-label={String(label)}
+              className="hidden size-6 items-center justify-center text-muted-foreground/40 @[360px]:flex"
+            >
+              <Icon className="size-3.5" />
+            </button>
+          ))}
           <button
             type="button"
             aria-pressed={view === 'agents'}
@@ -939,7 +1215,7 @@ function Footer({
             )}
           >
             <Bot className="size-3.5 shrink-0" aria-hidden />
-            <span className="hidden @[268px]:inline">Agents</span>
+
             <span
               className={cn(
                 'rounded-md px-1.5 py-0.5 text-[11px] leading-none tabular-nums',
@@ -952,32 +1228,34 @@ function Footer({
             </span>
           </button>
 
-          <button
-            type="button"
-            aria-pressed={view === 'apps'}
-            aria-label={`Apps (${appsCount})`}
-            title="Apps"
-            onClick={() => onView(view === 'apps' ? 'threads' : 'apps')}
-            className={cn(
-              'flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
-              view === 'apps'
-                ? 'bg-accent text-foreground'
-                : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
-            )}
-          >
-            <AppWindow className="size-3.5 shrink-0" aria-hidden />
-            <span className="hidden @[268px]:inline">Apps</span>
-            <span
+          {appsCount > 0 && (
+            <button
+              type="button"
+              aria-pressed={view === 'apps'}
+              aria-label={`Apps (${appsCount})`}
+              title="Apps"
+              onClick={() => onView(view === 'apps' ? 'threads' : 'apps')}
               className={cn(
-                'rounded-md px-1.5 py-0.5 text-[11px] leading-none tabular-nums',
+                'flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
                 view === 'apps'
-                  ? 'bg-background/70 text-foreground'
-                  : 'bg-accent/70 text-muted-foreground',
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
               )}
             >
-              {appsCount}
-            </span>
-          </button>
+              <AppWindow className="size-3.5 shrink-0" aria-hidden />
+
+              <span
+                className={cn(
+                  'rounded-md px-1.5 py-0.5 text-[11px] leading-none tabular-nums',
+                  view === 'apps'
+                    ? 'bg-background/70 text-foreground'
+                    : 'bg-accent/70 text-muted-foreground',
+                )}
+              >
+                {appsCount}
+              </span>
+            </button>
+          )}
         </div>
       </div>
     </div>

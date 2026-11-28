@@ -5,7 +5,6 @@ import {
   CircleAlert,
   GitBranch,
   GitMerge,
-  ListTodo,
   MessagesSquare,
   Settings2,
   Upload,
@@ -16,12 +15,9 @@ import { api, unwrap } from '@/api/client';
 import {
   projectQuery,
   projectStatusQuery,
-  projectTasksQuery,
   type Project,
   type ProjectInput,
   type ProjectSourceResult,
-  type ProjectTask,
-  type ProjectTaskStatus,
   type ProjectThread,
 } from '@/api/queries';
 import { AgentStateDot } from '@/components/AgentStateBadge';
@@ -41,7 +37,7 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { accessOf } from '@/pages/AgentPage';
 import { cn } from '@/lib/utils';
 
-export type ProjectSection = 'threads' | 'tasks' | 'settings';
+export type ProjectSection = 'threads' | 'settings';
 
 const SECTIONS: {
   id: ProjectSection;
@@ -54,12 +50,6 @@ const SECTIONS: {
     label: 'Threads',
     hint: 'Each thread works on a branch of its own. Merge its work into the main checkouts, push it, or discard it.',
     icon: MessagesSquare,
-  },
-  {
-    id: 'tasks',
-    label: 'Tasks',
-    hint: 'Work to hand to agents. Assigning a task starts a thread that works on it; agents set it to review when they are done.',
-    icon: ListTodo,
   },
   {
     id: 'settings',
@@ -112,7 +102,7 @@ export function ProjectPage({
           </Crumb>
           <CrumbSep />
           <Crumb>
-            <Link to="/settings/projects" className="hover:text-foreground">
+            <Link to="/projects" className="hover:text-foreground">
               Projects
             </Link>
           </Crumb>
@@ -135,7 +125,6 @@ export function ProjectPage({
     >
       <SettingsHeader title={current.label} description={current.hint} />
       {current.id === 'threads' && <Threads project={p} />}
-      {current.id === 'tasks' && <Tasks project={p} />}
       {current.id === 'settings' && <ProjectSettings project={p} />}
     </SettingsLayout>
   );
@@ -469,222 +458,6 @@ function Threads({ project }: { project: Project }) {
   );
 }
 
-const STATUS_LABEL: Record<ProjectTaskStatus, string> = {
-  open: 'Open',
-  in_progress: 'In progress',
-  review: 'Review',
-  done: 'Done',
-  cancelled: 'Cancelled',
-};
-const STATUS_ORDER: ProjectTaskStatus[] = [
-  'review',
-  'in_progress',
-  'open',
-  'done',
-  'cancelled',
-];
-
-function TaskRow({ task, project }: { task: ProjectTask; project: Project }) {
-  const qc = useQueryClient();
-  const [agentId, setAgentId] = useState('');
-  const refresh = () =>
-    qc.invalidateQueries({ queryKey: ['projects', project.id] });
-  const update = useMutation({
-    mutationFn: (status: ProjectTaskStatus) =>
-      unwrap(
-        api.PATCH('/tasks/{taskId}', {
-          params: { path: { taskId: task.id } },
-          body: { status },
-        }),
-      ),
-    onSuccess: refresh,
-  });
-  const assign = useMutation({
-    mutationFn: () =>
-      unwrap(
-        api.POST('/tasks/{taskId}/assign', {
-          params: { path: { taskId: task.id } },
-          body: { agentId },
-        }),
-      ),
-    onSuccess: async () => {
-      setAgentId('');
-      await refresh();
-      await qc.invalidateQueries({ queryKey: ['agents'] });
-    },
-  });
-  const remove = useMutation({
-    mutationFn: () =>
-      unwrap(
-        api.DELETE('/tasks/{taskId}', {
-          params: { path: { taskId: task.id } },
-        }),
-      ),
-    onSuccess: refresh,
-  });
-  const assignable = task.status === 'open' || task.status === 'in_progress';
-  return (
-    <li className="rounded-xl border p-3">
-      <div className="flex flex-wrap items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="font-medium">{task.title}</p>
-          {task.body && (
-            <p className="mt-0.5 text-sm whitespace-pre-wrap text-muted-foreground">
-              {task.body}
-            </p>
-          )}
-        </div>
-        <Select
-          aria-label="Status"
-          value={task.status}
-          disabled={update.isPending}
-          onChange={(e) => update.mutate(e.target.value as ProjectTaskStatus)}
-          className="h-8"
-        >
-          {STATUS_ORDER.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_LABEL[s]}
-            </option>
-          ))}
-        </Select>
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        <span>by {task.createdBy}</span>
-        {task.agentName && task.agentId && (
-          <span>
-            {task.sessionId ? (
-              <Link
-                to="/a/$agentId"
-                params={{ agentId: task.agentId }}
-                search={{ s: task.sessionId }}
-                className="underline"
-              >
-                {task.agentName}’s thread
-              </Link>
-            ) : (
-              task.agentName
-            )}
-          </span>
-        )}
-        {task.note && <span className="italic">“{task.note}”</span>}
-      </div>
-      {assignable && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <AgentPicker
-            value={agentId}
-            onChange={setAgentId}
-            label={task.agentId ? 'Reassign to' : 'Assign to'}
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!agentId || assign.isPending}
-            onClick={() => assign.mutate()}
-          >
-            Assign
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={remove.isPending}
-            onClick={() => {
-              if (confirm('Delete this task?')) remove.mutate();
-            }}
-          >
-            Delete
-          </Button>
-        </div>
-      )}
-      <ErrorText error={update.error ?? assign.error ?? remove.error} />
-    </li>
-  );
-}
-
-function Tasks({ project }: { project: Project }) {
-  const qc = useQueryClient();
-  const tasks = useQuery(projectTasksQuery(project.id));
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
-  const create = useMutation({
-    mutationFn: () =>
-      unwrap(
-        api.POST('/projects/{projectId}/tasks', {
-          params: { path: { projectId: project.id } },
-          body: {
-            title: title.trim(),
-            ...(body.trim() && { body: body.trim() }),
-          },
-        }),
-      ),
-    onSuccess: async () => {
-      setTitle('');
-      setBody('');
-      await qc.invalidateQueries({ queryKey: ['projects', project.id] });
-    },
-  });
-  const byStatus = STATUS_ORDER.map((s) => ({
-    status: s,
-    tasks: (tasks.data ?? []).filter((t) => t.status === s),
-  })).filter((g) => g.tasks.length > 0);
-  return (
-    <>
-      <form
-        className="mb-6 flex flex-col gap-2 rounded-xl border p-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          create.mutate();
-        }}
-      >
-        <Input
-          aria-label="Task title"
-          placeholder="New task"
-          value={title}
-          maxLength={200}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-        <textarea
-          aria-label="Task description"
-          placeholder="What to do, in enough detail for an agent (optional)"
-          value={body}
-          rows={3}
-          onChange={(e) => setBody(e.target.value)}
-          className="rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        />
-        <div>
-          <Button
-            type="submit"
-            size="sm"
-            disabled={!title.trim() || create.isPending}
-          >
-            Add task
-          </Button>
-        </div>
-        <ErrorText error={create.error} />
-      </form>
-      {tasks.isLoading && <Loading />}
-      <ErrorText error={tasks.error} />
-      {tasks.data?.length === 0 && (
-        <p className="text-sm text-muted-foreground">No tasks yet.</p>
-      )}
-      {byStatus.map((g) => (
-        <section key={g.status} className="mb-5">
-          <h2 className="mb-2 text-xs font-medium text-muted-foreground uppercase">
-            {STATUS_LABEL[g.status]} · {g.tasks.length}
-          </h2>
-          <ul
-            aria-label={`${STATUS_LABEL[g.status]} tasks`}
-            className="grid gap-2"
-          >
-            {g.tasks.map((t) => (
-              <TaskRow key={t.id} task={t} project={project} />
-            ))}
-          </ul>
-        </section>
-      ))}
-    </>
-  );
-}
-
 function ProjectSettings({ project }: { project: Project }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -707,7 +480,7 @@ function ProjectSettings({ project }: { project: Project }) {
       ),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['projects'] });
-      void navigate({ to: '/settings/projects' });
+      void navigate({ to: '/projects' });
     },
   });
   return (
@@ -728,8 +501,8 @@ function ProjectSettings({ project }: { project: Project }) {
       <section className="rounded-xl border border-destructive/30 p-4">
         <h2 className="text-sm font-medium">Delete project</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Deletes the project and its tasks. Threads and the checkouts on
-          agents&apos; disks stay.
+          Deletes the project. Threads and the checkouts on agents&apos; disks
+          stay.
         </p>
         <Button
           variant="destructive"

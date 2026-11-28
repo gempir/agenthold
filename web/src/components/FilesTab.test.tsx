@@ -72,13 +72,13 @@ it('lists entries and navigates into a directory in the agent panel', async () =
 
 it('shows write controls and the terminal to shared users', async () => {
   setup('shared');
-  renderApp('/a/a1/settings?tab=files');
+  renderApp('/a/a1?panel=files');
   await screen.findByText('notes.txt');
   expect(screen.getByRole('button', { name: 'Upload' })).toBeVisible();
   expect(
     screen.getByRole('button', { name: 'Delete notes.txt' }),
   ).toBeVisible();
-  const nav = screen.getByRole('navigation', { name: 'Agent settings' });
-  expect(within(nav).getByRole('link', { name: 'Terminal' })).toBeVisible();
-  expect(within(nav).queryByRole('link', { name: 'Audit log' })).toBeNull();
+  const nav = screen.getByRole('tablist');
+  expect(within(nav).getByRole('tab', { name: 'Terminal' })).toBeVisible();
+  expect(within(nav).queryByRole('tab', { name: 'Audit log' })).toBeNull();
 });

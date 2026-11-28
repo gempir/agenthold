@@ -323,20 +323,6 @@ type ProjectSource struct {
 	CreatedAt     int64
 }
 
-type ProjectTask struct {
-	ID        string
-	ProjectID string
-	Title     string
-	Body      string
-	Status    string
-	AgentID   string
-	SessionID string
-	Note      string
-	CreatedBy string
-	CreatedAt int64
-	UpdatedAt int64
-}
-
 type ProviderLogin struct {
 	ID            string
 	UserID        string

@@ -1,4 +1,3 @@
-import { lazy, Suspense } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { MessageSquare } from 'lucide-react';
@@ -6,13 +5,10 @@ import { agentQuery, type Agent } from '@/api/queries';
 import { ActivityTab } from '@/components/ActivityTab';
 import { AgentSecretsTab } from '@/components/AgentSecretsTab';
 import { AgentStateDot } from '@/components/AgentStateBadge';
-import { FilesTab } from '@/components/FilesTab';
-import { GitTab } from '@/components/GitTab';
 import { HarnessPanel } from '@/components/HarnessPanel';
-import { PreviewTab } from '@/components/PreviewTab';
 import { ServicesTab } from '@/components/ServicesTab';
 import { SharingTab } from '@/components/SharingTab';
-import { ErrorText, Loading } from '@/components/Spinner';
+import { Loading } from '@/components/Spinner';
 import { AgentToolsPanel } from '@/components/ToolsPanel';
 import { TriggersTab } from '@/components/TriggersTab';
 import { Button } from '@/components/ui/button';
@@ -31,12 +27,7 @@ import {
   SettingsNavItem,
 } from '@/components/layout/SettingsLayout';
 import { Crumb, CrumbSep, TopBar } from '@/components/layout/TopBar';
-import { useAgentActions } from '@/hooks/useAgentActions';
 import { accessOf } from '@/pages/AgentPage';
-
-const TerminalTab = lazy(() =>
-  import('@/components/TerminalTab').then((m) => ({ default: m.TerminalTab })),
-);
 
 /** Everything about an agent that is not a thread, one section at a time. */
 export function AgentSettingsPage({
@@ -127,7 +118,6 @@ function Section({
 }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const { action, busy } = useAgentActions(a);
   const { canUse, isOwner } = accessOf(a);
   const setAgent = (n: Agent) => qc.setQueryData(['agents', a.id], n);
   switch (section) {
@@ -146,45 +136,6 @@ function Section({
       );
     case 'harness':
       return <HarnessPanel agent={a} isOwner={isOwner} onSaved={setAgent} />;
-    case 'files':
-      return (
-        <>
-          <FilesTab
-            agentId={a.id}
-            canUse={canUse}
-            starting={busy}
-            onStart={() => action.mutate('start')}
-          />
-          <ErrorText error={action.error} />
-        </>
-      );
-    case 'git':
-      return (
-        <>
-          <GitTab
-            agentId={a.id}
-            canUse={canUse}
-            starting={busy}
-            onStart={() => action.mutate('start')}
-          />
-          <ErrorText error={action.error} />
-        </>
-      );
-    case 'terminal':
-      return canUse ? (
-        <>
-          {a.state === 'sleeping' && (
-            <p className="mb-2 text-sm text-muted-foreground">
-              Opening the terminal wakes the agent
-            </p>
-          )}
-          <Suspense fallback={<Loading />}>
-            <TerminalTab agentId={a.id} />
-          </Suspense>
-        </>
-      ) : null;
-    case 'preview':
-      return <PreviewTab agentId={a.id} isOwner={isOwner} />;
     case 'services':
       return <ServicesTab agentId={a.id} isOwner={isOwner} />;
     case 'secrets':

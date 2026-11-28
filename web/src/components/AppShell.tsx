@@ -5,6 +5,7 @@ import { meQuery } from '@/api/queries';
 import { NewAgentDialog } from '@/components/AgentsSection';
 import { NoAccess } from '@/components/NoAccess';
 import { ErrorText, Loading } from '@/components/Spinner';
+import { CommandPalette } from '@/components/layout/CommandPalette';
 import { Sidebar } from '@/components/layout/Sidebar';
 import {
   readPref,
@@ -127,6 +128,7 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+      <CommandPalette />
       {newAgent && <NewAgentDialog onClose={() => setNewAgent(false)} />}
     </ShellContext.Provider>
   );

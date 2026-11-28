@@ -46,7 +46,6 @@ type Querier interface {
 	CreatePreviewSession(ctx context.Context, arg CreatePreviewSessionParams) error
 	CreateProject(ctx context.Context, arg CreateProjectParams) error
 	CreateProjectSource(ctx context.Context, arg CreateProjectSourceParams) error
-	CreateProjectTask(ctx context.Context, arg CreateProjectTaskParams) error
 	CreateProviderLogin(ctx context.Context, arg CreateProviderLoginParams) error
 	CreateSandbox(ctx context.Context, arg CreateSandboxParams) error
 	CreateSchedule(ctx context.Context, arg CreateScheduleParams) error
@@ -75,7 +74,6 @@ type Querier interface {
 	DeletePreviewSession(ctx context.Context, tokenHash string) error
 	DeleteProject(ctx context.Context, id string) error
 	DeleteProjectSource(ctx context.Context, id string) error
-	DeleteProjectTask(ctx context.Context, id string) error
 	DeleteProviderLogin(ctx context.Context, arg DeleteProviderLoginParams) (int64, error)
 	DeleteSchedule(ctx context.Context, id string) error
 	DeleteSecret(ctx context.Context, id string) error
@@ -123,7 +121,6 @@ type Querier interface {
 	GetNodeByFingerprint(ctx context.Context, certFingerprint string) (Node, error)
 	GetPreviewSessionUser(ctx context.Context, arg GetPreviewSessionUserParams) (GetPreviewSessionUserRow, error)
 	GetProject(ctx context.Context, id string) (Project, error)
-	GetProjectTask(ctx context.Context, id string) (ProjectTask, error)
 	GetProviderLogin(ctx context.Context, arg GetProviderLoginParams) (ProviderLogin, error)
 	GetProviderLoginByID(ctx context.Context, id string) (ProviderLogin, error)
 	GetReleasedExposureName(ctx context.Context, name string) (ExposureReleasedName, error)
@@ -180,7 +177,6 @@ type Querier interface {
 	ListNodes(ctx context.Context) ([]Node, error)
 	ListProjectSessions(ctx context.Context, projectID string) ([]AgentSession, error)
 	ListProjectSources(ctx context.Context, projectID string) ([]ProjectSource, error)
-	ListProjectTasks(ctx context.Context, projectID string) ([]ProjectTask, error)
 	ListProjects(ctx context.Context, ownerID string) ([]Project, error)
 	ListProviderLogins(ctx context.Context) ([]ProviderLogin, error)
 	ListRefreshableGitCredentials(ctx context.Context, expiresAt int64) ([]GitCredential, error)
@@ -189,7 +185,6 @@ type Querier interface {
 	ListServices(ctx context.Context, agentID string) ([]Service, error)
 	ListSessionEvents(ctx context.Context, arg ListSessionEventsParams) ([]AgentSessionEvent, error)
 	ListSessionQueuedMessages(ctx context.Context, sessionID string) ([]SessionQueuedMessage, error)
-	ListSessionTasks(ctx context.Context, sessionID string) ([]ProjectTask, error)
 	ListSlackThreadSessions(ctx context.Context) ([]string, error)
 	ListSlackThreads(ctx context.Context) ([]SlackThread, error)
 	ListSlackThreadsOfSession(ctx context.Context, sessionID string) ([]SlackThread, error)
@@ -293,7 +288,6 @@ type Querier interface {
 	UpdateMCPServer(ctx context.Context, arg UpdateMCPServerParams) error
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) error
 	UpdateProjectSource(ctx context.Context, arg UpdateProjectSourceParams) error
-	UpdateProjectTask(ctx context.Context, arg UpdateProjectTaskParams) error
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) error
 	UpdateSecret(ctx context.Context, arg UpdateSecretParams) error
 	UpdateSessionGitStatus(ctx context.Context, arg UpdateSessionGitStatusParams) error

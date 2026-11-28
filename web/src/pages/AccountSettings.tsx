@@ -22,7 +22,7 @@ import {
   SettingsNavItem,
 } from '@/components/layout/SettingsLayout';
 import { Crumb } from '@/components/layout/TopBar';
-import { meQuery } from '@/api/queries';
+import { meQuery, versionQuery, type Version } from '@/api/queries';
 
 /**
  * Account-level settings pages, each a child route of /settings. Add a page
@@ -56,14 +56,45 @@ export const ACCOUNT_SETTINGS_NAV: {
   { to: '/settings/nodes', label: 'Nodes', icon: Server, admin: true },
 ];
 
+function formatVersion(v?: Version): string {
+  if (!v) return '';
+  const ver = v.version?.trim() ?? '';
+  const commit = v.commit?.trim() ?? '';
+  const shortCommit = commit && commit !== 'unknown' ? commit.slice(0, 7) : '';
+  if (ver && shortCommit && !ver.includes(shortCommit)) {
+    return `${ver} · ${shortCommit}`;
+  }
+  return ver || shortCommit;
+}
+
 export function AccountSettings() {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const admin = useQuery(meQuery).data?.admin ?? false;
+  const version = useQuery(versionQuery);
+  const versionLabel = formatVersion(version.data);
+  const versionTitle = version.data
+    ? [version.data.version, version.data.commit]
+        .filter((s) => s && s !== 'unknown')
+        .join(' · ')
+    : undefined;
   return (
     <SettingsLayout
       navLabel="Account settings"
       wide={path.startsWith('/settings/overview')}
-      crumbs={<Crumb current>Settings</Crumb>}
+      crumbs={
+        <Crumb current>
+          <span>Settings</span>
+          {versionLabel && (
+            <span
+              data-testid="app-version"
+              title={versionTitle}
+              className="truncate font-mono text-xs font-normal text-muted-foreground/70"
+            >
+              {versionLabel}
+            </span>
+          )}
+        </Crumb>
+      }
       nav={ACCOUNT_SETTINGS_NAV.filter((n) => !n.admin || admin).map((n) => (
         <SettingsNavItem key={n.to} active={path.startsWith(n.to)}>
           <Link to={n.to}>

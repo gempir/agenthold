@@ -4,6 +4,14 @@ import type { components } from './schema';
 
 export type User = components['schemas']['User'];
 export type AuthProvider = components['schemas']['AuthProvider'];
+export type Version = components['schemas']['Version'];
+
+export const versionQuery = queryOptions({
+  queryKey: ['version'],
+  queryFn: () => unwrap(api.GET('/version')),
+  staleTime: Infinity,
+  retry: false,
+});
 
 export const meQuery = queryOptions({
   queryKey: ['me'],

@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from 'react';
+import { useId, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Link,
@@ -27,7 +27,12 @@ import {
   X,
 } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
-import { appsQuery, meQuery, type SessionGit } from '@/api/queries';
+import {
+  appsQuery,
+  isTransient,
+  meQuery,
+  type SessionGit,
+} from '@/api/queries';
 import { ROLE_LABEL } from '@/lib/roles';
 import { AgentStateDot } from '@/components/AgentStateBadge';
 import { AgentBadge } from '@/components/AgentBadge';
@@ -47,7 +52,6 @@ import { cn } from '@/lib/utils';
 const THREADS_PAGE = 40;
 const SETTLED_PREVIEW = 10;
 const SETTLED_PAGE = 50;
-const AGENTS_PREVIEW = 6;
 /** localStorage key (agenthold.<key>) of the Settled section's fold. */
 export const SETTLED_OPEN_PREF = 'sidebar.settledOpen';
 /** localStorage key of the Apps section's fold. */
@@ -79,8 +83,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const [settledOpen, setSettledOpenState] = useState(
     () => readPref(SETTLED_OPEN_PREF, '') === '1',
   );
-  const [agentsOpen, setAgentsOpen] = useState(true);
-  const [allAgents, setAllAgents] = useState(false);
+  const [agentsOpen, setAgentsOpen] = useState(false);
   const settle = useSettle();
   const settledListId = useId();
   const now = useNow(30_000);
@@ -112,7 +115,13 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const settled = index.settled.filter(threadMatches);
   // A search looks into settled threads too.
   const showSettled = settledOpen || (!!q && settled.length > 0);
-  const shownAgents = allAgents || q ? agents : agents.slice(0, AGENTS_PREVIEW);
+  // Folded, the section still lists the awake agents.
+  const agentsExpanded = agentsOpen || !!q;
+  const shownAgents = agentsExpanded
+    ? agents
+    : agents.filter(
+        ({ agent }) => agent.state === 'running' || isTransient(agent.state),
+      );
 
   const latestSession = (agentId: string) =>
     (
@@ -219,77 +228,71 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             </li>
           )}
         </ul>
-
-        <SectionHeader
-          open={agentsOpen}
-          onToggle={() => setAgentsOpen((o) => !o)}
-          count={index.loading ? undefined : agents.length}
-        >
-          Agents
-        </SectionHeader>
-        {agentsOpen && (
-          <ul aria-label="Agents" className="mb-3 grid grid-cols-1 gap-px">
-            {index.loading && agents.length === 0 && <SkeletonRows n={3} />}
-            {!index.loading && agents.length === 0 && (
-              <li className="px-2 py-1.5 text-muted-foreground">
-                {q ? 'No matching agents.' : 'No agents yet.'}
-              </li>
-            )}
-            {shownAgents.map(({ agent }) => {
-              const current = params.agentId === agent.id;
-              return (
-                <li key={agent.id} className="group relative">
-                  <Link
-                    to="/a/$agentId"
-                    params={{ agentId: agent.id }}
-                    search={{ s: latestSession(agent.id) }}
-                    aria-current={current ? 'page' : undefined}
-                    className={cn(
-                      'flex h-8 items-center gap-2 rounded-lg pr-9 pl-2 hover:bg-accent/50',
-                      current && 'bg-accent/70',
-                    )}
-                  >
-                    <AgentStateDot state={agent.state} />
-                    <span className="min-w-0 flex-1 truncate">
-                      {agent.name}
-                    </span>
-                    {agent.role === 'shared' && (
-                      <Users
-                        className="size-3.5 shrink-0 text-muted-foreground"
-                        aria-label={`shared by ${agent.owner.name}`}
-                      />
-                    )}
-                  </Link>
-                  <Link
-                    to="/a/$agentId"
-                    params={{ agentId: agent.id }}
-                    aria-label={`New thread with ${agent.name}`}
-                    title="New thread"
-                    className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-                  >
-                    <Plus className="size-3.5" />
-                  </Link>
-                </li>
-              );
-            })}
-            {!q && agents.length > AGENTS_PREVIEW && (
-              <li>
-                <button
-                  type="button"
-                  onClick={() => setAllAgents((a) => !a)}
-                  className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
-                >
-                  {allAgents
-                    ? 'Show fewer'
-                    : `Show all ${agents.length} agents`}
-                </button>
-              </li>
-            )}
-          </ul>
-        )}
       </div>
 
       <div className="shrink-0 border-t px-3 pt-1 pb-1 empty:hidden">
+        {agents.length > 0 && (
+          <>
+            <button
+              type="button"
+              aria-expanded={agentsExpanded}
+              onClick={() => setAgentsOpen(!agentsOpen)}
+              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+            >
+              <span className="flex-1 text-left">Agents</span>
+              <span className="tabular-nums">{agents.length}</span>
+              <ChevronRight
+                aria-hidden
+                className={cn(
+                  'size-3.5 transition-transform',
+                  agentsExpanded && 'rotate-90',
+                )}
+              />
+            </button>
+            <ul
+              aria-label="Agents"
+              className="grid max-h-[30vh] grid-cols-1 gap-px overflow-y-auto pb-1"
+            >
+              {shownAgents.map(({ agent }) => {
+                const current = params.agentId === agent.id;
+                return (
+                  <li key={agent.id} className="group relative">
+                    <Link
+                      to="/a/$agentId"
+                      params={{ agentId: agent.id }}
+                      search={{ s: latestSession(agent.id) }}
+                      aria-current={current ? 'page' : undefined}
+                      className={cn(
+                        'flex h-8 items-center gap-2 rounded-lg pr-9 pl-2 hover:bg-accent/50',
+                        current && 'bg-accent/70',
+                      )}
+                    >
+                      <AgentStateDot state={agent.state} />
+                      <span className="min-w-0 flex-1 truncate">
+                        {agent.name}
+                      </span>
+                      {agent.role === 'shared' && (
+                        <Users
+                          className="size-3.5 shrink-0 text-muted-foreground"
+                          aria-label={`shared by ${agent.owner.name}`}
+                        />
+                      )}
+                    </Link>
+                    <Link
+                      to="/a/$agentId"
+                      params={{ agentId: agent.id }}
+                      aria-label={`New thread with ${agent.name}`}
+                      title="New thread"
+                      className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+                    >
+                      <Plus className="size-3.5" />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
         <AppsSection
           query={q}
           open={appsOpen}
@@ -362,45 +365,6 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
 
       <Footer />
     </nav>
-  );
-}
-
-function SectionHeader({
-  children,
-  count,
-  open,
-  onToggle,
-}: {
-  children: ReactNode;
-  count?: number;
-  open?: boolean;
-  onToggle?: () => void;
-}) {
-  const inner = (
-    <>
-      <span className="flex-1 text-left">{children}</span>
-      {count != null && <span className="tabular-nums">{count}</span>}
-      {onToggle && (
-        <ChevronRight
-          aria-hidden
-          className={cn('size-3.5 transition-transform', open && 'rotate-90')}
-        />
-      )}
-    </>
-  );
-  const cls =
-    'flex h-7 w-full items-center gap-2 px-2 text-xs font-medium text-muted-foreground';
-  return onToggle ? (
-    <button
-      type="button"
-      aria-expanded={open}
-      onClick={onToggle}
-      className={cn(cls, 'rounded-md hover:text-foreground')}
-    >
-      {inner}
-    </button>
-  ) : (
-    <div className={cls}>{inner}</div>
   );
 }
 

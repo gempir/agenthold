@@ -1,4 +1,10 @@
-import { waitFor, render, screen, within } from '@testing-library/react';
+import {
+  fireEvent,
+  waitFor,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
@@ -237,6 +243,10 @@ it('lists templates apart from agents', async () => {
   expect(within(agents).queryByText('toolchain')).toBeNull();
   // The sidebar does not list the template among agents either.
   const sidebar = screen.getByRole('navigation', { name: 'Sidebar' });
+  // Folded, the sidebar lists only awake agents; open it.
+  fireEvent.click(
+    await within(sidebar).findByRole('button', { name: /Agents/ }),
+  );
   const sideAgents = await within(sidebar).findByRole('list', {
     name: 'Agents',
   });

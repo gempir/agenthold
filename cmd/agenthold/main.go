@@ -375,6 +375,7 @@ func run() error {
 	}
 	platformTools.ExecutorAvailable = executorMgr.Available
 	platformTools.Executor = executorMgr
+	platformTools.ActiveUser = sessions.ActiveUserID
 	platformTools.Log = logger
 	sessions.SetTools(platformTools)
 	var identity *preview.Signer
@@ -430,8 +431,12 @@ func run() error {
 					executorMgr.BridgeMCP(ctx, executor.BridgeOptions{
 						UserID:       row.Agent.OwnerID,
 						AgentID:      row.Agent.ID,
+						SessionID:    info.Open.Session,
 						ApprovalMode: mode,
 						Authorize:    authorize,
+						ResolveUser: func(checkCtx context.Context) (string, error) {
+							return api.ResolveExecutorCaller(checkCtx, st, sessions, row.Agent.ID, info.Open.Session)
+						},
 					}, stream)
 				default:
 					platformSvc.Handle(ctx, info.AgentID, stream, info.Open)

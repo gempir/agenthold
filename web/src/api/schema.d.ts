@@ -3412,6 +3412,300 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/shared-threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description List individual threads shared directly with the current user. */
+        get: operations["listMySharedThreads"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        /** @description List users with thread-level access to this session. */
+        get: operations["listSessionShares"];
+        put?: never;
+        /** @description Share this individual thread with an existing user by verified email (viewer or collaborator). */
+        post: operations["shareSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/shares/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                userId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Revoke a user's thread-level access (or leave a thread shared with you). */
+        delete: operations["unshareSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/guest-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        /** @description List guest links created for this thread. */
+        get: operations["listSessionGuestLinks"];
+        put?: never;
+        /** @description Create a 24-hour single-thread guest link returning the one-time raw URL (/guest/<token>). */
+        post: operations["createSessionGuestLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/guest-links/{linkId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                linkId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Instantly revoke an active guest link for this thread. */
+        delete: operations["revokeSessionGuestLink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/guest-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        /** @description List guest message requests for this thread. */
+        get: operations["listSessionGuestRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/guest-requests/{requestId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Approve a pending guest request and send it as a prompt in the thread. */
+        post: operations["approveSessionGuestRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/guest-requests/{requestId}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Dismiss a pending guest request without sending it to the agent. */
+        post: operations["dismissSessionGuestRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/review-comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        /** @description List collaborative diff review comments attached to this thread. */
+        get: operations["listSessionReviewComments"];
+        put?: never;
+        /** @description Create a persistent diff review comment on this thread (allowed for viewers, collaborators, shared users, and owner). */
+        post: operations["createSessionReviewComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/review-comments/{commentId}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Mark a diff review comment as resolved. */
+        post: operations["resolveSessionReviewComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/review-comments/{commentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Delete a diff review comment (author, collaborator, or owner). */
+        delete: operations["deleteSessionReviewComment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/handoff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Record a @teammate handoff notice in the thread event log. */
+        post: operations["handoffSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guest/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        /** @description Public unauthenticated guest view of a single shared thread (metadata, event history, and pending guest requests; no diffs, files, settings, or secrets). */
+        get: operations["getGuestThread"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guest/{token}/stream": {
+        parameters: {
+            query?: {
+                after?: number;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        /** @description Public WebSocket live stream of session events for a guest link token. */
+        get: operations["streamGuestThread"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guest/{token}/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Submit a guest message request queued for owner or collaborator approval. */
+        post: operations["createGuestRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{sessionId}/visuals/{eventSeq}": {
         parameters: {
             query?: never;
@@ -4299,6 +4593,8 @@ export interface components {
              * @enum {string}
              */
             settledBy?: "user" | "agent" | "auto";
+            /** @description The caller's effective access level on this thread (owner, shared, collaborator, or viewer). */
+            shareRole?: components["schemas"]["SessionAccessRole"];
         };
         /** @enum {string} */
         PermissionMode: "full-access" | "auto-accept-edits" | "supervised" | "plan";
@@ -5400,6 +5696,113 @@ export interface components {
             resourceUri?: string;
             height?: number;
             actions?: components["schemas"]["McpAppAction"][];
+        };
+        /** @enum {string} */
+        SessionShareRole: "viewer" | "collaborator";
+        /** @enum {string} */
+        SessionAccessRole: "owner" | "shared" | "collaborator" | "viewer";
+        SessionShareInput: {
+            /** Format: email */
+            email: string;
+            role: components["schemas"]["SessionShareRole"];
+        };
+        SessionShare: {
+            user: components["schemas"]["User"];
+            role: components["schemas"]["SessionShareRole"];
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        SessionAccessList: {
+            owner: components["schemas"]["User"];
+            shares: components["schemas"]["SessionShare"][];
+        };
+        SharedThread: {
+            session: components["schemas"]["Session"];
+            agentName: string;
+            role: components["schemas"]["SessionShareRole"];
+            /** Format: date-time */
+            sharedAt: string;
+        };
+        GuestLink: {
+            id: string;
+            sessionId: string;
+            createdBy: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: date-time */
+            revokedAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+            active: boolean;
+        };
+        GuestLinkCreated: {
+            link: components["schemas"]["GuestLink"];
+            token: string;
+            /** @description One-time shareable path (/guest/<token>). */
+            url: string;
+        };
+        /** @enum {string} */
+        GuestRequestStatus: "pending" | "approved" | "dismissed";
+        GuestRequestInput: {
+            name?: string;
+            text: string;
+        };
+        GuestRequest: {
+            id: string;
+            sessionId: string;
+            guestLinkId: string;
+            guestName: string;
+            text: string;
+            status: components["schemas"]["GuestRequestStatus"];
+            resolvedBy?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            resolvedAt?: string;
+        };
+        GuestThreadView: {
+            sessionId: string;
+            title: string;
+            agentName?: string;
+            running: boolean;
+            /** Format: date-time */
+            expiresAt: string;
+            events: components["schemas"]["SessionEvent"][];
+            pendingRequests: components["schemas"]["GuestRequest"][];
+        };
+        /** @enum {string} */
+        ReviewCommentSide: "new" | "old";
+        SessionReviewCommentInput: {
+            filePath: string;
+            startLine: number;
+            endLine: number;
+            side?: components["schemas"]["ReviewCommentSide"];
+            body: string;
+        };
+        SessionReviewComment: {
+            id: string;
+            sessionId: string;
+            userId: string;
+            userName: string;
+            filePath: string;
+            startLine: number;
+            endLine: number;
+            side: components["schemas"]["ReviewCommentSide"];
+            body: string;
+            /** Format: date-time */
+            resolvedAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        SessionHandoffInput: {
+            /** @description Email or name of a teammate with access to this thread. */
+            target: string;
+            note?: string;
+        };
+        SessionHandoffResult: {
+            to: components["schemas"]["User"];
+            message: string;
         };
     };
     responses: {
@@ -11505,6 +11908,450 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+        };
+    };
+    listMySharedThreads: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Threads shared with the current user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedThread"][];
+                };
+            };
+        };
+    };
+    listSessionShares: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Thread access list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionAccessList"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    shareSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionShareInput"];
+            };
+        };
+        responses: {
+            /** @description Thread shared. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionShare"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    unshareSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Share removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listSessionGuestLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Guest links. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuestLink"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    createSessionGuestLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Guest link created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuestLinkCreated"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    revokeSessionGuestLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                linkId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Guest link revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listSessionGuestRequests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Guest requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuestRequest"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    approveSessionGuestRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Approved and sent. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuestRequest"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    dismissSessionGuestRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dismissed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuestRequest"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    listSessionReviewComments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Review comments. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionReviewComment"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createSessionReviewComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionReviewCommentInput"];
+            };
+        };
+        responses: {
+            /** @description Comment created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionReviewComment"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    resolveSessionReviewComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resolved comment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionReviewComment"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteSessionReviewComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    handoffSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionHandoffInput"];
+            };
+        };
+        responses: {
+            /** @description Handoff recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionHandoffResult"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    getGuestThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Guest thread view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuestThreadView"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    streamGuestThread: {
+        parameters: {
+            query?: {
+                after?: number;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description WebSocket upgrade. */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createGuestRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GuestRequestInput"];
+            };
+        };
+        responses: {
+            /** @description Guest request queued. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuestRequest"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
         };
     };
     getSessionVisual: {

@@ -65,10 +65,14 @@ import { ActivityLink } from '@/components/chat/LiveLog';
 import {
   harnessesQuery,
   meQuery,
+  sessionGuestRequestsQuery,
   sessionQueueQuery,
+  sessionReviewCommentsQuery,
+  type GuestRequest,
   type QueuedMessage,
   type SandboxState,
   type Session,
+  type SessionReviewComment,
 } from '@/api/queries';
 import { Avatar } from '@/components/Avatar';
 import { HarnessIcon } from '@/components/HarnessIcon';
@@ -588,22 +592,137 @@ function Presence({ viewers }: { viewers: Viewer[] }) {
   const me = useQuery(meQuery);
   const myId = me.data?.user.id;
   if (viewers.length === 0) return null;
+  const activeNotes = viewers
+    .filter((v) => v.id !== myId && v.activity && v.activity !== 'idle')
+    .map((v) =>
+      v.activity === 'typing'
+        ? `${v.name} is typing…`
+        : `${v.name} is viewing diff`,
+    );
   return (
-    <ul aria-label="Viewers" className="flex items-center -space-x-1.5">
-      {viewers.map((v) => {
-        const label = v.id === myId ? `${v.name} (you)` : v.name;
-        return (
-          <li
-            key={v.id}
-            title={label}
-            aria-label={label}
-            className="rounded-full ring-2 ring-background"
-          >
-            <Avatar name={v.name} url={v.avatarUrl} size="sm" />
-          </li>
-        );
-      })}
-    </ul>
+    <div className="flex items-center gap-2">
+      {activeNotes.length > 0 && (
+        <span
+          data-testid="presence-activity"
+          className="rounded-full border bg-card/90 px-2.5 py-0.5 text-xs text-muted-foreground shadow-xs"
+        >
+          {activeNotes.join(' · ')}
+        </span>
+      )}
+      <ul aria-label="Viewers" className="flex items-center -space-x-1.5">
+        {viewers.map((v) => {
+          const activityText =
+            v.activity === 'typing'
+              ? ' · typing'
+              : v.activity === 'viewing_diff'
+                ? ' · viewing diff'
+                : '';
+          const label =
+            (v.id === myId ? `${v.name} (you)` : v.name) + activityText;
+          return (
+            <li
+              key={v.id}
+              title={label}
+              aria-label={label}
+              className="rounded-full ring-2 ring-background"
+            >
+              <Avatar name={v.name} url={v.avatarUrl} size="sm" />
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function GuestRequestCards({
+  sessionId,
+  requests,
+  canUse,
+}: {
+  sessionId: string;
+  requests: GuestRequest[];
+  canUse: boolean;
+}) {
+  const qc = useQueryClient();
+  const pending = Array.isArray(requests)
+    ? requests.filter((r) => r.status === 'pending')
+    : [];
+  const invalidate = () =>
+    qc.invalidateQueries({
+      queryKey: sessionGuestRequestsQuery(sessionId).queryKey,
+    });
+  const approve = useMutation({
+    mutationFn: (requestId: string) =>
+      unwrap(
+        api.POST('/sessions/{sessionId}/guest-requests/{requestId}/approve', {
+          params: { path: { sessionId, requestId } },
+        }),
+      ),
+    onSuccess: () => void invalidate(),
+  });
+  const dismiss = useMutation({
+    mutationFn: (requestId: string) =>
+      unwrap(
+        api.POST('/sessions/{sessionId}/guest-requests/{requestId}/dismiss', {
+          params: { path: { sessionId, requestId } },
+        }),
+      ),
+    onSuccess: () => void invalidate(),
+  });
+  if (pending.length === 0) return null;
+  return (
+    <div
+      data-testid="guest-request-cards"
+      className="mb-2 grid gap-2"
+      aria-label="Guest message requests"
+    >
+      {pending.map((r) => (
+        <div
+          key={r.id}
+          role="group"
+          aria-label={`Guest request from ${r.guestName}`}
+          className="grid gap-2 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 text-sm"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                Guest request · {r.guestName}
+              </p>
+              <p className="mt-1 whitespace-pre-wrap text-foreground">
+                {r.text}
+              </p>
+            </div>
+          </div>
+          {canUse ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={approve.isPending || dismiss.isPending}
+                onClick={() => approve.mutate(r.id)}
+              >
+                Approve &amp; Send
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={approve.isPending || dismiss.isPending}
+                onClick={() => dismiss.mutate(r.id)}
+              >
+                Dismiss
+              </Button>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Waiting for the owner or a collaborator to approve.
+            </p>
+          )}
+          <ErrorText error={approve.error ?? dismiss.error} />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -668,6 +787,7 @@ function SessionComposer({
   onQueueMutated,
   sentHistory,
   onSent,
+  onTypingChange,
 }: {
   sessionId: string;
   agentId?: string;
@@ -681,9 +801,25 @@ function SessionComposer({
   onQueueMutated: () => void;
   sentHistory: string[];
   onSent: () => void;
+  onTypingChange?: (typing: boolean) => void;
 }) {
   const qc = useQueryClient();
   const [text, setText] = useDraft(sessionId);
+  const typingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const handleTextChange = (next: string) => {
+    setText(next);
+    if (!onTypingChange) return;
+    clearTimeout(typingTimer.current);
+    if (next.trim().length > 0) {
+      onTypingChange(true);
+      typingTimer.current = setTimeout(() => onTypingChange(false), 3000);
+    } else {
+      onTypingChange(false);
+    }
+  };
+  useEffect(() => () => clearTimeout(typingTimer.current), []);
   const att = useAttachments();
   const ctx = useComposerContext(sessionId);
   const [uploading, setUploading] = useState(false);
@@ -1009,7 +1145,7 @@ function SessionComposer({
       />
       <Composer
         value={text}
-        onChange={setText}
+        onChange={handleTextChange}
         running={running}
         busy={
           uploading ||
@@ -1113,11 +1249,51 @@ export default function ChatView({
     },
     [qc, sessionId],
   );
-  const { state, running, connected, viewers, reload } = useSessionStream(
-    sessionId,
-    initialRunning,
-    handleQueueUpdated,
+  const handleGuestRequest = useCallback(
+    (req: GuestRequest) => {
+      qc.setQueryData<GuestRequest[]>(
+        sessionGuestRequestsQuery(sessionId).queryKey,
+        (prev) => {
+          const list = prev ?? [];
+          const exists = list.some((r) => r.id === req.id);
+          return exists
+            ? list.map((r) => (r.id === req.id ? req : r))
+            : [...list, req];
+        },
+      );
+    },
+    [qc, sessionId],
   );
+  const handleReviewCommentsUpdated = useCallback(
+    (comments: SessionReviewComment[]) => {
+      qc.setQueryData(sessionReviewCommentsQuery(sessionId).queryKey, comments);
+    },
+    [qc, sessionId],
+  );
+  const { state, running, connected, viewers, reload, sendPresence } =
+    useSessionStream(sessionId, initialRunning, handleQueueUpdated, {
+      onGuestRequest: handleGuestRequest,
+      onReviewCommentsUpdated: handleReviewCommentsUpdated,
+    });
+  useEffect(() => {
+    const onActivity = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ activity?: string }>).detail;
+      if (
+        detail?.activity === 'typing' ||
+        detail?.activity === 'viewing_diff' ||
+        detail?.activity === 'idle'
+      ) {
+        sendPresence(detail.activity);
+      }
+    };
+    globalThis.addEventListener?.('agenthold:presence-activity', onActivity);
+    return () =>
+      globalThis.removeEventListener?.(
+        'agenthold:presence-activity',
+        onActivity,
+      );
+  }, [sendPresence]);
+  const guestRequestsQ = useQuery(sessionGuestRequestsQuery(sessionId));
   const queueQ = useQuery({
     ...sessionQueueQuery(sessionId),
     enabled: canUse,
@@ -1292,6 +1468,11 @@ export default function ChatView({
           </p>
         )}
         {notice}
+        <GuestRequestCards
+          sessionId={sessionId}
+          requests={guestRequestsQ.data ?? []}
+          canUse={canUse}
+        />
         {canUse ? (
           <SessionComposer
             sessionId={sessionId}
@@ -1305,7 +1486,13 @@ export default function ChatView({
             queuedMessages={queuedMessages}
             onQueueMutated={() => setLiveQueue(null)}
             sentHistory={sentHistory}
-            onSent={toBottom}
+            onSent={() => {
+              sendPresence('idle');
+              toBottom();
+            }}
+            onTypingChange={(typing) =>
+              sendPresence(typing ? 'typing' : 'idle')
+            }
           />
         ) : (
           <p className="rounded-2xl border border-dashed px-4 py-3 text-center text-sm text-muted-foreground">

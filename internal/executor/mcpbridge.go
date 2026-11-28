@@ -26,16 +26,22 @@ const (
 type BridgeOptions struct {
 	UserID       string
 	AgentID      string
+	SessionID    string
 	ApprovalMode string
 	// Authorize, if set, is called on every incoming JSON-RPC request and returns
 	// the agent's current approval mode or an error if access was revoked.
 	Authorize func(ctx context.Context) (approvalMode string, err error)
+	// ResolveUser, if set, is called on every incoming JSON-RPC request to
+	// resolve which user's Executor instance should handle the call (per-caller
+	// identity routing). If it returns an error or empty user ID, the call is
+	// refused without falling back to UserID.
+	ResolveUser func(ctx context.Context) (userID string, err error)
 }
 
 var errSessionNotFound = errors.New("executor MCP session not found")
 
 // BridgeMCP relays newline-delimited JSON-RPC 2.0 messages over stream (from a
-// sandbox's `sandboxd executor-mcp` stdio server) to the agent owner's managed
+// sandbox's `sandboxd executor-mcp` stdio server) to the acting caller's managed
 // Executor Streamable HTTP /mcp endpoint. Credentials never leave the host.
 func (m *Manager) BridgeMCP(ctx context.Context, opts BridgeOptions, stream io.ReadWriteCloser) {
 	streamCtx, cancel := context.WithCancel(ctx)
@@ -58,10 +64,10 @@ func (m *Manager) BridgeMCP(ctx context.Context, opts BridgeOptions, stream io.R
 	mcpClient := &http.Client{Timeout: 10 * time.Minute}
 
 	var (
-		writeMu   sync.Mutex
-		sessionMu sync.Mutex
-		sessionID string
-		initReq   []byte
+		writeMu        sync.Mutex
+		sessionMu      sync.Mutex
+		sessionsByUser = map[string]string{}
+		initReq        []byte
 	)
 
 	writeFrame := func(raw []byte, instURL string) error {
@@ -129,6 +135,20 @@ func (m *Manager) BridgeMCP(ctx context.Context, opts BridgeOptions, stream io.R
 			mode = NormalizeApprovalMode(curMode)
 		}
 
+		targetUser := opts.UserID
+		if opts.ResolveUser != nil {
+			resolved, err := opts.ResolveUser(streamCtx)
+			if err != nil {
+				writeRPCError(env.ID, -32001, "executor caller unauthorized: "+err.Error())
+				return
+			}
+			if strings.TrimSpace(resolved) == "" {
+				writeRPCError(env.ID, -32001, "executor caller could not be resolved")
+				return
+			}
+			targetUser = resolved
+		}
+
 		if env.Method == "initialize" {
 			sessionMu.Lock()
 			initReq = line
@@ -139,16 +159,20 @@ func (m *Manager) BridgeMCP(ctx context.Context, opts BridgeOptions, stream io.R
 				Name string `json:"name"`
 			}
 			_ = json.Unmarshal(env.Params, &p)
+			details := map[string]any{"mode": mode}
+			if opts.SessionID != "" {
+				details["sessionId"] = opts.SessionID
+			}
 			m.cfg.Audit.Record(streamCtx, audit.Entry{
 				AgentID: opts.AgentID,
-				UserID:  opts.UserID,
+				UserID:  targetUser,
 				Action:  audit.ExecutorCall,
 				Target:  p.Name,
-				Details: map[string]any{"mode": mode},
+				Details: details,
 			})
 		}
 
-		inst, release, err := m.acquireInstance(streamCtx, opts.UserID)
+		inst, release, err := m.acquireInstance(streamCtx, targetUser)
 		if err != nil {
 			writeRPCError(env.ID, -32603, "executor unavailable: "+err.Error())
 			return
@@ -156,9 +180,18 @@ func (m *Manager) BridgeMCP(ctx context.Context, opts BridgeOptions, stream io.R
 		defer release()
 
 		sessionMu.Lock()
-		curSID := sessionID
+		curSID := sessionsByUser[targetUser]
 		hasInit := len(initReq) > 0
 		sessionMu.Unlock()
+
+		// When a different collaborator's turn triggers an MCP call over an
+		// already-initialized harness bridge, initialize a fresh MCP session on
+		// that collaborator's own Executor instance before forwarding the call.
+		if curSID == "" && hasInit && env.Method != "initialize" {
+			if refreshedSID, refreshErr := m.reinitMCPSessionForUser(streamCtx, mcpClient, inst, mode, &sessionMu, sessionsByUser, targetUser, &initReq, ""); refreshErr == nil && refreshedSID != "" {
+				curSID = refreshedSID
+			}
+		}
 
 		emitted := false
 		emit := func(msg []byte) error {
@@ -168,7 +201,7 @@ func (m *Manager) BridgeMCP(ctx context.Context, opts BridgeOptions, stream io.R
 
 		newSID, status, err := m.postMCPStream(streamCtx, mcpClient, inst, mode, curSID, line, emit)
 		if (errors.Is(err, errSessionNotFound) || (status == http.StatusNotFound && hasInit)) && hasInit && env.Method != "initialize" {
-			refreshedSID, refreshErr := m.reinitMCPSession(streamCtx, mcpClient, inst, mode, &sessionMu, &sessionID, &initReq, curSID)
+			refreshedSID, refreshErr := m.reinitMCPSessionForUser(streamCtx, mcpClient, inst, mode, &sessionMu, sessionsByUser, targetUser, &initReq, curSID)
 			if refreshErr == nil && refreshedSID != "" {
 				emitted = false
 				newSID, status, err = m.postMCPStream(streamCtx, mcpClient, inst, mode, refreshedSID, line, emit)
@@ -183,7 +216,7 @@ func (m *Manager) BridgeMCP(ctx context.Context, opts BridgeOptions, stream io.R
 		}
 		if newSID != "" {
 			sessionMu.Lock()
-			sessionID = newSID
+			sessionsByUser[targetUser] = newSID
 			sessionMu.Unlock()
 		}
 		if (status < 200 || status >= 300) && !emitted {
@@ -224,21 +257,22 @@ func (m *Manager) BridgeMCP(ctx context.Context, opts BridgeOptions, stream io.R
 	}
 }
 
-func (m *Manager) reinitMCPSession(
+func (m *Manager) reinitMCPSessionForUser(
 	ctx context.Context,
 	client *http.Client,
 	inst *Instance,
 	mode string,
 	sessionMu *sync.Mutex,
-	sessionID *string,
+	sessionsByUser map[string]string,
+	userID string,
 	initReq *[]byte,
 	failedSID string,
 ) (string, error) {
 	sessionMu.Lock()
 	defer sessionMu.Unlock()
-	// Another concurrent worker may already have refreshed the session.
-	if *sessionID != "" && *sessionID != failedSID {
-		return *sessionID, nil
+	// Another concurrent worker may already have refreshed this user's session.
+	if cur := sessionsByUser[userID]; cur != "" && cur != failedSID {
+		return cur, nil
 	}
 	if len(*initReq) == 0 {
 		return "", errors.New("no initialize request recorded")
@@ -251,7 +285,7 @@ func (m *Manager) reinitMCPSession(
 		}
 		return "", err
 	}
-	*sessionID = refreshedSID
+	sessionsByUser[userID] = refreshedSID
 	_, _, _ = m.postMCPStream(ctx, client, inst, mode, refreshedSID, []byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}`), discard)
 	return refreshedSID, nil
 }

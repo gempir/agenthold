@@ -12,6 +12,7 @@ import {
   Loader2,
   PanelRight,
   Settings2,
+  Share2,
   Undo2,
 } from 'lucide-react';
 import {
@@ -56,6 +57,7 @@ import {
 import { HarnessMeta } from '@/components/agent/HarnessMeta';
 import { agentDraftKey } from '@/lib/drafts';
 import { DraftChat } from '@/components/chat/DraftChat';
+import { ThreadShareDialog } from '@/components/chat/ThreadShareDialog';
 import { Crumb, CrumbSep, TopBar } from '@/components/layout/TopBar';
 import { readPref, writePref } from '@/components/layout/shell';
 import { useSettle } from '@/hooks/useSettle';
@@ -107,6 +109,7 @@ export function AgentPage({
   const [draftPermissionMode, setDraftPermissionMode] =
     useState<PermissionMode>('full-access');
   const [backgroundSessions, setBackgroundSessions] = useState<Session[]>([]);
+  const [shareOpen, setShareOpen] = useState(false);
   // The tab shows the open chat's title, then the agent.
   const active = sessions.data?.find((s) => s.id === sessionId);
   useDocumentTitle(
@@ -130,8 +133,14 @@ export function AgentPage({
     );
 
   const a = q.data;
-  const access = accessOf(a);
+  const baseAccess = accessOf(a);
   const selected = active;
+  const access =
+    selected?.shareRole === 'viewer'
+      ? { canUse: false, isOwner: false }
+      : selected?.shareRole === 'collaborator'
+        ? { canUse: true, isOwner: false }
+        : baseAccess;
 
   // The panel's workspace: files and threads open in tabs beside the thread.
   const openTab = (t: DynamicTab) => onPanel(openPanelTab(agentId, t));
@@ -211,6 +220,18 @@ export function AgentPage({
                   <span className="max-sm:sr-only">
                     {selected.settledAt ? 'Unsettle' : 'Settle'}
                   </span>
+                </Button>
+              )}
+              {selected && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground"
+                  title="Share thread"
+                  onClick={() => setShareOpen(true)}
+                >
+                  <Share2 className="size-3.5" aria-hidden />
+                  <span className="max-sm:sr-only">Share</span>
                 </Button>
               )}
               <ThreadDetailsCard
@@ -575,6 +596,16 @@ export function AgentPage({
           }}
           onClose={() => onPanel(undefined)}
           actions={actions}
+        />
+      )}
+      {selected && (
+        <ThreadShareDialog
+          sessionId={selected.id}
+          sessionTitle={selected.title}
+          isOwner={access.isOwner}
+          canPrompt={access.canUse}
+          open={shareOpen}
+          onOpenChange={setShareOpen}
         />
       )}
     </div>

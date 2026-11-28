@@ -99,6 +99,35 @@ type Viewer struct {
 	Name      string `json:"name"`
 	AvatarURL string `json:"avatarUrl"`
 	Role      string `json:"role"`
+	Activity  string `json:"activity,omitempty"` // "idle" | "typing" | "viewing_diff"
+}
+
+// NormalizeViewerActivity returns a valid presence activity string.
+func NormalizeViewerActivity(a string) string {
+	switch a {
+	case "typing", "viewing_diff":
+		return a
+	default:
+		return "idle"
+	}
+}
+
+func activityRank(a string) int {
+	switch a {
+	case "typing":
+		return 2
+	case "viewing_diff":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// StreamNotice is an ephemeral real-time frame broadcast to session subscribers
+// (e.g. guest_request, review_comments_updated).
+type StreamNotice struct {
+	Type    string
+	Payload map[string]any
 }
 
 // Subscription receives a session's events in order, starting after a cursor.
@@ -107,13 +136,32 @@ type Subscription struct {
 	// Presence receives the full list of viewers whenever it changes.
 	Presence chan []Viewer
 	// Queue receives the full queued message list whenever the queue changes.
-	Queue   chan QueueUpdate
+	Queue chan QueueUpdate
+	// Notice receives ephemeral real-time notifications (guest requests, review comments).
+	Notice  chan StreamNotice
 	viewer  *Viewer
 	l       *log
 	session string
 	once    sync.Once
 	// lost is closed if the subscriber fell too far behind; it must resubscribe.
 	lost chan struct{}
+}
+
+// SetActivity updates this subscriber's presence activity and broadcasts the
+// updated viewer list to all subscribers of the session.
+func (s *Subscription) SetActivity(activity string) {
+	if s == nil || s.viewer == nil {
+		return
+	}
+	norm := NormalizeViewerActivity(activity)
+	s.l.mu.Lock()
+	if s.viewer.Activity == norm {
+		s.l.mu.Unlock()
+		return
+	}
+	s.viewer.Activity = norm
+	s.l.broadcastPresence(s.session)
+	s.l.mu.Unlock()
 }
 
 func (s *Subscription) push(ev Event) {
@@ -139,13 +187,22 @@ func (s *Subscription) Close() {
 
 // viewers lists distinct viewers of a session. Callers hold l.mu.
 func (l *log) viewers(sessionID string) []Viewer {
-	seen := map[string]bool{}
-	out := []Viewer{}
+	byID := map[string]Viewer{}
 	for s := range l.subs[sessionID] {
-		if s.viewer != nil && !seen[s.viewer.ID] {
-			seen[s.viewer.ID] = true
-			out = append(out, *s.viewer)
+		if s.viewer == nil {
+			continue
 		}
+		v := *s.viewer
+		if v.Activity == "" {
+			v.Activity = "idle"
+		}
+		if prev, ok := byID[v.ID]; !ok || activityRank(v.Activity) > activityRank(prev.Activity) {
+			byID[v.ID] = v
+		}
+	}
+	out := make([]Viewer, 0, len(byID))
+	for _, v := range byID {
+		out = append(out, v)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -182,6 +239,18 @@ func (l *log) broadcastQueue(sessionID string, update QueueUpdate) {
 	}
 }
 
+// broadcastNotice sends an ephemeral real-time frame to every subscriber.
+func (l *log) broadcastNotice(sessionID string, notice StreamNotice) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for s := range l.subs[sessionID] {
+		select {
+		case s.Notice <- notice:
+		default:
+		}
+	}
+}
+
 // rewind deletes stored events with seq >= fromSeq and updates the cached seq.
 func (l *log) rewind(ctx context.Context, sessionID string, fromSeq int64) (int64, error) {
 	l.mu.Lock()
@@ -205,7 +274,12 @@ func (l *log) rewind(ctx context.Context, sessionID string, fromSeq int64) (int6
 // subscribe returns stored events after `after` and a subscription for
 // everything later. There is no gap and no duplicate between the two.
 func (l *log) subscribe(ctx context.Context, sessionID string, after int64, viewer *Viewer) ([]Event, *Subscription, error) {
-	s := &Subscription{C: make(chan Event, 1024), Presence: make(chan []Viewer, 1), Queue: make(chan QueueUpdate, 1), viewer: viewer, l: l, session: sessionID, lost: make(chan struct{})}
+	if viewer != nil && viewer.Activity == "" {
+		v := *viewer
+		v.Activity = "idle"
+		viewer = &v
+	}
+	s := &Subscription{C: make(chan Event, 1024), Presence: make(chan []Viewer, 1), Queue: make(chan QueueUpdate, 1), Notice: make(chan StreamNotice, 32), viewer: viewer, l: l, session: sessionID, lost: make(chan struct{})}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var backlog []Event

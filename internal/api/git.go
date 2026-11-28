@@ -261,7 +261,7 @@ func (a *API) CancelGitHubConnect(ctx context.Context, req gen.CancelGitHubConne
 
 // ListAgentGitRepos implements gen.StrictServerInterface.
 func (a *API) ListAgentGitRepos(ctx context.Context, req gen.ListAgentGitReposRequestObject) (gen.ListAgentGitReposResponseObject, error) {
-	if _, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentRead); err != nil {
+	if _, err := a.readAgentOrSharedSession(ctx, req.AgentId); err != nil {
 		return nil, err
 	}
 	out := gen.ListAgentGitRepos200JSONResponse{Repos: []gen.GitRepo{}}

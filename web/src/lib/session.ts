@@ -690,11 +690,14 @@ export function chatReducer(
     : applyEvent(s, action.event);
 }
 
+export type ViewerActivity = 'idle' | 'typing' | 'viewing_diff';
+
 export interface Viewer {
   id: string;
   name: string;
   avatarUrl: string;
   role: string;
+  activity?: ViewerActivity;
 }
 
 export type StreamMessage =
@@ -706,6 +709,16 @@ export type StreamMessage =
       messages: QueuedMessage[];
       count: number;
     }
+  | {
+      type: 'guest_request';
+      sessionId: string;
+      request: components['schemas']['GuestRequest'];
+    }
+  | {
+      type: 'review_comments_updated';
+      sessionId: string;
+      comments: components['schemas']['SessionReviewComment'][];
+    }
   | { type: 'event'; event: SessionEvent };
 
 /** Parses a stream text frame; null for anything unrecognised. */
@@ -716,13 +729,36 @@ export function parseStreamMessage(text: string): StreamMessage | null {
     if (m.type === 'status' && typeof m.running === 'boolean')
       return { type: 'status', running: m.running };
     if (m.type === 'presence' && Array.isArray(m.viewers)) {
-      const viewers = m.viewers.filter(isObj).map((v) => ({
-        id: str(v.id),
-        name: str(v.name),
-        avatarUrl: str(v.avatarUrl),
-        role: str(v.role),
-      }));
+      const viewers = m.viewers.filter(isObj).map((v) => {
+        const rawAct = str(v.activity);
+        const activity: ViewerActivity | undefined =
+          rawAct === 'typing' || rawAct === 'viewing_diff' || rawAct === 'idle'
+            ? rawAct
+            : undefined;
+        return {
+          id: str(v.id),
+          name: str(v.name),
+          avatarUrl: str(v.avatarUrl),
+          role: str(v.role),
+          ...(activity ? { activity } : {}),
+        };
+      });
       return { type: 'presence', viewers: viewers.filter((v) => v.id) };
+    }
+    if (m.type === 'guest_request' && isObj(m.request)) {
+      return {
+        type: 'guest_request',
+        sessionId: str(m.sessionId),
+        request: m.request as unknown as components['schemas']['GuestRequest'],
+      };
+    }
+    if (m.type === 'review_comments_updated' && Array.isArray(m.comments)) {
+      return {
+        type: 'review_comments_updated',
+        sessionId: str(m.sessionId),
+        comments:
+          m.comments as unknown as components['schemas']['SessionReviewComment'][],
+      };
     }
     if (m.type === 'queue_updated' && Array.isArray(m.messages)) {
       const messages: QueuedMessage[] = m.messages.filter(isObj).map((q) => ({
@@ -766,6 +802,15 @@ export function sessionStreamUrl(
 ): string {
   const scheme = loc.protocol === 'https:' ? 'wss' : 'ws';
   return `${scheme}://${loc.host}/api/v1/sessions/${encodeURIComponent(sessionId)}/stream?after=${after}`;
+}
+
+export function guestStreamUrl(
+  loc: { protocol: string; host: string },
+  token: string,
+  after: number,
+): string {
+  const scheme = loc.protocol === 'https:' ? 'wss' : 'ws';
+  return `${scheme}://${loc.host}/api/v1/guest/${encodeURIComponent(token)}/stream?after=${after}`;
 }
 
 /** Reconnect delay: 500ms doubling up to 10s. */

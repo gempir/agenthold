@@ -17,11 +17,36 @@ import (
 
 const maxUpload = 1 << 30 // 1 GiB
 
+// readAgentOrSharedSession checks agent read access, or falls back to
+// read-only access (Role == authz.None, so fileDeny applies) when the user has
+// at least one thread-level share on a session of agentID.
+func (a *API) readAgentOrSharedSession(ctx context.Context, agentID string) (authz.AgentAccess, error) {
+	u := me(ctx)
+	acc, err := a.authz.Agent(ctx, u.ID, agentID, authz.AgentRead)
+	if err == nil {
+		return acc, nil
+	}
+	if !errors.Is(err, authz.ErrNotFound) {
+		return authz.AgentAccess{}, err
+	}
+	ok, serr := a.authz.HasSessionShareOnAgent(ctx, u.ID, agentID)
+	if serr != nil || !ok {
+		return authz.AgentAccess{}, authz.ErrNotFound
+	}
+	row, rerr := a.Store.GetAgentWithSandbox(ctx, agentID)
+	if rerr != nil {
+		return authz.AgentAccess{}, authz.ErrNotFound
+	}
+	return authz.AgentAccess{Row: row, Role: authz.None}, nil
+}
+
 // connected returns the agent's tunnel session after checking that the user
-// may read the agent. File operations do not wake sleeping agents.
+// may read the agent (or a shared thread of it). File operations do not wake sleeping agents.
 func (a *API) connected(ctx context.Context, agentID string) (*tunnel.Session, error) {
-	s, _, err := a.connectedAgent(ctx, agentID, authz.AgentRead)
-	return s, err
+	if _, err := a.readAgentOrSharedSession(ctx, agentID); err != nil {
+		return nil, err
+	}
+	return a.session(ctx, agentID)
 }
 
 func (a *API) connectedAgent(ctx context.Context, agentID string, action authz.Action) (*tunnel.Session, db.Agent, error) {
@@ -83,7 +108,7 @@ func (a *API) ListFiles(ctx context.Context, req gen.ListFilesRequestObject) (ge
 // DownloadFile implements gen.StrictServerInterface. The file is streamed:
 // the response starts once sandboxd reports the size.
 func (a *API) DownloadFile(ctx context.Context, req gen.DownloadFileRequestObject) (gen.DownloadFileResponseObject, error) {
-	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentRead)
+	acc, err := a.readAgentOrSharedSession(ctx, req.AgentId)
 	if err != nil {
 		return nil, err
 	}

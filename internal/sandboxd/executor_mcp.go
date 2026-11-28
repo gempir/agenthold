@@ -1,7 +1,10 @@
 package sandboxd
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -18,10 +21,14 @@ import (
 // agent's home. The harness starts "sandboxd executor-mcp" which connects here.
 const ExecutorSocket = ".agenthold/executor.sock"
 
+type executorSessionHeader struct {
+	Session string `json:"_agenthold_session"`
+}
+
 // ServeExecutorMCP runs the Executor MCP stdio bridge inside the sandbox
 // ("sandboxd executor-mcp"). It connects stdin/stdout to sandboxd's local
 // executor socket, which relays the JSON-RPC stream through the authenticated
-// tunnel to the agent owner's Executor instance on the controller.
+// tunnel to the acting caller's Executor instance on the controller.
 func ServeExecutorMCP(in io.Reader, out io.Writer) error {
 	home, _ := os.UserHomeDir()
 	if h := os.Getenv("HOME"); h != "" {
@@ -37,6 +44,12 @@ func ServeExecutorMCP(in io.Reader, out io.Writer) error {
 		return fmt.Errorf("agenthold executor unavailable: %w", err)
 	}
 	defer c.Close()
+
+	if sess := strings.TrimSpace(os.Getenv("AGENTHOLD_SESSION")); sess != "" {
+		if hdr, err := json.Marshal(executorSessionHeader{Session: sess}); err == nil {
+			_, _ = c.Write(append(hdr, '\n'))
+		}
+	}
 
 	go func() {
 		_, _ = io.Copy(c, in)
@@ -93,7 +106,22 @@ func (d *Daemon) executorConn(ctx context.Context, c net.Conn) {
 	if open == nil {
 		return
 	}
-	st, err := open(ctx, tunnel.Open{Op: tunnel.OpExecutor})
+	br := bufio.NewReader(c)
+	var sessionID string
+	var src io.Reader = br
+	// Peek an optional session header sent by ServeExecutorMCP so the controller
+	// can attribute Executor MCP calls to the exact session and acting user.
+	if prefix, err := br.Peek(22); err == nil && bytes.HasPrefix(prefix, []byte(`{"_agenthold_session":`)) {
+		if line, err := br.ReadBytes('\n'); err == nil {
+			var hdr executorSessionHeader
+			if json.Unmarshal(bytes.TrimSpace(line), &hdr) == nil && hdr.Session != "" {
+				sessionID = hdr.Session
+			} else {
+				src = io.MultiReader(bytes.NewReader(line), br)
+			}
+		}
+	}
+	st, err := open(ctx, tunnel.Open{Op: tunnel.OpExecutor, Session: sessionID})
 	if err != nil {
 		d.log.Warn("open executor stream", "err", err)
 		return
@@ -113,7 +141,7 @@ func (d *Daemon) executorConn(ctx context.Context, c net.Conn) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(st, c)
+		_, _ = io.Copy(st, src)
 		if cw, ok := st.(interface{ CloseWrite() error }); ok {
 			_ = cw.CloseWrite()
 		} else {

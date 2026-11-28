@@ -438,6 +438,28 @@ type Session struct {
 	UserAgent string
 }
 
+type SessionGuestLink struct {
+	ID        string
+	SessionID string
+	TokenHash string
+	CreatedBy string
+	ExpiresAt int64
+	RevokedAt sql.NullInt64
+	CreatedAt int64
+}
+
+type SessionGuestRequest struct {
+	ID          string
+	SessionID   string
+	GuestLinkID string
+	GuestName   string
+	Text        string
+	Status      string
+	ResolvedBy  sql.NullString
+	CreatedAt   int64
+	ResolvedAt  sql.NullInt64
+}
+
 type SessionQueuedMessage struct {
 	ID         string
 	SessionID  string
@@ -447,6 +469,28 @@ type SessionQueuedMessage struct {
 	ImagesJson string
 	Steer      int64
 	CreatedAt  int64
+}
+
+type SessionReviewComment struct {
+	ID         string
+	SessionID  string
+	UserID     string
+	UserName   string
+	FilePath   string
+	StartLine  int64
+	EndLine    int64
+	Side       string
+	Body       string
+	ResolvedAt sql.NullInt64
+	CreatedAt  int64
+}
+
+type SessionShare struct {
+	SessionID string
+	UserID    string
+	Role      string
+	CreatedBy string
+	CreatedAt int64
 }
 
 type Skill struct {

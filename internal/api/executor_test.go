@@ -252,20 +252,21 @@ func TestExecutorAPIAndAgentSettings(t *testing.T) {
 		t.Fatalf("clone did not preserve executor settings: enabled=%v mode=%v", cloned.ExecutorEnabled, cloned.ExecutorApprovalMode)
 	}
 
-	// Sharing an agent automatically turns off Executor so collaborators never silently gain owner credentials.
+	// Sharing an agent keeps Executor enabled because Executor MCP calls now
+	// route per-caller identity safely without exposing owner tokens to collaborators.
 	_ = e.login("bob-sub", "Bob", "bob@example.com")
 	expect(t, "share agent", alice.do(http.MethodPost, "/agents/"+ag.Id+"/shares", map[string]string{"email": "bob@example.com"}, nil), http.StatusOK)
 	var afterShare gen.Agent
 	expect(t, "get agent after share", alice.do(http.MethodGet, "/agents/"+ag.Id, nil, &afterShare), http.StatusOK)
-	if afterShare.ExecutorEnabled {
-		t.Fatal("sharing an agent must automatically disable Executor until the owner explicitly re-enables it")
+	if !afterShare.ExecutorEnabled {
+		t.Fatal("sharing an agent should preserve ExecutorEnabled now that per-caller identity routing is active")
 	}
-	// Updating only approval mode must not re-enable Executor.
+	// Updating only approval mode must preserve enabled state.
 	var modeOnly gen.Agent
 	expect(t, "patch approval mode only", alice.do(http.MethodPatch, "/agents/"+ag.Id, map[string]any{
 		"executorApprovalMode": "automatic",
 	}, &modeOnly), http.StatusOK)
-	if modeOnly.ExecutorEnabled || modeOnly.ExecutorApprovalMode != gen.Automatic {
+	if !modeOnly.ExecutorEnabled || modeOnly.ExecutorApprovalMode != gen.Automatic {
 		t.Fatalf("mode-only patch changed enabled state: enabled=%v mode=%v", modeOnly.ExecutorEnabled, modeOnly.ExecutorApprovalMode)
 	}
 

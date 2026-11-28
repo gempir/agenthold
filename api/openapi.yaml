@@ -25,6 +25,8 @@ tags:
   - name: auth-flow
     description: Browser redirects of the login flow. Not JSON endpoints.
   - name: auth
+  - name: projects
+    description: Projects group repositories and folders; threads work on them in workspaces of their own.
   - name: agents
   - name: nodes
   - name: images
@@ -3141,6 +3143,315 @@ paths:
         "502": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
 
+  /projects:
+    get:
+      operationId: listProjects
+      tags: [projects]
+      description: The signed-in user's projects.
+      responses:
+        "200":
+          description: Projects by name.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Project" }
+    post:
+      operationId: createProject
+      tags: [projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProjectInput" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /projects/{projectId}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      operationId: getProject
+      tags: [projects]
+      responses:
+        "200":
+          description: The project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateProject
+      tags: [projects]
+      description: >-
+        Replace the project's name, description, instructions and sources. Sources are matched by name; changing a
+        source does not move existing checkouts on agents' disks. The slug (directory name) never changes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProjectInput" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteProject
+      tags: [projects]
+      description: Delete the project and its tasks. Threads and checkouts on agents' disks stay.
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /projects/{projectId}/status:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      operationId: getProjectStatus
+      tags: [projects]
+      description: >-
+        The project's threads with the files each changed on its branch (for agents whose machines run), and the
+        files more than one thread changed.
+      parameters:
+        - name: includeSettled
+          in: query
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectStatus" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /projects/{projectId}/threads:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    post:
+      operationId: startProjectThread
+      tags: [projects]
+      description: >-
+        Start a thread of the project on an agent. By default it gets a workspace of its own: a git worktree of every
+        source on a new branch. direct works in the main checkouts instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agentId]
+              properties:
+                agentId: { type: string }
+                title: { type: string, maxLength: 200 }
+                direct: { type: boolean }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /projects/{projectId}/tasks:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      operationId: listProjectTasks
+      tags: [projects]
+      responses:
+        "200":
+          description: Tasks, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ProjectTask" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createProjectTask
+      tags: [projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string, minLength: 1, maxLength: 200 }
+                body: { type: string, maxLength: 20000 }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectTask" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /tasks/{taskId}:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    patch:
+      operationId: updateProjectTask
+      tags: [projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string, minLength: 1, maxLength: 200 }
+                body: { type: string, maxLength: 20000 }
+                status: { $ref: "#/components/schemas/ProjectTaskStatus" }
+                note: { type: string, maxLength: 4000 }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectTask" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteProjectTask
+      tags: [projects]
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /tasks/{taskId}/assign:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    post:
+      operationId: assignProjectTask
+      tags: [projects]
+      description: >-
+        Start a thread on the agent (in a workspace of its own) that works on the task, and send it the task. The task
+        becomes in_progress.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agentId]
+              properties:
+                agentId: { type: string }
+      responses:
+        "200":
+          description: Assigned.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectTaskAssignment" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/project/changes:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    get:
+      operationId: getSessionProjectChanges
+      tags: [projects]
+      description: What the project thread changed on its branch, per source. The agent's machine must run.
+      responses:
+        "200":
+          description: Changes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ProjectSourceChanges" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/project/merge:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      operationId: mergeSessionProject
+      tags: [projects]
+      description: >-
+        Merge the project thread's branch into the main checkout of every source it has commits in. Uncommitted
+        changes, or a main checkout that is not clean or not on its default branch, refuse it before anything is
+        merged; a conflict aborts that source's merge and stops. A full merge marks the thread's tasks done.
+      responses:
+        "200":
+          description: What was merged.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ProjectSourceResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/project/push:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      operationId: pushSessionProject
+      tags: [projects]
+      description: Push the project thread's branch of every repository it has commits in.
+      responses:
+        "200":
+          description: What was pushed.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ProjectSourceResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/project/close:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      operationId: closeSessionProject
+      tags: [projects]
+      description: >-
+        Remove the project thread's workspace (its worktrees and branches) and settle the thread. Without force it
+        refuses uncommitted changes and commits that are not merged; force discards them.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force: { type: boolean }
+      responses:
+        "200":
+          description: Closed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
 security:
   - session: []
   - token: []
@@ -3157,6 +3468,16 @@ components:
       name: agenthold_session
 
   parameters:
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema: { type: string }
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema: { type: string }
     SessionId:
       name: sessionId
       in: path
@@ -3944,6 +4265,9 @@ components:
         git:
           $ref: "#/components/schemas/SessionGit"
           description: "The git project and branch this session is on; absent when not in a git repository."
+        project:
+          $ref: "#/components/schemas/SessionProject"
+          description: The project this thread works on; absent for threads of no project.
         model:
           $ref: "#/components/schemas/ModelChoice"
           description: The session's own model choice; absent when it uses the agent's default.
@@ -4492,6 +4816,159 @@ components:
           required: [url]
           properties:
             url: { type: string, description: The secret delivery URL. Shown once. }
+
+    SessionProject:
+      type: object
+      required: [id, name, direct]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        direct: { type: boolean, description: "Works in the main checkouts, not in a workspace of its own." }
+        branch: { type: string, description: "The branch of the thread's workspace (absent when direct)." }
+
+    ProjectSourceKind:
+      type: string
+      enum: [repo, folder]
+      description: "repo: cloned from url. folder: a directory (created, or the existing path), made a local git repository."
+
+    ProjectSource:
+      type: object
+      required: [id, name, kind]
+      properties:
+        id: { type: string }
+        name: { type: string, description: "The source's directory in the project's workspaces." }
+        kind: { $ref: "#/components/schemas/ProjectSourceKind" }
+        url: { type: string }
+        path: { type: string, description: "Where the main checkout lives in agents' homes; default projects/<slug>/<name>." }
+        defaultBranch: { type: string, description: "The branch threads start from and merge into; found on the first checkout when not set." }
+
+    ProjectSourceInput:
+      type: object
+      properties:
+        name: { type: string, maxLength: 64 }
+        kind: { $ref: "#/components/schemas/ProjectSourceKind" }
+        url: { type: string, maxLength: 2048 }
+        path: { type: string, maxLength: 4096 }
+        defaultBranch: { type: string, maxLength: 255 }
+
+    ProjectInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: string, maxLength: 2000 }
+        instructions: { type: string, maxLength: 20000, description: "Written into every workspace's AGENTS.md." }
+        sources:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/ProjectSourceInput" }
+
+    Project:
+      type: object
+      required: [id, name, slug, description, instructions, sources, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        slug: { type: string, description: "The project's directory in agents' homes: projects/<slug>." }
+        description: { type: string }
+        instructions: { type: string }
+        sources:
+          type: array
+          items: { $ref: "#/components/schemas/ProjectSource" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ProjectFileChange:
+      type: object
+      required: [path, status]
+      properties:
+        path: { type: string }
+        status: { type: string, description: "git's status letter (A, M, D, ...); ? untracked." }
+
+    ProjectSourceChanges:
+      type: object
+      required: [source, base, commits, dirty, remote, files]
+      properties:
+        source: { type: string }
+        base: { type: string, description: The default branch the thread's branch forked from. }
+        commits: { type: integer }
+        dirty: { type: boolean, description: Uncommitted changes. }
+        remote: { type: boolean, description: The repository has a remote to push to. }
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/ProjectFileChange" }
+        error: { type: string }
+
+    ProjectThread:
+      type: object
+      required: [session, agentId, agentName, connected, sources]
+      properties:
+        session: { $ref: "#/components/schemas/Session" }
+        agentId: { type: string }
+        agentName: { type: string }
+        connected: { type: boolean, description: "The agent's machine runs; changes are only known then." }
+        sources:
+          type: array
+          items: { $ref: "#/components/schemas/ProjectSourceChanges" }
+        error: { type: string }
+
+    ProjectOverlap:
+      type: object
+      required: [source, path, sessionIds]
+      properties:
+        source: { type: string }
+        path: { type: string }
+        sessionIds:
+          type: array
+          items: { type: string }
+
+    ProjectStatus:
+      type: object
+      required: [threads, overlaps]
+      properties:
+        threads:
+          type: array
+          items: { $ref: "#/components/schemas/ProjectThread" }
+        overlaps:
+          type: array
+          items: { $ref: "#/components/schemas/ProjectOverlap" }
+
+    ProjectTaskStatus:
+      type: string
+      enum: [open, in_progress, review, done, cancelled]
+
+    ProjectTask:
+      type: object
+      required: [id, projectId, title, body, status, note, createdBy, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        title: { type: string }
+        body: { type: string }
+        status: { $ref: "#/components/schemas/ProjectTaskStatus" }
+        agentId: { type: string, description: The agent the task is assigned to. }
+        agentName: { type: string }
+        sessionId: { type: string, description: The thread working on it. }
+        note: { type: string, description: "The latest note on the task (agents leave one when they hand it back)." }
+        createdBy: { type: string, description: "Who created it: a user's name, or agent <name>." }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ProjectTaskAssignment:
+      type: object
+      required: [task, session]
+      properties:
+        task: { $ref: "#/components/schemas/ProjectTask" }
+        session: { $ref: "#/components/schemas/Session" }
+
+    ProjectSourceResult:
+      type: object
+      required: [source, done, commits]
+      properties:
+        source: { type: string }
+        done: { type: boolean, description: "Merged (or pushed)." }
+        commits: { type: integer }
+        error: { type: string }
 
     SessionGit:
       type: object

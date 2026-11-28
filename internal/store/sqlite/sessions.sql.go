@@ -66,7 +66,7 @@ func (q *Queries) DeleteAgentSession(ctx context.Context, id string) error {
 }
 
 const getAgentSession = `-- name: GetAgentSession :one
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq FROM agent_sessions WHERE id = ?
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch FROM agent_sessions WHERE id = ?
 `
 
 func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession, error) {
@@ -94,6 +94,8 @@ func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession,
 		&i.UnsettledAt,
 		&i.AcpHarness,
 		&i.HandoffSeq,
+		&i.ProjectID,
+		&i.ProjectBranch,
 	)
 	return i, err
 }
@@ -163,7 +165,7 @@ func (q *Queries) InsertSessionEvent(ctx context.Context, arg InsertSessionEvent
 }
 
 const linkedSessions = `-- name: LinkedSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq FROM agent_sessions WHERE agent_id = ? AND origin_agent_id = ? ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch FROM agent_sessions WHERE agent_id = ? AND origin_agent_id = ? ORDER BY updated_at DESC
 `
 
 type LinkedSessionsParams struct {
@@ -203,6 +205,8 @@ func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) 
 			&i.UnsettledAt,
 			&i.AcpHarness,
 			&i.HandoffSeq,
+			&i.ProjectID,
+			&i.ProjectBranch,
 		); err != nil {
 			return nil, err
 		}
@@ -218,7 +222,7 @@ func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) 
 }
 
 const listAgentSessions = `-- name: ListAgentSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq FROM agent_sessions WHERE agent_id = ? ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch FROM agent_sessions WHERE agent_id = ? ORDER BY updated_at DESC
 `
 
 func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]AgentSession, error) {
@@ -252,6 +256,8 @@ func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]Agen
 			&i.UnsettledAt,
 			&i.AcpHarness,
 			&i.HandoffSeq,
+			&i.ProjectID,
+			&i.ProjectBranch,
 		); err != nil {
 			return nil, err
 		}

@@ -72,6 +72,13 @@ const (
 	GitCheckout         = "git.checkout"
 	GitWorktreeAdd      = "git.worktree_add"
 	GitPull             = "git.pull"
+	GitMerge            = "git.merge"
+
+	ProjectThreadStart = "project.thread_start"
+	ProjectMerge       = "project.merge"
+	ProjectPush        = "project.push"
+	ProjectClose       = "project.close"
+	TaskAssign         = "task.assign"
 
 	ExecutorCall          = "executor.mcp.call"
 	ExecutorAgentUpdate   = "executor.agent.update"

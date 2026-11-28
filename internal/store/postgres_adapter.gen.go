@@ -38,6 +38,10 @@ func (p postgresQueries) ClearDefaultImages(ctx context.Context) error {
 	return p.q.ClearDefaultImages(ctx)
 }
 
+func (p postgresQueries) ClearProjectSessions(ctx context.Context, projectID string) error {
+	return p.q.ClearProjectSessions(ctx, projectID)
+}
+
 func (p postgresQueries) CompleteImageBuild(ctx context.Context, arg db.CompleteImageBuildParams) error {
 	return p.q.CompleteImageBuild(ctx, postgres.CompleteImageBuildParams(arg))
 }
@@ -168,6 +172,18 @@ func (p postgresQueries) CreatePreviewSession(ctx context.Context, arg db.Create
 	return p.q.CreatePreviewSession(ctx, postgres.CreatePreviewSessionParams(arg))
 }
 
+func (p postgresQueries) CreateProject(ctx context.Context, arg db.CreateProjectParams) error {
+	return p.q.CreateProject(ctx, postgres.CreateProjectParams(arg))
+}
+
+func (p postgresQueries) CreateProjectSource(ctx context.Context, arg db.CreateProjectSourceParams) error {
+	return p.q.CreateProjectSource(ctx, postgres.CreateProjectSourceParams(arg))
+}
+
+func (p postgresQueries) CreateProjectTask(ctx context.Context, arg db.CreateProjectTaskParams) error {
+	return p.q.CreateProjectTask(ctx, postgres.CreateProjectTaskParams(arg))
+}
+
 func (p postgresQueries) CreateProviderLogin(ctx context.Context, arg db.CreateProviderLoginParams) error {
 	return p.q.CreateProviderLogin(ctx, postgres.CreateProviderLoginParams(arg))
 }
@@ -274,6 +290,18 @@ func (p postgresQueries) DeleteOldReleasedExposureNames(ctx context.Context, rel
 
 func (p postgresQueries) DeletePreviewSession(ctx context.Context, tokenHash string) error {
 	return p.q.DeletePreviewSession(ctx, tokenHash)
+}
+
+func (p postgresQueries) DeleteProject(ctx context.Context, id string) error {
+	return p.q.DeleteProject(ctx, id)
+}
+
+func (p postgresQueries) DeleteProjectSource(ctx context.Context, id string) error {
+	return p.q.DeleteProjectSource(ctx, id)
+}
+
+func (p postgresQueries) DeleteProjectTask(ctx context.Context, id string) error {
+	return p.q.DeleteProjectTask(ctx, id)
 }
 
 func (p postgresQueries) DeleteProviderLogin(ctx context.Context, arg db.DeleteProviderLoginParams) (int64, error) {
@@ -481,6 +509,16 @@ func (p postgresQueries) GetNodeByFingerprint(ctx context.Context, certFingerpri
 func (p postgresQueries) GetPreviewSessionUser(ctx context.Context, arg db.GetPreviewSessionUserParams) (db.GetPreviewSessionUserRow, error) {
 	value, err := p.q.GetPreviewSessionUser(ctx, postgres.GetPreviewSessionUserParams(arg))
 	return db.GetPreviewSessionUserRow{User: db.User(value.User)}, err
+}
+
+func (p postgresQueries) GetProject(ctx context.Context, id string) (db.Project, error) {
+	value, err := p.q.GetProject(ctx, id)
+	return db.Project(value), err
+}
+
+func (p postgresQueries) GetProjectTask(ctx context.Context, id string) (db.ProjectTask, error) {
+	value, err := p.q.GetProjectTask(ctx, id)
+	return db.ProjectTask(value), err
 }
 
 func (p postgresQueries) GetProviderLogin(ctx context.Context, arg db.GetProviderLoginParams) (db.ProviderLogin, error) {
@@ -916,6 +954,54 @@ func (p postgresQueries) ListNodes(ctx context.Context) ([]db.Node, error) {
 	return result, nil
 }
 
+func (p postgresQueries) ListProjectSessions(ctx context.Context, projectID string) ([]db.AgentSession, error) {
+	value, err := p.q.ListProjectSessions(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.AgentSession, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.AgentSession(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListProjectSources(ctx context.Context, projectID string) ([]db.ProjectSource, error) {
+	value, err := p.q.ListProjectSources(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ProjectSource, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.ProjectSource(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListProjectTasks(ctx context.Context, projectID string) ([]db.ProjectTask, error) {
+	value, err := p.q.ListProjectTasks(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ProjectTask, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.ProjectTask(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListProjects(ctx context.Context, ownerID string) ([]db.Project, error) {
+	value, err := p.q.ListProjects(ctx, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.Project, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.Project(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListProviderLogins(ctx context.Context) ([]db.ProviderLogin, error) {
 	value, err := p.q.ListProviderLogins(ctx)
 	if err != nil {
@@ -984,6 +1070,18 @@ func (p postgresQueries) ListSessionEvents(ctx context.Context, arg db.ListSessi
 	result := make([]db.AgentSessionEvent, 0, len(value))
 	for _, row := range value {
 		result = append(result, db.AgentSessionEvent(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListSessionTasks(ctx context.Context, sessionID string) ([]db.ProjectTask, error) {
+	value, err := p.q.ListSessionTasks(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ProjectTask, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.ProjectTask(row))
 	}
 	return result, nil
 }
@@ -1291,6 +1389,10 @@ func (p postgresQueries) SetPermissionPolicy(ctx context.Context, arg db.SetPerm
 	return p.q.SetPermissionPolicy(ctx, postgres.SetPermissionPolicyParams(arg))
 }
 
+func (p postgresQueries) SetProjectSourceDefaultBranch(ctx context.Context, arg db.SetProjectSourceDefaultBranchParams) error {
+	return p.q.SetProjectSourceDefaultBranch(ctx, postgres.SetProjectSourceDefaultBranchParams(arg))
+}
+
 func (p postgresQueries) SetProviderLoginStatus(ctx context.Context, arg db.SetProviderLoginStatusParams) error {
 	return p.q.SetProviderLoginStatus(ctx, postgres.SetProviderLoginStatusParams(arg))
 }
@@ -1342,6 +1444,10 @@ func (p postgresQueries) SetSessionNative(ctx context.Context, arg db.SetSession
 
 func (p postgresQueries) SetSessionOrigin(ctx context.Context, arg db.SetSessionOriginParams) error {
 	return p.q.SetSessionOrigin(ctx, postgres.SetSessionOriginParams(arg))
+}
+
+func (p postgresQueries) SetSessionProject(ctx context.Context, arg db.SetSessionProjectParams) error {
+	return p.q.SetSessionProject(ctx, postgres.SetSessionProjectParams(arg))
 }
 
 func (p postgresQueries) SetSessionStatus(ctx context.Context, arg db.SetSessionStatusParams) error {
@@ -1465,6 +1571,18 @@ func (p postgresQueries) UpdateImage(ctx context.Context, arg db.UpdateImagePara
 
 func (p postgresQueries) UpdateMCPServer(ctx context.Context, arg db.UpdateMCPServerParams) error {
 	return p.q.UpdateMCPServer(ctx, postgres.UpdateMCPServerParams(arg))
+}
+
+func (p postgresQueries) UpdateProject(ctx context.Context, arg db.UpdateProjectParams) error {
+	return p.q.UpdateProject(ctx, postgres.UpdateProjectParams(arg))
+}
+
+func (p postgresQueries) UpdateProjectSource(ctx context.Context, arg db.UpdateProjectSourceParams) error {
+	return p.q.UpdateProjectSource(ctx, postgres.UpdateProjectSourceParams(arg))
+}
+
+func (p postgresQueries) UpdateProjectTask(ctx context.Context, arg db.UpdateProjectTaskParams) error {
+	return p.q.UpdateProjectTask(ctx, postgres.UpdateProjectTaskParams(arg))
 }
 
 func (p postgresQueries) UpdateSchedule(ctx context.Context, arg db.UpdateScheduleParams) error {

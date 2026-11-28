@@ -81,6 +81,14 @@ func (d *Daemon) git(ctx context.Context, st net.Conn, o tunnel.Open) error {
 		reply, err = d.gitWorktreeRemove(ctx, req)
 	case tunnel.GitConfig:
 		err = d.gitConfig(req)
+	case tunnel.GitInit:
+		reply, err = d.gitInit(ctx, req)
+	case tunnel.GitChanges:
+		reply, err = d.gitChanges(ctx, req)
+	case tunnel.GitMerge:
+		reply, err = d.gitMerge(ctx, req)
+	case tunnel.GitBranchDelete:
+		reply, err = d.gitBranchDelete(ctx, req)
 	default:
 		err = fmt.Errorf("git: unknown action %q", req.Action)
 	}

@@ -93,10 +93,13 @@ type Manager struct {
 	activity func(agentID string)
 	audit    *audit.Log
 	tools    Tools
-	logins   Logins
-	resolver Resolver
-	catMu    sync.Mutex // serializes model catalog updates
-	probe    bool       // describe unknown models after turns (SetModelProbe)
+	// workspaces prepares where project threads work; nil: they work where
+	// their cwd says.
+	workspaces Workspaces
+	logins     Logins
+	resolver   Resolver
+	catMu      sync.Mutex // serializes model catalog updates
+	probe      bool       // describe unknown models after turns (SetModelProbe)
 }
 
 // Resolver resolves built-in and user-configured ACP Store / local ACP
@@ -333,6 +336,16 @@ type Tools interface {
 
 // SetTools sets the tools provider.
 func (m *Manager) SetTools(t Tools) { m.tools = t }
+
+// Workspaces prepares the working directories of project threads.
+type Workspaces interface {
+	// Prepare makes sure the workspace of sess exists on the machine and
+	// returns its working directory, relative to the home.
+	Prepare(ctx context.Context, ts *tunnel.Session, sess db.AgentSession) (string, error)
+}
+
+// SetWorkspaces sets how project threads' workspaces are prepared.
+func (m *Manager) SetWorkspaces(w Workspaces) { m.workspaces = w }
 
 // SetWaker sets how agents are woken (the API provides it).
 func (m *Manager) SetWaker(w Waker) { m.wake = w }
@@ -764,6 +777,18 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 		return sess.AcpSessionID, "", 0, nil
 	}
 
+	if sess.ProjectID != "" && m.workspaces != nil {
+		dir, err := m.workspaces.Prepare(ctx, conn.ts, sess)
+		if err != nil {
+			return "", "", 0, fmt.Errorf("prepare the project workspace: %w", err)
+		}
+		if dir != sess.Cwd {
+			if err := m.store.SetSessionGit(ctx, db.SetSessionGitParams{Cwd: dir, ID: sess.ID}); err != nil {
+				return "", "", 0, err
+			}
+			sess.Cwd, sess.GitProject, sess.GitBranch, sess.GitRepoPath = dir, "", "", ""
+		}
+	}
 	cwd := sessionCwd(conn.home, sess.Cwd)
 	caps := conn.init.AgentCapabilities
 	mcp := []acp.McpServer{}

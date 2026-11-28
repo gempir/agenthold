@@ -27,6 +27,7 @@ import (
 	"github.com/gempir/agenthold/internal/logins"
 	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/preview"
+	"github.com/gempir/agenthold/internal/project"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/session"
@@ -53,6 +54,8 @@ type Deps struct {
 	Logins   *logins.Service
 	// Git keeps users' git settings; nil disables the account endpoints.
 	Git *git.Service
+	// Projects works with projects on agents' machines; nil disables them.
+	Projects *project.Service
 	// Executor manages per-user Executor instances for accounts and tools.
 	Executor *executor.Manager
 	// Apps manages services and apps.

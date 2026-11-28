@@ -15,7 +15,7 @@ var ErrTooOld = errors.New("this machine still runs the sandboxd it booted with,
 // unsupported maps "unknown operation" errors of old guests to ErrTooOld.
 func unsupported(err error) error {
 	var re *RemoteError
-	if errors.As(err, &re) && strings.HasPrefix(re.Msg, "unknown operation") {
+	if errors.As(err, &re) && (strings.HasPrefix(re.Msg, "unknown operation") || strings.HasPrefix(re.Msg, "git: unknown action")) {
 		return ErrTooOld
 	}
 	return err

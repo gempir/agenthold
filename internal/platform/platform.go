@@ -22,6 +22,7 @@ import (
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/preview"
+	"github.com/gempir/agenthold/internal/project"
 	"github.com/gempir/agenthold/internal/session"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
@@ -46,6 +47,8 @@ type Service struct {
 	Preview *preview.Service
 	// Apps runs services and apps; their tools are listed when it is set.
 	Apps *apps.Manager
+	// Projects works with projects; their tools are listed when it is set.
+	Projects *project.Service
 }
 
 // Tools are the platform tools in MCP form.
@@ -123,6 +126,9 @@ func (p *Service) tools() []map[string]any {
 	if p.Apps != nil {
 		out = append(append(out, serviceTools...), appTools...)
 	}
+	if p.Projects != nil {
+		out = append(out, projectTools...)
+	}
 	return out
 }
 
@@ -161,6 +167,9 @@ func (p *Service) Call(ctx context.Context, callerID, sessionID, tool string, ar
 		return nil, err
 	} else if authz.UserRole(owner) == config.RoleDisabled {
 		return nil, errors.New("this agent's owner has no access to this agenthold")
+	}
+	if p.Projects != nil && isProjectTool(tool) {
+		return p.projectCall(ctx, caller, sessionID, tool, args)
 	}
 	var in toolArgs
 	if len(args) > 0 {

@@ -2,11 +2,13 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { agentDraftKey, getDraft, setDraft } from '@/lib/drafts';
 
 /**
- * Legacy/external review comment shape emitted by DiffPane and FileViewer.
- * When a rich composer is mounted for the key (via useComposerContext),
- * attachToComposer converts it into a rich `review_comment` chip; otherwise
- * it falls back to appending formatted text to the draft so comments are
- * never lost.
+ * Context the user attaches to a thread's next message from outside the
+ * composer: review comments on diff and file lines, and annotations on
+ * pages of the machine's browser.
+ *
+ * A rich composer (chips) registers itself with useComposerContext(key) and
+ * gets the items to show as chips; without one, attachToComposer appends the
+ * item as text to the thread's draft so it still reaches the agent.
  */
 export type ReviewComment = {
   kind: 'review';
@@ -24,7 +26,25 @@ export type ReviewComment = {
   body: string;
 };
 
-export type ComposerContextItem = ReviewComment;
+/** A box on a page, in viewport CSS pixels. */
+export type PageRect = { x: number; y: number; width: number; height: number };
+
+/**
+ * A note on a page of the machine's browser: on an element the user picked
+ * or a region they drew on its screenshot.
+ */
+export type BrowserAnnotation = {
+  kind: 'browser';
+  id: string;
+  url: string;
+  title?: string;
+  viewport: { width: number; height: number };
+  element?: { role: string; name: string; selector: string; rect: PageRect };
+  region?: PageRect;
+  body: string;
+};
+
+export type ComposerContextItem = ReviewComment | BrowserAnnotation;
 
 export type ComposerContextChip =
   | {
@@ -127,8 +147,28 @@ const lineLabel = (c: ReviewComment) =>
     ? `line ${c.startLine}`
     : `lines ${c.startLine}-${c.endLine}`;
 
-/** The text a review item stands for in the prompt. */
+const box = (r: PageRect) =>
+  `${Math.round(r.width)}×${Math.round(r.height)} at (${Math.round(r.x)}, ${Math.round(r.y)})`;
+
+function formatAnnotation(c: BrowserAnnotation): string {
+  const page = c.title ? `${c.url} ("${c.title}")` : c.url;
+  const lines = [
+    `Annotation on ${page}, viewport ${c.viewport.width}×${c.viewport.height}:`,
+  ];
+  if (c.element) {
+    const name = c.element.name ? ` "${c.element.name}"` : '';
+    lines.push(
+      `- element: ${c.element.role}${name}, selector \`${c.element.selector}\`, ${box(c.element.rect)}`,
+    );
+  }
+  if (c.region) lines.push(`- region: ${box(c.region)}`);
+  lines.push(c.body.trim());
+  return lines.join('\n');
+}
+
+/** The text an item stands for in the prompt. */
 export function formatContext(c: ComposerContextItem): string {
+  if (c.kind === 'browser') return formatAnnotation(c);
   const where = `\`${c.path}\` ${lineLabel(c)}${c.side === 'old' ? ' (removed)' : ''}`;
   const lines = [`Review comment on ${where} (${c.source}):`];
   if (c.excerpt.trim()) {
@@ -187,17 +227,26 @@ export function attachToComposer(
 ): boolean {
   const rich = (consumers.get(key) ?? 0) > 0;
   if (rich) {
-    addComposerContext(key, {
-      id: item.id,
-      kind: 'review_comment',
-      path: item.path,
-      startLine: item.startLine,
-      endLine: item.endLine,
-      side: item.side,
-      source: item.source,
-      snippet: item.excerpt.trim() || undefined,
-      comment: item.body.trim(),
-    });
+    if (item.kind === 'browser') {
+      addComposerContext(key, {
+        id: item.id,
+        kind: 'quote',
+        source: item.title || item.url,
+        text: formatAnnotation(item),
+      });
+    } else {
+      addComposerContext(key, {
+        id: item.id,
+        kind: 'review_comment',
+        path: item.path,
+        startLine: item.startLine,
+        endLine: item.endLine,
+        side: item.side,
+        source: item.source,
+        snippet: item.excerpt.trim() || undefined,
+        comment: item.body.trim(),
+      });
+    }
   } else {
     const draft = getDraft(key).replace(/\s+$/, '');
     setDraft(key, (draft ? `${draft}\n\n` : '') + formatContext(item) + '\n');

@@ -51,8 +51,11 @@ func (d *Driver) RunSandboxd(host string, log *slog.Logger) {
 				log.Error("fake sandboxd: services", "err", err)
 			}
 		}
+		d.mu.Lock()
+		browser := d.browser
+		d.mu.Unlock()
 		dmn, err := sandboxd.New(sandboxd.Config{
-			Services: services,
+			Services: services, Browser: browser,
 			Boot: sandboxd.Boot{
 				AgentID: boot.AgentID, Token: boot.Token,
 				TunnelURL: fmt.Sprintf("ws://%s:%d/tunnel", host, boot.TunnelPort),

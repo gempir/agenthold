@@ -3269,6 +3269,149 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agentId}/browser/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description Whether the machine can run its headless browser (Chromium) and whether
+         *     it runs, with the page it shows. Never starts the browser.
+         */
+        get: operations["getBrowserStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/browser/navigate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Open a URL in the machine's headless browser (started on first use) and
+         *     wait for it to load. `http://localhost:<port>` reaches servers inside
+         *     the machine, exposed or not. Only http and https URLs open; a bare host
+         *     gets `http://`. Answers with a screenshot and the page's interactive
+         *     elements. Audited. 503 when the machine has no Chromium.
+         */
+        post: operations["browserNavigate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/browser/screenshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description A PNG screenshot of the browser's viewport with the interactive
+         *     elements' boxes. `width` and `height` resize the viewport first.
+         */
+        get: operations["browserScreenshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/browser/interact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description One input action on the page: `click` (at `x`/`y` viewport pixels or
+         *     the center of `selector`), `type` (`text`, into `selector` when set),
+         *     `press` (`key`: Enter, Tab, Escape, ArrowDown, a, Control+a, ...),
+         *     `scroll` (`dx`/`dy`), `back`, `forward`, `reload`, or `eval`: a
+         *     read-only DOM query returning the elements matching the CSS
+         *     `selector` (`matches`; it runs no caller script). Answers with a new
+         *     screenshot (not for `eval`). Audited.
+         */
+        post: operations["browserInteract"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/browser/snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * @description The page's visible text and interactive elements (role, accessible
+         *     name, CSS selector, box), without a screenshot.
+         */
+        get: operations["browserSnapshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agentId}/browser/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Stop the machine's headless browser. Audited. */
+        post: operations["browserClose"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -5144,6 +5287,76 @@ export interface components {
             name?: string;
             envVar?: string;
             placeholder?: string;
+        };
+        /** @description A box in viewport CSS pixels. */
+        BrowserRect: {
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+        };
+        /** @description An interactive element of the page. */
+        BrowserElement: {
+            /** @description ARIA role (explicit or implicit), or the tag. */
+            role: string;
+            /** @description Accessible name (label */
+            name: string;
+            tag: string;
+            /** @description A CSS selector that finds it. */
+            selector: string;
+            rect: components["schemas"]["BrowserRect"];
+            href?: string;
+            value?: string;
+            disabled?: boolean;
+        };
+        /** @description An element an `eval` query found. */
+        BrowserMatch: {
+            tag: string;
+            text: string;
+            selector: string;
+            attributes?: {
+                [key: string]: string;
+            };
+            rect: components["schemas"]["BrowserRect"];
+        };
+        /**
+         * @description The machine's headless browser and its page. `screenshot` is a base64
+         *     PNG of the viewport (`width` x `height` CSS pixels) when the request
+         *     captures one; `text` is the page's visible text (snapshot).
+         */
+        BrowserState: {
+            /** @description The machine has a browser it can start. */
+            available: boolean;
+            running: boolean;
+            url?: string;
+            title?: string;
+            width: number;
+            height: number;
+            /** @description Console errors and uncaught exceptions since the last navigation. */
+            consoleErrors: number;
+            lastError?: string;
+            /** @description Base64 PNG. */
+            screenshot?: string;
+            elements: components["schemas"]["BrowserElement"][];
+            text?: string;
+            truncated?: boolean;
+            matches?: components["schemas"]["BrowserMatch"][];
+        };
+        BrowserNavigateInput: {
+            url: string;
+            width?: number;
+            height?: number;
+        };
+        BrowserInteractInput: {
+            /** @enum {string} */
+            action: "click" | "type" | "press" | "scroll" | "back" | "forward" | "reload" | "eval";
+            x?: number;
+            y?: number;
+            selector?: string;
+            text?: string;
+            key?: string;
+            dx?: number;
+            dy?: number;
         };
     };
     responses: {
@@ -11076,6 +11289,179 @@ export interface operations {
             400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+        };
+    };
+    getBrowserStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserState"];
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    browserNavigate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrowserNavigateInput"];
+            };
+        };
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserState"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    browserScreenshot: {
+        parameters: {
+            query?: {
+                width?: number;
+                height?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserState"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    browserInteract: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrowserInteractInput"];
+            };
+        };
+        responses: {
+            /** @description The page after the action. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserState"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    browserSnapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserState"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    browserClose: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
+                agentId: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stopped. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserState"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
         };
     };
 }

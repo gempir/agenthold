@@ -503,12 +503,20 @@ it('streams the activity log in its own panel tab', async () => {
     'waiting for sandboxd',
   );
   expect(calls.some((c) => c.key === 'GET /agents/a1/activity')).toBe(true);
-  // The workspace tabs: Overview, Diff, Files, Git, Terminal, Activity.
+  // The workspace tabs: Overview, Diff, Files, Git, Preview, Terminal, Activity.
   expect(
     within(panel)
       .getAllByRole('tab')
       .map((t) => t.textContent),
-  ).toEqual(['Overview', 'Diff', 'Files', 'Git', 'Terminal', 'Activity']);
+  ).toEqual([
+    'Overview',
+    'Diff',
+    'Files',
+    'Git',
+    'Preview',
+    'Terminal',
+    'Activity',
+  ]);
   await userEvent.click(within(panel).getByRole('tab', { name: 'Overview' }));
   expect(router.state.location.search).toEqual({ s: 's1', panel: 'overview' });
   expect(screen.queryByTestId('live-log')).toBeNull();

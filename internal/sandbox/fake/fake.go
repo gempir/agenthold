@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/gempir/agenthold/internal/sandbox"
+	"github.com/gempir/agenthold/internal/sandboxd"
 )
 
 // Sandbox is the fake's record of one sandbox.
@@ -42,6 +43,16 @@ type Driver struct {
 	// OnClone is called while a clone copies, before it is registered. It may
 	// block (to hold a clone in flight) and fail the clone.
 	OnClone func(ctx context.Context, src sandbox.ID) error
+	// browser is the headless browser of the in-process sandboxd (see SetBrowser).
+	browser sandboxd.BrowserDriver
+}
+
+// SetBrowser makes the in-process sandboxd of sandboxes started from now on
+// drive this browser instead of Chromium.
+func (d *Driver) SetBrowser(b sandboxd.BrowserDriver) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.browser = b
 }
 
 var _ sandbox.Driver = (*Driver)(nil)

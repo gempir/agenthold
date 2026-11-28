@@ -71,6 +71,9 @@ type Config struct {
 	// ResumePort is the vsock port the host announces a resume from a memory
 	// snapshot on (0: no listener; only the microVM init child listens).
 	ResumePort uint32
+	// Browser starts the headless browser of the browser operations (nil:
+	// Chromium, when installed).
+	Browser BrowserDriver
 }
 
 // Daemon is a running sandboxd.
@@ -80,6 +83,8 @@ type Daemon struct {
 	acct     account
 	opener   opener
 	services *supervisor
+	// browserCtl runs the sandbox's headless browser.
+	browserCtl *browserCtl
 
 	// bootMu guards boot (its token changes when the VM is resumed from a
 	// snapshot) and redial, which ends the current tunnel connection.
@@ -111,6 +116,7 @@ func New(cfg Config) (*Daemon, error) {
 	}
 	d := &Daemon{cfg: cfg, log: cfg.Logger, acct: acct, boot: cfg.Boot, kick: make(chan struct{}, 1)}
 	d.services = newSupervisor(d, cfg.ServicesFile)
+	d.browserCtl = newBrowserCtl(d, cfg.Browser)
 	d.prepareHome()
 	d.installCA()
 	return d, nil
@@ -166,6 +172,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	d.services.start(ctx, specs)
 	defer d.services.stopAll()
+	defer d.browserCtl.close()
 	go d.servePlatform(ctx)
 	go d.serveExecutor(ctx)
 	if d.cfg.ResumePort != 0 {
@@ -290,6 +297,8 @@ func (d *Daemon) handle(ctx context.Context, st net.Conn, o tunnel.Open) {
 		err = d.fsWriteText(st, o)
 	case tunnel.OpFSSearch:
 		err = d.fsSearch(ctx, st, o)
+	case tunnel.OpBrowser:
+		err = d.browser(ctx, st, o)
 	default:
 		err = fmt.Errorf("unknown operation %q", o.Op)
 	}

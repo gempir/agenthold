@@ -26,6 +26,9 @@ const ACTIONS: Record<string, string> = {
   'exposure.add': 'Exposed a port',
   'exposure.update': 'Changed an exposure',
   'exposure.remove': 'Removed an exposure',
+  'browser.navigate': 'Opened a page in the browser',
+  'browser.interact': 'Used the browser',
+  'browser.close': 'Closed the browser',
 };
 
 /** Human wording for an audit action; the raw action if unknown. */
@@ -54,6 +57,9 @@ export function describeDetails(e: Pick<AuditEntry, 'action' | 'details'>) {
     return [s(d.session), why].filter(Boolean).join(', ');
   }
   if (e.action.startsWith('share.')) return s(d.email) || s(d.userId);
+  if (e.action === 'browser.navigate') return s(d.url);
+  if (e.action === 'browser.interact')
+    return [s(d.action), s(d.selector) || s(d.key)].filter(Boolean).join(' ');
   if (e.action.startsWith('exposure.'))
     return [s(d.name), typeof d.port === 'number' ? `port ${d.port}` : '']
       .filter(Boolean)

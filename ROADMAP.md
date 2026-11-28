@@ -75,7 +75,7 @@ Update checkboxes as each milestone merges cleanly to `main` with `make test` an
 ---
 
 ## Phase 4 — Hosting-First Superpowers
-- [ ] **4A. In-Panel Live Browser & Preview (Exposed Ports + Streamed Chromium)**
+- [x] **4A. In-Panel Live Browser & Preview (Exposed Ports + Streamed Chromium)**
   - Right-panel **Preview / Browser** tab: instant iframe view for `expose_port` URLs (auto-detected from running dev servers & project scripts) + interactive Chromium session inside the VM (viewport presets, screenshot, click/type/navigate, element picker & visual annotations → composer chips, `preview_*` platform tools for agents).
 - [ ] **4B. Inline Visual Replies (`html_render`) & MCP Apps**
   - `html_render` platform MCP tool storing sanitized/sandboxed self-contained HTML visuals (charts, diagrams, mockups) rendered inline in `ChatView` with theme adaptation and fullscreen view.

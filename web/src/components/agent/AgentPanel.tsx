@@ -33,6 +33,7 @@ import {
   type DynamicTab,
   type PanelTab,
 } from '@/components/agent/panelTabs';
+import { BrowserPane } from '@/components/workspace/BrowserPane';
 import { DiffPane } from '@/components/workspace/DiffPane';
 import { FileViewer } from '@/components/workspace/FileViewer';
 import { composerKey } from '@/lib/composerContext';
@@ -96,6 +97,7 @@ export function AgentPanel({
     { id: 'diff', label: 'Diff' },
     { id: 'files', label: 'Files' },
     { id: 'git', label: 'Git' },
+    { id: 'preview', label: 'Preview' },
     ...(access.canUse
       ? [
           { id: 'terminal' as const, label: 'Terminal' },
@@ -112,7 +114,10 @@ export function AgentPanel({
   const session = sessions.data?.find((s) => s.id === sessionId);
   const active = parseTab(tab);
   const fills =
-    tab === 'activity' || tab === 'diff' || active.kind !== 'builtin';
+    tab === 'activity' ||
+    tab === 'diff' ||
+    tab === 'preview' ||
+    active.kind !== 'builtin';
   return (
     <>
       <div
@@ -215,6 +220,13 @@ export function AgentPanel({
               />
             )}
             {tab === 'git' && <PanelGit agent={agent} access={access} />}
+            {tab === 'preview' && (
+              <PanelPreview
+                agent={agent}
+                access={access}
+                composer={composerKey(agent.id, sessionId)}
+              />
+            )}
             {tab === 'files' && (
               <PanelFiles
                 agent={agent}
@@ -418,6 +430,30 @@ function PanelDiff({
         repoPath={repoPath}
         composerKey={access.canUse ? composer : undefined}
         onOpenFile={onOpenFile}
+        starting={busy}
+        onStart={() => action.mutate('start')}
+      />
+      <ErrorText error={action.error} />
+    </>
+  );
+}
+
+function PanelPreview({
+  agent,
+  access,
+  composer,
+}: {
+  agent: Agent;
+  access: Access;
+  composer: string;
+}) {
+  const { action, busy } = useAgentActions(agent);
+  return (
+    <>
+      <BrowserPane
+        agentId={agent.id}
+        canUse={access.canUse}
+        composerKey={access.canUse ? composer : undefined}
         starting={busy}
         onStart={() => action.mutate('start')}
       />

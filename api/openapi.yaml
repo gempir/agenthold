@@ -4165,6 +4165,149 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 
+  # --- Phase 4A: the machine's headless browser (sandbox browser) ---
+
+  /agents/{agentId}/browser/status:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: getBrowserStatus
+      tags: [browser]
+      description: |
+        Whether the machine can run its headless browser (Chromium) and whether
+        it runs, with the page it shows. Never starts the browser.
+      responses:
+        "200":
+          description: Status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrowserState" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/browser/navigate:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: browserNavigate
+      tags: [browser]
+      description: |
+        Open a URL in the machine's headless browser (started on first use) and
+        wait for it to load. `http://localhost:<port>` reaches servers inside
+        the machine, exposed or not. Only http and https URLs open; a bare host
+        gets `http://`. Answers with a screenshot and the page's interactive
+        elements. Audited. 503 when the machine has no Chromium.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BrowserNavigateInput" }
+      responses:
+        "200":
+          description: The page.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrowserState" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/browser/screenshot:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: browserScreenshot
+      tags: [browser]
+      description: |
+        A PNG screenshot of the browser's viewport with the interactive
+        elements' boxes. `width` and `height` resize the viewport first.
+      parameters:
+        - { name: width, in: query, schema: { type: integer, minimum: 200, maximum: 3840 } }
+        - { name: height, in: query, schema: { type: integer, minimum: 200, maximum: 4320 } }
+      responses:
+        "200":
+          description: The page.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrowserState" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/browser/interact:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: browserInteract
+      tags: [browser]
+      description: |
+        One input action on the page: `click` (at `x`/`y` viewport pixels or
+        the center of `selector`), `type` (`text`, into `selector` when set),
+        `press` (`key`: Enter, Tab, Escape, ArrowDown, a, Control+a, ...),
+        `scroll` (`dx`/`dy`), `back`, `forward`, `reload`, or `eval`: a
+        read-only DOM query returning the elements matching the CSS
+        `selector` (`matches`; it runs no caller script). Answers with a new
+        screenshot (not for `eval`). Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BrowserInteractInput" }
+      responses:
+        "200":
+          description: The page after the action.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrowserState" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/browser/snapshot:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: browserSnapshot
+      tags: [browser]
+      description: |
+        The page's visible text and interactive elements (role, accessible
+        name, CSS selector, box), without a screenshot.
+      responses:
+        "200":
+          description: The page.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrowserState" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /agents/{agentId}/browser/close:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      operationId: browserClose
+      tags: [browser]
+      description: Stop the machine's headless browser. Audited.
+      responses:
+        "200":
+          description: Stopped.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrowserState" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+
+
 security:
   - session: []
   - token: []
@@ -6315,3 +6458,92 @@ components:
         name: { type: string }
         envVar: { type: string }
         placeholder: { type: string }
+
+    # --- Phase 4A: the machine's headless browser ---
+
+    BrowserRect:
+      type: object
+      description: A box in viewport CSS pixels.
+      required: [x, y, width, height]
+      properties:
+        x: { type: number }
+        y: { type: number }
+        width: { type: number }
+        height: { type: number }
+
+    BrowserElement:
+      type: object
+      description: An interactive element of the page.
+      required: [role, name, tag, selector, rect]
+      properties:
+        role: { type: string, description: "ARIA role (explicit or implicit), or the tag." }
+        name: { type: string, description: Accessible name (label, text, placeholder, ...). }
+        tag: { type: string }
+        selector: { type: string, description: A CSS selector that finds it. }
+        rect: { $ref: "#/components/schemas/BrowserRect" }
+        href: { type: string }
+        value: { type: string }
+        disabled: { type: boolean }
+
+    BrowserMatch:
+      type: object
+      description: An element an `eval` query found.
+      required: [tag, text, selector, rect]
+      properties:
+        tag: { type: string }
+        text: { type: string }
+        selector: { type: string }
+        attributes:
+          type: object
+          additionalProperties: { type: string }
+        rect: { $ref: "#/components/schemas/BrowserRect" }
+
+    BrowserState:
+      type: object
+      description: |
+        The machine's headless browser and its page. `screenshot` is a base64
+        PNG of the viewport (`width` x `height` CSS pixels) when the request
+        captures one; `text` is the page's visible text (snapshot).
+      required: [available, running, width, height, consoleErrors, elements]
+      properties:
+        available: { type: boolean, description: The machine has a browser it can start. }
+        running: { type: boolean }
+        url: { type: string }
+        title: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+        consoleErrors: { type: integer, description: Console errors and uncaught exceptions since the last navigation. }
+        lastError: { type: string }
+        screenshot: { type: string, description: Base64 PNG. }
+        elements:
+          type: array
+          items: { $ref: "#/components/schemas/BrowserElement" }
+        text: { type: string }
+        truncated: { type: boolean }
+        matches:
+          type: array
+          items: { $ref: "#/components/schemas/BrowserMatch" }
+
+    BrowserNavigateInput:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string }
+        width: { type: integer, minimum: 200, maximum: 3840 }
+        height: { type: integer, minimum: 200, maximum: 4320 }
+
+    BrowserInteractInput:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [click, type, press, scroll, back, forward, reload, eval]
+          x-enum-varnames: [BrowserClick, BrowserType, BrowserPress, BrowserScroll, BrowserBack, BrowserForward, BrowserReload, BrowserEval]
+        x: { type: number }
+        y: { type: number }
+        selector: { type: string }
+        text: { type: string }
+        key: { type: string }
+        dx: { type: number }
+        dy: { type: number }

@@ -16,6 +16,7 @@ type Querier interface {
 	AutoSettleSession(ctx context.Context, arg AutoSettleSessionParams) (int64, error)
 	ClaimExposureName(ctx context.Context, name string) error
 	ClearDefaultImages(ctx context.Context) error
+	ClearProjectSessions(ctx context.Context, projectID string) error
 	CompleteImageBuild(ctx context.Context, arg CompleteImageBuildParams) error
 	// Single use: only one caller can move used_at away from zero.
 	ConsumeNodeJoinToken(ctx context.Context, arg ConsumeNodeJoinTokenParams) (string, error)
@@ -50,6 +51,9 @@ type Querier interface {
 	CreatePreviewCode(ctx context.Context, arg CreatePreviewCodeParams) error
 	CreatePreviewConsent(ctx context.Context, arg CreatePreviewConsentParams) error
 	CreatePreviewSession(ctx context.Context, arg CreatePreviewSessionParams) error
+	CreateProject(ctx context.Context, arg CreateProjectParams) error
+	CreateProjectSource(ctx context.Context, arg CreateProjectSourceParams) error
+	CreateProjectTask(ctx context.Context, arg CreateProjectTaskParams) error
 	CreateProviderLogin(ctx context.Context, arg CreateProviderLoginParams) error
 	CreateSandbox(ctx context.Context, arg CreateSandboxParams) error
 	CreateSchedule(ctx context.Context, arg CreateScheduleParams) error
@@ -76,6 +80,9 @@ type Querier interface {
 	DeleteNode(ctx context.Context, id string) error
 	DeleteOldReleasedExposureNames(ctx context.Context, releasedAt int64) error
 	DeletePreviewSession(ctx context.Context, tokenHash string) error
+	DeleteProject(ctx context.Context, id string) error
+	DeleteProjectSource(ctx context.Context, id string) error
+	DeleteProjectTask(ctx context.Context, id string) error
 	DeleteProviderLogin(ctx context.Context, arg DeleteProviderLoginParams) (int64, error)
 	DeleteSchedule(ctx context.Context, id string) error
 	DeleteSecret(ctx context.Context, id string) error
@@ -119,6 +126,8 @@ type Querier interface {
 	GetNode(ctx context.Context, id string) (Node, error)
 	GetNodeByFingerprint(ctx context.Context, certFingerprint string) (Node, error)
 	GetPreviewSessionUser(ctx context.Context, arg GetPreviewSessionUserParams) (GetPreviewSessionUserRow, error)
+	GetProject(ctx context.Context, id string) (Project, error)
+	GetProjectTask(ctx context.Context, id string) (ProjectTask, error)
 	GetProviderLogin(ctx context.Context, arg GetProviderLoginParams) (ProviderLogin, error)
 	GetProviderLoginByID(ctx context.Context, id string) (ProviderLogin, error)
 	GetReleasedExposureName(ctx context.Context, name string) (ExposureReleasedName, error)
@@ -178,12 +187,17 @@ type Querier interface {
 	ListImages(ctx context.Context) ([]Image, error)
 	ListNodeSandboxes(ctx context.Context, nodeID string) ([]Sandbox, error)
 	ListNodes(ctx context.Context) ([]Node, error)
+	ListProjectSessions(ctx context.Context, projectID string) ([]AgentSession, error)
+	ListProjectSources(ctx context.Context, projectID string) ([]ProjectSource, error)
+	ListProjectTasks(ctx context.Context, projectID string) ([]ProjectTask, error)
+	ListProjects(ctx context.Context, ownerID string) ([]Project, error)
 	ListProviderLogins(ctx context.Context) ([]ProviderLogin, error)
 	ListRefreshableGitCredentials(ctx context.Context, expiresAt int64) ([]GitCredential, error)
 	ListSandboxSubnets(ctx context.Context) ([]ListSandboxSubnetsRow, error)
 	ListSandboxes(ctx context.Context) ([]Sandbox, error)
 	ListServices(ctx context.Context, agentID string) ([]Service, error)
 	ListSessionEvents(ctx context.Context, arg ListSessionEventsParams) ([]AgentSessionEvent, error)
+	ListSessionTasks(ctx context.Context, sessionID string) ([]ProjectTask, error)
 	ListSlackThreadSessions(ctx context.Context) ([]string, error)
 	ListSlackThreads(ctx context.Context) ([]SlackThread, error)
 	ListSlackThreadsOfSession(ctx context.Context, sessionID string) ([]SlackThread, error)
@@ -247,6 +261,8 @@ type Querier interface {
 	SetNodeState(ctx context.Context, arg SetNodeStateParams) error
 	SetNodeVersion(ctx context.Context, arg SetNodeVersionParams) error
 	SetPermissionPolicy(ctx context.Context, arg SetPermissionPolicyParams) error
+	// Records the branch a first checkout found, unless one is set.
+	SetProjectSourceDefaultBranch(ctx context.Context, arg SetProjectSourceDefaultBranchParams) error
 	SetProviderLoginStatus(ctx context.Context, arg SetProviderLoginStatusParams) error
 	// At controller start no edge node is connected yet.
 	SetRemoteNodesOffline(ctx context.Context) error
@@ -261,6 +277,7 @@ type Querier interface {
 	SetSessionModel(ctx context.Context, arg SetSessionModelParams) error
 	SetSessionNative(ctx context.Context, arg SetSessionNativeParams) error
 	SetSessionOrigin(ctx context.Context, arg SetSessionOriginParams) error
+	SetSessionProject(ctx context.Context, arg SetSessionProjectParams) error
 	SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error
 	SetSlackThreadCursor(ctx context.Context, arg SetSlackThreadCursorParams) error
 	SetSlackThreadHeader(ctx context.Context, arg SetSlackThreadHeaderParams) error
@@ -293,6 +310,9 @@ type Querier interface {
 	UpdateGitCredential(ctx context.Context, arg UpdateGitCredentialParams) error
 	UpdateImage(ctx context.Context, arg UpdateImageParams) error
 	UpdateMCPServer(ctx context.Context, arg UpdateMCPServerParams) error
+	UpdateProject(ctx context.Context, arg UpdateProjectParams) error
+	UpdateProjectSource(ctx context.Context, arg UpdateProjectSourceParams) error
+	UpdateProjectTask(ctx context.Context, arg UpdateProjectTaskParams) error
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) error
 	UpdateSecret(ctx context.Context, arg UpdateSecretParams) error
 	UpdateSessionGitStatus(ctx context.Context, arg UpdateSessionGitStatusParams) error

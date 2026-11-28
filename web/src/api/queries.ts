@@ -380,3 +380,55 @@ export const executorCatalogQuery = queryOptions({
   staleTime: 60_000,
   retry: false,
 });
+
+export type Project = components['schemas']['Project'];
+export type ProjectInput = components['schemas']['ProjectInput'];
+export type ProjectSourceInput = components['schemas']['ProjectSourceInput'];
+export type ProjectStatus = components['schemas']['ProjectStatus'];
+export type ProjectThread = components['schemas']['ProjectThread'];
+export type ProjectTask = components['schemas']['ProjectTask'];
+export type ProjectTaskStatus = components['schemas']['ProjectTaskStatus'];
+export type ProjectSourceResult = components['schemas']['ProjectSourceResult'];
+
+export const projectsQuery = queryOptions({
+  queryKey: ['projects'],
+  queryFn: () => unwrap(api.GET('/projects')),
+  retry: false,
+});
+
+export const projectQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ['projects', projectId],
+    queryFn: () =>
+      unwrap(
+        api.GET('/projects/{projectId}', { params: { path: { projectId } } }),
+      ),
+    retry: false,
+  });
+
+/** Threads and what they changed; polled while the page is open. */
+export const projectStatusQuery = (projectId: string, includeSettled = false) =>
+  queryOptions({
+    queryKey: ['projects', projectId, 'status', includeSettled],
+    queryFn: () =>
+      unwrap(
+        api.GET('/projects/{projectId}/status', {
+          params: { path: { projectId }, query: { includeSettled } },
+        }),
+      ),
+    refetchInterval: RUNNING_POLL_MS,
+    retry: false,
+  });
+
+export const projectTasksQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ['projects', projectId, 'tasks'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/projects/{projectId}/tasks', {
+          params: { path: { projectId } },
+        }),
+      ),
+    refetchInterval: RUNNING_POLL_MS,
+    retry: false,
+  });

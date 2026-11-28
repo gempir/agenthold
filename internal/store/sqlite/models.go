@@ -75,6 +75,8 @@ type AgentSession struct {
 	UnsettledAt     sql.NullInt64
 	AcpHarness      string
 	HandoffSeq      int64
+	ProjectID       string
+	ProjectBranch   string
 }
 
 type AgentSessionEvent struct {
@@ -291,6 +293,43 @@ type PreviewSession struct {
 	Host       string
 	CreatedAt  int64
 	ExpiresAt  int64
+}
+
+type Project struct {
+	ID           string
+	OwnerID      string
+	Name         string
+	Slug         string
+	Description  string
+	Instructions string
+	CreatedAt    int64
+	UpdatedAt    int64
+}
+
+type ProjectSource struct {
+	ID            string
+	ProjectID     string
+	Name          string
+	Kind          string
+	Url           string
+	Path          string
+	DefaultBranch string
+	Position      int64
+	CreatedAt     int64
+}
+
+type ProjectTask struct {
+	ID        string
+	ProjectID string
+	Title     string
+	Body      string
+	Status    string
+	AgentID   string
+	SessionID string
+	Note      string
+	CreatedBy string
+	CreatedAt int64
+	UpdatedAt int64
 }
 
 type ProviderLogin struct {

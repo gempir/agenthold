@@ -2523,6 +2523,212 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The signed-in user's projects. */
+        get: operations["listProjects"];
+        put?: never;
+        post: operations["createProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        get: operations["getProject"];
+        put?: never;
+        post?: never;
+        /** @description Delete the project and its tasks. Threads and checkouts on agents' disks stay. */
+        delete: operations["deleteProject"];
+        options?: never;
+        head?: never;
+        /** @description Replace the project's name, description, instructions and sources. Sources are matched by name; changing a source does not move existing checkouts on agents' disks. The slug (directory name) never changes. */
+        patch: operations["updateProject"];
+        trace?: never;
+    };
+    "/projects/{projectId}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** @description The project's threads with the files each changed on its branch (for agents whose machines run), and the files more than one thread changed. */
+        get: operations["getProjectStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Start a thread of the project on an agent. By default it gets a workspace of its own: a git worktree of every source on a new branch. direct works in the main checkouts instead. */
+        post: operations["startProjectThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        get: operations["listProjectTasks"];
+        put?: never;
+        post: operations["createProjectTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{taskId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteProjectTask"];
+        options?: never;
+        head?: never;
+        patch: operations["updateProjectTask"];
+        trace?: never;
+    };
+    "/tasks/{taskId}/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Start a thread on the agent (in a workspace of its own) that works on the task, and send it the task. The task becomes in_progress. */
+        post: operations["assignProjectTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/project/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        /** @description What the project thread changed on its branch, per source. The agent's machine must run. */
+        get: operations["getSessionProjectChanges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/project/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Merge the project thread's branch into the main checkout of every source it has commits in. Uncommitted changes, or a main checkout that is not clean or not on its default branch, refuse it before anything is merged; a conflict aborts that source's merge and stops. A full merge marks the thread's tasks done. */
+        post: operations["mergeSessionProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/project/push": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Push the project thread's branch of every repository it has commits in. */
+        post: operations["pushSessionProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/project/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Remove the project thread's workspace (its worktrees and branches) and settle the thread. Without force it refuses uncommitted changes and commits that are not merged; force discards them. */
+        post: operations["closeSessionProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3269,6 +3475,8 @@ export interface components {
             cwd?: string;
             /** @description The git project and branch this session is on; absent when not in a git repository. */
             git?: components["schemas"]["SessionGit"];
+            /** @description The project this thread works on; absent for threads of no project. */
+            project?: components["schemas"]["SessionProject"];
             /** @description The session's own model choice; absent when it uses the agent's default. */
             model?: components["schemas"]["ModelChoice"];
             createdBy: components["schemas"]["User"];
@@ -3750,6 +3958,125 @@ export interface components {
             /** @description The secret delivery URL. Shown once. */
             url: string;
         };
+        SessionProject: {
+            id: string;
+            name: string;
+            /** @description Works in the main checkouts, not in a workspace of its own. */
+            direct: boolean;
+            /** @description The branch of the thread's workspace (absent when direct). */
+            branch?: string;
+        };
+        /**
+         * @description repo: cloned from url. folder: a directory (created, or the existing path), made a local git repository.
+         * @enum {string}
+         */
+        ProjectSourceKind: "repo" | "folder";
+        ProjectSource: {
+            id: string;
+            /** @description The source's directory in the project's workspaces. */
+            name: string;
+            kind: components["schemas"]["ProjectSourceKind"];
+            url?: string;
+            /** @description Where the main checkout lives in agents' homes; default projects/<slug>/<name>. */
+            path?: string;
+            /** @description The branch threads start from and merge into; found on the first checkout when not set. */
+            defaultBranch?: string;
+        };
+        ProjectSourceInput: {
+            name?: string;
+            kind?: components["schemas"]["ProjectSourceKind"];
+            url?: string;
+            path?: string;
+            defaultBranch?: string;
+        };
+        ProjectInput: {
+            name: string;
+            description?: string;
+            /** @description Written into every workspace's AGENTS.md. */
+            instructions?: string;
+            sources?: components["schemas"]["ProjectSourceInput"][];
+        };
+        Project: {
+            id: string;
+            name: string;
+            /** @description The project's directory in agents' homes: projects/<slug>. */
+            slug: string;
+            description: string;
+            instructions: string;
+            sources: components["schemas"]["ProjectSource"][];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ProjectFileChange: {
+            path: string;
+            /** @description git's status letter (A, M, D, ...); ? untracked. */
+            status: string;
+        };
+        ProjectSourceChanges: {
+            source: string;
+            /** @description The default branch the thread's branch forked from. */
+            base: string;
+            commits: number;
+            /** @description Uncommitted changes. */
+            dirty: boolean;
+            /** @description The repository has a remote to push to. */
+            remote: boolean;
+            files: components["schemas"]["ProjectFileChange"][];
+            error?: string;
+        };
+        ProjectThread: {
+            session: components["schemas"]["Session"];
+            agentId: string;
+            agentName: string;
+            /** @description The agent's machine runs; changes are only known then. */
+            connected: boolean;
+            sources: components["schemas"]["ProjectSourceChanges"][];
+            error?: string;
+        };
+        ProjectOverlap: {
+            source: string;
+            path: string;
+            sessionIds: string[];
+        };
+        ProjectStatus: {
+            threads: components["schemas"]["ProjectThread"][];
+            overlaps: components["schemas"]["ProjectOverlap"][];
+        };
+        /** @enum {string} */
+        ProjectTaskStatus: "open" | "in_progress" | "review" | "done" | "cancelled";
+        ProjectTask: {
+            id: string;
+            projectId: string;
+            title: string;
+            body: string;
+            status: components["schemas"]["ProjectTaskStatus"];
+            /** @description The agent the task is assigned to. */
+            agentId?: string;
+            agentName?: string;
+            /** @description The thread working on it. */
+            sessionId?: string;
+            /** @description The latest note on the task (agents leave one when they hand it back). */
+            note: string;
+            /** @description Who created it: a user's name, or agent <name>. */
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ProjectTaskAssignment: {
+            task: components["schemas"]["ProjectTask"];
+            session: components["schemas"]["Session"];
+        };
+        ProjectSourceResult: {
+            source: string;
+            /** @description Merged (or pushed). */
+            done: boolean;
+            commits: number;
+            error?: string;
+        };
         SessionGit: {
             project: string;
             branch: string;
@@ -3949,6 +4276,8 @@ export interface components {
         };
     };
     parameters: {
+        ProjectId: string;
+        TaskId: string;
         SessionId: string;
         /** @description The machine id (an agent's or, for machine sub-resources, an app's). */
         AgentId: string;
@@ -8512,6 +8841,432 @@ export interface operations {
             404: components["responses"]["Error"];
             502: components["responses"]["Error"];
             503: components["responses"]["Error"];
+        };
+    };
+    listProjects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Projects by name. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"][];
+                };
+            };
+        };
+    };
+    createProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectInput"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    updateProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectInput"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    getProjectStatus: {
+        parameters: {
+            query?: {
+                includeSettled?: boolean;
+            };
+            header?: never;
+            path: {
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectStatus"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    startProjectThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    agentId: string;
+                    title?: string;
+                    direct?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    listProjectTasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tasks, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTask"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createProjectTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    title: string;
+                    body?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTask"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteProjectTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    updateProjectTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    title?: string;
+                    body?: string;
+                    status?: components["schemas"]["ProjectTaskStatus"];
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTask"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    assignProjectTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    agentId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Assigned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTaskAssignment"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getSessionProjectChanges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Changes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectSourceChanges"][];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    mergeSessionProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What was merged. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectSourceResult"][];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    pushSessionProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What was pushed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectSourceResult"][];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    closeSessionProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    force?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Closed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
         };
     };
 }

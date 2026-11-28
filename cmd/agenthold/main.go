@@ -45,6 +45,7 @@ import (
 	"github.com/gempir/agenthold/internal/node/enrollment"
 	"github.com/gempir/agenthold/internal/platform"
 	"github.com/gempir/agenthold/internal/preview"
+	"github.com/gempir/agenthold/internal/project"
 	"github.com/gempir/agenthold/internal/runtimeassets"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/firecracker"
@@ -305,6 +306,8 @@ func run() error {
 	sessions.SetLogins(loginSvc)
 	sessions.SetModelProbe(true)
 	sessions.SetAudit(auditLog)
+	projects := &project.Service{Store: st, Machine: project.NodeMachine(cluster), Sessions: sessions, Log: logger}
+	sessions.SetWorkspaces(projects)
 	go (&session.AutoSettler{Store: st, Audit: auditLog, Log: logger}).Run(ctx)
 	loginSvc.Restart = sessions.Restart
 	go loginSvc.Run(ctx)
@@ -379,7 +382,7 @@ func run() error {
 		go previewSvc.Run(ctx, 10*time.Minute, logger)
 	}
 	appsMgr.Preview = previewSvc
-	platformSvc := &platform.Service{Store: st, Sessions: sessions, Audit: auditLog, Log: logger, Preview: previewSvc, Apps: appsMgr}
+	platformSvc := &platform.Service{Store: st, Sessions: sessions, Audit: auditLog, Log: logger, Preview: previewSvc, Apps: appsMgr, Projects: projects}
 	go func() {
 		for {
 			info, stream, err := cluster.NextIncoming(ctx)
@@ -450,7 +453,8 @@ func run() error {
 	apiSrv := api.New(api.Deps{
 		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Node: cluster, Nodes: cluster, Limits: cfg.Sandbox,
 		Box: box, Egress: directory, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc, Git: gitSvc, Executor: executorMgr,
-		Preview: previewSvc, Identity: identity, Apps: appsMgr, Images: imageMgr, Activity: activityLog,
+		Projects: projects,
+		Preview:  previewSvc, Identity: identity, Apps: appsMgr, Images: imageMgr, Activity: activityLog,
 		ACPStore: acpCatalog, Harnesses: harnessResolver,
 		ShowTestHarness: cfg.TestHarness || driverName == "fake", UserMaxAgents: cfg.Auth.UserMaxAgents,
 	})

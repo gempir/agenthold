@@ -1,0 +1,101 @@
+---
+title: "Projects and tasks"
+description: "Projects group the repositories and folders your agents work on. Every thread of a project works in a workspace of its own on a branch of its own; tasks hand work to agents, and agents coordinate through project tools."
+---
+
+A project groups the repositories and folders that your agents work on. It belongs to you. Any agent you can
+send prompts to can work on it, including agents shared with you. A project can hold several repositories and
+folders. Every thread of a project works in a **workspace of its own**: a git worktree of each source, on a
+branch for that thread. Two threads, or two agents, never edit the same work tree unless you choose that.
+Their work comes together when you merge it.
+
+Projects are under **Projects** in the sidebar (`/api/v1/projects`).
+
+## Sources
+
+A source is one repository or folder of the project:
+
+| Kind | What it is |
+| --- | --- |
+| `repo` | Cloned from its git URL. The name defaults to the URL's last segment. |
+| `folder` | A directory. agenthold creates it empty, or uses the existing `path`, and makes it a local git repository on first use by committing what it holds. |
+
+Each source has a **main checkout** in the agent's home, at `projects/<slug>/<name>`. Set `path` to use a
+directory somewhere else in the home instead, for example a repository the agent cloned before. The
+**default branch** is the branch threads start from and merge into. When it is not set, agenthold takes the
+branch of the first checkout.
+
+The **instructions** of a project, such as how to build and test, conventions, and what not to touch, are
+written into the `AGENTS.md` of every workspace. A `CLAUDE.md` next to it includes that file. The file also
+tells the agent where things are and which branch it is on.
+
+## Threads and workspaces
+
+Start a thread from the project's **Threads** page (`POST /api/v1/projects/{id}/threads`), or by assigning a
+task. On the agent's disk:
+
+```
+projects/<slug>/
+├── api/                       # main checkouts
+├── web/
+└── .threads/<key>/            # the thread's workspace, its working directory
+    ├── AGENTS.md
+    ├── api/                   # git worktree of api on agenthold/<key>
+    └── web/                   # git worktree of web on agenthold/<key>
+```
+
+agenthold creates the workspace when the thread starts if the agent's machine runs. Otherwise it creates the
+workspace before the thread's first turn, so a sleeping agent can be given work. A clean main checkout on its
+default branch is fast-forwarded first, so the thread starts from the newest commit.
+
+A thread started with `direct` works in `projects/<slug>` itself, the main checkouts, without a branch of its
+own. Use this for quick looks, or for work you want to see in the main checkouts at once.
+
+The **Threads** page shows, for every thread of the project, its branch, its commits and uncommitted changes,
+and the files it changed. When more than one thread changed the same file, the page warns about the overlap:
+that file is where a merge is likely to conflict. Changes are only known while the agent's machine runs.
+
+When a thread's work is done:
+
+- **Merge** merges its branch into the main checkout of every source it has commits in, with a merge commit.
+  agenthold refuses before anything is merged when the thread has uncommitted changes, or when a main checkout
+  is not clean or not on its default branch. A conflict aborts that source's merge and names the files. A full
+  merge marks the thread's tasks done. Push the main checkout, or ask the agent to, to publish the result.
+- **Push branch** pushes the thread's branch of every repository that has commits on it and a remote, for
+  example to open a pull request.
+- **Close workspace** removes the worktrees and branches and settles the thread. It refuses while there are
+  uncommitted changes or commits that are not merged; **Discard** removes them anyway and hands the thread's
+  tasks back (open). A thread that gets a new message after that starts a fresh workspace.
+
+## Tasks
+
+A task is a piece of work for the project: a title and a description. Statuses are `open`, `in_progress`,
+`review`, `done` and `cancelled`. **Assign** starts a thread on the agent you pick, in a workspace of its own,
+and sends it the task. The task becomes `in_progress`. The agent is asked to commit its work on the thread's
+branch. It then sets the task to `review` with a note, or back to `open` with the reason it could not finish.
+Merging the thread marks the task `done`.
+
+## Project tools for agents
+
+Agents coordinate through the agenthold MCP tools. A tool without a `project` argument acts on the project of
+the thread it is called from.
+
+| Tool | What it does |
+| --- | --- |
+| `list_projects` | The owner's projects with their sources and directories. |
+| `project_status` | The project's active threads (the caller's and other agents' it can message), the branch of each, the files each changed, the tasks each works on, and the files several threads changed. |
+| `list_tasks`, `create_task` | Read and add tasks, for example to split work up. |
+| `claim_task` | Take an open task in the current thread. |
+| `update_task` | Set a task's status and leave a note. |
+| `assign_task` | Hand a task to an agent, which starts a new thread with its own workspace. The agent can be `me`: a single agent works on several tasks in parallel threads. The new thread records which thread started it. |
+
+Agents also have `send_message` and `ask` to talk to each other. A thread that sees an overlap in
+`project_status` can message the other thread's agent before both change the same code.
+
+## Limits
+
+- A project's checkouts live on each agent's own disk. Two agents working on the same repository each have
+  their own clone. Their work comes together through the remote: push the branch, then merge or open a pull
+  request. A `folder` source has no remote, so its work stays on the agent that did it.
+- Editing a source does not move existing checkouts. Deleting a project keeps its threads and the files on
+  agents' disks.

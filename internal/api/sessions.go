@@ -150,6 +150,11 @@ func (a *API) apiSession(ctx context.Context, s db.AgentSession) (gen.Session, e
 			out.Git.RepoPath = &p
 		}
 	}
+	if s.ProjectID != "" {
+		if p, err := a.Store.GetProject(ctx, s.ProjectID); err == nil {
+			out.Project = &gen.SessionProject{Id: p.ID, Name: p.Name, Direct: s.ProjectBranch == "", Branch: opt(s.ProjectBranch)}
+		}
+	}
 	if s.OriginAgentID != "" {
 		name := "(deleted agent)"
 		if ag, err := a.Store.GetAgent(ctx, s.OriginAgentID); err == nil {

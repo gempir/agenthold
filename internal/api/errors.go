@@ -9,6 +9,7 @@ import (
 
 	"github.com/gempir/agenthold/internal/apps"
 	"github.com/gempir/agenthold/internal/authz"
+	"github.com/gempir/agenthold/internal/project"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/tunnel"
 )
@@ -66,6 +67,8 @@ func toHTTP(err error) (int, string) {
 		return http.StatusConflict, err.Error()
 	case errors.Is(err, apps.ErrNotFound):
 		return http.StatusNotFound, err.Error()
+	case errors.Is(err, project.ErrInvalid), errors.Is(err, project.ErrNoWork):
+		return http.StatusBadRequest, err.Error()
 	case errors.As(err, &inv):
 		return http.StatusBadRequest, inv.Msg
 	case errors.As(err, &e):

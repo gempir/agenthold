@@ -271,6 +271,20 @@ const (
 	// GitWorktreeRemove removes the worktree at Path (Force: even when it
 	// has changes); the reply describes its main repository.
 	GitWorktreeRemove = "worktree_remove"
+	// GitInit makes the directory Path (created when missing) a repository
+	// on Branch (default main) and commits what it holds; a directory that
+	// is a repository's root already is left alone.
+	GitInit = "init"
+	// GitChanges reports what the branch Path is on changed since it forked
+	// from FromRef: commits, and files changed in them or uncommitted.
+	GitChanges = "changes"
+	// GitMerge merges Branch into the branch the repository Path is on
+	// (always a merge commit; Message). It needs a clean work tree; on a
+	// conflict it aborts and fails, naming the conflicting files.
+	GitMerge = "merge"
+	// GitBranchDelete deletes the branch Branch of the repository Path
+	// (Force: also when it is not merged).
+	GitBranchDelete = "branch_delete"
 )
 
 // GitRequest is the body of an OpGit stream. Paths are relative to the home
@@ -287,6 +301,7 @@ type GitRequest struct {
 	Force        bool   `json:"force,omitempty"`
 	AuthorName   string `json:"authorName,omitempty"`
 	AuthorEmail  string `json:"authorEmail,omitempty"`
+	Message      string `json:"message,omitempty"`
 }
 
 // GitRepo describes one repository (or worktree). Path and MainPath are
@@ -306,9 +321,26 @@ type GitRepo struct {
 
 // GitReply answers OpGit.
 type GitReply struct {
-	Home     string    `json:"home,omitempty"`
-	Repos    []GitRepo `json:"repos,omitempty"`
-	Repo     *GitRepo  `json:"repo,omitempty"`
-	Branches []string  `json:"branches,omitempty"`
-	Output   string    `json:"output,omitempty"`
+	Home     string        `json:"home,omitempty"`
+	Repos    []GitRepo     `json:"repos,omitempty"`
+	Repo     *GitRepo      `json:"repo,omitempty"`
+	Branches []string      `json:"branches,omitempty"`
+	Output   string        `json:"output,omitempty"`
+	Changes  *GitChangeSet `json:"changes,omitempty"`
+}
+
+// GitChangeSet answers GitChanges. Files are relative to the repository root;
+// Status is git's letter (A, M, D, R, ...; "?" untracked).
+type GitChangeSet struct {
+	Base      string          `json:"base"`
+	Commits   int             `json:"commits"`
+	Dirty     bool            `json:"dirty,omitempty"`
+	Files     []GitFileChange `json:"files,omitempty"`
+	Truncated bool            `json:"truncated,omitempty"`
+}
+
+// GitFileChange is one changed file.
+type GitFileChange struct {
+	Path   string `json:"path"`
+	Status string `json:"status"`
 }

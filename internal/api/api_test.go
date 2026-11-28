@@ -45,6 +45,7 @@ import (
 	"github.com/gempir/agenthold/internal/password"
 	"github.com/gempir/agenthold/internal/platform"
 	"github.com/gempir/agenthold/internal/preview"
+	"github.com/gempir/agenthold/internal/project"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
 	"github.com/gempir/agenthold/internal/secrets"
@@ -57,6 +58,7 @@ import (
 )
 
 type env struct {
+	projects  *project.Service
 	activity  *activity.Log
 	t         *testing.T
 	srv       *httptest.Server
@@ -243,6 +245,8 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	e.sessions.SetResolver(resolver)
 	e.sessions.SetLogins(e.logins)
 	e.sessions.SetAudit(&audit.Log{Store: st})
+	e.projects = &project.Service{Store: st, Machine: project.NodeMachine(n), Sessions: e.sessions}
+	e.sessions.SetWorkspaces(e.projects)
 	e.logins.Restart = e.sessions.Restart
 	e.sessions.SetTools(tools.Provider{Store: st, PlatformCommand: sandboxdBin})
 	e.preview = &preview.Service{Store: st, Hosts: preview.NewHosts(".apps.test", srv.URL)}
@@ -250,7 +254,7 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		t.Fatal(err)
 	}
 	e.apps.Preview = e.preview
-	platformSvc := &platform.Service{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}, Preview: e.preview, Apps: e.apps}
+	platformSvc := &platform.Service{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}, Preview: e.preview, Apps: e.apps, Projects: e.projects}
 	e.platform = platformSvc
 	go func() {
 		for {
@@ -279,7 +283,7 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		},
 		Store: st, Auth: authSvc, PublicURL: srv.URL, Sandboxes: e.sandboxes, Node: n, Nodes: nodes, Limits: cfg.Sandbox,
 		Box: box, Egress: e.directory, Sessions: e.sessions, Idle: e.sleeper, Audit: &audit.Log{Store: st}, ShowTestHarness: true,
-		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins, Git: e.git,
+		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins, Git: e.git, Projects: e.projects,
 		Preview: e.preview, Identity: e.identity, Apps: e.apps, Images: e.images, Activity: e.activity, UserMaxAgents: cfg.Auth.UserMaxAgents,
 		ACPStore: e.acpStore, Harnesses: resolver,
 	})

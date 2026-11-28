@@ -134,6 +134,9 @@ User (OIDC | GitHub | local admin)
  |   |- Session -> Event (append-only)
  |   |- Schedule, Webhook
  |   '- attached MCP servers, skills, secrets
+ |- Project (sources: git repos and folders; instructions)
+ |   |- Task (open | in_progress | review | done | cancelled; assignee agent, thread)
+ |   '- threads (sessions) of it, each in a workspace of its own: a worktree of every source on agenthold/<key>
  |- MCP servers, Skills, Secrets, provider logins
  '- API tokens
 Node (id, name, capacity, last seen)        # one row, "local", until the edge milestone

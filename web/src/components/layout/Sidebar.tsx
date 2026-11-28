@@ -12,6 +12,7 @@ import {
   ChevronRight,
   ChevronsUpDown,
   FolderGit2,
+  FolderKanban,
   GitBranch,
   Layers,
   Loader2,
@@ -29,6 +30,7 @@ import {
 import { api, unwrap } from '@/api/client';
 import {
   appsQuery,
+  projectsQuery,
   isTransient,
   meQuery,
   type SessionGit,
@@ -57,6 +59,8 @@ const SETTLED_PAGE = 50;
 export const SETTLED_OPEN_PREF = 'sidebar.settledOpen';
 /** localStorage key of the Apps section's fold. */
 export const APPS_OPEN_PREF = 'sidebar.appsOpen';
+/** localStorage key of the Projects section's fold. */
+const PROJECTS_OPEN_PREF = 'sidebar.projectsOpen';
 
 /** Who may settle: whoever may send prompts to the agent. */
 const canUse = (c: ChatEntry) =>
@@ -68,6 +72,7 @@ export function Sidebar() {
   const params = useParams({ strict: false }) as {
     agentId?: string;
     appId?: string;
+    projectId?: string;
   };
   const search = useSearch({ strict: false }) as { s?: string };
   const [query, setQuery] = useState('');
@@ -84,6 +89,13 @@ export function Sidebar() {
     () => readPref(SETTLED_OPEN_PREF, '') === '1',
   );
   const [agentsOpen, setAgentsOpen] = useState(false);
+  const [projectsOpen, setProjectsOpenState] = useState(
+    () => !!params.projectId || readPref(PROJECTS_OPEN_PREF, '') === '1',
+  );
+  const setProjectsOpen = (o: boolean) => {
+    setProjectsOpenState(o);
+    writePref(PROJECTS_OPEN_PREF, o ? '1' : '');
+  };
   const settle = useSettle();
   const settledListId = useId();
   const now = useNow(30_000);
@@ -110,6 +122,7 @@ export function Sidebar() {
       agent.name,
       session.git?.project ?? '',
       session.git?.branch ?? '',
+      session.project?.name ?? '',
     );
   const active = index.active.filter(threadMatches);
   const settled = index.settled.filter(threadMatches);
@@ -272,6 +285,11 @@ export function Sidebar() {
             </ul>
           </>
         )}
+        <ProjectsSection
+          query={q}
+          open={projectsOpen}
+          onToggle={() => setProjectsOpen(!projectsOpen)}
+        />
         <AppsSection
           query={q}
           open={appsOpen}
@@ -431,7 +449,7 @@ function ThreadCard({
             {status}
           </span>
         </span>
-        {hasGit(session.git) && <GitLine git={session.git} />}
+        {hasGit(gitOf(session)) && <GitLine git={gitOf(session)!} />}
       </Link>
       {onSettle && (
         <button
@@ -526,6 +544,12 @@ function SettledRow({
 
 const hasGit = (g?: SessionGit): g is SessionGit =>
   !!g && !!(g.project || g.branch);
+
+/** Where a thread works: its repository, or for a project thread the
+ * project and the thread's branch. */
+const gitOf = (s: ChatEntry['session']): SessionGit | undefined =>
+  s.git ??
+  (s.project && { project: s.project.name, branch: s.project.branch ?? '' });
 
 /** The project and branch a thread is on, one compact truncating line. */
 function GitLine({ git }: { git: SessionGit }) {
@@ -654,6 +678,84 @@ function Footer() {
         )}
       </Menu>
     </div>
+  );
+}
+
+/** Projects: repositories and folders agents work on, with tasks. */
+function ProjectsSection({
+  query: q,
+  open,
+  onToggle,
+}: {
+  query: string;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const params = useParams({ strict: false }) as { projectId?: string };
+  const projects = useQuery(projectsQuery);
+  const all = projects.data ?? [];
+  const list = all.filter((p) => !q || p.name.toLowerCase().includes(q));
+  const expanded = open || !!q;
+  return (
+    <>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={onToggle}
+        className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+      >
+        <span className="flex-1 text-left">Projects</span>
+        <span className="tabular-nums">{all.length}</span>
+        <ChevronRight
+          aria-hidden
+          className={cn(
+            'size-3.5 transition-transform',
+            expanded && 'rotate-90',
+          )}
+        />
+      </button>
+      {expanded && (
+        <ul
+          aria-label="Projects"
+          className="grid max-h-[30vh] grid-cols-1 gap-px overflow-y-auto pb-1"
+        >
+          {projects.isSuccess && list.length === 0 && q && (
+            <li className="px-2 py-1.5 text-muted-foreground">
+              No matching projects.
+            </li>
+          )}
+          {list.map((p) => (
+            <li key={p.id}>
+              <Link
+                to="/projects/$projectId"
+                params={{ projectId: p.id }}
+                aria-current={params.projectId === p.id ? 'page' : undefined}
+                className={cn(
+                  'flex h-8 items-center gap-2 rounded-lg px-2 hover:bg-accent/50',
+                  params.projectId === p.id && 'bg-accent/70',
+                )}
+              >
+                <FolderKanban
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                  aria-hidden
+                />
+                <span className="min-w-0 flex-1 truncate">{p.name}</span>
+              </Link>
+            </li>
+          ))}
+          <li>
+            <Link
+              to="/projects"
+              search={{ new: true }}
+              className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            >
+              <Plus className="size-3.5" aria-hidden />
+              New project
+            </Link>
+          </li>
+        </ul>
+      )}
+    </>
   );
 }
 

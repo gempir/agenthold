@@ -27,6 +27,12 @@ import { NewChatPage } from '@/pages/NewChatPage';
 import { NodesPage } from '@/pages/NodesPage';
 import { OverviewPage } from '@/pages/OverviewPage';
 import { ProfilePage } from '@/pages/ProfilePage';
+import {
+  isProjectSection,
+  ProjectPage,
+  type ProjectSection,
+} from '@/pages/ProjectPage';
+import { ProjectsPage } from '@/pages/ProjectsPage';
 import { ProvidersPage } from '@/pages/ProvidersPage';
 import { SlackLinkPage } from '@/pages/SlackLinkPage';
 import { SlackPage } from '@/pages/SlackPage';
@@ -140,6 +146,31 @@ const appPageRoute = createRoute({
     const { appId } = appPageRoute.useParams();
     const { tab } = appPageRoute.useSearch();
     return <AppPage key={appId} appId={appId} tab={tab} />;
+  },
+});
+
+const projectsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/projects',
+  validateSearch: (s: Record<string, unknown>): { new?: boolean } => ({
+    ...((s.new === true || s.new === 'true') && { new: true }),
+  }),
+  component: function Projects() {
+    const { new: create } = projectsRoute.useSearch();
+    return <ProjectsPage key={create ? 'new' : 'list'} create={create} />;
+  },
+});
+
+const projectRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/projects/$projectId',
+  validateSearch: (s: Record<string, unknown>): { tab?: ProjectSection } => ({
+    ...(isProjectSection(s.tab) && { tab: s.tab }),
+  }),
+  component: function ProjectRoute() {
+    const { projectId } = projectRoute.useParams();
+    const { tab } = projectRoute.useSearch();
+    return <ProjectPage key={projectId} projectId={projectId} tab={tab} />;
   },
 });
 
@@ -257,6 +288,8 @@ const routeTree = rootRoute.addChildren([
     agentRoute,
     agentSettingsRoute,
     appPageRoute,
+    projectsRoute,
+    projectRoute,
     overviewRedirectRoute,
     slackLinkRoute,
     settingsRoute.addChildren([

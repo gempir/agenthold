@@ -1024,6 +1024,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Search across all sessions accessible to the current user by title, git branch/project, and event message content. */
+        get: operations["searchSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{sessionId}": {
         parameters: {
             query?: never;
@@ -1042,6 +1059,44 @@ export interface paths {
         patch: operations["renameSession"];
         trace?: never;
     };
+    "/sessions/{sessionId}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Update per-thread settings (harness, model, modelOptions, permissionMode) without mutating the parent agent. */
+        patch: operations["updateSessionSettings"];
+        trace?: never;
+    };
+    "/sessions/{sessionId}/harness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Switch this thread's harness without mutating the parent agent. Context Handoff carries history on the next turn. */
+        patch: operations["setSessionHarness"];
+        trace?: never;
+    };
     "/sessions/{sessionId}/model": {
         parameters: {
             query?: never;
@@ -1053,8 +1108,9 @@ export interface paths {
         };
         get?: never;
         /**
-         * @description The session's own model and options. An empty model with no options returns the session to the agent's
-         *     default. It applies from the next message on (a running turn keeps its model).
+         * @description The session's own model, options, and optional harness override. An empty model with no options returns the
+         *     session to the harness's default. Switching harness updates only this session and triggers Context Handoff on
+         *     the next turn.
          */
         put: operations["setSessionModel"];
         post?: never;
@@ -1100,6 +1156,191 @@ export interface paths {
          *     and model. When text is given, the first turn starts immediately.
          */
         post: operations["startSubthread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/side-chats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Start a side chat (/side / /btw) of this session on the same agent and working directory, seeded with
+         *     the parent thread's conversation context via Context Handoff. Optionally sends the first prompt immediately.
+         */
+        post: operations["startSideChat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        /** @description List queued follow-up messages for this session in execution order. */
+        get: operations["listSessionQueue"];
+        put?: never;
+        /**
+         * @description Enqueue a follow-up message. If the session is idle, starts the turn immediately. If running and steer is true,
+         *     promotes the message and interrupts the current turn so it runs next.
+         */
+        post: operations["enqueueSessionMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/queue/{messageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                messageId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Remove a queued message. */
+        delete: operations["deleteQueuedMessage"];
+        options?: never;
+        head?: never;
+        /** @description Edit the text of a queued message. */
+        patch: operations["updateQueuedMessage"];
+        trace?: never;
+    };
+    "/sessions/{sessionId}/queue/{messageId}/send-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                messageId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Promote a queued message to run immediately (starts now if idle, or steers the running turn). */
+        post: operations["sendQueuedMessageNow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/rewind": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Rewind the conversation to before the given event sequence number ("Edit from here"). Deletes events with
+         *     seq >= seq, resets harness session state so Context Handoff carries only earlier history, and returns the
+         *     rewound prompt text. Refuses with 409 if a turn is currently running.
+         */
+        post: operations["rewindSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/pin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Pin the thread so it stays at the top of the sidebar. */
+        post: operations["pinSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/unpin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Remove the pin from the thread. */
+        post: operations["unpinSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/snooze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Snooze the thread until a given time, or indefinitely when until is omitted or null. Auto-wakes on new message, error, or pending permission. */
+        post: operations["snoozeSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/unsnooze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Wake a snoozed thread immediately. */
+        post: operations["unsnoozeSession"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3485,7 +3726,7 @@ export interface components {
         Session: {
             id: string;
             agentId: string;
-            /** @description Set when another agent or parent thread started this session (sub-thread, send_message, ask, or assign_task). */
+            /** @description Set when another agent or parent thread started this session (sub-thread, side chat, send_message, ask, or assign_task). */
             origin?: {
                 agentId: string;
                 agentName: string;
@@ -3494,8 +3735,14 @@ export interface components {
                 /** @description The parent session's title */
                 sessionTitle?: string;
             };
-            /** @description The harness this session runs on when pinned separately from the agent's default (e.g. a Codex sub-thread on a Claude Code agent). */
+            /** @description Relationship to origin session ('subthread', 'side_chat', 'a2a', or empty/absent for root threads). */
+            parentKind?: components["schemas"]["SessionParentKind"];
+            /** @description The effective harness this session runs on (pinned per-thread override or the agent's default harness). */
             harness?: string;
+            /** @description Per-thread permission mode (default full-access). */
+            permissionMode?: components["schemas"]["PermissionMode"];
+            /** @description Number of follow-up messages currently waiting in this session's queue. */
+            queuedCount?: number;
             title: string;
             running: boolean;
             /** @description Working directory relative to the agent's home directory. */
@@ -3513,6 +3760,18 @@ export interface components {
             updatedAt: string;
             /**
              * Format: date-time
+             * @description When the thread was pinned; absent when not pinned.
+             */
+            pinnedAt?: string;
+            /** @description True while the thread is snoozed (indefinitely or until snoozedUntil). */
+            snoozed?: boolean;
+            /**
+             * Format: date-time
+             * @description When a timed snooze expires; absent when not snoozed or snoozed indefinitely.
+             */
+            snoozedUntil?: string;
+            /**
+             * Format: date-time
              * @description When the thread was settled (done, out of the active list); absent while it is active.
              */
             settledAt?: string;
@@ -3521,6 +3780,90 @@ export interface components {
              * @enum {string}
              */
             settledBy?: "user" | "agent" | "auto";
+        };
+        /** @enum {string} */
+        PermissionMode: "full-access" | "auto-accept-edits" | "supervised" | "plan";
+        /** @enum {string} */
+        SessionParentKind: "" | "subthread" | "side_chat" | "a2a";
+        SessionModelInput: {
+            /** @description Optional harness id to switch this session to without mutating the parent agent. */
+            harness?: string;
+            /** @description Model id ('' keeps the default). */
+            model?: string;
+            /** @description Values by option id (ModelOption.id). */
+            options?: {
+                [key: string]: string;
+            };
+        };
+        SessionSettingsPatch: {
+            /** @description Switch this session's harness without mutating the parent agent. */
+            harness?: string;
+            /** @description Model id ('' resets to the harness default). */
+            model?: string;
+            modelOptions?: {
+                [key: string]: string;
+            };
+            permissionMode?: components["schemas"]["PermissionMode"];
+        };
+        PromptImageInput: {
+            /** @enum {string} */
+            mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+            /** @description Base64 encoded image bytes, without a data URL prefix. */
+            data: string;
+        };
+        QueueMessageInput: {
+            /** @description The message. May be empty when images are attached. */
+            text: string;
+            images?: components["schemas"]["PromptImageInput"][];
+            /** @description When true and the session is running, interrupt the current turn and run this message next. */
+            steer?: boolean;
+        };
+        QueuedMessage: {
+            id: string;
+            sessionId: string;
+            userId: string;
+            userName: string;
+            text: string;
+            images?: components["schemas"]["PromptImageInput"][];
+            steer: boolean;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        EnqueueMessageResult: {
+            /** @description True if the session was idle and the message started a turn immediately. */
+            started: boolean;
+            message?: components["schemas"]["QueuedMessage"];
+        };
+        SendQueuedMessageResult: {
+            /** @description True if the session was idle and the turn started immediately. */
+            started: boolean;
+            /** @description True if the running turn was interrupted to run this message next. */
+            steered: boolean;
+        };
+        RewindSessionInput: {
+            /** Format: int64 */
+            seq: number;
+            /** @description Best-effort safe git reset when the session works in a dedicated git worktree. */
+            revertFiles?: boolean;
+        };
+        RewindSessionResult: {
+            /** Format: int64 */
+            seq: number;
+            /** @description Prompt text that was at seq, if seq was a prompt event. */
+            promptText?: string;
+            /** Format: int64 */
+            deletedEvents: number;
+            filesReverted: boolean;
+            revertNote?: string;
+        };
+        SessionSearchResult: {
+            session: components["schemas"]["Session"];
+            agentName?: string;
+            /** @enum {string} */
+            matchField: "title" | "branch" | "project" | "message";
+            snippet?: string;
+            /** Format: int64 */
+            matchSeq?: number;
         };
         UserSettings: {
             /** @description Threads of your agents settle themselves after this many days without activity; 0 = never. It applies to every thread of the agents you own, also those that people you share with started. */
@@ -6164,6 +6507,14 @@ export interface operations {
                     createBranch?: boolean;
                     /** @description Create a new git worktree on gitBranch for this session. */
                     createWorktree?: boolean;
+                    /** @description Optional harness id for this thread (defaults to the agent's harness). */
+                    harness?: string;
+                    /** @description Optional model id for this thread. */
+                    model?: string;
+                    modelOptions?: {
+                        [key: string]: string;
+                    };
+                    permissionMode?: components["schemas"]["PermissionMode"];
                 };
             };
         };
@@ -6181,6 +6532,30 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+        };
+    };
+    searchSessions: {
+        parameters: {
+            query: {
+                q: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching sessions with match snippets. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionSearchResult"][];
+                };
+            };
+            400: components["responses"]["Error"];
         };
     };
     getSession: {
@@ -6259,6 +6634,72 @@ export interface operations {
             404: components["responses"]["Error"];
         };
     };
+    updateSessionSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionSettingsPatch"];
+            };
+        };
+        responses: {
+            /** @description Updated session. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    setSessionHarness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    harness: string;
+                    model?: string;
+                    modelOptions?: {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Harness updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
     setSessionModel: {
         parameters: {
             query?: never;
@@ -6270,7 +6711,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ModelChoice"];
+                "application/json": components["schemas"]["SessionModelInput"];
             };
         };
         responses: {
@@ -6286,6 +6727,7 @@ export interface operations {
             400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
         };
     };
     promptSession: {
@@ -6362,6 +6804,315 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    startSideChat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    title?: string;
+                    /** @description Optional harness id for this side chat. */
+                    harness?: string;
+                    /** @description Optional model id for this side chat. */
+                    model?: string;
+                    modelOptions?: {
+                        [key: string]: string;
+                    };
+                    /** @description Optional first prompt to send immediately. */
+                    text?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Side chat created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listSessionQueue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queued messages. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueuedMessage"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    enqueueSessionMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueueMessageInput"];
+            };
+        };
+        responses: {
+            /** @description Message queued or started. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnqueueMessageResult"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteQueuedMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                messageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    updateQueuedMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                messageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    text: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated queued message. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueuedMessage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    sendQueuedMessageNow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                messageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Promoted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendQueuedMessageResult"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    rewindSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RewindSessionInput"];
+            };
+        };
+        responses: {
+            /** @description Rewound. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RewindSessionResult"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    pinSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pinned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    unpinSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unpinned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    snoozeSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * Format: date-time
+                     * @description Optional RFC3339 wake-up time. Omit or pass null to snooze indefinitely.
+                     */
+                    until?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Snoozed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    unsnoozeSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unsnoozed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };

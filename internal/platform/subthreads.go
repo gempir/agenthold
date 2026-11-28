@@ -178,7 +178,7 @@ func (p *Service) startSubthread(ctx context.Context, caller db.Agent, parentSes
 
 	// Inherit the parent thread's exact worktree / working directory and git
 	// metadata so the sub-thread works directly alongside the parent thread.
-	opts := session.CreateOpts{Harness: pinnedHarness}
+	opts := session.CreateOpts{Harness: pinnedHarness, ParentKind: session.ParentKindSubthread}
 	if parentSessionID != "" {
 		if parent, err := p.Store.GetAgentSession(ctx, parentSessionID); err == nil && parent.AgentID == caller.ID {
 			opts.Cwd = parent.Cwd

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -193,24 +194,52 @@ func (a *API) SetSessionModel(ctx context.Context, req gen.SetSessionModelReques
 	if err != nil {
 		return nil, err
 	}
+	if req.Body == nil {
+		return nil, badRequest("body is required")
+	}
 	agent, err := a.Store.GetAgent(ctx, s.AgentID)
 	if err != nil {
 		return nil, err
 	}
+	if req.Body.Harness != nil && strings.TrimSpace(*req.Body.Harness) != "" {
+		h := strings.TrimSpace(*req.Body.Harness)
+		ad, ok, err := a.resolveAdapter(ctx, h)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, badRequest("unknown harness " + h)
+		}
+		if err := a.Sessions.SetSessionHarness(ctx, s.ID, ad.ID); err != nil {
+			if errors.Is(err, session.ErrBusy) {
+				return nil, errStatus(http.StatusConflict, err.Error())
+			}
+			return nil, err
+		}
+		if a.Egress != nil {
+			a.Egress.Invalidate()
+		}
+		s, err = a.Store.GetAgentSession(ctx, s.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if s.Harness != "" {
 		agent.Harness = s.Harness
 	}
-	choice := choiceFrom(*req.Body)
-	_, cerr := a.authz.Agent(ctx, me(ctx).ID, s.AgentID, authz.AgentConfigure)
-	if err := a.validateChoice(ctx, agent, choice, session.OwnChoice(s), cerr == nil); err != nil {
-		return nil, err
-	}
-	if err := a.Sessions.SetSessionChoice(ctx, s.ID, choice); err != nil {
-		return nil, err
-	}
-	s, err = a.Store.GetAgentSession(ctx, s.ID)
-	if err != nil {
-		return nil, err
+	if req.Body.Model != nil || req.Body.Options != nil {
+		choice := sessionModelInputChoice(*req.Body)
+		_, cerr := a.authz.Agent(ctx, me(ctx).ID, s.AgentID, authz.AgentConfigure)
+		if err := a.validateChoice(ctx, agent, choice, session.OwnChoice(s), cerr == nil); err != nil {
+			return nil, err
+		}
+		if err := a.Sessions.SetSessionChoice(ctx, s.ID, choice); err != nil {
+			return nil, err
+		}
+		s, err = a.Store.GetAgentSession(ctx, s.ID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	out, err := a.apiSession(ctx, s)
 	if err != nil {
@@ -219,8 +248,8 @@ func (a *API) SetSessionModel(ctx context.Context, req gen.SetSessionModelReques
 	return gen.SetSessionModel200JSONResponse(out), nil
 }
 
-func choiceFrom(b gen.ModelChoice) session.Choice {
-	c := session.Choice{Model: strings.TrimSpace(b.Model), Options: map[string]string{}}
+func sessionModelInputChoice(b gen.SessionModelInput) session.Choice {
+	c := session.Choice{Model: strings.TrimSpace(deref(b.Model)), Options: map[string]string{}}
 	if b.Options != nil {
 		for k, v := range *b.Options {
 			c.Options[k] = v

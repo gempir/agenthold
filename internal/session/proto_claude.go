@@ -487,9 +487,18 @@ func (p *claudeProtoClient) Prompt(ctx context.Context, sessionID, text string, 
 		p.mu.Unlock()
 	}
 
-	// Ensure Claude stays in full-bypass mode before the prompt (including resumed
-	// sessions): the Firecracker microVM is the safety boundary.
-	_, _ = cp.controlRequest(ctx, map[string]any{"subtype": "set_permission_mode", "mode": "bypassPermissions"})
+	// Apply the thread's permission mode before the prompt (including resumed
+	// sessions). Default full-access uses bypassPermissions inside the microVM.
+	claudeMode := "bypassPermissions"
+	switch p.conn.sessionPermissionMode(sessionID) {
+	case PermissionAutoAcceptEdits:
+		claudeMode = "acceptEdits"
+	case PermissionSupervised:
+		claudeMode = "default"
+	case PermissionPlan:
+		claudeMode = "plan"
+	}
+	_, _ = cp.controlRequest(ctx, map[string]any{"subtype": "set_permission_mode", "mode": claudeMode})
 
 	turnCh := make(chan claudeTurnOutcome, 1)
 	cp.mu.Lock()
@@ -863,8 +872,20 @@ func (cp *claudeProc) handleControlRequest(reqID string, raw json.RawMessage) {
 		return
 	}
 
-	// The Firecracker microVM is the safety boundary: always allow tool calls
-	// without prompting if Claude ever sends a can_use_tool request.
+	if cp.parent.conn != nil && cp.parent.conn.m != nil {
+		allowed, _ := cp.parent.conn.requestToolApproval(
+			cp.parent.conn.m.ctx,
+			cp.sessionID,
+			req.ToolUseID,
+			req.ToolName,
+			claudeToolKind(req.ToolName),
+			req.Input,
+		)
+		if !allowed {
+			reply(map[string]any{"behavior": "deny", "message": "Permission denied by user"})
+			return
+		}
+	}
 	var inputObj any
 	_ = json.Unmarshal(req.Input, &inputObj)
 	if inputObj == nil {

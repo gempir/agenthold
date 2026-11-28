@@ -702,11 +702,13 @@ func (c *harnessConn) SessionUpdate(ctx context.Context, n acp.SessionNotificati
 
 // RequestPermission implements acp.Client.
 //
-// Because every harness runs inside an isolated Firecracker microVM sandbox,
-// permission requests from ACP harnesses that still ask are always approved
-// immediately (preferring persistent "allow always" options). ACP requires
-// answering with "cancelled" once the turn was cancelled, also for requests
-// that cross the cancel on the wire.
+// Tool permissions follow the session's per-thread permission mode:
+//   - full-access (default): auto-approve immediately inside the Firecracker sandbox.
+//   - auto-accept-edits: auto-approve reads and edits; ask the user for execute/other.
+//   - supervised / plan: auto-approve read-only; ask the user for mutations/execute.
+//
+// ACP requires answering with "cancelled" once the turn was cancelled, also
+// for requests that cross the cancel on the wire.
 func (c *harnessConn) RequestPermission(ctx context.Context, p acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
 	c.alive()
 	sessionID, ok := c.sessionFor(p.SessionId)
@@ -716,6 +718,10 @@ func (c *harnessConn) RequestPermission(ctx context.Context, p acp.RequestPermis
 	}
 	requestID := id.New("perm")
 	lctx := context.WithoutCancel(ctx)
+	toolKind := ""
+	if p.ToolCall.Kind != nil {
+		toolKind = string(*p.ToolCall.Kind)
+	}
 	// Checked under the lock Cancel takes, so a cancel either sees the turn
 	// ending or this request sees the cancel.
 	c.m.mu.Lock()
@@ -724,13 +730,42 @@ func (c *harnessConn) RequestPermission(ctx context.Context, p acp.RequestPermis
 		c.m.mu.Unlock()
 		return cancelled, nil
 	}
+	mode := NormalizePermissionMode(t.permissionMode)
+	auto := shouldAutoApprove(mode, toolKind)
+	var ch chan acp.PermissionOptionId
+	var promptCtx context.Context
+	if !auto {
+		ch = make(chan acp.PermissionOptionId, 1)
+		t.perms[requestID] = ch
+		promptCtx = t.prompt
+	}
 	c.m.mu.Unlock()
+	if auto {
+		_ = c.m.log.append(lctx, sessionID, EventPermission, "", map[string]any{
+			"requestId": requestID, "toolCall": p.ToolCall, "options": p.Options, "policy": PolicyAutoApprove, "permissionMode": mode,
+		})
+		opt := pickAllow(p.Options)
+		_ = c.m.log.append(lctx, sessionID, EventPermissionResolved, "", map[string]string{"requestId": requestID, "optionId": string(opt), "by": "auto"})
+		return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(opt)}, nil
+	}
+	// Pending permission wakes a snoozed thread so the user sees the approval card.
+	_, _ = c.m.store.UnsnoozeSession(lctx, sessionID)
 	_ = c.m.log.append(lctx, sessionID, EventPermission, "", map[string]any{
-		"requestId": requestID, "toolCall": p.ToolCall, "options": p.Options, "policy": PolicyAutoApprove,
+		"requestId": requestID, "toolCall": p.ToolCall, "options": p.Options, "policy": PolicyAsk, "permissionMode": mode,
 	})
-	opt := pickAllow(p.Options)
-	_ = c.m.log.append(lctx, sessionID, EventPermissionResolved, "", map[string]string{"requestId": requestID, "optionId": string(opt), "by": "auto"})
-	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(opt)}, nil
+	select {
+	case opt, ok := <-ch:
+		if !ok {
+			return cancelled, nil
+		}
+		return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(opt)}, nil
+	case <-ctx.Done():
+		c.m.clearPendingPermission(sessionID, requestID, ch)
+		return cancelled, nil
+	case <-promptCtx.Done():
+		c.m.clearPendingPermission(sessionID, requestID, ch)
+		return cancelled, nil
+	}
 }
 
 // pickAllow prefers a persistent approval so third-party ACP harnesses that

@@ -90,8 +90,8 @@ INSERT INTO agent_model_catalogs (agent_id, harness, data, seen_at) VALUES ($1, 
 ON CONFLICT (agent_id) DO UPDATE SET harness = excluded.harness, data = excluded.data, seen_at = excluded.seen_at;
 
 -- name: MarkSessionRunning :exec
--- A new turn is activity: it also unsettles the session.
-UPDATE agent_sessions SET status = 'running', updated_at = $1, settled_at = NULL, settled_by = '' WHERE id = $2;
+-- A new turn is activity: it also unsettles and wakes a snoozed session.
+UPDATE agent_sessions SET status = 'running', updated_at = $1, settled_at = NULL, settled_by = '', snoozed_until = NULL WHERE id = $2;
 
 -- name: SettleSession :execrows
 -- Settles an active session; no row when it is settled already.
@@ -124,3 +124,81 @@ UPDATE agent_sessions SET git_project = $1, git_branch = $2, git_repo_path = $3 
 
 -- name: UpdateAgentRepoBranch :exec
 UPDATE agent_sessions SET git_branch = $1 WHERE agent_id = $2 AND git_repo_path = $3;
+
+
+-- name: SetSessionPermissionMode :exec
+UPDATE agent_sessions SET permission_mode = $1, updated_at = $2 WHERE id = $3;
+
+-- name: SetSessionParentKind :exec
+UPDATE agent_sessions SET parent_kind = $1 WHERE id = $2;
+
+-- name: PinSession :execrows
+UPDATE agent_sessions SET pinned_at = $1 WHERE id = $2 AND pinned_at IS NULL;
+
+-- name: UnpinSession :execrows
+UPDATE agent_sessions SET pinned_at = NULL WHERE id = $1 AND pinned_at IS NOT NULL;
+
+-- name: SnoozeSession :exec
+UPDATE agent_sessions SET snoozed_until = $1 WHERE id = $2;
+
+-- name: UnsnoozeSession :execrows
+UPDATE agent_sessions SET snoozed_until = NULL WHERE id = $1 AND snoozed_until IS NOT NULL;
+
+-- name: DeleteSessionEventsFrom :execrows
+DELETE FROM agent_session_events WHERE session_id = $1 AND seq >= $2;
+
+-- name: EnqueueSessionMessage :exec
+INSERT INTO session_queued_messages (id, session_id, user_id, user_name, text, images_json, steer, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+
+-- name: ListSessionQueuedMessages :many
+SELECT * FROM session_queued_messages WHERE session_id = $1 ORDER BY steer DESC, created_at ASC, id ASC;
+
+-- name: GetSessionQueuedMessage :one
+SELECT * FROM session_queued_messages WHERE id = $1 AND session_id = $2;
+
+-- name: UpdateSessionQueuedMessage :execrows
+UPDATE session_queued_messages SET text = $1 WHERE id = $2 AND session_id = $3;
+
+-- name: SetSessionQueuedMessageSteer :execrows
+UPDATE session_queued_messages SET steer = $1 WHERE id = $2 AND session_id = $3;
+
+-- name: DeleteSessionQueuedMessage :execrows
+DELETE FROM session_queued_messages WHERE id = $1 AND session_id = $2;
+
+-- name: CountSessionQueuedMessages :one
+SELECT CAST(COUNT(*) AS BIGINT) FROM session_queued_messages WHERE session_id = $1;
+
+-- name: CountAgentQueuedMessages :many
+SELECT q.session_id, CAST(COUNT(*) AS BIGINT) AS count
+FROM session_queued_messages q
+JOIN agent_sessions s ON s.id = q.session_id
+WHERE s.agent_id = $1
+GROUP BY q.session_id;
+
+-- name: SearchUserSessionsByMetadata :many
+SELECT sqlc.embed(agent_sessions), agents.name AS agent_name, CAST(COALESCE(projects.name, '') AS TEXT) AS project_name
+FROM agent_sessions
+JOIN agents ON agents.id = agent_sessions.agent_id
+LEFT JOIN projects ON projects.id = agent_sessions.project_id
+WHERE (agents.owner_id = sqlc.arg(user_id)
+       OR agents.id IN (SELECT agent_shares.agent_id FROM agent_shares WHERE agent_shares.user_id = sqlc.arg(user_id)))
+  AND (STRPOS(LOWER(agent_sessions.title), CAST(sqlc.arg(needle) AS TEXT)) > 0
+       OR STRPOS(LOWER(agent_sessions.git_branch), CAST(sqlc.arg(needle) AS TEXT)) > 0
+       OR STRPOS(LOWER(agent_sessions.git_project), CAST(sqlc.arg(needle) AS TEXT)) > 0
+       OR STRPOS(LOWER(agent_sessions.project_branch), CAST(sqlc.arg(needle) AS TEXT)) > 0
+       OR STRPOS(LOWER(COALESCE(projects.name, '')), CAST(sqlc.arg(needle) AS TEXT)) > 0)
+ORDER BY agent_sessions.updated_at DESC
+LIMIT CAST(sqlc.arg(max_rows) AS BIGINT);
+
+-- name: SearchUserSessionEvents :many
+SELECT sqlc.embed(agent_sessions), agents.name AS agent_name, agent_session_events.seq AS event_seq, agent_session_events.type AS event_type, agent_session_events.data AS event_data
+FROM agent_session_events
+JOIN agent_sessions ON agent_sessions.id = agent_session_events.session_id
+JOIN agents ON agents.id = agent_sessions.agent_id
+WHERE (agents.owner_id = sqlc.arg(user_id)
+       OR agents.id IN (SELECT agent_shares.agent_id FROM agent_shares WHERE agent_shares.user_id = sqlc.arg(user_id)))
+  AND agent_session_events.type IN ('prompt', 'update', 'error')
+  AND STRPOS(LOWER(agent_session_events.data), CAST(sqlc.arg(needle) AS TEXT)) > 0
+ORDER BY agent_sessions.updated_at DESC, agent_session_events.seq DESC
+LIMIT CAST(sqlc.arg(max_rows) AS BIGINT);

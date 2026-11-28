@@ -22,6 +22,7 @@ type Querier interface {
 	ConsumeNodeJoinToken(ctx context.Context, arg ConsumeNodeJoinTokenParams) (string, error)
 	CopyServices(ctx context.Context, arg CopyServicesParams) error
 	CountAgentApps(ctx context.Context, createdByAgentID string) (int64, error)
+	CountAgentQueuedMessages(ctx context.Context, agentID string) ([]CountAgentQueuedMessagesRow, error)
 	CountAgentsByHarness(ctx context.Context, harness string) (int64, error)
 	CountExposures(ctx context.Context, agentID string) (int64, error)
 	CountImageAgents(ctx context.Context, imageID string) (int64, error)
@@ -30,6 +31,7 @@ type Querier interface {
 	// Machines of kind agent (templates and clones included) a user owns, for auth.user_max_agents.
 	CountOwnedAgents(ctx context.Context, ownerID string) (int64, error)
 	CountOwnerApps(ctx context.Context, ownerID string) (int64, error)
+	CountSessionQueuedMessages(ctx context.Context, sessionID string) (int64, error)
 	CountUserIdentities(ctx context.Context, arg CountUserIdentitiesParams) (int64, error)
 	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) error
 	CreateAgent(ctx context.Context, arg CreateAgentParams) error
@@ -88,6 +90,8 @@ type Querier interface {
 	DeleteSecret(ctx context.Context, id string) error
 	DeleteService(ctx context.Context, arg DeleteServiceParams) (int64, error)
 	DeleteSession(ctx context.Context, tokenHash string) error
+	DeleteSessionEventsFrom(ctx context.Context, arg DeleteSessionEventsFromParams) (int64, error)
+	DeleteSessionQueuedMessage(ctx context.Context, arg DeleteSessionQueuedMessageParams) (int64, error)
 	DeleteSkill(ctx context.Context, id string) error
 	DeleteSlackInstallation(ctx context.Context) error
 	DeleteSlackLinkCode(ctx context.Context, codeHash string) (int64, error)
@@ -104,6 +108,7 @@ type Querier interface {
 	DisableAgentSchedules(ctx context.Context, arg DisableAgentSchedulesParams) error
 	DisableAgentWebhooks(ctx context.Context, arg DisableAgentWebhooksParams) error
 	DueSchedules(ctx context.Context, nextRunAt int64) ([]Schedule, error)
+	EnqueueSessionMessage(ctx context.Context, arg EnqueueSessionMessageParams) error
 	ExtendSession(ctx context.Context, arg ExtendSessionParams) error
 	FailImageBuild(ctx context.Context, arg FailImageBuildParams) error
 	GetAgent(ctx context.Context, id string) (Agent, error)
@@ -138,6 +143,7 @@ type Querier interface {
 	GetSecretByName(ctx context.Context, arg GetSecretByNameParams) (Secret, error)
 	GetService(ctx context.Context, arg GetServiceParams) (Service, error)
 	GetSessionEvent(ctx context.Context, arg GetSessionEventParams) (AgentSessionEvent, error)
+	GetSessionQueuedMessage(ctx context.Context, arg GetSessionQueuedMessageParams) (SessionQueuedMessage, error)
 	GetSessionUser(ctx context.Context, arg GetSessionUserParams) (GetSessionUserRow, error)
 	GetShare(ctx context.Context, arg GetShareParams) (AgentShare, error)
 	GetSkill(ctx context.Context, id string) (Skill, error)
@@ -199,6 +205,7 @@ type Querier interface {
 	ListSandboxes(ctx context.Context) ([]Sandbox, error)
 	ListServices(ctx context.Context, agentID string) ([]Service, error)
 	ListSessionEvents(ctx context.Context, arg ListSessionEventsParams) ([]AgentSessionEvent, error)
+	ListSessionQueuedMessages(ctx context.Context, sessionID string) ([]SessionQueuedMessage, error)
 	ListSessionTasks(ctx context.Context, sessionID string) ([]ProjectTask, error)
 	ListSlackThreadSessions(ctx context.Context) ([]string, error)
 	ListSlackThreads(ctx context.Context) ([]SlackThread, error)
@@ -226,11 +233,12 @@ type Querier interface {
 	// A clone of an app is an app of its cloner, managed by no agent.
 	MakeAppClone(ctx context.Context, id string) error
 	MarkCredentialsInSandbox(ctx context.Context, id string) error
-	// A new turn is activity: it also unsettles the session.
+	// A new turn is activity: it also unsettles and wakes a snoozed session.
 	MarkSessionRunning(ctx context.Context, arg MarkSessionRunningParams) error
 	MarkStaleImageBuildsFailed(ctx context.Context, now int64) error
 	MaxImageRevision(ctx context.Context, imageID string) (int64, error)
 	MaxSessionSeq(ctx context.Context, sessionID string) (int64, error)
+	PinSession(ctx context.Context, arg PinSessionParams) (int64, error)
 	PutSlackChannelAgent(ctx context.Context, arg PutSlackChannelAgentParams) error
 	PutSlackInstallation(ctx context.Context, arg PutSlackInstallationParams) error
 	PutSlackUser(ctx context.Context, arg PutSlackUserParams) error
@@ -246,6 +254,8 @@ type Querier interface {
 	// A new harness knows nothing of the models chosen on the old one.
 	// Sub-threads pinned to their own harness keep theirs.
 	ResetSessionModels(ctx context.Context, agentID string) error
+	SearchUserSessionEvents(ctx context.Context, arg SearchUserSessionEventsParams) ([]SearchUserSessionEventsRow, error)
+	SearchUserSessionsByMetadata(ctx context.Context, arg SearchUserSessionsByMetadataParams) ([]SearchUserSessionsByMetadataRow, error)
 	SetAgentExecutor(ctx context.Context, arg SetAgentExecutorParams) error
 	SetAgentExecutorApprovalMode(ctx context.Context, arg SetAgentExecutorApprovalModeParams) error
 	SetAgentExecutorEnabled(ctx context.Context, arg SetAgentExecutorEnabledParams) error
@@ -281,7 +291,10 @@ type Querier interface {
 	SetSessionModel(ctx context.Context, arg SetSessionModelParams) error
 	SetSessionNative(ctx context.Context, arg SetSessionNativeParams) error
 	SetSessionOrigin(ctx context.Context, arg SetSessionOriginParams) error
+	SetSessionParentKind(ctx context.Context, arg SetSessionParentKindParams) error
+	SetSessionPermissionMode(ctx context.Context, arg SetSessionPermissionModeParams) error
 	SetSessionProject(ctx context.Context, arg SetSessionProjectParams) error
+	SetSessionQueuedMessageSteer(ctx context.Context, arg SetSessionQueuedMessageSteerParams) (int64, error)
 	SetSessionStatus(ctx context.Context, arg SetSessionStatusParams) error
 	SetSlackThreadCursor(ctx context.Context, arg SetSlackThreadCursorParams) error
 	SetSlackThreadHeader(ctx context.Context, arg SetSlackThreadHeaderParams) error
@@ -291,6 +304,7 @@ type Querier interface {
 	// Settles an active session; no row when it is settled already.
 	SettleSession(ctx context.Context, arg SettleSessionParams) (int64, error)
 	ShareAgent(ctx context.Context, arg ShareAgentParams) error
+	SnoozeSession(ctx context.Context, arg SnoozeSessionParams) error
 	StartImageBuild(ctx context.Context, arg StartImageBuildParams) error
 	// Only if nobody replaced the credential meanwhile.
 	StoreRefreshedLogin(ctx context.Context, arg StoreRefreshedLoginParams) (int64, error)
@@ -304,9 +318,11 @@ type Querier interface {
 	// Moves a sandbox to a new state only if it is currently in one of the allowed states.
 	TransitionSandbox(ctx context.Context, arg TransitionSandboxParams) (int64, error)
 	TrimPreviewSessions(ctx context.Context, arg TrimPreviewSessionsParams) error
+	UnpinSession(ctx context.Context, id string) (int64, error)
 	// Unsettles a settled session; no row when it is active already.
 	UnsettleSession(ctx context.Context, arg UnsettleSessionParams) (int64, error)
 	UnshareAgent(ctx context.Context, arg UnshareAgentParams) (int64, error)
+	UnsnoozeSession(ctx context.Context, id string) (int64, error)
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
 	UpdateAgentRepoBranch(ctx context.Context, arg UpdateAgentRepoBranchParams) error
 	UpdateCustomHarness(ctx context.Context, arg UpdateCustomHarnessParams) error
@@ -320,6 +336,7 @@ type Querier interface {
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) error
 	UpdateSecret(ctx context.Context, arg UpdateSecretParams) error
 	UpdateSessionGitStatus(ctx context.Context, arg UpdateSessionGitStatusParams) error
+	UpdateSessionQueuedMessage(ctx context.Context, arg UpdateSessionQueuedMessageParams) (int64, error)
 	UpdateSkill(ctx context.Context, arg UpdateSkillParams) error
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
 	UpdateWebhook(ctx context.Context, arg UpdateWebhookParams) error

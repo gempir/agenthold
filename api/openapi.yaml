@@ -4306,6 +4306,260 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  # --- Phase 4C: Usage & Quota Analytics + Durable Multi-Stage Workflows ---
+
+  /usage/summary:
+    get:
+      operationId: getUsageSummary
+      tags: [usage]
+      description: |
+        Aggregated token and estimated USD cost usage across a time range.
+        Admins may pass scope=org to view organization-wide usage and per-user breakdown.
+      parameters:
+        - name: range
+          in: query
+          schema:
+            type: string
+            enum: [24h, 7d, 30d, 90d]
+            x-enum-varnames: [UsageRange24h, UsageRange7d, UsageRange30d, UsageRange90d]
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [me, org]
+            x-enum-varnames: [UsageScopeMe, UsageScopeOrg]
+      responses:
+        "200":
+          description: Usage summary.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UsageSummary" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /usage/prices:
+    get:
+      operationId: listUsagePrices
+      tags: [usage]
+      description: Effective USD per-million token prices (built-in defaults merged with admin overrides).
+      responses:
+        "200":
+          description: Model prices.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/UsageModelPrice" }
+    put:
+      operationId: putUsagePrice
+      tags: [usage]
+      description: Set or reset a custom USD per-million token price for a model (admin only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UsageModelPriceInput" }
+      responses:
+        "200":
+          description: Updated model price.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UsageModelPrice" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /workflows:
+    get:
+      operationId: listWorkflows
+      tags: [workflows]
+      description: List workflow definitions owned by the signed-in user.
+      responses:
+        "200":
+          description: Workflows.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Workflow" }
+    post:
+      operationId: createWorkflow
+      tags: [workflows]
+      description: Create a durable multi-stage workflow definition.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkflowInput" }
+      responses:
+        "201":
+          description: Created workflow.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workflow" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /workflows/{workflowId}:
+    parameters:
+      - name: workflowId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: updateWorkflow
+      tags: [workflows]
+      description: Update a workflow definition.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkflowInput" }
+      responses:
+        "200":
+          description: Updated workflow.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workflow" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteWorkflow
+      tags: [workflows]
+      description: Delete a workflow definition and its runs.
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /workflows/{workflowId}/run:
+    parameters:
+      - name: workflowId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: startWorkflowRun
+      tags: [workflows]
+      description: Manually start a new run of a workflow.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkflowRunStartInput" }
+      responses:
+        "201":
+          description: Started or queued workflow run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkflowRun" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /workflow-runs:
+    get:
+      operationId: listWorkflowRuns
+      tags: [workflows]
+      description: List workflow runs owned by the signed-in user.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, needs_input, running]
+            x-enum-varnames: [WorkflowRunFilterAll, WorkflowRunFilterNeedsInput, WorkflowRunFilterRunning]
+      responses:
+        "200":
+          description: Workflow runs with step checkpoints.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/WorkflowRun" }
+
+  /workflow-runs/{runId}:
+    parameters:
+      - name: runId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getWorkflowRun
+      tags: [workflows]
+      description: Get one workflow run and all its steps.
+      responses:
+        "200":
+          description: Workflow run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkflowRun" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /workflow-runs/{runId}/cancel:
+    parameters:
+      - name: runId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: cancelWorkflowRun
+      tags: [workflows]
+      description: Cancel an active, queued, or waiting workflow run.
+      responses:
+        "200":
+          description: Cancelled workflow run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkflowRun" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /workflow-runs/{runId}/resume:
+    parameters:
+      - name: runId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: resumeWorkflowRun
+      tags: [workflows]
+      description: Resume a failed or paused workflow run from its unfinished step.
+      responses:
+        "200":
+          description: Resumed workflow run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkflowRun" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /workflow-runs/{runId}/steps/{stepId}/answer:
+    parameters:
+      - name: runId
+        in: path
+        required: true
+        schema: { type: string }
+      - name: stepId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: answerWorkflowStep
+      tags: [workflows]
+      description: Answer a human-approval ask step and resume the workflow run.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkflowStepAnswerInput" }
+      responses:
+        "200":
+          description: Updated workflow run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkflowRun" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
 
 
 security:
@@ -6547,3 +6801,243 @@ components:
         key: { type: string }
         dx: { type: number }
         dy: { type: number }
+
+    # --- Phase 4C: Usage & Quota Analytics + Durable Multi-Stage Workflows ---
+
+    UsageTotals:
+      type: object
+      required: [totalTokens, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalCostUsd, turnCount]
+      properties:
+        totalTokens: { type: integer, format: int64 }
+        inputTokens: { type: integer, format: int64 }
+        outputTokens: { type: integer, format: int64 }
+        cacheReadTokens: { type: integer, format: int64 }
+        cacheWriteTokens: { type: integer, format: int64 }
+        totalCostUsd: { type: number, format: double }
+        turnCount: { type: integer, format: int64 }
+
+    UsageBucket:
+      type: object
+      required: [bucket, totalTokens, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd, turnCount]
+      properties:
+        bucket: { type: string, description: "UTC bucket label (YYYY-MM-DD, or YYYY-MM-DDTHH:00Z for 24h range)." }
+        totalTokens: { type: integer, format: int64 }
+        inputTokens: { type: integer, format: int64 }
+        outputTokens: { type: integer, format: int64 }
+        cacheReadTokens: { type: integer, format: int64 }
+        cacheWriteTokens: { type: integer, format: int64 }
+        costUsd: { type: number, format: double }
+        turnCount: { type: integer, format: int64 }
+
+    UsageModelBreakdown:
+      type: object
+      required: [harness, model, totalTokens, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd, turnCount, priced]
+      properties:
+        harness: { type: string }
+        model: { type: string }
+        totalTokens: { type: integer, format: int64 }
+        inputTokens: { type: integer, format: int64 }
+        outputTokens: { type: integer, format: int64 }
+        cacheReadTokens: { type: integer, format: int64 }
+        cacheWriteTokens: { type: integer, format: int64 }
+        costUsd: { type: number, format: double }
+        turnCount: { type: integer, format: int64 }
+        priced: { type: boolean }
+
+    UsageUserBreakdown:
+      type: object
+      required: [userId, userName, userEmail, totalTokens, inputTokens, outputTokens, costUsd, turnCount]
+      properties:
+        userId: { type: string }
+        userName: { type: string }
+        userEmail: { type: string }
+        totalTokens: { type: integer, format: int64 }
+        inputTokens: { type: integer, format: int64 }
+        outputTokens: { type: integer, format: int64 }
+        costUsd: { type: number, format: double }
+        turnCount: { type: integer, format: int64 }
+
+    UsageSummary:
+      type: object
+      required: [range, scope, totals, series, byModel, byUser]
+      properties:
+        range:
+          type: string
+          enum: [24h, 7d, 30d, 90d]
+          x-enum-varnames: [UsageSummaryRange24h, UsageSummaryRange7d, UsageSummaryRange30d, UsageSummaryRange90d]
+        scope:
+          type: string
+          enum: [me, org]
+          x-enum-varnames: [UsageSummaryScopeMe, UsageSummaryScopeOrg]
+        totals: { $ref: "#/components/schemas/UsageTotals" }
+        series:
+          type: array
+          items: { $ref: "#/components/schemas/UsageBucket" }
+        byModel:
+          type: array
+          items: { $ref: "#/components/schemas/UsageModelBreakdown" }
+        byUser:
+          type: array
+          items: { $ref: "#/components/schemas/UsageUserBreakdown" }
+
+    UsageModelPrice:
+      type: object
+      required: [model, inputPerM, outputPerM, cacheReadPerM, custom]
+      properties:
+        model: { type: string }
+        inputPerM: { type: number, format: double }
+        outputPerM: { type: number, format: double }
+        cacheReadPerM: { type: number, format: double }
+        custom: { type: boolean }
+        updatedAt: { type: string, format: date-time }
+
+    UsageModelPriceInput:
+      type: object
+      required: [model, inputPerM, outputPerM]
+      properties:
+        model: { type: string }
+        inputPerM: { type: number, format: double, minimum: 0 }
+        outputPerM: { type: number, format: double, minimum: 0 }
+        cacheReadPerM: { type: number, format: double, minimum: 0 }
+        reset: { type: boolean, description: If true, delete custom override and revert to built-in pricing. }
+
+    WorkflowStepKind:
+      type: string
+      enum: [agent, shell, ask]
+      x-enum-varnames: [WorkflowStepKindAgent, WorkflowStepKindShell, WorkflowStepKindAsk]
+
+    WorkflowStepDef:
+      type: object
+      required: [name, kind]
+      properties:
+        name: { type: string }
+        kind: { $ref: "#/components/schemas/WorkflowStepKind" }
+        agentId: { type: string }
+        prompt: { type: string }
+        reuseSession: { type: boolean }
+        command: { type: string }
+        cwd: { type: string }
+        askTitle: { type: string }
+        askChoices:
+          type: array
+          items: { type: string }
+        continueOnChoices:
+          type: array
+          items: { type: string }
+
+    WorkflowDefinition:
+      type: object
+      required: [steps]
+      properties:
+        steps:
+          type: array
+          items: { $ref: "#/components/schemas/WorkflowStepDef" }
+        schedule: { type: string }
+        timezone: { type: string }
+        concurrencyLimit: { type: integer, minimum: 0 }
+        webhookEnabled: { type: boolean }
+
+    WorkflowInput:
+      type: object
+      required: [name, definition]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        definition: { $ref: "#/components/schemas/WorkflowDefinition" }
+        enabled: { type: boolean }
+        rotateWebhookToken: { type: boolean }
+
+    Workflow:
+      type: object
+      required: [id, ownerId, name, description, definition, enabled, hasWebhook, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        ownerId: { type: string }
+        name: { type: string }
+        description: { type: string }
+        definition: { $ref: "#/components/schemas/WorkflowDefinition" }
+        enabled: { type: boolean }
+        hasWebhook: { type: boolean }
+        webhookUrl: { type: string, description: Only returned when a webhook token is created or rotated. }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    WorkflowRunStartInput:
+      type: object
+      properties:
+        input:
+          type: object
+          additionalProperties: true
+
+    WorkflowRunStatus:
+      type: string
+      enum: [queued, running, needs_input, completed, failed, cancelled]
+      x-enum-varnames: [WorkflowRunStatusQueued, WorkflowRunStatusRunning, WorkflowRunStatusNeedsInput, WorkflowRunStatusCompleted, WorkflowRunStatusFailed, WorkflowRunStatusCancelled]
+
+    WorkflowTriggerKind:
+      type: string
+      enum: [manual, schedule, webhook]
+      x-enum-varnames: [WorkflowTriggerKindManual, WorkflowTriggerKindSchedule, WorkflowTriggerKindWebhook]
+
+    WorkflowStepStatus:
+      type: string
+      enum: [pending, running, waiting, completed, failed, skipped]
+      x-enum-varnames: [WorkflowStepStatusPending, WorkflowStepStatusRunning, WorkflowStepStatusWaiting, WorkflowStepStatusCompleted, WorkflowStepStatusFailed, WorkflowStepStatusSkipped]
+
+    WorkflowStep:
+      type: object
+      required: [id, runId, stepIndex, name, kind, status, askChoices]
+      properties:
+        id: { type: string }
+        runId: { type: string }
+        stepIndex: { type: integer }
+        name: { type: string }
+        kind: { $ref: "#/components/schemas/WorkflowStepKind" }
+        status: { $ref: "#/components/schemas/WorkflowStepStatus" }
+        agentId: { type: string }
+        sessionId: { type: string }
+        promptOrCmd: { type: string }
+        askTitle: { type: string }
+        askChoices:
+          type: array
+          items: { type: string }
+        answerChoice: { type: string }
+        answerReason: { type: string }
+        answeredBy: { type: string }
+        output: { type: string }
+        error: { type: string }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+
+    WorkflowRun:
+      type: object
+      required: [id, workflowId, workflowName, ownerId, status, triggerKind, input, output, currentStep, steps, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        workflowId: { type: string }
+        workflowName: { type: string }
+        ownerId: { type: string }
+        status: { $ref: "#/components/schemas/WorkflowRunStatus" }
+        triggerKind: { $ref: "#/components/schemas/WorkflowTriggerKind" }
+        input:
+          type: object
+          additionalProperties: true
+        output:
+          type: object
+          additionalProperties: true
+        error: { type: string }
+        currentStep: { type: integer }
+        steps:
+          type: array
+          items: { $ref: "#/components/schemas/WorkflowStep" }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    WorkflowStepAnswerInput:
+      type: object
+      required: [choice]
+      properties:
+        choice: { type: string }
+        reason: { type: string }

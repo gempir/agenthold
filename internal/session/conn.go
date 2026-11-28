@@ -602,6 +602,21 @@ func (c *harnessConn) noteUsage(acpID string, u ContextUsage) {
 	c.mu.Unlock()
 }
 
+func (c *harnessConn) usageOf(acpID string) ContextUsage {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.usage[acpID]
+}
+
+func (c *harnessConn) currentModel(acpID string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if mo, ok := modelOption(c.config[acpID]); ok && mo.Current != "" {
+		return mo.Current
+	}
+	return c.startModel
+}
+
 // emitRawUpdate appends a normalized ACP-shaped SessionUpdate JSON payload from
 // a native protocol driver (Codex App Server or Claude stream-json).
 func (c *harnessConn) emitRawUpdate(nativeID string, raw json.RawMessage) {

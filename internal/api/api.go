@@ -34,6 +34,8 @@ import (
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
 	"github.com/gempir/agenthold/internal/trigger"
+	"github.com/gempir/agenthold/internal/usage"
+	"github.com/gempir/agenthold/internal/workflows"
 )
 
 // Deps are the services the API needs.
@@ -77,6 +79,10 @@ type Deps struct {
 	ACPStore *acpstore.Catalog
 	// Harnesses resolves built-in and user-added custom harnesses.
 	Harnesses *acpstore.Resolver
+	// Usage aggregates per-turn token and cost analytics.
+	Usage *usage.Service
+	// Workflows runs always-on durable multi-stage pipelines.
+	Workflows *workflows.Engine
 	// AntigravityLoginCmd overrides the command launched by StartHarnessAuth (tests).
 	AntigravityLoginCmd []string
 	// ShowTestHarness lists the scripted test harness (development).
@@ -159,6 +165,7 @@ func (a *API) Mount(r chi.Router) {
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public endpoints that must not interpret Authorization headers.
 		r.Post("/hooks/{token}", a.deliver)
+		r.Post("/workflow-hooks/{token}", a.deliverWorkflowHook)
 		r.Get("/openapi.yaml", openAPI)
 		r.Group(func(r chi.Router) { a.mountAuthenticated(r) })
 	})

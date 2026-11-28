@@ -80,6 +80,6 @@ Update checkboxes as each milestone merges cleanly to `main` with `make test` an
 - [ ] **4B. Inline Visual Replies (`html_render`) & MCP Apps**
   - `html_render` platform MCP tool storing sanitized/sandboxed self-contained HTML visuals (charts, diagrams, mockups) rendered inline in `ChatView` with theme adaptation and fullscreen view.
   - Support interactive MCP App UIs rendered below tool calls with safety confirmation for non-read-only tool actions.
-- [ ] **4C. Usage & Quota Analytics Dashboard + Durable Multi-Stage Workflows (`00023_usage_and_workflows.sql`)**
+- [x] **4C. Usage & Quota Analytics Dashboard + Durable Multi-Stage Workflows (`00023_usage_and_workflows.sql`)**
   - Persist per-turn token & estimated cost records; build **Usage** view (Cost / Tokens / Models / Users / 24h-7d-30d-90d filters, org-wide admin breakdown, custom model pricing).
   - Always-on durable **Workflows** engine: multi-step pipelines (agent steps, shell/code steps, human approval `ask` cards, schedules, webhooks, concurrency limits) with a live **Workflows** dashboard ("Needs you" / "Running" / "All").

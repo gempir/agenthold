@@ -15,6 +15,7 @@ type Querier interface {
 	CompleteImageBuild(ctx context.Context, arg CompleteImageBuildParams) error
 	ConsumeNodeJoinToken(ctx context.Context, arg ConsumeNodeJoinTokenParams) (string, error)
 	CopyServices(ctx context.Context, arg CopyServicesParams) error
+	CountActiveRunsForWorkflow(ctx context.Context, workflowID string) (int64, error)
 	CountAgentApps(ctx context.Context, createdByAgentID string) (int64, error)
 	CountAgentQueuedMessages(ctx context.Context, agentID string) ([]CountAgentQueuedMessagesRow, error)
 	CountAgentsByHarness(ctx context.Context, harness string) (int64, error)
@@ -56,8 +57,12 @@ type Querier interface {
 	CreateSkill(ctx context.Context, arg CreateSkillParams) error
 	CreateSlackLinkCode(ctx context.Context, arg CreateSlackLinkCodeParams) error
 	CreateSlackThread(ctx context.Context, arg CreateSlackThreadParams) error
+	CreateUsageRecord(ctx context.Context, arg CreateUsageRecordParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
 	CreateWebhook(ctx context.Context, arg CreateWebhookParams) error
+	CreateWorkflow(ctx context.Context, arg CreateWorkflowParams) error
+	CreateWorkflowRun(ctx context.Context, arg CreateWorkflowRunParams) error
+	CreateWorkflowStep(ctx context.Context, arg CreateWorkflowStepParams) error
 	DeleteAPIToken(ctx context.Context, arg DeleteAPITokenParams) (int64, error)
 	DeleteAgent(ctx context.Context, id string) error
 	DeleteAgentSession(ctx context.Context, id string) error
@@ -71,6 +76,7 @@ type Querier interface {
 	DeleteGitCredential(ctx context.Context, arg DeleteGitCredentialParams) (int64, error)
 	DeleteImage(ctx context.Context, id string) error
 	DeleteMCPServer(ctx context.Context, id string) error
+	DeleteModelPrice(ctx context.Context, model string) (int64, error)
 	DeleteNode(ctx context.Context, id string) error
 	DeleteOldReleasedExposureNames(ctx context.Context, releasedAt int64) error
 	DeleteOrgProviderLogin(ctx context.Context, provider string) (int64, error)
@@ -97,6 +103,7 @@ type Querier interface {
 	DeleteUserSessions(ctx context.Context, userID string) error
 	DeleteUserToolPreference(ctx context.Context, arg DeleteUserToolPreferenceParams) (int64, error)
 	DeleteWebhook(ctx context.Context, id string) error
+	DeleteWorkflow(ctx context.Context, id string) (int64, error)
 	DetachMCPServer(ctx context.Context, arg DetachMCPServerParams) (int64, error)
 	DetachSecret(ctx context.Context, arg DetachSecretParams) (int64, error)
 	DetachSkill(ctx context.Context, arg DetachSkillParams) (int64, error)
@@ -123,6 +130,7 @@ type Querier interface {
 	GetImageByName(ctx context.Context, name string) (Image, error)
 	GetMCPServer(ctx context.Context, id string) (McpServer, error)
 	GetModelCatalog(ctx context.Context, agentID string) (AgentModelCatalog, error)
+	GetModelPrice(ctx context.Context, model string) (ModelPrice, error)
 	GetNode(ctx context.Context, id string) (Node, error)
 	GetNodeByFingerprint(ctx context.Context, certFingerprint string) (Node, error)
 	GetOrgProviderLogin(ctx context.Context, provider string) (OrgProviderLogin, error)
@@ -156,12 +164,16 @@ type Querier interface {
 	GetUserGitConfig(ctx context.Context, userID string) (UserGitConfig, error)
 	GetWebhook(ctx context.Context, id string) (Webhook, error)
 	GetWebhookByToken(ctx context.Context, tokenHash string) (Webhook, error)
+	GetWorkflow(ctx context.Context, id string) (Workflow, error)
+	GetWorkflowRun(ctx context.Context, id string) (WorkflowRun, error)
+	GetWorkflowStep(ctx context.Context, id string) (WorkflowStep, error)
 	HasPreviewConsent(ctx context.Context, arg HasPreviewConsentParams) (int64, error)
 	InsertAudit(ctx context.Context, arg InsertAuditParams) error
 	InsertSessionEvent(ctx context.Context, arg InsertSessionEventParams) error
 	IsSharedWith(ctx context.Context, arg IsSharedWithParams) (int64, error)
 	LinkedSessions(ctx context.Context, arg LinkedSessionsParams) ([]AgentSession, error)
 	ListAPITokens(ctx context.Context, userID string) ([]ApiToken, error)
+	ListActiveWorkflowRuns(ctx context.Context) ([]WorkflowRun, error)
 	ListAgentApps(ctx context.Context, createdByAgentID string) ([]Agent, error)
 	ListAgentAudit(ctx context.Context, arg ListAgentAuditParams) ([]AuditLog, error)
 	ListAgentMCPServers(ctx context.Context, agentID string) ([]McpServer, error)
@@ -179,12 +191,14 @@ type Querier interface {
 	ListChildSessions(ctx context.Context, originSessionID string) ([]AgentSession, error)
 	ListCustomHarnessesByOwner(ctx context.Context, ownerID string) ([]CustomHarness, error)
 	ListDefaultOrgSkills(ctx context.Context) ([]OrgSkill, error)
+	ListEnabledWorkflows(ctx context.Context) ([]Workflow, error)
 	ListExposures(ctx context.Context, agentID string) ([]Exposure, error)
 	ListGitCredentials(ctx context.Context, userID string) ([]GitCredential, error)
 	ListIdentities(ctx context.Context) ([]ListIdentitiesRow, error)
 	ListImageBuilds(ctx context.Context, imageID string) ([]ImageBuild, error)
 	ListImageBuildsByRev(ctx context.Context, arg ListImageBuildsByRevParams) ([]ImageBuild, error)
 	ListImages(ctx context.Context) ([]Image, error)
+	ListModelPrices(ctx context.Context) ([]ModelPrice, error)
 	ListNodeSandboxes(ctx context.Context, nodeID string) ([]Sandbox, error)
 	ListNodes(ctx context.Context) ([]Node, error)
 	ListOrgProviderLogins(ctx context.Context) ([]OrgProviderLogin, error)
@@ -194,6 +208,7 @@ type Querier interface {
 	ListProjectSources(ctx context.Context, projectID string) ([]ProjectSource, error)
 	ListProjects(ctx context.Context, ownerID string) ([]Project, error)
 	ListProviderLogins(ctx context.Context) ([]ProviderLogin, error)
+	ListQueuedRunsForWorkflow(ctx context.Context, workflowID string) ([]WorkflowRun, error)
 	ListRefreshableGitCredentials(ctx context.Context, expiresAt int64) ([]GitCredential, error)
 	ListSandboxSubnets(ctx context.Context) ([]ListSandboxSubnetsRow, error)
 	ListSandboxes(ctx context.Context) ([]Sandbox, error)
@@ -204,6 +219,7 @@ type Querier interface {
 	ListSlackThreads(ctx context.Context) ([]SlackThread, error)
 	ListSlackThreadsOfSession(ctx context.Context, sessionID string) ([]SlackThread, error)
 	ListUnfinishedSessions(ctx context.Context) ([]string, error)
+	ListUsageRecordsSince(ctx context.Context, createdAt int64) ([]UsageRecord, error)
 	ListUserAgents(ctx context.Context, userID string) ([]ListUserAgentsRow, error)
 	ListUserAudit(ctx context.Context, userID string) ([]AuditLog, error)
 	ListUserMCPServers(ctx context.Context, ownerID string) ([]McpServer, error)
@@ -212,8 +228,14 @@ type Querier interface {
 	ListUserSkills(ctx context.Context, ownerID string) ([]Skill, error)
 	ListUserSlackUsers(ctx context.Context, userID string) ([]SlackUser, error)
 	ListUserToolPreferences(ctx context.Context, userID string) ([]UserToolPreference, error)
+	ListUserUsageRecordsSince(ctx context.Context, arg ListUserUsageRecordsSinceParams) ([]UsageRecord, error)
+	ListUserWorkflowRuns(ctx context.Context, arg ListUserWorkflowRunsParams) ([]WorkflowRun, error)
+	ListUserWorkflowRunsByStatus(ctx context.Context, arg ListUserWorkflowRunsByStatusParams) ([]WorkflowRun, error)
+	ListUserWorkflows(ctx context.Context, ownerID string) ([]Workflow, error)
 	ListUsersByVerifiedEmail(ctx context.Context, lower string) ([]User, error)
 	ListUsersWithIdentity(ctx context.Context) ([]ListUsersWithIdentityRow, error)
+	ListWorkflowRunsByWorkflow(ctx context.Context, arg ListWorkflowRunsByWorkflowParams) ([]WorkflowRun, error)
+	ListWorkflowSteps(ctx context.Context, runID string) ([]WorkflowStep, error)
 	LockUser(ctx context.Context, id string) error
 	MakeAppClone(ctx context.Context, id string) error
 	MarkCredentialsInSandbox(ctx context.Context, id string) error
@@ -313,8 +335,12 @@ type Querier interface {
 	UpdateSkill(ctx context.Context, arg UpdateSkillParams) error
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
 	UpdateWebhook(ctx context.Context, arg UpdateWebhookParams) error
+	UpdateWorkflow(ctx context.Context, arg UpdateWorkflowParams) error
+	UpdateWorkflowRunState(ctx context.Context, arg UpdateWorkflowRunStateParams) error
+	UpdateWorkflowStep(ctx context.Context, arg UpdateWorkflowStepParams) error
 	UpsertLocalNode(ctx context.Context, arg UpsertLocalNodeParams) error
 	UpsertModelCatalog(ctx context.Context, arg UpsertModelCatalogParams) error
+	UpsertModelPrice(ctx context.Context, arg UpsertModelPriceParams) error
 	UpsertOrgProviderLogin(ctx context.Context, arg UpsertOrgProviderLoginParams) error
 	UpsertService(ctx context.Context, arg UpsertServiceParams) error
 	UpsertUserGitConfig(ctx context.Context, arg UpsertUserGitConfigParams) error

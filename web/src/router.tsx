@@ -37,6 +37,8 @@ import { ProvidersPage } from '@/pages/ProvidersPage';
 import { SlackLinkPage } from '@/pages/SlackLinkPage';
 import { SlackPage } from '@/pages/SlackPage';
 import { ThreadsSettingsPage } from '@/pages/ThreadsSettingsPage';
+import { UsagePage } from '@/pages/UsagePage';
+import { WorkflowsPage } from '@/pages/WorkflowsPage';
 import {
   AgentsSettingsPage,
   SecretsSettingsPage,
@@ -291,6 +293,18 @@ const toolsRoute = createRoute({
   component: ToolsSettingsPage,
 });
 
+const usageRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/usage',
+  component: UsagePage,
+});
+
+const workflowsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/workflows',
+  component: WorkflowsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   appRoute.addChildren([
@@ -301,6 +315,8 @@ const routeTree = rootRoute.addChildren([
     appPageRoute,
     projectsRedirectRoute,
     projectRoute,
+    usageRoute,
+    workflowsRoute,
     overviewRedirectRoute,
     slackLinkRoute,
     settingsRoute.addChildren([

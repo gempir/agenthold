@@ -79,6 +79,8 @@ type claudeControlResponse struct {
 
 type claudeTurnOutcome struct {
 	stopReason acp.StopReason
+	usage      *acp.Usage
+	costUSD    float64
 	err        error
 }
 
@@ -537,7 +539,11 @@ func (p *claudeProtoClient) Prompt(ctx context.Context, sessionID, text string, 
 		if out.err != nil {
 			return acp.PromptResponse{}, out.err
 		}
-		return acp.PromptResponse{StopReason: out.stopReason}, nil
+		resp := acp.PromptResponse{StopReason: out.stopReason, Usage: out.usage}
+		if out.costUSD > 0 {
+			resp.Meta = map[string]any{"costUsd": out.costUSD}
+		}
+		return resp, nil
 	case <-ctx.Done():
 		return acp.PromptResponse{}, ctx.Err()
 	case <-cp.done:
@@ -735,6 +741,21 @@ func (cp *claudeProc) handleLine(line []byte) {
 			}
 		}
 		var out claudeTurnOutcome
+		if env.Usage != nil {
+			cacheRead := int(env.Usage.CacheReadInputTokens)
+			cacheWrite := int(env.Usage.CacheCreationInputTokens)
+			total := int(env.Usage.InputTokens + env.Usage.OutputTokens + env.Usage.CacheReadInputTokens + env.Usage.CacheCreationInputTokens)
+			if total > 0 || env.TotalCost > 0 {
+				out.usage = &acp.Usage{
+					InputTokens:       int(env.Usage.InputTokens),
+					OutputTokens:      int(env.Usage.OutputTokens),
+					CachedReadTokens:  &cacheRead,
+					CachedWriteTokens: &cacheWrite,
+					TotalTokens:       total,
+				}
+				out.costUSD = env.TotalCost
+			}
+		}
 		switch {
 		case env.IsError || env.Subtype == "error_during_execution":
 			msg := env.Result

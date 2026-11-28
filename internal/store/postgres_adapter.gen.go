@@ -177,6 +177,14 @@ func (p postgresQueries) CreateNodeJoinToken(ctx context.Context, arg db.CreateN
 	return p.q.CreateNodeJoinToken(ctx, postgres.CreateNodeJoinTokenParams(arg))
 }
 
+func (p postgresQueries) CreateOrgSkill(ctx context.Context, arg db.CreateOrgSkillParams) error {
+	return p.q.CreateOrgSkill(ctx, postgres.CreateOrgSkillParams(arg))
+}
+
+func (p postgresQueries) CreateOrgTool(ctx context.Context, arg db.CreateOrgToolParams) error {
+	return p.q.CreateOrgTool(ctx, postgres.CreateOrgToolParams(arg))
+}
+
 func (p postgresQueries) CreatePreviewCode(ctx context.Context, arg db.CreatePreviewCodeParams) error {
 	return p.q.CreatePreviewCode(ctx, postgres.CreatePreviewCodeParams(arg))
 }
@@ -305,6 +313,21 @@ func (p postgresQueries) DeleteOldReleasedExposureNames(ctx context.Context, rel
 	return p.q.DeleteOldReleasedExposureNames(ctx, releasedAt)
 }
 
+func (p postgresQueries) DeleteOrgProviderLogin(ctx context.Context, provider string) (int64, error) {
+	value, err := p.q.DeleteOrgProviderLogin(ctx, provider)
+	return value, err
+}
+
+func (p postgresQueries) DeleteOrgSkill(ctx context.Context, id string) (int64, error) {
+	value, err := p.q.DeleteOrgSkill(ctx, id)
+	return value, err
+}
+
+func (p postgresQueries) DeleteOrgTool(ctx context.Context, id string) (int64, error) {
+	value, err := p.q.DeleteOrgTool(ctx, id)
+	return value, err
+}
+
 func (p postgresQueries) DeletePreviewSession(ctx context.Context, tokenHash string) error {
 	return p.q.DeletePreviewSession(ctx, tokenHash)
 }
@@ -389,6 +412,11 @@ func (p postgresQueries) DeleteUserPreviewSessions(ctx context.Context, userID s
 
 func (p postgresQueries) DeleteUserSessions(ctx context.Context, userID string) error {
 	return p.q.DeleteUserSessions(ctx, userID)
+}
+
+func (p postgresQueries) DeleteUserToolPreference(ctx context.Context, arg db.DeleteUserToolPreferenceParams) (int64, error) {
+	value, err := p.q.DeleteUserToolPreference(ctx, postgres.DeleteUserToolPreferenceParams(arg))
+	return value, err
 }
 
 func (p postgresQueries) DeleteWebhook(ctx context.Context, id string) error {
@@ -535,6 +563,31 @@ func (p postgresQueries) GetNode(ctx context.Context, id string) (db.Node, error
 func (p postgresQueries) GetNodeByFingerprint(ctx context.Context, certFingerprint string) (db.Node, error) {
 	value, err := p.q.GetNodeByFingerprint(ctx, certFingerprint)
 	return db.Node(value), err
+}
+
+func (p postgresQueries) GetOrgProviderLogin(ctx context.Context, provider string) (db.OrgProviderLogin, error) {
+	value, err := p.q.GetOrgProviderLogin(ctx, provider)
+	return db.OrgProviderLogin(value), err
+}
+
+func (p postgresQueries) GetOrgSkill(ctx context.Context, id string) (db.OrgSkill, error) {
+	value, err := p.q.GetOrgSkill(ctx, id)
+	return db.OrgSkill(value), err
+}
+
+func (p postgresQueries) GetOrgSkillByName(ctx context.Context, name string) (db.OrgSkill, error) {
+	value, err := p.q.GetOrgSkillByName(ctx, name)
+	return db.OrgSkill(value), err
+}
+
+func (p postgresQueries) GetOrgTool(ctx context.Context, id string) (db.OrgTool, error) {
+	value, err := p.q.GetOrgTool(ctx, id)
+	return db.OrgTool(value), err
+}
+
+func (p postgresQueries) GetOrgToolBySlug(ctx context.Context, slug string) (db.OrgTool, error) {
+	value, err := p.q.GetOrgToolBySlug(ctx, slug)
+	return db.OrgTool(value), err
 }
 
 func (p postgresQueries) GetPreviewSessionUser(ctx context.Context, arg db.GetPreviewSessionUserParams) (db.GetPreviewSessionUserRow, error) {
@@ -906,6 +959,18 @@ func (p postgresQueries) ListCustomHarnessesByOwner(ctx context.Context, ownerID
 	return result, nil
 }
 
+func (p postgresQueries) ListDefaultOrgSkills(ctx context.Context) ([]db.OrgSkill, error) {
+	value, err := p.q.ListDefaultOrgSkills(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.OrgSkill, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.OrgSkill(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListExposures(ctx context.Context, agentID string) ([]db.Exposure, error) {
 	value, err := p.q.ListExposures(ctx, agentID)
 	if err != nil {
@@ -998,6 +1063,42 @@ func (p postgresQueries) ListNodes(ctx context.Context) ([]db.Node, error) {
 	result := make([]db.Node, 0, len(value))
 	for _, row := range value {
 		result = append(result, db.Node(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListOrgProviderLogins(ctx context.Context) ([]db.OrgProviderLogin, error) {
+	value, err := p.q.ListOrgProviderLogins(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.OrgProviderLogin, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.OrgProviderLogin(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListOrgSkills(ctx context.Context) ([]db.OrgSkill, error) {
+	value, err := p.q.ListOrgSkills(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.OrgSkill, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.OrgSkill(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListOrgTools(ctx context.Context) ([]db.OrgTool, error) {
+	value, err := p.q.ListOrgTools(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.OrgTool, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.OrgTool(row))
 	}
 	return result, nil
 }
@@ -1274,6 +1375,18 @@ func (p postgresQueries) ListUserSlackUsers(ctx context.Context, userID string) 
 	result := make([]db.SlackUser, 0, len(value))
 	for _, row := range value {
 		result = append(result, db.SlackUser(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListUserToolPreferences(ctx context.Context, userID string) ([]db.UserToolPreference, error) {
+	value, err := p.q.ListUserToolPreferences(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.UserToolPreference, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.UserToolPreference(row))
 	}
 	return result, nil
 }
@@ -1693,6 +1806,14 @@ func (p postgresQueries) UpdateMCPServer(ctx context.Context, arg db.UpdateMCPSe
 	return p.q.UpdateMCPServer(ctx, postgres.UpdateMCPServerParams(arg))
 }
 
+func (p postgresQueries) UpdateOrgSkill(ctx context.Context, arg db.UpdateOrgSkillParams) error {
+	return p.q.UpdateOrgSkill(ctx, postgres.UpdateOrgSkillParams(arg))
+}
+
+func (p postgresQueries) UpdateOrgTool(ctx context.Context, arg db.UpdateOrgToolParams) error {
+	return p.q.UpdateOrgTool(ctx, postgres.UpdateOrgToolParams(arg))
+}
+
 func (p postgresQueries) UpdateProject(ctx context.Context, arg db.UpdateProjectParams) error {
 	return p.q.UpdateProject(ctx, postgres.UpdateProjectParams(arg))
 }
@@ -1742,10 +1863,18 @@ func (p postgresQueries) UpsertModelCatalog(ctx context.Context, arg db.UpsertMo
 	return p.q.UpsertModelCatalog(ctx, postgres.UpsertModelCatalogParams(arg))
 }
 
+func (p postgresQueries) UpsertOrgProviderLogin(ctx context.Context, arg db.UpsertOrgProviderLoginParams) error {
+	return p.q.UpsertOrgProviderLogin(ctx, postgres.UpsertOrgProviderLoginParams(arg))
+}
+
 func (p postgresQueries) UpsertService(ctx context.Context, arg db.UpsertServiceParams) error {
 	return p.q.UpsertService(ctx, postgres.UpsertServiceParams(arg))
 }
 
 func (p postgresQueries) UpsertUserGitConfig(ctx context.Context, arg db.UpsertUserGitConfigParams) error {
 	return p.q.UpsertUserGitConfig(ctx, postgres.UpsertUserGitConfigParams(arg))
+}
+
+func (p postgresQueries) UpsertUserToolPreference(ctx context.Context, arg db.UpsertUserToolPreferenceParams) error {
+	return p.q.UpsertUserToolPreference(ctx, postgres.UpsertUserToolPreferenceParams(arg))
 }

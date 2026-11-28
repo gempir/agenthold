@@ -276,6 +276,43 @@ type NodeJoinToken struct {
 	UsedAt    int64
 }
 
+type OrgProviderLogin struct {
+	Provider         string
+	Kind             string
+	Label            string
+	EncryptedPayload []byte
+	Enabled          int64
+	UpdatedBy        sql.NullString
+	UpdatedAt        int64
+}
+
+type OrgSkill struct {
+	ID               string
+	Name             string
+	Description      string
+	Content          string
+	EnabledByDefault int64
+	CreatedAt        int64
+	UpdatedAt        int64
+}
+
+type OrgTool struct {
+	ID               string
+	Slug             string
+	Name             string
+	Description      string
+	Kind             string
+	AuthMode         string
+	ConfigJson       string
+	EncryptedSecret  []byte
+	SecretHostsJson  string
+	EnabledByDefault int64
+	AllowedRolesJson string
+	CreatedBy        sql.NullString
+	CreatedAt        int64
+	UpdatedAt        int64
+}
+
 type PreviewCode struct {
 	CodeHash   string
 	UserID     string
@@ -507,6 +544,12 @@ type UserGitConfig struct {
 	AuthorName  string
 	AuthorEmail string
 	UpdatedAt   int64
+}
+
+type UserToolPreference struct {
+	UserID    string
+	OrgToolID string
+	Enabled   int64
 }
 
 type Webhook struct {

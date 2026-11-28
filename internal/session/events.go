@@ -17,14 +17,17 @@ import (
 
 // Event types.
 const (
-	EventPrompt             = "prompt"              // {text, user}
-	EventUpdate             = "update"              // raw ACP SessionUpdate
-	EventPermission         = "permission"          // {requestId, toolCall, options}
-	EventPermissionResolved = "permission_resolved" // {requestId, optionId, by}
-	EventTurnEnd            = "turn_end"            // {stopReason}
-	EventError              = "error"               // {message}
-	EventNotice             = "notice"              // {message}
-	EventSubthread          = "subthread"           // {sessionId, agentId, title, harness, model, status, summary}
+	EventPrompt                = "prompt"                  // {text, user}
+	EventUpdate                = "update"                  // raw ACP SessionUpdate
+	EventPermission            = "permission"              // {requestId, toolCall, options}
+	EventPermissionResolved    = "permission_resolved"     // {requestId, optionId, by}
+	EventTurnEnd               = "turn_end"                // {stopReason}
+	EventError                 = "error"                   // {message}
+	EventNotice                = "notice"                  // {message}
+	EventSubthread             = "subthread"               // {sessionId, agentId, title, harness, model, status, summary}
+	EventSecretRequest         = "secret_request"          // {requestId, name, description, hosts, envVar?, header?}
+	EventSecretRequestResolved = "secret_request_resolved" // {requestId, status, secretId?, name?, envVar?, placeholder?, by}
+	EventAccountConnectRequest = "account_connect_request" // {requestId, toolId, slug, name, description?, kind, authMode, reason?, connected, connectEndpoint}
 )
 
 // Event is one entry in a session's log.

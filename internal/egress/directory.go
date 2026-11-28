@@ -137,6 +137,16 @@ func (d *Directory) Agent(ctx context.Context, agentID string) (*Agent, error) {
 			}
 		}
 	}
+	// Org-shared MCP tool secrets ({{org_secret}}) are injected as placeholder
+	// replacements for their allowed secret_hosts only; real values never enter
+	// the sandbox.
+	if owner, err := d.Store.GetUser(ctx, a.OwnerID); err == nil {
+		if orgInjs, err := tools.OrgToolInjections(ctx, d.Store, d.Box, owner); err == nil {
+			out.Injections = append(out.Injections, orgInjs...)
+		} else {
+			d.logger().Error("egress: org tool secrets", "agent", agentID, "err", err)
+		}
+	}
 	if d.Git != nil {
 		injs, err := d.Git.Egress(ctx, a)
 		if err != nil {
@@ -193,7 +203,7 @@ func answerUnconnectedGitHub(w http.ResponseWriter, r *http.Request) bool {
 // applies to one of hosts.
 func coveredHosts(injs []secrets.Injection, hosts []string) bool {
 	for _, inj := range injs {
-		if inj.HeaderOnly {
+		if inj.HeaderOnly || inj.Rule.Header == "" {
 			continue
 		}
 		for _, h := range hosts {

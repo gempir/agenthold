@@ -3153,6 +3153,177 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/org/tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description List organization-provided MCP servers and Executor apps visible to the signed-in user's role, including per-user enabled preference, hasSecret flag (never secret values), and Executor connection status when available. */
+        get: operations["listOrgTools"];
+        put?: never;
+        /** @description Create an organization-provided MCP server or Executor app (Admin only). */
+        post: operations["createOrgTool"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/tools/{toolId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                toolId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Update an organization tool (Admin only). Omit secret to preserve the existing encrypted secret. */
+        put: operations["updateOrgTool"];
+        post?: never;
+        /** @description Delete an organization tool (Admin only). */
+        delete: operations["deleteOrgTool"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/org-tools/{toolId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                toolId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Enable or disable an organization tool for the signed-in user. */
+        put: operations["setUserOrgToolPreference"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/org-tools/{toolId}/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                toolId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description One-step connect for an executor_app organization tool with user_oauth: transparently installs the catalog app into the user's Executor instance if not yet installed and starts/returns an account connection session. */
+        post: operations["connectOrgTool"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description List organization-wide skills auto-delivered to agents. */
+        get: operations["listOrgSkills"];
+        put?: never;
+        /** @description Create an organization skill (Admin only). */
+        post: operations["createOrgSkill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/skills/{skillId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Update an organization skill (Admin only). */
+        put: operations["updateOrgSkill"];
+        post?: never;
+        /** @description Delete an organization skill (Admin only). */
+        delete: operations["deleteOrgSkill"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description List organization shared provider logins (never returns secrets). */
+        get: operations["listOrgProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/providers/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Configure or update an organization shared provider login (Admin only). */
+        put: operations["upsertOrgProvider"];
+        post?: never;
+        /** @description Remove an organization shared provider login (Admin only). */
+        delete: operations["deleteOrgProvider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{sessionId}/secret-requests/{requestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Submit or decline an in-thread secret request emitted by the request_secret platform MCP tool. Submitted values are encrypted directly into the user's secret store and egress proxy and never appear in chat history. */
+        post: operations["respondSecretRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3888,11 +4059,12 @@ export interface components {
         /** @description Which login the agent's harness uses. */
         AgentLogin: {
             /**
-             * @description account: the account login of `user`. secret: an API key secret attached to the agent wins.
+             * @description account: the account login of `user`. org: an organization-wide shared provider login fallback.
+             *     secret: an API key secret attached to the agent wins.
              *     sandbox: whatever is signed in inside the sandbox. unsupported: the harness has no account logins.
              * @enum {string}
              */
-            source: "account" | "secret" | "sandbox" | "unsupported";
+            source: "account" | "org" | "secret" | "sandbox" | "unsupported";
             /** @description Whose account logins the agent uses. */
             user?: components["schemas"]["User"];
             /** @description You are that user. */
@@ -4122,10 +4294,13 @@ export interface components {
              *     toolCall, options[{optionId,name,kind}], policy};
              *     permission_resolved: {requestId, optionId, by}; turn_end:
              *     {stopReason}; error/notice: {message}; subthread: {sessionId,
-             *     agentId, title, harness, model, status, summary}.
+             *     agentId, title, harness, model, status, summary};
+             *     secret_request: {requestId, name, description, hosts, envVar?, header?};
+             *     secret_request_resolved: {requestId, status, secretId?, name?, envVar?, placeholder?, by};
+             *     account_connect_request: {requestId, toolId, slug, name, description?, kind, authMode, reason?, connected, connectEndpoint}.
              * @enum {string}
              */
-            type: "prompt" | "update" | "permission" | "permission_resolved" | "turn_end" | "error" | "notice" | "subthread";
+            type: "prompt" | "update" | "permission" | "permission_resolved" | "turn_end" | "error" | "notice" | "subthread" | "secret_request" | "secret_request_resolved" | "account_connect_request";
             userId?: string;
             data: {
                 [key: string]: unknown;
@@ -4927,6 +5102,129 @@ export interface components {
             providerId: string;
             providerName: string;
             methods: components["schemas"]["ExecutorAuthMethod"][];
+        };
+        OrgToolConfig: {
+            url?: string;
+            headers?: {
+                [key: string]: string;
+            };
+            command?: string;
+            args?: string[];
+            env?: {
+                [key: string]: string;
+            };
+            executorCatalogId?: string;
+        };
+        OrgTool: {
+            id: string;
+            slug: string;
+            name: string;
+            description: string;
+            /** @enum {string} */
+            kind: "mcp_http" | "mcp_stdio" | "executor_app";
+            /** @enum {string} */
+            authMode: "none" | "org_shared" | "user_oauth";
+            config: components["schemas"]["OrgToolConfig"];
+            /** @description True when an encrypted org-shared secret is configured; values are never returned. */
+            hasSecret: boolean;
+            secretHosts: string[];
+            enabledByDefault: boolean;
+            /** @description Effective enabled state for the signed-in user. */
+            userEnabled: boolean;
+            /** @description For user_oauth executor_app tools, whether the user has a linked account. */
+            connected: boolean;
+            allowedRoles: string[];
+            createdBy?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        OrgToolInput: {
+            slug: string;
+            name: string;
+            description?: string;
+            /** @enum {string} */
+            kind: "mcp_http" | "mcp_stdio" | "executor_app";
+            /** @enum {string} */
+            authMode?: "none" | "org_shared" | "user_oauth";
+            config?: components["schemas"]["OrgToolConfig"];
+            /** @description Optional org-shared secret value (write-only; never returned). */
+            secret?: string;
+            /** @description When true on update, clears the stored secret. */
+            clearSecret?: boolean;
+            secretHosts?: string[];
+            enabledByDefault?: boolean;
+            allowedRoles?: string[];
+        };
+        UserOrgToolPreferenceInput: {
+            enabled: boolean;
+        };
+        OrgToolConnectResponse: {
+            toolId: string;
+            slug: string;
+            connected: boolean;
+            app?: components["schemas"]["ExecutorApp"];
+            session?: components["schemas"]["ExecutorConnectionSession"];
+        };
+        OrgSkill: {
+            id: string;
+            name: string;
+            description: string;
+            content: string;
+            enabledByDefault: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        OrgSkillInput: {
+            name: string;
+            description: string;
+            content: string;
+            enabledByDefault?: boolean;
+        };
+        OrgProviderLogin: {
+            provider: string;
+            configured: boolean;
+            /** @enum {string} */
+            kind?: "api_key" | "oauth_token" | "gateway";
+            label?: string;
+            enabled: boolean;
+            updatedBy?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+        };
+        OrgProviderLoginInput: {
+            /** @enum {string} */
+            kind: "api_key" | "oauth_token" | "gateway";
+            label?: string;
+            /** @description API key or OAuth token (write-only; required on initial setup). */
+            credential?: string;
+            /** @description Gateway base URL when kind is gateway. */
+            baseUrl?: string;
+            /** @description Optional custom auth header for gateway kind. */
+            header?: string;
+            hosts?: string[];
+            enabled?: boolean;
+        };
+        SecretRequestSubmitInput: {
+            /** @description Secret value (encrypted directly to the user's secret store; never persisted in chat history). */
+            value?: string;
+            /** @description When true, declines the agent's secret request. */
+            decline?: boolean;
+            /** @description Optional override for the saved secret's name. */
+            name?: string;
+            /** @description Optional override for the environment variable attached to the agent. */
+            envVar?: string;
+        };
+        SecretRequestResponse: {
+            /** @enum {string} */
+            status: "submitted" | "declined";
+            secretId?: string;
+            name?: string;
+            envVar?: string;
+            placeholder?: string;
         };
     };
     responses: {
@@ -10646,6 +10944,359 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+        };
+    };
+    listOrgTools: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Organization tools. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgTool"][];
+                };
+            };
+        };
+    };
+    createOrgTool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrgToolInput"];
+            };
+        };
+        responses: {
+            /** @description Created organization tool. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgTool"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateOrgTool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                toolId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrgToolInput"];
+            };
+        };
+        responses: {
+            /** @description Updated organization tool. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgTool"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    deleteOrgTool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                toolId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    setUserOrgToolPreference: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                toolId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserOrgToolPreferenceInput"];
+            };
+        };
+        responses: {
+            /** @description Updated tool status for the signed-in user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgTool"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    connectOrgTool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                toolId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Installed app and connection session (or already connected status). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgToolConnectResponse"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    listOrgSkills: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Organization skills. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgSkill"][];
+                };
+            };
+        };
+    };
+    createOrgSkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrgSkillInput"];
+            };
+        };
+        responses: {
+            /** @description Created organization skill. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgSkill"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateOrgSkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrgSkillInput"];
+            };
+        };
+        responses: {
+            /** @description Updated organization skill. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgSkill"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    deleteOrgSkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listOrgProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Organization provider logins. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgProviderLogin"][];
+                };
+            };
+        };
+    };
+    upsertOrgProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrgProviderLoginInput"];
+            };
+        };
+        responses: {
+            /** @description Configured organization provider login. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgProviderLogin"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteOrgProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    respondSecretRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretRequestSubmitInput"];
+            };
+        };
+        responses: {
+            /** @description Resolution result (never contains the secret value). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretRequestResponse"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
         };
     };
 }

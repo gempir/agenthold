@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"log/slog"
 
 	acp "github.com/coder/acp-go-sdk"
 
@@ -22,6 +23,10 @@ type Provider struct {
 	// is enabled and available. When true and an agent has executor_enabled != 0,
 	// the built-in "executor" MCP server is exposed to its sessions automatically.
 	ExecutorAvailable func() bool
+	// Executor optionally syncs enabled executor_app org tools into the agent
+	// owner's Executor instance on demand when a session starts.
+	Executor ExecutorSyncer
+	Log      *slog.Logger
 }
 
 // PlatformServerName is the platform MCP server's name.
@@ -30,9 +35,9 @@ const PlatformServerName = "agenthold"
 // ExecutorServerName is the built-in Executor MCP server's name.
 const ExecutorServerName = "executor"
 
-// MCPServers returns the agent's MCP servers with secret placeholders, the
-// platform server (agent-to-agent tools), and the built-in Executor MCP server
-// when enabled for this agent.
+// MCPServers returns the agent's MCP servers with secret placeholders, enabled
+// organization tools, the platform server (agent-to-agent tools), and the
+// built-in Executor MCP server when enabled for this agent.
 func (p Provider) MCPServers(ctx context.Context, agentID, sessionID string, caps acp.McpCapabilities) ([]acp.McpServer, error) {
 	agent, err := p.Store.GetAgent(ctx, agentID)
 	if err != nil {
@@ -41,6 +46,28 @@ func (p Provider) MCPServers(ctx context.Context, agentID, sessionID string, cap
 	out, err := ACPServers(ctx, p.Store, agent, caps)
 	if err != nil {
 		return nil, err
+	}
+	// Merge enabled organization tools for the agent's owner.
+	if owner, err := p.Store.GetUser(ctx, agent.OwnerID); err == nil {
+		if orgTools, err := EffectiveOrgToolsForUser(ctx, p.Store, owner); err == nil {
+			existingNames := map[string]bool{}
+			for _, s := range out {
+				if n := mcpServerName(s); n != "" {
+					existingNames[n] = true
+				}
+			}
+			for _, s := range OrgToolACPServers(orgTools, caps) {
+				if n := mcpServerName(s); n != "" && !existingNames[n] {
+					existingNames[n] = true
+					out = append(out, s)
+				}
+			}
+			if agent.ExecutorEnabled != 0 && p.Executor != nil && p.Executor.Available() {
+				if err := SyncExecutorOrgApps(ctx, p.Executor, owner.ID, orgTools); err != nil && p.Log != nil {
+					p.Log.Warn("sync executor org apps failed", "user", owner.ID, "agent", agentID, "err", err)
+				}
+			}
+		}
 	}
 	if p.PlatformCommand != "" {
 		args := p.PlatformArgs
@@ -51,7 +78,8 @@ func (p Provider) MCPServers(ctx context.Context, agentID, sessionID string, cap
 			Name: PlatformServerName, Command: p.PlatformCommand, Args: args,
 			Env: []acp.EnvVariable{{Name: "AGENTHOLD_SESSION", Value: sessionID}},
 		}})
-		if agent.ExecutorEnabled != 0 && p.ExecutorAvailable != nil && p.ExecutorAvailable() && !hasExecutorServer(out) {
+		execAvail := (p.ExecutorAvailable != nil && p.ExecutorAvailable()) || (p.Executor != nil && p.Executor.Available())
+		if agent.ExecutorEnabled != 0 && execAvail && !hasExecutorServer(out) {
 			execArgs := make([]string, len(args))
 			copy(execArgs, args)
 			if len(execArgs) > 0 && execArgs[len(execArgs)-1] == "mcp" {
@@ -68,22 +96,30 @@ func (p Provider) MCPServers(ctx context.Context, agentID, sessionID string, cap
 	return out, nil
 }
 
+func mcpServerName(s acp.McpServer) string {
+	switch {
+	case s.Stdio != nil:
+		return s.Stdio.Name
+	case s.Http != nil:
+		return s.Http.Name
+	case s.Sse != nil:
+		return s.Sse.Name
+	default:
+		return ""
+	}
+}
+
 func hasExecutorServer(servers []acp.McpServer) bool {
 	for _, s := range servers {
-		if s.Stdio != nil && s.Stdio.Name == ExecutorServerName {
-			return true
-		}
-		if s.Http != nil && s.Http.Name == ExecutorServerName {
-			return true
-		}
-		if s.Sse != nil && s.Sse.Name == ExecutorServerName {
+		if mcpServerName(s) == ExecutorServerName {
 			return true
 		}
 	}
 	return false
 }
 
-// Prepare installs the agent's skills where its harness reads them.
+// Prepare installs the agent's user skills and enabled organization skills where
+// its harness reads them.
 func (p Provider) Prepare(ctx context.Context, agentID string, ts *tunnel.Session) error {
 	agent, err := p.Store.GetAgent(ctx, agentID)
 	if err != nil {
@@ -100,5 +136,9 @@ func (p Provider) Prepare(ctx context.Context, agentID string, ts *tunnel.Sessio
 	if err != nil {
 		return err
 	}
-	return InstallSkills(ctx, ts, ad.SkillsDir, skills)
+	orgSkills, err := p.Store.ListDefaultOrgSkills(ctx)
+	if err != nil {
+		return err
+	}
+	return InstallSkills(ctx, ts, ad.SkillsDir, MergeSkills(skills, orgSkills))
 }

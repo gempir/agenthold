@@ -52,6 +52,51 @@ type Config struct {
 	Git Git `yaml:"git"`
 	// Executor configures the built-in Executor runtime for managing user accounts and tools.
 	Executor Executor `yaml:"executor"`
+	// Org configures organization-wide tools, skills, and policies.
+	Org Org `yaml:"org"`
+}
+
+// Org configures organization-provided MCP tools, skills, and tool policies.
+type Org struct {
+	// AllowUserCustomMCP controls whether non-admin users may create custom
+	// MCP servers (default true).
+	AllowUserCustomMCP *bool `yaml:"allow_user_custom_mcp"`
+	// Tools declaratively seeds/upserts organization tools on server start.
+	Tools []OrgToolConfig `yaml:"tools"`
+	// Skills declaratively seeds/upserts organization skills on server start.
+	Skills []OrgSkillConfig `yaml:"skills"`
+}
+
+// UserCustomMCPAllowed reports whether non-admin users may create custom MCP servers.
+func (o Org) UserCustomMCPAllowed() bool {
+	return o.AllowUserCustomMCP == nil || *o.AllowUserCustomMCP
+}
+
+// OrgToolConfig is one declarative organization tool entry in config.yaml.
+type OrgToolConfig struct {
+	Slug              string            `yaml:"slug"`
+	Name              string            `yaml:"name"`
+	Description       string            `yaml:"description"`
+	Kind              string            `yaml:"kind"`      // mcp_http | mcp_stdio | executor_app
+	AuthMode          string            `yaml:"auth_mode"` // none | org_shared | user_oauth
+	URL               string            `yaml:"url"`
+	Headers           map[string]string `yaml:"headers"`
+	Command           string            `yaml:"command"`
+	Args              []string          `yaml:"args"`
+	Env               map[string]string `yaml:"env"`
+	ExecutorCatalogID string            `yaml:"executor_catalog_id"`
+	Secret            string            `yaml:"secret"`
+	SecretHosts       []string          `yaml:"secret_hosts"`
+	EnabledByDefault  *bool             `yaml:"enabled_by_default"`
+	AllowedRoles      []string          `yaml:"allowed_roles"`
+}
+
+// OrgSkillConfig is one declarative organization skill entry in config.yaml.
+type OrgSkillConfig struct {
+	Name             string `yaml:"name"`
+	Description      string `yaml:"description"`
+	Content          string `yaml:"content"`
+	EnabledByDefault *bool  `yaml:"enabled_by_default"`
 }
 
 // Executor configures the embedded Executor runtime that manages user accounts,
@@ -918,6 +963,56 @@ func (c *Config) Validate() error {
 	}
 	if c.Executor.IdleTimeout != nil && *c.Executor.IdleTimeout < 0 {
 		errs = append(errs, errors.New("executor.idle_timeout: must not be negative"))
+	}
+	seenToolSlugs := map[string]bool{}
+	for i, t := range c.Org.Tools {
+		prefix := fmt.Sprintf("org.tools[%d]", i)
+		slug := strings.TrimSpace(t.Slug)
+		switch {
+		case slug == "":
+			errs = append(errs, fmt.Errorf("%s.slug: required", prefix))
+		case seenToolSlugs[slug]:
+			errs = append(errs, fmt.Errorf("%s.slug: duplicate slug %q", prefix, slug))
+		default:
+			seenToolSlugs[slug] = true
+		}
+		if strings.TrimSpace(t.Name) == "" {
+			errs = append(errs, fmt.Errorf("%s.name: required", prefix))
+		}
+		switch t.Kind {
+		case "mcp_http", "mcp_stdio", "executor_app":
+		default:
+			errs = append(errs, fmt.Errorf("%s.kind: want mcp_http, mcp_stdio or executor_app, got %q", prefix, t.Kind))
+		}
+		switch t.AuthMode {
+		case "", "none", "org_shared", "user_oauth":
+		default:
+			errs = append(errs, fmt.Errorf("%s.auth_mode: want none, org_shared or user_oauth, got %q", prefix, t.AuthMode))
+		}
+		for _, r := range t.AllowedRoles {
+			if _, ok := ParseRole(r); !ok {
+				errs = append(errs, fmt.Errorf("%s.allowed_roles: unknown role %q", prefix, r))
+			}
+		}
+	}
+	seenSkillNames := map[string]bool{}
+	for i, sk := range c.Org.Skills {
+		prefix := fmt.Sprintf("org.skills[%d]", i)
+		name := strings.TrimSpace(sk.Name)
+		switch {
+		case name == "":
+			errs = append(errs, fmt.Errorf("%s.name: required", prefix))
+		case seenSkillNames[name]:
+			errs = append(errs, fmt.Errorf("%s.name: duplicate name %q", prefix, name))
+		default:
+			seenSkillNames[name] = true
+		}
+		if strings.TrimSpace(sk.Description) == "" {
+			errs = append(errs, fmt.Errorf("%s.description: required", prefix))
+		}
+		if strings.TrimSpace(sk.Content) == "" {
+			errs = append(errs, fmt.Errorf("%s.content: required", prefix))
+		}
 	}
 	return errors.Join(errs...)
 }

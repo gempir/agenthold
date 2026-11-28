@@ -21,6 +21,7 @@ import (
 	"github.com/gempir/agenthold/internal/audit"
 	"github.com/gempir/agenthold/internal/authz"
 	"github.com/gempir/agenthold/internal/config"
+	"github.com/gempir/agenthold/internal/executor"
 	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/project"
 	"github.com/gempir/agenthold/internal/session"
@@ -43,12 +44,16 @@ type Service struct {
 	Log      *slog.Logger
 	// AskTimeout bounds ask(). Default 30 minutes.
 	AskTimeout time.Duration
+	// SecretRequestTimeout overrides the default wait for request_secret (default 5 minutes).
+	SecretRequestTimeout time.Duration
 	// Preview serves exposures; the exposure tools are listed when it is enabled.
 	Preview *preview.Service
 	// Apps runs services and apps; their tools are listed when it is set.
 	Apps *apps.Manager
 	// Projects works with projects; their tools are listed when it is set.
 	Projects *project.Service
+	// Executor checks user OAuth/account connection status for request_account_connect.
+	Executor *executor.Manager
 }
 
 // Tools are the platform tools in MCP form.
@@ -121,6 +126,7 @@ var exposureTools = []map[string]any{
 func (p *Service) tools() []map[string]any {
 	out := append(append([]map[string]any{}, Tools...), threadTools...)
 	out = append(out, subthreadTools...)
+	out = append(out, orgPlatformTools...)
 	if p.Preview.Enabled() {
 		out = append(out, exposureTools...)
 	}
@@ -171,6 +177,9 @@ func (p *Service) Call(ctx context.Context, callerID, sessionID, tool string, ar
 	}
 	if isSubthreadTool(tool) {
 		return p.subthreadCall(ctx, caller, sessionID, tool, args)
+	}
+	if isOrgPlatformTool(tool) {
+		return p.orgPlatformCall(ctx, caller, sessionID, tool, args)
 	}
 	if p.Projects != nil && isProjectTool(tool) {
 		return p.projectCall(ctx, caller, sessionID, tool, args)

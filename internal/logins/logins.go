@@ -48,6 +48,8 @@ const (
 const (
 	// SourceAccount: the account login of the agent's login user.
 	SourceAccount = "account"
+	// SourceOrg: an organization-wide shared provider login fallback.
+	SourceOrg = "org"
 	// SourceSecret: an API key secret attached to the agent wins.
 	SourceSecret = "secret"
 	// SourceSandbox: whatever is signed in inside the sandbox.
@@ -293,46 +295,69 @@ type State struct {
 	User string
 	// Login is that user's login for the agent's harness, if connected.
 	Login *db.ProviderLogin
+	// OrgLogin is the organization-wide shared login used as fallback, if any.
+	OrgLogin *db.OrgProviderLogin
 	// Reason explains SourceSandbox when a login user is set.
 	Reason string
 }
 
 // StateOf works out which login an agent's harness gets.
+// Resolution order:
+//  1. Explicit API key secret attached to the agent (SourceSecret).
+//  2. Personal provider login of the agent's login user (SourceAccount).
+//  3. Enabled organization-wide provider login fallback (SourceOrg).
+//  4. Unconnected account / sandbox / unsupported.
 func (s *Service) StateOf(ctx context.Context, ag db.Agent) (State, error) {
-	if _, ok := Adapter(ag.Harness); !ok {
+	_, hasAdapter := Adapter(ag.Harness)
+
+	// (1) Explicit agent secret always wins.
+	if overridden, err := s.secretOverrides(ctx, ag); err != nil {
+		return State{Source: SourceSandbox, User: ag.LoginUserID}, err
+	} else if overridden {
+		return State{Source: SourceSecret, User: ag.LoginUserID}, nil
+	}
+
+	// (2) Personal provider login of the agent's login user (when bound and accessible).
+	st := State{Source: SourceSandbox, User: ag.LoginUserID}
+	userAccessible := false
+	if hasAdapter && ag.LoginUserID != "" {
+		role, err := authz.Checker{Q: s.Store.Queries}.RoleOf(ctx, ag.LoginUserID, ag)
+		if err != nil {
+			return st, err
+		}
+		if !authz.Can(role, authz.AgentRead) {
+			st.Reason = "the login's owner no longer has access to this agent"
+		} else {
+			userAccessible = true
+			l, err := s.Store.GetProviderLogin(ctx, db.GetProviderLoginParams{UserID: ag.LoginUserID, Provider: ag.Harness})
+			if err == nil {
+				st.Source = SourceAccount
+				st.Login = &l
+				return st, nil
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return st, err
+			}
+		}
+	}
+
+	// (3) Organization-wide provider login fallback.
+	if orgLogin, err := s.Store.GetOrgProviderLogin(ctx, ag.Harness); err == nil && orgLogin.Enabled != 0 {
+		return State{Source: SourceOrg, User: ag.LoginUserID, OrgLogin: &orgLogin}, nil
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return st, err
+	}
+
+	// (4) Fallback to unconnected state.
+	if !hasAdapter {
 		return State{Source: SourceUnsupported, User: ag.LoginUserID}, nil
 	}
 	if ag.LoginUserID == "" {
 		return State{Source: SourceSandbox}, nil
 	}
-	st := State{Source: SourceSandbox, User: ag.LoginUserID}
-	// A key attached to this agent for the harness is an explicit,
-	// per-agent choice: it wins.
-	if overridden, err := s.secretOverrides(ctx, ag); err != nil {
-		return st, err
-	} else if overridden {
-		st.Source = SourceSecret
-		return st, nil
+	if userAccessible {
+		st.Source = SourceAccount
 	}
-	// The login user must still have access to the agent; when they leave
-	// it, their login stops being used.
-	role, err := authz.Checker{Q: s.Store.Queries}.RoleOf(ctx, ag.LoginUserID, ag)
-	if err != nil {
-		return st, err
-	}
-	if !authz.Can(role, authz.AgentRead) {
-		st.Reason = "the login's owner no longer has access to this agent"
-		return st, nil
-	}
-	st.Source = SourceAccount
-	l, err := s.Store.GetProviderLogin(ctx, db.GetProviderLoginParams{UserID: ag.LoginUserID, Provider: ag.Harness})
-	if errors.Is(err, sql.ErrNoRows) {
-		return st, nil
-	}
-	if err != nil {
-		return st, err
-	}
-	st.Login = &l
 	return st, nil
 }
 
@@ -362,28 +387,45 @@ func (s *Service) secretOverrides(ctx context.Context, ag db.Agent) (bool, error
 }
 
 // delivery resolves the credential an agent's harness gets, if any.
-func (s *Service) delivery(ctx context.Context, ag db.Agent) (*db.ProviderLogin, harness.AccountLoginer, harness.Delivery, error) {
+// Returns (personalLogin, orgLogin, adapter, delivery, err).
+func (s *Service) delivery(ctx context.Context, ag db.Agent) (*db.ProviderLogin, *db.OrgProviderLogin, harness.AccountLoginer, harness.Delivery, error) {
 	st, err := s.StateOf(ctx, ag)
-	if err != nil || st.Source != SourceAccount || st.Login == nil {
-		return nil, nil, harness.Delivery{}, err
-	}
-	al, _ := Adapter(ag.Harness)
-	cred, err := s.open(*st.Login)
 	if err != nil {
-		return nil, nil, harness.Delivery{}, err
+		return nil, nil, nil, harness.Delivery{}, err
 	}
-	d, err := al.Deliver(cred, st.Login.Seed)
-	if err != nil {
-		return nil, nil, harness.Delivery{}, err
+	switch {
+	case st.Source == SourceAccount && st.Login != nil:
+		al, _ := Adapter(ag.Harness)
+		cred, err := s.open(*st.Login)
+		if err != nil {
+			return nil, nil, nil, harness.Delivery{}, err
+		}
+		d, err := al.Deliver(cred, st.Login.Seed)
+		if err != nil {
+			return nil, nil, nil, harness.Delivery{}, err
+		}
+		return st.Login, nil, al, d, nil
+	case st.Source == SourceOrg && st.OrgLogin != nil:
+		al, _ := Adapter(ag.Harness)
+		payload, err := s.openOrg(*st.OrgLogin)
+		if err != nil {
+			return nil, nil, nil, harness.Delivery{}, err
+		}
+		d, err := deliverOrgProvider(st.OrgLogin.Provider, st.OrgLogin.Kind, payload)
+		if err != nil {
+			return nil, nil, nil, harness.Delivery{}, err
+		}
+		return nil, st.OrgLogin, al, d, nil
+	default:
+		return nil, nil, nil, harness.Delivery{}, nil
 	}
-	return st.Login, al, d, nil
 }
 
 // Prepare runs before an agent's harness starts: it writes the login's
 // files into the sandbox (or removes ones left from an earlier login) and
 // returns the environment to add to the harness.
 func (s *Service) Prepare(ctx context.Context, ag db.Agent, ts *tunnel.Session) (map[string]string, error) {
-	l, al, d, err := s.delivery(ctx, ag)
+	l, orgLogin, al, d, err := s.delivery(ctx, ag)
 	if err != nil {
 		return nil, err
 	}
@@ -419,12 +461,16 @@ func (s *Service) Prepare(ctx context.Context, ag db.Agent, ts *tunnel.Session) 
 			_ = ts.Remove(ctx, p, false)
 		}
 	}
-	if l == nil {
+	if l == nil && orgLogin == nil {
 		return nil, nil
 	}
-	now := s.now()
-	_ = s.Store.TouchProviderLogin(ctx, db.TouchProviderLoginParams{LastUsedAt: now.Unix(), ID: l.ID})
-	s.recordAgent(ctx, ag, l.UserID, ActionUse, l.Provider, map[string]any{"kind": l.Kind, "loginUser": l.UserID})
+	if l != nil {
+		now := s.now()
+		_ = s.Store.TouchProviderLogin(ctx, db.TouchProviderLoginParams{LastUsedAt: now.Unix(), ID: l.ID})
+		s.recordAgent(ctx, ag, l.UserID, ActionUse, l.Provider, map[string]any{"kind": l.Kind, "loginUser": l.UserID})
+	} else if orgLogin != nil {
+		s.recordAgent(ctx, ag, ag.OwnerID, ActionUse, orgLogin.Provider, map[string]any{"kind": orgLogin.Kind, "source": SourceOrg})
+	}
 	if s.Invalidate != nil {
 		s.Invalidate()
 	}
@@ -433,18 +479,15 @@ func (s *Service) Prepare(ctx context.Context, ag db.Agent, ts *tunnel.Session) 
 
 // Egress implements egress.AccountLogins. It delivers injections and refresh
 // responders for the agent's own harness, plus any other harness pinned on a
-// sub-thread of this agent (e.g. a Codex sub-thread on a Claude Code agent)
-// when the agent is linked to a user's account logins.
+// sub-thread of this agent (e.g. a Codex sub-thread on a Claude Code agent).
 func (s *Service) Egress(ctx context.Context, ag db.Agent) ([]secrets.Injection, []egress.Responder, error) {
 	harnesses := []string{ag.Harness}
 	seen := map[string]bool{ag.Harness: true}
-	if ag.LoginUserID != "" {
-		if sessions, err := s.Store.ListAgentSessions(ctx, ag.ID); err == nil {
-			for _, sess := range sessions {
-				if sess.Harness != "" && !seen[sess.Harness] {
-					seen[sess.Harness] = true
-					harnesses = append(harnesses, sess.Harness)
-				}
+	if sessions, err := s.Store.ListAgentSessions(ctx, ag.ID); err == nil {
+		for _, sess := range sessions {
+			if sess.Harness != "" && !seen[sess.Harness] {
+				seen[sess.Harness] = true
+				harnesses = append(harnesses, sess.Harness)
 			}
 		}
 	}
@@ -453,28 +496,36 @@ func (s *Service) Egress(ctx context.Context, ag db.Agent) ([]secrets.Injection,
 	for _, h := range harnesses {
 		cur := ag
 		cur.Harness = h
-		l, al, d, err := s.delivery(ctx, cur)
+		l, orgLogin, al, d, err := s.delivery(ctx, cur)
 		if err != nil {
 			if h == ag.Harness {
 				return nil, nil, err
 			}
 			continue
 		}
-		if l == nil {
+		if l == nil && orgLogin == nil {
 			continue
+		}
+		secretID := ""
+		if l != nil {
+			secretID = "login:" + l.ID
+		} else {
+			secretID = "org-login:" + orgLogin.Provider
 		}
 		for _, in := range d.Injections {
 			injs = append(injs, secrets.Injection{
-				SecretID: "login:" + l.ID, Rule: secrets.Rule{Hosts: in.Hosts, Header: in.Header},
+				SecretID: secretID, Rule: secrets.Rule{Hosts: in.Hosts, Header: in.Header},
 				Value: in.Value, Placeholder: in.Placeholder, HeaderOnly: true, PathPrefixes: in.PathPrefixes,
 			})
 		}
-		rf, canRefresh := al.(harness.Refresher)
-		for _, ic := range d.Intercepts {
-			if !canRefresh {
-				continue
+		if l != nil && al != nil {
+			rf, canRefresh := al.(harness.Refresher)
+			for _, ic := range d.Intercepts {
+				if !canRefresh {
+					continue
+				}
+				resp = append(resp, egress.Responder{Host: ic.Host, Method: ic.Method, Path: ic.Path, Placeholder: ic.Placeholder, Handle: s.interceptHandler(ic, l.ID, rf)})
 			}
-			resp = append(resp, egress.Responder{Host: ic.Host, Method: ic.Method, Path: ic.Path, Placeholder: ic.Placeholder, Handle: s.interceptHandler(ic, l.ID, rf)})
 		}
 	}
 	return injs, resp, nil

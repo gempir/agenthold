@@ -191,7 +191,7 @@ func (a *API) CreateAgent(ctx context.Context, req gen.CreateAgentRequestObject)
 	if b.PermissionPolicy != nil {
 		s.policy = string(*b.PermissionPolicy)
 	}
-	execEnabled := false
+	execEnabled := a.Executor != nil && a.Executor.Available()
 	if b.ExecutorEnabled != nil {
 		execEnabled = *b.ExecutorEnabled
 	}

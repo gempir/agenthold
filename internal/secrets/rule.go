@@ -145,6 +145,27 @@ func (inj Injection) Apply(req *http.Request) (bool, error) {
 		}
 		return done, nil
 	}
+	// Placeholder-only injection (no forced header): replace the placeholder
+	// wherever it appears in headers or query string for allowed hosts only.
+	if inj.Rule.Header == "" {
+		if inj.Placeholder == "" || strings.ContainsAny(inj.Value, "\r\n") {
+			return false, nil
+		}
+		done := false
+		for k, vs := range req.Header {
+			for i, v := range vs {
+				if strings.Contains(v, inj.Placeholder) {
+					req.Header[k][i] = strings.ReplaceAll(v, inj.Placeholder, inj.Value)
+					done = true
+				}
+			}
+		}
+		if strings.Contains(req.URL.RawQuery, inj.Placeholder) {
+			req.URL.RawQuery = strings.ReplaceAll(req.URL.RawQuery, inj.Placeholder, inj.Value)
+			done = true
+		}
+		return done, nil
+	}
 	val, err := inj.Rule.Render(inj.Value)
 	if err != nil {
 		return false, err

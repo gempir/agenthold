@@ -221,6 +221,12 @@ func (a *API) agentLogin(ctx context.Context, ag db.Agent) (gen.AgentLogin, erro
 		out.Kind = &st.Login.Kind
 		s := gen.AgentLoginStatus(st.Login.Status)
 		out.Status = &s
+	} else if st.OrgLogin != nil {
+		out.Connected = true
+		kind := st.OrgLogin.Kind
+		out.Kind = &kind
+		s := gen.AgentLoginStatusOk
+		out.Status = &s
 	}
 	return out, nil
 }

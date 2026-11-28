@@ -41,6 +41,8 @@ type Querier interface {
 	CreateMCPServer(ctx context.Context, arg CreateMCPServerParams) error
 	CreateNode(ctx context.Context, arg CreateNodeParams) error
 	CreateNodeJoinToken(ctx context.Context, arg CreateNodeJoinTokenParams) error
+	CreateOrgSkill(ctx context.Context, arg CreateOrgSkillParams) error
+	CreateOrgTool(ctx context.Context, arg CreateOrgToolParams) error
 	CreatePreviewCode(ctx context.Context, arg CreatePreviewCodeParams) error
 	CreatePreviewConsent(ctx context.Context, arg CreatePreviewConsentParams) error
 	CreatePreviewSession(ctx context.Context, arg CreatePreviewSessionParams) error
@@ -72,6 +74,9 @@ type Querier interface {
 	DeleteMCPServer(ctx context.Context, id string) error
 	DeleteNode(ctx context.Context, id string) error
 	DeleteOldReleasedExposureNames(ctx context.Context, releasedAt int64) error
+	DeleteOrgProviderLogin(ctx context.Context, provider string) (int64, error)
+	DeleteOrgSkill(ctx context.Context, id string) (int64, error)
+	DeleteOrgTool(ctx context.Context, id string) (int64, error)
 	DeletePreviewSession(ctx context.Context, tokenHash string) error
 	DeleteProject(ctx context.Context, id string) error
 	DeleteProjectSource(ctx context.Context, id string) error
@@ -92,6 +97,7 @@ type Querier interface {
 	DeleteStaleNodeJoinTokens(ctx context.Context, before int64) error
 	DeleteUserPreviewSessions(ctx context.Context, userID string) error
 	DeleteUserSessions(ctx context.Context, userID string) error
+	DeleteUserToolPreference(ctx context.Context, arg DeleteUserToolPreferenceParams) (int64, error)
 	DeleteWebhook(ctx context.Context, id string) error
 	DetachMCPServer(ctx context.Context, arg DetachMCPServerParams) (int64, error)
 	DetachSecret(ctx context.Context, arg DetachSecretParams) (int64, error)
@@ -121,6 +127,11 @@ type Querier interface {
 	GetModelCatalog(ctx context.Context, agentID string) (AgentModelCatalog, error)
 	GetNode(ctx context.Context, id string) (Node, error)
 	GetNodeByFingerprint(ctx context.Context, certFingerprint string) (Node, error)
+	GetOrgProviderLogin(ctx context.Context, provider string) (OrgProviderLogin, error)
+	GetOrgSkill(ctx context.Context, id string) (OrgSkill, error)
+	GetOrgSkillByName(ctx context.Context, name string) (OrgSkill, error)
+	GetOrgTool(ctx context.Context, id string) (OrgTool, error)
+	GetOrgToolBySlug(ctx context.Context, slug string) (OrgTool, error)
 	GetPreviewSessionUser(ctx context.Context, arg GetPreviewSessionUserParams) (GetPreviewSessionUserRow, error)
 	GetProject(ctx context.Context, id string) (Project, error)
 	GetProjectTask(ctx context.Context, id string) (ProjectTask, error)
@@ -170,6 +181,7 @@ type Querier interface {
 	ListAutoSettleCandidates(ctx context.Context, now int64) ([]ListAutoSettleCandidatesRow, error)
 	ListChildSessions(ctx context.Context, originSessionID string) ([]AgentSession, error)
 	ListCustomHarnessesByOwner(ctx context.Context, ownerID string) ([]CustomHarness, error)
+	ListDefaultOrgSkills(ctx context.Context) ([]OrgSkill, error)
 	ListExposures(ctx context.Context, agentID string) ([]Exposure, error)
 	ListGitCredentials(ctx context.Context, userID string) ([]GitCredential, error)
 	ListIdentities(ctx context.Context) ([]ListIdentitiesRow, error)
@@ -178,6 +190,9 @@ type Querier interface {
 	ListImages(ctx context.Context) ([]Image, error)
 	ListNodeSandboxes(ctx context.Context, nodeID string) ([]Sandbox, error)
 	ListNodes(ctx context.Context) ([]Node, error)
+	ListOrgProviderLogins(ctx context.Context) ([]OrgProviderLogin, error)
+	ListOrgSkills(ctx context.Context) ([]OrgSkill, error)
+	ListOrgTools(ctx context.Context) ([]OrgTool, error)
 	ListProjectSessions(ctx context.Context, projectID string) ([]AgentSession, error)
 	ListProjectSources(ctx context.Context, projectID string) ([]ProjectSource, error)
 	ListProjectTasks(ctx context.Context, projectID string) ([]ProjectTask, error)
@@ -201,6 +216,7 @@ type Querier interface {
 	ListUserSecrets(ctx context.Context, ownerID string) ([]Secret, error)
 	ListUserSkills(ctx context.Context, ownerID string) ([]Skill, error)
 	ListUserSlackUsers(ctx context.Context, userID string) ([]SlackUser, error)
+	ListUserToolPreferences(ctx context.Context, userID string) ([]UserToolPreference, error)
 	ListUsersByVerifiedEmail(ctx context.Context, lower string) ([]User, error)
 	ListUsersWithIdentity(ctx context.Context) ([]ListUsersWithIdentityRow, error)
 	LockUser(ctx context.Context, id string) error
@@ -291,6 +307,8 @@ type Querier interface {
 	UpdateGitCredential(ctx context.Context, arg UpdateGitCredentialParams) error
 	UpdateImage(ctx context.Context, arg UpdateImageParams) error
 	UpdateMCPServer(ctx context.Context, arg UpdateMCPServerParams) error
+	UpdateOrgSkill(ctx context.Context, arg UpdateOrgSkillParams) error
+	UpdateOrgTool(ctx context.Context, arg UpdateOrgToolParams) error
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) error
 	UpdateProjectSource(ctx context.Context, arg UpdateProjectSourceParams) error
 	UpdateProjectTask(ctx context.Context, arg UpdateProjectTaskParams) error
@@ -303,6 +321,8 @@ type Querier interface {
 	UpdateWebhook(ctx context.Context, arg UpdateWebhookParams) error
 	UpsertLocalNode(ctx context.Context, arg UpsertLocalNodeParams) error
 	UpsertModelCatalog(ctx context.Context, arg UpsertModelCatalogParams) error
+	UpsertOrgProviderLogin(ctx context.Context, arg UpsertOrgProviderLoginParams) error
 	UpsertService(ctx context.Context, arg UpsertServiceParams) error
 	UpsertUserGitConfig(ctx context.Context, arg UpsertUserGitConfigParams) error
+	UpsertUserToolPreference(ctx context.Context, arg UpsertUserToolPreferenceParams) error
 }

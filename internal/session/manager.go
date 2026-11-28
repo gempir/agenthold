@@ -24,11 +24,12 @@ import (
 
 // Errors.
 var (
-	ErrBusy              = errors.New("a turn is already running in this session")
-	ErrNotFound          = errors.New("session not found")
-	ErrEventNotFound     = errors.New("event not found")
-	ErrNoTurn            = errors.New("no turn is running")
-	ErrUnknownPermission = errors.New("permission request not found or already answered")
+	ErrBusy                 = errors.New("a turn is already running in this session")
+	ErrNotFound             = errors.New("session not found")
+	ErrEventNotFound        = errors.New("event not found")
+	ErrNoTurn               = errors.New("no turn is running")
+	ErrUnknownPermission    = errors.New("permission request not found or already answered")
+	ErrUnknownSecretRequest = errors.New("secret request not found or already resolved")
 	// ErrNoHarness: the machine is an app, which runs no harness.
 	ErrNoHarness    = errors.New("this machine is an app: it has no harness to talk to")
 	errShuttingDown = errors.New("the server is shutting down")
@@ -92,10 +93,11 @@ type Manager struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	mu      sync.Mutex
-	closing bool                     // Close was called: no new turns or connections
-	conns   map[connKey]*harnessConn // by agent + harness id
-	turns   map[string]*turn         // by session id
+	mu         sync.Mutex
+	closing    bool                         // Close was called: no new turns or connections
+	conns      map[connKey]*harnessConn     // by agent + harness id
+	turns      map[string]*turn             // by session id
+	secretReqs map[string]*pendingSecretReq // by request id
 	// starting serializes harness startup per agent+harness (a size-1 channel,
 	// so a waiting turn can be cancelled).
 	starting map[connKey]chan struct{}
@@ -191,7 +193,7 @@ func NewManager(st *store.Store, wake Waker, lg *slog.Logger) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
 		store: st, wake: wake, log: newLog(st), lg: lg, ctx: ctx, cancel: cancel,
-		conns: map[connKey]*harnessConn{}, turns: map[string]*turn{}, starting: map[connKey]chan struct{}{},
+		conns: map[connKey]*harnessConn{}, turns: map[string]*turn{}, secretReqs: map[string]*pendingSecretReq{}, starting: map[connKey]chan struct{}{},
 		warming: map[string]bool{},
 	}
 	m.endInterruptedTurns(ctx)
@@ -377,6 +379,10 @@ func (m *Manager) Close() {
 	conns := make([]*harnessConn, 0, len(m.conns))
 	for _, c := range m.conns {
 		conns = append(conns, c)
+	}
+	for id, req := range m.secretReqs {
+		delete(m.secretReqs, id)
+		close(req.ch)
 	}
 	m.mu.Unlock()
 	for _, c := range conns {

@@ -172,6 +172,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if err := tools.SyncOrgConfig(ctx, st, box, cfg.Org); err != nil {
+		return fmt.Errorf("sync org config: %w", err)
+	}
 	ca, err := egress.LoadOrCreateCA(filepath.Join(cfg.DataDir, "egress"))
 	if err != nil {
 		return fmt.Errorf("egress CA: %w", err)
@@ -371,6 +374,8 @@ func run() error {
 		logger.Info("executor runtime binary not found; accounts integration unavailable until installed or built as release binary")
 	}
 	platformTools.ExecutorAvailable = executorMgr.Available
+	platformTools.Executor = executorMgr
+	platformTools.Log = logger
 	sessions.SetTools(platformTools)
 	var identity *preview.Signer
 	if previewSvc.Enabled() {
@@ -386,7 +391,7 @@ func run() error {
 		go previewSvc.Run(ctx, 10*time.Minute, logger)
 	}
 	appsMgr.Preview = previewSvc
-	platformSvc := &platform.Service{Store: st, Sessions: sessions, Audit: auditLog, Log: logger, Preview: previewSvc, Apps: appsMgr, Projects: projects}
+	platformSvc := &platform.Service{Store: st, Sessions: sessions, Audit: auditLog, Log: logger, Preview: previewSvc, Apps: appsMgr, Projects: projects, Executor: executorMgr}
 	go func() {
 		for {
 			info, stream, err := cluster.NextIncoming(ctx)
@@ -460,7 +465,7 @@ func run() error {
 		Projects: projects,
 		Preview:  previewSvc, Identity: identity, Apps: appsMgr, Images: imageMgr, Activity: activityLog,
 		ACPStore: acpCatalog, Harnesses: harnessResolver,
-		ShowTestHarness: cfg.TestHarness || driverName == "fake", UserMaxAgents: cfg.Auth.UserMaxAgents,
+		ShowTestHarness: cfg.TestHarness || driverName == "fake", UserMaxAgents: cfg.Auth.UserMaxAgents, Org: cfg.Org,
 	})
 	sessions.SetWaker(apiSrv.Wake)
 	appsMgr.Wake = apiSrv.Wake

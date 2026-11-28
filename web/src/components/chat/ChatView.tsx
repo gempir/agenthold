@@ -21,6 +21,7 @@ import {
 import { api, unwrap } from '@/api/client';
 import { ErrorText } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
+import { useDraft } from '@/lib/drafts';
 import { Composer } from '@/components/chat/Composer';
 import { Lightbox } from '@/components/chat/Lightbox';
 import {
@@ -459,7 +460,7 @@ function SessionComposer({
   usage?: ContextUsage | null;
   onSent: () => void;
 }) {
-  const [text, setText] = useState('');
+  const [text, setText] = useDraft(sessionId);
   const att = useAttachments();
   const path = { params: { path: { sessionId } } };
   const send = useMutation({

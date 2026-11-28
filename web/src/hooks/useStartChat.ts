@@ -1,3 +1,4 @@
+import { agentDraftKey, setDraft } from '@/lib/drafts';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { api, unwrap } from '@/api/client';
@@ -50,6 +51,7 @@ export function useStartChat() {
       return s;
     },
     onSuccess: async (s) => {
+      setDraft(agentDraftKey(s.agentId), '');
       await qc.invalidateQueries({
         queryKey: ['agents', s.agentId, 'sessions'],
       });

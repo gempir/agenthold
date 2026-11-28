@@ -18,6 +18,7 @@ import {
   LogOut,
   Moon,
   PanelLeftClose,
+  PenLine,
   Plus,
   Search,
   Settings,
@@ -46,6 +47,7 @@ import { useJustFinished } from '@/hooks/useJustFinished';
 import { useLogout } from '@/hooks/useLogout';
 import { useSettle } from '@/hooks/useSettle';
 import { getTheme, setTheme, type Theme } from '@/lib/theme';
+import { useHasDraft } from '@/lib/drafts';
 import { relTime, useNow } from '@/lib/time';
 import { cn } from '@/lib/utils';
 
@@ -181,6 +183,17 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             <PanelLeftClose className="size-4" />
           </Button>
         )}
+      </div>
+
+      <div className="shrink-0 px-3 pb-2">
+        <Link
+          to="/new"
+          onClick={onClose}
+          className="flex h-8 w-full items-center gap-2 rounded-lg px-2 font-medium hover:bg-accent/50"
+        >
+          <PenLine className="size-4 text-muted-foreground" aria-hidden />
+          New thread
+        </Link>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
@@ -387,13 +400,19 @@ function ThreadCard({
   settling: boolean;
 }) {
   const title = session.title || 'New thread';
+  const hasDraft = useHasDraft(session.id);
   const by =
     session.origin != null
       ? `from ${session.origin.agentName}`
       : me && session.createdBy.id !== me
         ? `by ${session.createdBy.name}`
         : null;
-  const status = session.running ? (
+  const status = hasDraft ? (
+    <span className="flex shrink-0 items-center gap-1 font-medium text-amber-600 dark:text-amber-400">
+      <PenLine className="size-3" aria-hidden />
+      Draft
+    </span>
+  ) : session.running ? (
     <Loader2
       role="img"
       aria-label="running"
@@ -478,6 +497,7 @@ function SettledRow({
   onUnsettle?: () => void;
 }) {
   const title = session.title || 'New thread';
+  const hasDraft = useHasDraft(session.id);
   return (
     <li className="group relative">
       <Link
@@ -513,7 +533,14 @@ function SettledRow({
               'group-focus-within:invisible group-hover:invisible [@media(hover:none)]:invisible',
           )}
         >
-          {relTime(session.updatedAt, now)}
+          {hasDraft ? (
+            <span className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-400">
+              <PenLine className="size-3" aria-hidden />
+              Draft
+            </span>
+          ) : (
+            relTime(session.updatedAt, now)
+          )}
         </span>
       </Link>
       {onUnsettle && (

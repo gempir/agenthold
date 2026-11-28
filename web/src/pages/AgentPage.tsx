@@ -28,6 +28,7 @@ import {
   useGitDraft,
 } from '@/components/agent/GitMeta';
 import { HarnessMeta } from '@/components/agent/HarnessMeta';
+import { agentDraftKey } from '@/lib/drafts';
 import { DraftChat } from '@/components/chat/DraftChat';
 import { Crumb, CrumbSep, TopBar } from '@/components/layout/TopBar';
 import { readPref, writePref } from '@/components/layout/shell';
@@ -267,6 +268,7 @@ export function AgentPage({
           </Suspense>
         ) : (
           <DraftChat
+            draftKey={agentDraftKey(a.id)}
             heading={
               <>
                 Start a thread with{' '}

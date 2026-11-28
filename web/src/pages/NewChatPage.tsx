@@ -14,6 +14,7 @@ import {
   useGitDraft,
 } from '@/components/agent/GitMeta';
 import { HarnessMeta } from '@/components/agent/HarnessMeta';
+import { agentDraftKey, NEW_DRAFT_KEY } from '@/lib/drafts';
 import { DraftChat } from '@/components/chat/DraftChat';
 import { Crumb, TopBar } from '@/components/layout/TopBar';
 import { useShell } from '@/components/layout/shell';
@@ -76,6 +77,7 @@ export function NewChatPage() {
   else
     body = (
       <DraftChat
+        draftKey={chosen ? agentDraftKey(chosen.agent.id) : NEW_DRAFT_KEY}
         heading={greeting(me.data?.user.name)}
         sub="What should we work on?"
         notice={<AgentNotice agent={chosen.agent} canUse />}

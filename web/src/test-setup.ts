@@ -30,6 +30,11 @@ export function stubGlobal(name: string, value: unknown) {
 
 afterEach(() => {
   cleanup();
+  try {
+    localStorage.clear();
+  } catch {
+    // no storage in this test
+  }
   for (const [name, descriptor] of globals) {
     if (descriptor) Object.defineProperty(globalThis, name, descriptor);
     else Reflect.deleteProperty(globalThis, name);

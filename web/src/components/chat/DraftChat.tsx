@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
+import { useDraft } from '@/lib/drafts';
 import { ErrorText } from '@/components/Spinner';
 import { Composer } from '@/components/chat/Composer';
 import { toImagePayload, useAttachments } from '@/lib/attachments';
@@ -8,6 +9,7 @@ import { toImagePayload, useAttachments } from '@/lib/attachments';
  * centred like a blank page. Sending creates the session.
  */
 export function DraftChat({
+  draftKey,
   heading,
   sub,
   meta,
@@ -20,6 +22,8 @@ export function DraftChat({
   onSend,
   children,
 }: {
+  /** Where the unsent text is kept, so it survives leaving the page. */
+  draftKey: string;
   heading: ReactNode;
   sub?: ReactNode;
   meta?: ReactNode;
@@ -33,7 +37,7 @@ export function DraftChat({
   onSend: (text: string, images: ReturnType<typeof toImagePayload>) => void;
   children?: ReactNode;
 }) {
-  const [text, setText] = useState('');
+  const [text, setText] = useDraft(draftKey);
   const att = useAttachments();
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">

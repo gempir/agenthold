@@ -121,6 +121,7 @@ var exposureTools = []map[string]any{
 func (p *Service) tools() []map[string]any {
 	out := append(append([]map[string]any{}, Tools...), threadTools...)
 	out = append(out, subthreadTools...)
+	out = append(out, visualTools...)
 	if p.Preview.Enabled() {
 		out = append(out, exposureTools...)
 	}
@@ -171,6 +172,9 @@ func (p *Service) Call(ctx context.Context, callerID, sessionID, tool string, ar
 	}
 	if isSubthreadTool(tool) {
 		return p.subthreadCall(ctx, caller, sessionID, tool, args)
+	}
+	if isVisualTool(tool) {
+		return p.visualCall(ctx, caller, sessionID, tool, args)
 	}
 	if p.Projects != nil && isProjectTool(tool) {
 		return p.projectCall(ctx, caller, sessionID, tool, args)

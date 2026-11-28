@@ -25,6 +25,8 @@ const (
 	EventError              = "error"               // {message}
 	EventNotice             = "notice"              // {message}
 	EventSubthread          = "subthread"           // {sessionId, agentId, title, harness, model, status, summary}
+	EventVisual             = "visual"              // {title, html, height}
+	EventMCPApp             = "mcp_app"             // {title, html, server, toolCallId, resourceUri, actions, height}
 )
 
 // Event is one entry in a session's log.

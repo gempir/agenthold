@@ -223,4 +223,142 @@ describe('groupItems', () => {
     const g = groupItems([tool(1), s.items[0], tool(3)]);
     expect(g.map((x) => x.kind)).toEqual(['item', 'item', 'item']);
   });
+
+  it('handles visual and mcp_app events and keeps them outside folded work groups', () => {
+    n = 0;
+    const s = fold([
+      ev('visual', {
+        title: 'Revenue Chart',
+        html: '<div>chart</div>',
+        height: 360,
+      }),
+      upd({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'tc_1',
+        title: 'Query Metrics',
+        kind: 'fetch',
+        status: 'completed',
+      }),
+      ev('mcp_app', {
+        title: 'Metrics Explorer',
+        html: '<div>interactive</div>',
+        server: 'prometheus',
+        toolCallId: 'tc_1',
+        actions: [{ name: 'reload', readOnly: true }],
+      }),
+      ev('mcp_app', {
+        title: 'Standalone Widget',
+        html: '<p>widget</p>',
+      }),
+    ]);
+
+    expect(s.items).toHaveLength(3);
+    expect(s.items[0]).toMatchObject({
+      kind: 'visual',
+      title: 'Revenue Chart',
+      html: '<div>chart</div>',
+      height: 360,
+    });
+    expect(s.items[1]).toMatchObject({
+      kind: 'tool',
+      id: 'tc_1',
+      mcpApp: {
+        title: 'Metrics Explorer',
+        server: 'prometheus',
+        toolCallId: 'tc_1',
+      },
+    });
+    expect(s.items[2]).toMatchObject({
+      kind: 'mcp_app',
+      title: 'Standalone Widget',
+      html: '<p>widget</p>',
+    });
+
+    // Tools with MCP Apps and visual/mcp_app items are never buried inside folded work groups.
+    const g = groupItems([
+      tool(10),
+      s.items[1],
+      tool(11),
+      s.items[0],
+      tool(12),
+    ]);
+    expect(g.map((x) => x.kind)).toEqual([
+      'item',
+      'item',
+      'item',
+      'item',
+      'item',
+    ]);
+  });
+
+  it('detects MCP App UI payloads from tool_call_update _meta.ui, ui_resource, and ui:// resources', () => {
+    n = 0;
+    const s = fold([
+      upd({
+        sessionUpdate: 'tool_call',
+        toolCallId: 't_meta',
+        title: 'Dashboard',
+        kind: 'other',
+        status: 'completed',
+        rawOutput: {
+          _meta: {
+            ui: {
+              title: 'Live Dashboard',
+              html: '<section>stats</section>',
+              server: 'grafana',
+            },
+          },
+        },
+      }),
+      upd({
+        sessionUpdate: 'tool_call',
+        toolCallId: 't_res',
+        title: 'Inspect Form',
+        kind: 'other',
+        status: 'completed',
+        rawOutput: {
+          ui_resource: {
+            uri: 'ui://forms/1',
+            html: '<form>hello</form>',
+          },
+        },
+      }),
+      upd({
+        sessionUpdate: 'tool_call',
+        toolCallId: 't_uri',
+        title: 'Chart Tool',
+        kind: 'other',
+        status: 'completed',
+        content: [
+          {
+            type: 'content',
+            content: {
+              type: 'resource',
+              resource: {
+                uri: 'ui://charts/cpu',
+                mimeType: 'text/html',
+                text: '<div>cpu chart</div>',
+              },
+            },
+          },
+        ],
+      }),
+    ]);
+
+    expect((s.items[0] as ToolCall).mcpApp).toMatchObject({
+      title: 'Live Dashboard',
+      html: '<section>stats</section>',
+      server: 'grafana',
+    });
+    expect((s.items[1] as ToolCall).mcpApp).toMatchObject({
+      title: 'Inspect Form',
+      html: '<form>hello</form>',
+      resourceUri: 'ui://forms/1',
+    });
+    expect((s.items[2] as ToolCall).mcpApp).toMatchObject({
+      title: 'Chart Tool',
+      html: '<div>cpu chart</div>',
+      resourceUri: 'ui://charts/cpu',
+    });
+  });
 });

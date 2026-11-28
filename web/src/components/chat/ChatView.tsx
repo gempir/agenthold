@@ -56,6 +56,8 @@ import {
 } from '@/lib/composerContext';
 import { pushStash } from '@/lib/composerStash';
 import { ToolCard } from '@/components/chat/ToolCard';
+import { HtmlRenderCard } from '@/components/chat/HtmlRenderCard';
+import { McpAppCard } from '@/components/chat/McpAppCard';
 import { useSessionStream } from '@/components/chat/useSessionStream';
 import { ActivityLink } from '@/components/chat/LiveLog';
 import {
@@ -145,7 +147,19 @@ function workSummary(items: ChatItem[]): string {
 }
 
 /** Consecutive tool calls and thoughts folded into one "Worked" row. */
-function WorkGroup({ items, live }: { items: ChatItem[]; live: boolean }) {
+function WorkGroup({
+  items,
+  live,
+  sessionId,
+  canUse,
+  running,
+}: {
+  items: ChatItem[];
+  live: boolean;
+  sessionId: string;
+  canUse: boolean;
+  running: boolean;
+}) {
   // null follows the default: open while the agent is still on this step.
   const [choice, setChoice] = useState<boolean | null>(null);
   const open = choice ?? live;
@@ -173,7 +187,13 @@ function WorkGroup({ items, live }: { items: ChatItem[]; live: boolean }) {
       <div className="grid gap-0.5 py-0.5">
         {items.map((it, i) =>
           it.kind === 'tool' ? (
-            <ToolCard key={`${it.id}-${i}`} tool={it} />
+            <ToolCard
+              key={`${it.id}-${i}`}
+              tool={it}
+              sessionId={sessionId}
+              canUse={canUse}
+              running={running}
+            />
           ) : it.kind === 'thought' ? (
             <Thought key={`t-${it.seq}-${i}`} text={it.text} />
           ) : null,
@@ -510,7 +530,25 @@ function Item({
     case 'thought':
       return <Thought text={item.text} />;
     case 'tool':
-      return <ToolCard tool={item} />;
+      return (
+        <ToolCard
+          tool={item}
+          sessionId={sessionId}
+          canUse={canUse}
+          running={running}
+        />
+      );
+    case 'visual':
+      return <HtmlRenderCard item={item} sessionId={sessionId} />;
+    case 'mcp_app':
+      return (
+        <McpAppCard
+          app={item}
+          sessionId={sessionId}
+          canUse={canUse}
+          running={running}
+        />
+      );
     case 'permission':
       return <Permission item={item} sessionId={sessionId} canUse={canUse} />;
     case 'turn_end':
@@ -1180,6 +1218,9 @@ export default function ChatView({
                 key={`w-${g.items[0].seq}-${i}`}
                 items={g.items}
                 live={running && i === groups.length - 1}
+                sessionId={sessionId}
+                canUse={canUse}
+                running={running}
               />
             ) : (
               <Item

@@ -3904,6 +3904,34 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  # Phase 4B: Inline visual replies & MCP Apps
+  /sessions/{sessionId}/visuals/{eventSeq}:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+      - name: eventSeq
+        in: path
+        required: true
+        schema: { type: integer, format: int64, minimum: 1 }
+    get:
+      operationId: getSessionVisual
+      tags: [sessions]
+      description: >-
+        Return the raw self-contained HTML for a stored visual or MCP App session event,
+        served with strict sandbox Content-Security-Policy headers. Pass download=true to
+        trigger an attachment download.
+      parameters:
+        - name: download
+          in: query
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Sandboxed HTML document.
+          content:
+            text/html:
+              schema: { type: string }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
 security:
   - session: []
   - token: []
@@ -4965,14 +4993,16 @@ components:
         at: { type: string, format: date-time }
         type:
           type: string
-          enum: [prompt, update, permission, permission_resolved, turn_end, error, notice, subthread]
+          enum: [prompt, update, permission, permission_resolved, turn_end, error, notice, subthread, visual, mcp_app]
           description: |
             prompt: {text, user{id,name}}; update: an ACP SessionUpdate
             (discriminated by "sessionUpdate"); permission: {requestId,
             toolCall, options[{optionId,name,kind}], policy};
             permission_resolved: {requestId, optionId, by}; turn_end:
             {stopReason}; error/notice: {message}; subthread: {sessionId,
-            agentId, title, harness, model, status, summary}.
+            agentId, title, harness, model, status, summary}; visual:
+            {title, html, height}; mcp_app: {title, html, server,
+            toolCallId, resourceUri, actions, height}.
         userId: { type: string }
         data:
           type: object
@@ -5906,3 +5936,35 @@ components:
         methods:
           type: array
           items: { $ref: "#/components/schemas/ExecutorAuthMethod" }
+
+    # Phase 4B: Inline visual replies & MCP Apps
+    VisualEventData:
+      type: object
+      required: [html]
+      properties:
+        title: { type: string }
+        html: { type: string }
+        height: { type: integer, minimum: 120, maximum: 900 }
+
+    McpAppAction:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        label: { type: string }
+        description: { type: string }
+        readOnly: { type: boolean }
+
+    McpAppEventData:
+      type: object
+      required: [title, html]
+      properties:
+        title: { type: string }
+        html: { type: string }
+        server: { type: string }
+        toolCallId: { type: string }
+        resourceUri: { type: string }
+        height: { type: integer, minimum: 120, maximum: 900 }
+        actions:
+          type: array
+          items: { $ref: "#/components/schemas/McpAppAction" }

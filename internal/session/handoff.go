@@ -274,6 +274,44 @@ func FoldHistoryEvents(rows []db.AgentSessionEvent) []HistoricalMessage {
 					Status: "failed",
 				})
 			}
+		case EventVisual:
+			flushTools()
+			flushAssistant()
+			var v VisualPayload
+			if json.Unmarshal([]byte(r.Data), &v) == nil && strings.TrimSpace(v.HTML) != "" {
+				title := v.Title
+				if title == "" {
+					title = "Visual"
+				}
+				out = append(out, HistoricalMessage{
+					Role:   "assistant",
+					Kind:   "visual",
+					Text:   fmt.Sprintf("Rendered visual: %s (seq %d)", title, r.Seq),
+					Seq:    r.Seq,
+					Status: "completed",
+				})
+			}
+		case EventMCPApp:
+			flushTools()
+			flushAssistant()
+			var a MCPAppPayload
+			if json.Unmarshal([]byte(r.Data), &a) == nil && strings.TrimSpace(a.HTML) != "" {
+				title := a.Title
+				if title == "" {
+					title = "MCP App"
+				}
+				label := title
+				if a.Server != "" {
+					label = fmt.Sprintf("%s (%s)", title, a.Server)
+				}
+				out = append(out, HistoricalMessage{
+					Role:   "assistant",
+					Kind:   "mcp_app",
+					Text:   fmt.Sprintf("Rendered MCP App: %s (seq %d)", label, r.Seq),
+					Seq:    r.Seq,
+					Status: "completed",
+				})
+			}
 		case EventTurnEnd:
 			flushTools()
 			flushAssistant()

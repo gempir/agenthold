@@ -18,6 +18,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { ToolCall, ToolContent, ToolKind } from '@/lib/session';
+import { McpAppCard } from '@/components/chat/McpAppCard';
 
 const ICONS: Record<ToolKind, LucideIcon> = {
   read: FileText,
@@ -157,7 +158,17 @@ function toolDetail(tool: ToolCall): string {
 }
 
 /** One tool call as a quiet one-line row that expands to its output. */
-export function ToolCard({ tool }: { tool: ToolCall }) {
+export function ToolCard({
+  tool,
+  sessionId,
+  canUse = false,
+  running = false,
+}: {
+  tool: ToolCall;
+  sessionId?: string;
+  canUse?: boolean;
+  running?: boolean;
+}) {
   const hasDiff = tool.content.some((c) => c.type === 'diff');
   const [open, setOpen] = useState(hasDiff);
   const Icon = ICONS[tool.toolKind] ?? Wrench;
@@ -213,6 +224,14 @@ export function ToolCard({ tool }: { tool: ToolCall }) {
             <Content key={i} c={c} />
           ))}
         </div>
+      )}
+      {tool.mcpApp && (
+        <McpAppCard
+          app={tool.mcpApp}
+          sessionId={sessionId ?? ''}
+          canUse={canUse}
+          running={running}
+        />
       )}
     </div>
   );

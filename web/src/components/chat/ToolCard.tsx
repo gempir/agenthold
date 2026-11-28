@@ -137,7 +137,15 @@ function toolDetail(tool: ToolCall): string {
   const input = tool.rawInput;
   if (!input || typeof input !== 'object') return '';
   const o = input as Record<string, unknown>;
-  for (const k of ['command', 'cmd', 'file_path', 'path', 'pattern', 'url', 'query']) {
+  for (const k of [
+    'command',
+    'cmd',
+    'file_path',
+    'path',
+    'pattern',
+    'url',
+    'query',
+  ]) {
     let v = o[k];
     if (Array.isArray(v)) v = v.join(' ');
     if (typeof v === 'string' && v.trim()) {

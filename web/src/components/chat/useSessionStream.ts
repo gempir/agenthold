@@ -1,20 +1,34 @@
-import { useEffect, useReducer, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
   backoffMs,
   chatReducer,
   initialChatState,
   parseStreamMessage,
   sessionStreamUrl,
+  type QueuedMessage,
   type Viewer,
 } from '@/lib/session';
 
 /** Streams a session's events over a WebSocket, reconnecting with backoff and
  * resuming from the last seq seen. */
-export function useSessionStream(sessionId: string, initialRunning: boolean) {
+export function useSessionStream(
+  sessionId: string,
+  initialRunning: boolean,
+  onQueueUpdated?: (messages: QueuedMessage[]) => void,
+) {
   const [state, dispatch] = useReducer(chatReducer, initialChatState);
   const [running, setRunning] = useState(initialRunning);
   const [connected, setConnected] = useState(false);
   const [viewers, setViewers] = useState<Viewer[]>([]);
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const queueHandler = useRef(onQueueUpdated);
+  useEffect(() => {
+    queueHandler.current = onQueueUpdated;
+  }, [onQueueUpdated]);
+
+  const reload = useCallback(() => {
+    setReloadNonce((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     dispatch({ type: 'reset' });
@@ -40,6 +54,7 @@ export function useSessionStream(sessionId: string, initialRunning: boolean) {
         if (!m) return;
         if (m.type === 'status') setRunning(m.running);
         else if (m.type === 'presence') setViewers(m.viewers);
+        else if (m.type === 'queue_updated') queueHandler.current?.(m.messages);
         else {
           if (m.event.seq > lastSeq) lastSeq = m.event.seq;
           dispatch({ type: 'event', event: m.event });
@@ -60,7 +75,7 @@ export function useSessionStream(sessionId: string, initialRunning: boolean) {
       ws?.close();
       setViewers([]);
     };
-  }, [sessionId]);
+  }, [sessionId, reloadNonce]);
 
-  return { state, running, connected, viewers };
+  return { state, running, connected, viewers, reload };
 }

@@ -19,7 +19,11 @@ import {
   harnessesQuery,
   sessionsQuery,
   type Agent,
+  type PermissionMode,
+  type Session,
 } from '@/api/queries';
+import type { DraftModelTarget } from '@/components/ModelPicker';
+import { DEFAULT_COMPOSER_PLACEHOLDER } from '@/components/chat/Composer';
 import { AgentStateDot } from '@/components/AgentStateBadge';
 import { HarnessIcon } from '@/components/HarnessIcon';
 import { ErrorText, Loading } from '@/components/Spinner';
@@ -84,6 +88,12 @@ export function AgentPage({
     model: '',
     options: {},
   });
+  const [draftMultiModels, setDraftMultiModels] = useState<DraftModelTarget[]>(
+    [],
+  );
+  const [draftPermissionMode, setDraftPermissionMode] =
+    useState<PermissionMode>('full-access');
+  const [backgroundSessions, setBackgroundSessions] = useState<Session[]>([]);
   // The tab shows the open chat's title, then the agent.
   const active = sessions.data?.find((s) => s.id === sessionId);
   useDocumentTitle(
@@ -392,6 +402,7 @@ export function AgentPage({
               key={sessionId}
               sessionId={sessionId}
               agentId={agentId}
+              session={selected}
               subthreads={childSessions}
               onOpenActivity={
                 access.canUse ? () => onPanel('activity') : undefined
@@ -423,6 +434,8 @@ export function AgentPage({
         ) : (
           <DraftChat
             draftKey={agentDraftKey(a.id)}
+            agentId={a.id}
+            cwd={gitDraft.cwd || undefined}
             heading={
               <>
                 Start a thread with{' '}
@@ -440,6 +453,10 @@ export function AgentPage({
                   agent={a}
                   draft={draftModel}
                   onDraft={setDraftModel}
+                  multiModels={draftMultiModels}
+                  onMultiModels={setDraftMultiModels}
+                  permissionMode={draftPermissionMode}
+                  onPermissionMode={setDraftPermissionMode}
                   canUse={access.canUse}
                 />
                 <GitMeta
@@ -456,18 +473,34 @@ export function AgentPage({
             placeholder={
               a.state === 'sleeping'
                 ? 'Send a message to wake the agent…'
-                : `Message ${a.name}`
+                : DEFAULT_COMPOSER_PLACEHOLDER
             }
             pending={start.isPending}
             error={start.error}
-            onSend={(text, images) =>
-              start.mutate({
-                agentId,
-                text,
-                images,
-                model: draftModel,
-                ...gitStartArgs(gitDraft),
-              })
+            backgroundSessions={backgroundSessions}
+            onDismissBackground={() => setBackgroundSessions([])}
+            onPermissionMode={setDraftPermissionMode}
+            onSend={(text, images, opts) =>
+              start.mutate(
+                {
+                  agentId,
+                  text,
+                  images,
+                  model: draftModel,
+                  models:
+                    draftMultiModels.length > 1 ? draftMultiModels : undefined,
+                  permissionMode: draftPermissionMode,
+                  background: opts?.background,
+                  ...gitStartArgs(gitDraft),
+                },
+                {
+                  onSuccess: (res) => {
+                    if (res.background) {
+                      setBackgroundSessions(res.sessions);
+                    }
+                  },
+                },
+              )
             }
           />
         )}

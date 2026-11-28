@@ -1,6 +1,7 @@
 import type { components } from '@/api/schema';
 
 export type SessionEvent = components['schemas']['SessionEvent'];
+export type QueuedMessage = components['schemas']['QueuedMessage'];
 
 export type ToolKind =
   | 'read'
@@ -369,6 +370,12 @@ export interface Viewer {
 export type StreamMessage =
   | { type: 'status'; running: boolean }
   | { type: 'presence'; viewers: Viewer[] }
+  | {
+      type: 'queue_updated';
+      sessionId: string;
+      messages: QueuedMessage[];
+      count: number;
+    }
   | { type: 'event'; event: SessionEvent };
 
 /** Parses a stream text frame; null for anything unrecognised. */
@@ -386,6 +393,33 @@ export function parseStreamMessage(text: string): StreamMessage | null {
         role: str(v.role),
       }));
       return { type: 'presence', viewers: viewers.filter((v) => v.id) };
+    }
+    if (m.type === 'queue_updated' && Array.isArray(m.messages)) {
+      const messages: QueuedMessage[] = m.messages.filter(isObj).map((q) => ({
+        id: str(q.id),
+        sessionId: str(q.sessionId, str(m.sessionId)),
+        userId: str(q.userId),
+        userName: str(q.userName),
+        text: str(q.text),
+        steer: Boolean(q.steer),
+        createdAt: str(q.createdAt),
+        ...(Array.isArray(q.images) && q.images.length
+          ? {
+              images: q.images.filter(isObj).map((im) => ({
+                mimeType: str(im.mimeType) as NonNullable<
+                  QueuedMessage['images']
+                >[number]['mimeType'],
+                data: str(im.data),
+              })),
+            }
+          : {}),
+      }));
+      return {
+        type: 'queue_updated',
+        sessionId: str(m.sessionId),
+        messages,
+        count: typeof m.count === 'number' ? m.count : messages.length,
+      };
     }
     if (typeof m.seq === 'number' && typeof m.type === 'string')
       return { type: 'event', event: m as unknown as SessionEvent };

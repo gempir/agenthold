@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Bot, ChevronDown, Plus } from 'lucide-react';
-import { meQuery } from '@/api/queries';
+import { meQuery, type PermissionMode, type Session } from '@/api/queries';
 import { AgentStateDot } from '@/components/AgentStateBadge';
+import type { DraftModelTarget } from '@/components/ModelPicker';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
 import { Menu, MenuItem, MenuSeparator } from '@/components/ui/menu';
@@ -15,6 +16,8 @@ import {
 } from '@/components/agent/GitMeta';
 import { HarnessMeta } from '@/components/agent/HarnessMeta';
 import { agentDraftKey, NEW_DRAFT_KEY } from '@/lib/drafts';
+import type { Choice } from '@/lib/models';
+import { DEFAULT_COMPOSER_PLACEHOLDER } from '@/components/chat/Composer';
 import { DraftChat } from '@/components/chat/DraftChat';
 import { Crumb, TopBar } from '@/components/layout/TopBar';
 import { useShell } from '@/components/layout/shell';
@@ -39,6 +42,16 @@ export function NewChatPage() {
   const start = useStartChat();
   const [picked, setPicked] = useState<string>();
   const [gitDraft, setGitDraft] = useGitDraft();
+  const [draftModel, setDraftModel] = useState<Choice>({
+    model: '',
+    options: {},
+  });
+  const [draftMultiModels, setDraftMultiModels] = useState<DraftModelTarget[]>(
+    [],
+  );
+  const [draftPermissionMode, setDraftPermissionMode] =
+    useState<PermissionMode>('full-access');
+  const [backgroundSessions, setBackgroundSessions] = useState<Session[]>([]);
   useDocumentTitle('New chat');
 
   const candidates = index.agents.filter((x) => accessOf(x.agent).canUse);
@@ -78,19 +91,38 @@ export function NewChatPage() {
     body = (
       <DraftChat
         draftKey={chosen ? agentDraftKey(chosen.agent.id) : NEW_DRAFT_KEY}
+        agentId={chosen.agent.id}
+        cwd={gitDraft.cwd || undefined}
         heading={greeting(me.data?.user.name)}
         sub="What should we work on?"
         notice={<AgentNotice agent={chosen.agent} canUse />}
-        placeholder={`Message ${chosen.agent.name}`}
+        placeholder={DEFAULT_COMPOSER_PLACEHOLDER}
         pending={start.isPending}
         error={start.error}
-        onSend={(text, images) =>
-          start.mutate({
-            agentId: chosen.agent.id,
-            text,
-            images,
-            ...gitStartArgs(gitDraft),
-          })
+        backgroundSessions={backgroundSessions}
+        onDismissBackground={() => setBackgroundSessions([])}
+        onPermissionMode={setDraftPermissionMode}
+        onSend={(text, images, opts) =>
+          start.mutate(
+            {
+              agentId: chosen.agent.id,
+              text,
+              images,
+              model: draftModel,
+              models:
+                draftMultiModels.length > 1 ? draftMultiModels : undefined,
+              permissionMode: draftPermissionMode,
+              background: opts?.background,
+              ...gitStartArgs(gitDraft),
+            },
+            {
+              onSuccess: (res) => {
+                if (res.background) {
+                  setBackgroundSessions(res.sessions);
+                }
+              },
+            },
+          )
         }
         meta={
           <>
@@ -119,6 +151,8 @@ export function NewChatPage() {
                       active={agent.id === chosen.agent.id}
                       onClick={() => {
                         setPicked(agent.id);
+                        setDraftModel({ model: '', options: {} });
+                        setDraftMultiModels([]);
                         if (gitDraft.cwd) setGitDraft(EMPTY_GIT_DRAFT);
                         close();
                       }}
@@ -147,7 +181,15 @@ export function NewChatPage() {
                 </>
               )}
             </Menu>
-            <HarnessMeta agent={chosen.agent} />
+            <HarnessMeta
+              agent={chosen.agent}
+              draft={draftModel}
+              onDraft={setDraftModel}
+              multiModels={draftMultiModels}
+              onMultiModels={setDraftMultiModels}
+              permissionMode={draftPermissionMode}
+              onPermissionMode={setDraftPermissionMode}
+            />
             <GitMeta
               agent={chosen.agent}
               draft={gitDraft}

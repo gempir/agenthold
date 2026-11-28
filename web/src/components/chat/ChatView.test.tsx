@@ -1,9 +1,22 @@
 import { stubGlobal } from '@/test-setup';
-import { act, render, screen } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, expect, it, vi } from 'bun:test';
 import ChatView from './ChatView';
+import type { Session } from '@/api/queries';
+import {
+  addComposerContext,
+  clearComposerContext,
+} from '@/lib/composerContext';
+import { setFollowUpMode } from '@/lib/followUpPref';
 import { mockApi } from '@/test-utils';
 
 class FakeSocket {
@@ -22,13 +35,25 @@ class FakeSocket {
 
 beforeEach(() => {
   FakeSocket.all = [];
+  clearComposerContext('s1');
+  setFollowUpMode('queue');
   stubGlobal('WebSocket', FakeSocket);
 });
 
-const renderChat = (canUse: boolean, agentState?: 'sleeping') =>
+const renderChat = (
+  canUse: boolean,
+  agentState?: 'sleeping',
+  extra?: { agentId?: string; session?: Session },
+) =>
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <ChatView sessionId="s1" canUse={canUse} agentState={agentState} />
+      <ChatView
+        sessionId="s1"
+        canUse={canUse}
+        agentState={agentState}
+        agentId={extra?.agentId}
+        session={extra?.session}
+      />
     </QueryClientProvider>,
   );
 
@@ -69,16 +94,35 @@ it('renders a diff from a tool call and connects with the cursor', async () => {
   expect(diff).toHaveTextContent('+c');
 });
 
-it('shows working indicator and stop while running', async () => {
-  const { calls } = mockApi({ 'POST /sessions/s1/cancel': { status: 202 } });
+it('shows working indicator, allows queuing/steering while running, and supports stop', async () => {
+  const { calls } = mockApi({
+    'GET /sessions/s1/queue': [],
+    'POST /sessions/s1/queue': {
+      status: 201,
+      body: { started: false },
+    },
+    'POST /sessions/s1/cancel': { status: 202 },
+  });
   renderChat(true);
   act(() => FakeSocket.all[0].emit({ type: 'status', running: true }));
   expect(await screen.findByRole('status')).toHaveTextContent(/Working\s*0s/);
-  // The next message can be drafted but not sent while the agent works.
-  await userEvent.type(screen.getByLabelText('Message'), 'next{Enter}');
-  expect(screen.getByLabelText('Message')).toHaveValue('next');
+  const box = screen.getByLabelText('Message');
+  // Enter queues while running instead of blocking send.
+  await userEvent.type(box, 'next{Enter}');
+  await waitFor(() =>
+    expect(
+      calls.find((c) => c.key === 'POST /sessions/s1/queue')?.body,
+    ).toEqual({ text: 'next', steer: false }),
+  );
+  // Cmd/Ctrl+Enter steers (opposite action).
+  await userEvent.type(box, 'urgent');
+  fireEvent.keyDown(box, { key: 'Enter', metaKey: true });
+  await waitFor(() =>
+    expect(
+      calls.filter((c) => c.key === 'POST /sessions/s1/queue').at(-1)?.body,
+    ).toEqual({ text: 'urgent', steer: true }),
+  );
   expect(calls.some((c) => c.key === 'POST /sessions/s1/prompt')).toBe(false);
-  expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
   await userEvent.click(screen.getByRole('button', { name: 'Stop' }));
   expect(calls.some((c) => c.key === 'POST /sessions/s1/cancel')).toBe(true);
 });
@@ -230,4 +274,390 @@ it('offers the Activity tab after a failed turn, and nothing without one', async
   expect(
     screen.queryByRole('button', { name: 'Show what happened' }),
   ).toBeNull();
+});
+
+it('renders queued messages from live queue_updated frames with Send now, Edit, Remove, and Option+Up', async () => {
+  let queueItems = [
+    {
+      id: 'q1',
+      sessionId: 's1',
+      userId: 'u1',
+      userName: 'Alice',
+      text: 'Run tests next',
+      steer: false,
+      createdAt: '2030-01-01T00:00:00Z',
+    },
+    {
+      id: 'q2',
+      sessionId: 's1',
+      userId: 'u1',
+      userName: 'Alice',
+      text: 'Then update docs',
+      steer: true,
+      createdAt: '2030-01-01T00:00:01Z',
+    },
+    {
+      id: 'q3',
+      sessionId: 's1',
+      userId: 'u1',
+      userName: 'Alice',
+      text: 'Finally clean up',
+      steer: false,
+      createdAt: '2030-01-01T00:00:02Z',
+    },
+  ];
+  const { calls } = mockApi({
+    'GET /sessions/s1/queue': () => ({ body: queueItems }),
+    'POST /sessions/s1/queue/q1/send-now': () => {
+      queueItems = queueItems.filter((m) => m.id !== 'q1');
+      return { status: 202, body: { started: false, steered: true } };
+    },
+    'DELETE /sessions/s1/queue/q2': () => {
+      queueItems = queueItems.filter((m) => m.id !== 'q2');
+      return { status: 204 };
+    },
+    'DELETE /sessions/s1/queue/q3': () => {
+      queueItems = queueItems.filter((m) => m.id !== 'q3');
+      return { status: 204 };
+    },
+  });
+  renderChat(true);
+  act(() => {
+    FakeSocket.all[0].emit({
+      type: 'queue_updated',
+      sessionId: 's1',
+      count: queueItems.length,
+      messages: queueItems,
+    });
+  });
+
+  const stack = await screen.findByTestId('queued-messages');
+  expect(stack).toHaveTextContent('Queued (3)');
+  const items = within(stack).getAllByTestId('queued-message-item');
+  expect(items).toHaveLength(3);
+  expect(items[0]).toHaveTextContent('Run tests next');
+  expect(items[1]).toHaveTextContent('Steer');
+
+  await userEvent.click(
+    within(items[0]).getByRole('button', { name: 'Send now' }),
+  );
+  await waitFor(() =>
+    expect(
+      calls.some((c) => c.key === 'POST /sessions/s1/queue/q1/send-now'),
+    ).toBe(true),
+  );
+
+  // Remove q2 via Remove button
+  await waitFor(() =>
+    expect(
+      within(screen.getByTestId('queued-messages')).getAllByTestId(
+        'queued-message-item',
+      ),
+    ).toHaveLength(2),
+  );
+  await userEvent.click(
+    within(
+      within(screen.getByTestId('queued-messages')).getAllByTestId(
+        'queued-message-item',
+      )[0],
+    ).getByRole('button', { name: 'Remove queued message' }),
+  );
+  await waitFor(() =>
+    expect(calls.some((c) => c.key === 'DELETE /sessions/s1/queue/q2')).toBe(
+      true,
+    ),
+  );
+
+  // Option+Up edits the latest remaining queued message (q3)
+  await waitFor(() =>
+    expect(
+      within(screen.getByTestId('queued-messages')).getAllByTestId(
+        'queued-message-item',
+      ),
+    ).toHaveLength(1),
+  );
+  fireEvent.keyDown(screen.getByLabelText('Message'), {
+    key: 'ArrowUp',
+    altKey: true,
+  });
+  expect(screen.getByLabelText('Message')).toHaveValue('Finally clean up');
+  await waitFor(() =>
+    expect(calls.some((c) => c.key === 'DELETE /sessions/s1/queue/q3')).toBe(
+      true,
+    ),
+  );
+});
+
+it('handles /side and /plan slash commands', async () => {
+  const { calls } = mockApi({
+    'GET /sessions/s1/queue': [],
+    'POST /sessions/s1/side-chats': {
+      status: 201,
+      body: {
+        id: 'side1',
+        agentId: 'a1',
+        title: 'Why does auth fail?',
+        running: true,
+        createdBy: { id: 'u1', email: 'a@x.io', name: 'Alice', avatarUrl: '' },
+        createdAt: '2030-01-01T00:00:00Z',
+        updatedAt: '2030-01-01T00:00:00Z',
+      },
+    },
+    'PATCH /sessions/s1/settings': { status: 200, body: {} },
+  });
+  renderChat(true, undefined, { agentId: 'a1' });
+  const box = screen.getByLabelText('Message');
+
+  await userEvent.type(box, '/btw Why does auth fail?{Enter}');
+  await waitFor(() =>
+    expect(
+      calls.find((c) => c.key === 'POST /sessions/s1/side-chats')?.body,
+    ).toEqual({
+      text: 'Why does auth fail?',
+      title: 'Why does auth fail?',
+    }),
+  );
+
+  await userEvent.type(box, '/plan{Enter}');
+  await waitFor(() =>
+    expect(
+      calls.find((c) => c.key === 'PATCH /sessions/s1/settings')?.body,
+    ).toEqual({ permissionMode: 'plan' }),
+  );
+});
+
+it('supports @ file search, $ skills, and external composer context chips', async () => {
+  const { calls } = mockApi({
+    'GET /sessions/s1/queue': [],
+    'GET /agents': [],
+    'GET /harnesses': [],
+    'GET /agents/a1/models': {
+      harness: 'claude-code',
+      source: 'harness',
+      switchable: true,
+      customModels: false,
+      models: [],
+    },
+    'GET /agents/a1/files/search?q=app&limit=8': {
+      base: '',
+      truncated: false,
+      results: [{ path: 'src/app.tsx', name: 'app.tsx', isDir: false }],
+    },
+    'GET /agents/a1/files/search?q=&limit=8': {
+      base: '',
+      truncated: false,
+      results: [{ path: 'src/app.tsx', name: 'app.tsx', isDir: false }],
+    },
+    'GET /skills': [
+      {
+        id: 'sk1',
+        ownerId: 'u1',
+        name: 'review-diff',
+        description: 'Review changes carefully',
+        content: '',
+        createdAt: '2030-01-01T00:00:00Z',
+        updatedAt: '2030-01-01T00:00:00Z',
+      },
+    ],
+    'GET /agents/a1/skills': [],
+    'POST /sessions/s1/prompt': { status: 202 },
+  });
+  renderChat(true, undefined, { agentId: 'a1' });
+
+  // External chip from DiffPane/FileViewer appears immediately
+  act(() => {
+    addComposerContext('s1', {
+      kind: 'review_comment',
+      path: 'src/main.ts',
+      startLine: 10,
+      comment: 'Handle null',
+    });
+  });
+  expect(await screen.findByText('main.ts:10')).toBeVisible();
+
+  const box = screen.getByLabelText('Message');
+  await userEvent.type(box, '@app');
+  const fileOpt = await screen.findByRole('option', { name: /src\/app\.tsx/ });
+  await userEvent.click(fileOpt);
+  expect(await screen.findByText('app.tsx')).toBeVisible();
+
+  await userEvent.type(box, '$rev');
+  const skillOpt = await screen.findByRole('option', {
+    name: /\$review-diff/,
+  });
+  await userEvent.click(skillOpt);
+  expect(box).toHaveValue('$review-diff ');
+
+  await userEvent.type(box, 'please check{Enter}');
+  await waitFor(() =>
+    expect(calls.some((c) => c.key === 'POST /sessions/s1/prompt')).toBe(true),
+  );
+  const sent = calls.find((c) => c.key === 'POST /sessions/s1/prompt')
+    ?.body as { text: string };
+  expect(sent.text).toContain('[Review comment on src/main.ts:10]');
+  expect(sent.text).toContain('Handle null');
+  expect(sent.text).toContain('[File: src/app.tsx]');
+  expect(sent.text).toContain('$review-diff please check');
+});
+
+it('cites selected assistant text into the composer and rewinds from a user message', async () => {
+  const { calls } = mockApi({
+    'GET /sessions/s1/queue': [],
+    'POST /sessions/s1/prompt': { status: 202 },
+    'POST /sessions/s1/rewind': {
+      status: 200,
+      body: {
+        seq: 1,
+        promptText: 'Initial prompt',
+        deletedEvents: 2,
+        filesReverted: true,
+      },
+    },
+  });
+  const worktreeSession: Session = {
+    id: 's1',
+    agentId: 'a1',
+    title: 'Thread',
+    running: false,
+    git: { project: 'repo', branch: 'feat/x' },
+    createdBy: { id: 'u1', email: 'a@x.io', name: 'Alice', avatarUrl: '' },
+    createdAt: '2030-01-01T00:00:00Z',
+    updatedAt: '2030-01-01T00:00:00Z',
+  };
+  renderChat(true, undefined, { agentId: 'a1', session: worktreeSession });
+  act(() => {
+    FakeSocket.all[0].emit(ev(1, 'prompt', { text: 'Initial prompt' }));
+    FakeSocket.all[0].emit(
+      ev(2, 'update', {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'Important assistant finding' },
+      }),
+    );
+  });
+
+  const assistantText = await screen.findByText('Important assistant finding');
+  // Simulate selecting text inside the assistant message
+  const fakeSel = {
+    isCollapsed: false,
+    anchorNode: assistantText,
+    focusNode: assistantText,
+    rangeCount: 0,
+    toString: () => 'assistant finding',
+    removeAllRanges: vi.fn(),
+  };
+  const origGetSel = window.getSelection;
+  window.getSelection = (() =>
+    fakeSel) as unknown as typeof window.getSelection;
+  try {
+    fireEvent.mouseUp(assistantText);
+    const citeBtn = await screen.findByRole('button', {
+      name: 'Cite in composer',
+    });
+    await userEvent.click(citeBtn);
+  } finally {
+    window.getSelection = origGetSel;
+  }
+
+  expect(await screen.findByTestId('composer-context-chip')).toHaveTextContent(
+    'assistant finding',
+  );
+
+  // Rewind ("Edit from here") with "Revert files too"
+  await userEvent.click(screen.getByRole('button', { name: 'Edit from here' }));
+  const dialog = await screen.findByRole('dialog', {
+    name: 'Rewind conversation',
+  });
+  expect(
+    within(dialog).getByRole('button', { name: 'Revert conversation' }),
+  ).toBeVisible();
+  await userEvent.click(
+    within(dialog).getByRole('button', { name: 'Revert files too' }),
+  );
+  await waitFor(() =>
+    expect(
+      calls.find((c) => c.key === 'POST /sessions/s1/rewind')?.body,
+    ).toEqual({ seq: 1, revertFiles: true }),
+  );
+  // Prompt restored to composer and stream reconnected from after=0
+  expect(screen.getByLabelText('Message')).toHaveValue('Initial prompt');
+  expect(FakeSocket.all.length).toBeGreaterThanOrEqual(2);
+  expect(FakeSocket.all[FakeSocket.all.length - 1].url).toMatch(/after=0$/);
+});
+
+it('uploads non-image file attachments to the agent workspace before sending', async () => {
+  const uploaded: string[] = [];
+  const origFetch = globalThis.fetch;
+  stubGlobal(
+    'fetch',
+    vi.fn(async (input: Request | string | URL, init?: RequestInit) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const method =
+        init?.method ?? (input instanceof Request ? input.method : 'GET');
+      if (method === 'PUT' && url.includes('/files/content')) {
+        uploaded.push(url);
+        return new Response(null, { status: 204 });
+      }
+      if (method === 'GET' && url.endsWith('/me')) {
+        return new Response(
+          JSON.stringify({
+            user: {
+              id: 'u1',
+              email: 'a@x.io',
+              name: 'Alice',
+              avatarUrl: '',
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (method === 'GET' && url.includes('/queue')) {
+        return new Response('[]', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (method === 'POST' && url.includes('/prompt')) {
+        const body =
+          input instanceof Request
+            ? await input.text()
+            : String(init?.body ?? '');
+        uploaded.push(`PROMPT:${body}`);
+        return new Response(null, { status: 202 });
+      }
+      return new Response('{}', {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }),
+  );
+  try {
+    renderChat(true, undefined, { agentId: 'a1' });
+    const logFile = new File(['error line 1'], 'build.log', {
+      type: 'text/plain',
+    });
+    fireEvent.change(screen.getByLabelText('Choose files to attach'), {
+      target: { files: [logFile] },
+    });
+    expect(await screen.findByText('build.log')).toBeVisible();
+    await userEvent.type(screen.getByLabelText('Message'), 'check log{Enter}');
+    await waitFor(() =>
+      expect(uploaded.some((u) => u.startsWith('PROMPT:'))).toBe(true),
+    );
+    expect(
+      uploaded.some(
+        (u) =>
+          u.includes('.agenthold%2Fattachments%2F') && u.includes('build.log'),
+      ),
+    ).toBe(true);
+    const promptLine = uploaded.find((u) => u.startsWith('PROMPT:'))!;
+    expect(promptLine).toContain('.agenthold/attachments/');
+    expect(promptLine).toContain('check log');
+  } finally {
+    stubGlobal('fetch', origFetch);
+  }
 });

@@ -1,8 +1,10 @@
 import {
   lazy,
   Suspense,
+  useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -19,26 +21,48 @@ import {
   GitBranch,
   ListTodo,
   Loader2,
+  MessageSquare,
   ShieldCheck,
   ShieldQuestion,
+  X,
 } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
 import { ErrorText } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
-import { useDraft } from '@/lib/drafts';
-import { Composer } from '@/components/chat/Composer';
+import { setDraft, useDraft } from '@/lib/drafts';
+import {
+  Composer,
+  DEFAULT_COMPOSER_PLACEHOLDER,
+  type ComposerSubmitOptions,
+} from '@/components/chat/Composer';
+import { parseSlashCommand } from '@/components/chat/ComposerMenu';
+import {
+  QuoteSelectionPopover,
+  RewindAction,
+} from '@/components/chat/MessageActions';
+import { QueuedMessages } from '@/components/chat/QueuedMessages';
 import { Lightbox } from '@/components/chat/Lightbox';
 import {
   toImagePayload,
+  uploadFileAttachments,
   useAttachments,
   type Attachment,
+  type FileAttachment,
 } from '@/lib/attachments';
+import {
+  serializeComposerContext,
+  useComposerContext,
+  type ComposerContextChip,
+} from '@/lib/composerContext';
+import { pushStash } from '@/lib/composerStash';
 import { ToolCard } from '@/components/chat/ToolCard';
 import { useSessionStream } from '@/components/chat/useSessionStream';
 import { ActivityLink } from '@/components/chat/LiveLog';
 import {
   harnessesQuery,
   meQuery,
+  sessionQueueQuery,
+  type QueuedMessage,
   type SandboxState,
   type Session,
 } from '@/api/queries';
@@ -401,12 +425,18 @@ function Item({
   item,
   sessionId,
   canUse,
+  running,
+  hasWorktree,
+  onRewound,
   myName,
   subthreads,
 }: {
   item: ChatItem;
   sessionId: string;
   canUse: boolean;
+  running: boolean;
+  hasWorktree: boolean;
+  onRewound: (promptText: string) => void;
   myName?: string;
   subthreads?: Session[];
 }) {
@@ -420,7 +450,7 @@ function Item({
       );
     case 'user':
       return (
-        <div className="ml-auto flex max-w-[85%] flex-col items-end gap-1">
+        <div className="group/user-msg ml-auto flex max-w-[85%] flex-col items-end gap-1">
           {item.user && item.user !== myName && (
             <span className="px-1 text-xs text-muted-foreground">
               {item.user}
@@ -432,11 +462,20 @@ function Item({
               {item.text}
             </p>
           )}
+          {canUse && !running && item.seq > 0 && (
+            <RewindAction
+              sessionId={sessionId}
+              seq={item.seq}
+              fallbackText={item.text}
+              hasWorktree={hasWorktree}
+              onRewound={onRewound}
+            />
+          )}
         </div>
       );
     case 'agent':
       return (
-        <div className="text-[15px] leading-7">
+        <div data-assistant-message="true" className="text-[15px] leading-7">
           <Suspense
             fallback={<p className="whitespace-pre-wrap">{item.text}</p>}
           >
@@ -548,24 +587,48 @@ function UsagePill({ usage }: { usage: ContextUsage | null }) {
 
 function SessionComposer({
   sessionId,
+  agentId,
+  cwd,
   running,
   sleeping,
   offline,
   meta,
   usage,
+  queuedMessages,
+  onQueueMutated,
+  sentHistory,
   onSent,
 }: {
   sessionId: string;
+  agentId?: string;
+  cwd?: string;
   running: boolean;
   sleeping: boolean;
   offline: boolean;
   meta?: ReactNode;
   usage?: ContextUsage | null;
+  queuedMessages: QueuedMessage[];
+  onQueueMutated: () => void;
+  sentHistory: string[];
   onSent: () => void;
 }) {
+  const qc = useQueryClient();
   const [text, setText] = useDraft(sessionId);
   const att = useAttachments();
+  const ctx = useComposerContext(sessionId);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<Error | null>(null);
+  const [sideChat, setSideChat] = useState<Session | null>(null);
+  const [commandNote, setCommandNote] = useState<string | null>(null);
   const path = { params: { path: { sessionId } } };
+
+  const invalidateQueue = () => {
+    onQueueMutated();
+    return qc.invalidateQueries({
+      queryKey: sessionQueueQuery(sessionId).queryKey,
+    });
+  };
+
   const send = useMutation({
     mutationFn: (v: { text: string; images: Attachment[] }) =>
       unwrap(
@@ -580,26 +643,332 @@ function SessionComposer({
     onSuccess: () => {
       setText('');
       att.clear();
+      ctx.clear();
       onSent();
     },
   });
+
+  const enqueue = useMutation({
+    mutationFn: (v: { text: string; images: Attachment[]; steer: boolean }) =>
+      unwrap(
+        api.POST('/sessions/{sessionId}/queue', {
+          ...path,
+          body: {
+            text: v.text,
+            steer: v.steer,
+            ...(v.images.length && { images: toImagePayload(v.images) }),
+          },
+        }),
+      ),
+    onSuccess: () => {
+      setText('');
+      att.clear();
+      ctx.clear();
+      void invalidateQueue();
+      onSent();
+    },
+  });
+
+  const sendQueuedNow = useMutation({
+    mutationFn: (messageId: string) =>
+      unwrap(
+        api.POST('/sessions/{sessionId}/queue/{messageId}/send-now', {
+          params: { path: { sessionId, messageId } },
+        }),
+      ),
+    onSuccess: () => void invalidateQueue(),
+  });
+
+  const deleteQueued = useMutation({
+    mutationFn: (messageId: string) =>
+      unwrap(
+        api.DELETE('/sessions/{sessionId}/queue/{messageId}', {
+          params: { path: { sessionId, messageId } },
+        }),
+      ),
+    onSuccess: () => void invalidateQueue(),
+  });
+
+  const startSide = useMutation({
+    mutationFn: (question: string) =>
+      unwrap(
+        api.POST('/sessions/{sessionId}/side-chats', {
+          ...path,
+          body: {
+            ...(question && {
+              text: question,
+              title: question.slice(0, 60),
+            }),
+          },
+        }),
+      ),
+    onSuccess: (created) => {
+      setText('');
+      att.clear();
+      ctx.clear();
+      setSideChat(created);
+      if (agentId) {
+        void qc.invalidateQueries({
+          queryKey: ['agents', agentId, 'sessions'],
+        });
+      }
+    },
+  });
+
+  const setPlanMode = useMutation({
+    mutationFn: () =>
+      unwrap(
+        api.PATCH('/sessions/{sessionId}/settings', {
+          ...path,
+          body: { permissionMode: 'plan' },
+        }),
+      ),
+    onSuccess: () => {
+      setCommandNote('Switched permission mode to Plan');
+      if (agentId) {
+        void qc.invalidateQueries({
+          queryKey: ['agents', agentId, 'sessions'],
+        });
+      }
+    },
+  });
+
   const cancel = useMutation({
     mutationFn: () => unwrap(api.POST('/sessions/{sessionId}/cancel', path)),
   });
+
+  const openModelPicker = () => {
+    document
+      .querySelector<HTMLButtonElement>('[data-model-picker-trigger="true"]')
+      ?.click();
+  };
+
+  const handleSlashMenuPick = (command: string) => {
+    setCommandNote(null);
+    switch (command) {
+      case 'clear':
+        setText('');
+        att.clear();
+        ctx.clear();
+        setUploadError(null);
+        return;
+      case 'model':
+        openModelPicker();
+        return;
+      case 'plan':
+        setPlanMode.mutate();
+        return;
+      case 'compact': {
+        const promptText =
+          'Please summarize and compact the conversation context so we can continue cleanly.';
+        if (running) {
+          enqueue.mutate({ text: promptText, images: [], steer: false });
+        } else {
+          send.mutate({ text: promptText, images: [] });
+        }
+        return;
+      }
+    }
+  };
+
+  const handleEditQueued = (msg: QueuedMessage) => {
+    if (text.trim()) pushStash(text, sessionId);
+    setText(msg.text);
+    deleteQueued.mutate(msg.id);
+  };
+
+  const handleEditLatestQueued = () => {
+    const latest = queuedMessages[queuedMessages.length - 1];
+    if (latest) handleEditQueued(latest);
+  };
+
+  const handleInlineLargePaste = (f: FileAttachment) => {
+    if (!f.pasteText) return;
+    setText(text ? `${text}\n${f.pasteText}` : f.pasteText);
+    att.removeFile(f.id);
+  };
+
+  const handleSubmit = async (opts?: ComposerSubmitOptions) => {
+    setUploadError(null);
+    setCommandNote(null);
+    const trimmed = text.trim();
+    const slash = parseSlashCommand(trimmed);
+    if (slash) {
+      if (slash.command === 'clear') {
+        handleSlashMenuPick('clear');
+        return;
+      }
+      if (slash.command === 'model') {
+        setText('');
+        openModelPicker();
+        return;
+      }
+      if (slash.command === 'plan') {
+        setText('');
+        setPlanMode.mutate();
+        return;
+      }
+      if (slash.command === 'side' || slash.command === 'btw') {
+        startSide.mutate(slash.question);
+        return;
+      }
+    }
+
+    let promptBody = trimmed;
+    if (slash?.command === 'compact') {
+      promptBody = slash.note
+        ? `Please summarize and compact the conversation context. Focus on: ${slash.note}`
+        : 'Please summarize and compact the conversation context so we can continue cleanly.';
+    } else if (slash?.command === 'goal' && slash.criteria) {
+      promptBody = `Goal: ${slash.criteria}\n\nWork thoroughly and verify all completion criteria before finishing.`;
+    }
+
+    let uploadedChips: ComposerContextChip[] = [];
+    if (att.files.length > 0 && agentId) {
+      setUploading(true);
+      try {
+        const uploaded = await uploadFileAttachments(agentId, att.files);
+        uploadedChips = uploaded.map((u) => ({
+          id: `uploaded:${u.id}`,
+          kind: 'file',
+          path: u.path,
+          label: u.name,
+          size: u.size,
+        }));
+      } catch (e) {
+        setUploadError(
+          e instanceof Error ? e : new Error('Could not upload attachment'),
+        );
+        return;
+      } finally {
+        setUploading(false);
+      }
+    }
+
+    const finalText = serializeComposerContext(
+      [...ctx.chips, ...uploadedChips],
+      promptBody,
+    );
+    if (!finalText && att.items.length === 0) return;
+
+    const mode = opts?.mode ?? (running ? 'queue' : 'send');
+    if (running || mode === 'queue' || mode === 'steer') {
+      enqueue.mutate({
+        text: finalText,
+        images: att.items,
+        steer: mode === 'steer',
+      });
+    } else {
+      send.mutate({ text: finalText, images: att.items });
+    }
+  };
+
+  const err =
+    uploadError ??
+    send.error ??
+    enqueue.error ??
+    sendQueuedNow.error ??
+    deleteQueued.error ??
+    startSide.error ??
+    setPlanMode.error ??
+    cancel.error;
+
   return (
     <div className="grid gap-2">
-      <ErrorText error={send.error ?? cancel.error} />
+      <ErrorText error={err} />
+      {commandNote && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-2 rounded-xl border bg-card/80 px-3 py-1.5 text-xs text-muted-foreground"
+        >
+          <span>{commandNote}</span>
+          <button
+            type="button"
+            aria-label="Dismiss notice"
+            onClick={() => setCommandNote(null)}
+            className="rounded p-0.5 hover:text-foreground"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
+      {sideChat && (
+        <div
+          role="status"
+          data-testid="side-chat-banner"
+          className="flex items-center justify-between gap-2 rounded-xl border bg-card/80 px-3 py-1.5 text-xs"
+        >
+          <span className="flex min-w-0 items-center gap-1.5 text-foreground">
+            <MessageSquare
+              className="size-3.5 shrink-0 text-sky-500"
+              aria-hidden
+            />
+            <span className="truncate">
+              Side chat started: {sideChat.title || 'Side chat'}
+            </span>
+          </span>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {sideChat.agentId && (
+              <Link
+                to="/a/$agentId"
+                params={{ agentId: sideChat.agentId }}
+                search={{ s: sideChat.id }}
+                className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 font-medium text-foreground hover:bg-accent"
+              >
+                Open side chat
+                <ArrowUpRight className="size-3" aria-hidden />
+              </Link>
+            )}
+            <button
+              type="button"
+              aria-label="Dismiss side chat notice"
+              onClick={() => setSideChat(null)}
+              className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+      <QueuedMessages
+        messages={queuedMessages}
+        busy={sendQueuedNow.isPending || deleteQueued.isPending}
+        onSendNow={(id) => sendQueuedNow.mutate(id)}
+        onEdit={handleEditQueued}
+        onRemove={(id) => deleteQueued.mutate(id)}
+      />
       <Composer
         value={text}
         onChange={setText}
         running={running}
-        busy={send.isPending || cancel.isPending}
+        busy={
+          uploading ||
+          send.isPending ||
+          enqueue.isPending ||
+          startSide.isPending ||
+          cancel.isPending
+        }
         disabled={offline}
+        agentId={agentId}
+        cwd={cwd}
+        sessionId={sessionId}
         attachments={att.items}
+        fileAttachments={att.files}
+        contextChips={ctx.chips}
         attachError={att.error}
         onAttach={att.add}
         onRemoveAttachment={att.remove}
-        onSubmit={() => send.mutate({ text: text.trim(), images: att.items })}
+        onRemoveFileAttachment={att.removeFile}
+        onLargePaste={(pasted) => void att.addLargePaste(pasted)}
+        onInlineLargePaste={handleInlineLargePaste}
+        onAddContextChip={ctx.add}
+        onRemoveContextChip={ctx.remove}
+        onSlashCommand={handleSlashMenuPick}
+        onEditLatestQueued={
+          queuedMessages.length > 0 ? handleEditLatestQueued : undefined
+        }
+        sentHistory={sentHistory}
+        onSubmit={(opts) => void handleSubmit(opts)}
         onStop={() => cancel.mutate()}
         meta={
           meta || usage ? (
@@ -610,11 +979,9 @@ function SessionComposer({
           ) : undefined
         }
         placeholder={
-          running
-            ? 'The agent is working… you can draft your next message'
-            : sleeping
-              ? 'Send a message to wake the agent…'
-              : 'Message the agent'
+          sleeping
+            ? 'Send a message to wake the agent…'
+            : DEFAULT_COMPOSER_PLACEHOLDER
         }
       />
     </div>
@@ -624,6 +991,7 @@ function SessionComposer({
 export default function ChatView({
   sessionId,
   agentId,
+  session,
   subthreads,
   onOpenActivity,
   canUse,
@@ -635,6 +1003,8 @@ export default function ChatView({
 }: {
   sessionId: string;
   agentId?: string;
+  /** Session metadata (used for worktree rewind option and cwd file search). */
+  session?: Session;
   /** Child sub-threads of this session, for live running state and titles. */
   subthreads?: Session[];
   /** Opens the agent's Activity tab: offered while the agent wakes or starts, and after an error. */
@@ -651,10 +1021,33 @@ export default function ChatView({
 }) {
   const qc = useQueryClient();
   const me = useQuery(meQuery);
-  const { state, running, connected, viewers } = useSessionStream(
+  const [liveQueue, setLiveQueue] = useState<{
+    sessionId: string;
+    messages: QueuedMessage[];
+  } | null>(null);
+  const handleQueueUpdated = useCallback(
+    (messages: QueuedMessage[]) => {
+      setLiveQueue({ sessionId, messages });
+      void qc.cancelQueries({
+        queryKey: sessionQueueQuery(sessionId).queryKey,
+      });
+      qc.setQueryData(sessionQueueQuery(sessionId).queryKey, messages);
+    },
+    [qc, sessionId],
+  );
+  const { state, running, connected, viewers, reload } = useSessionStream(
     sessionId,
     initialRunning,
+    handleQueueUpdated,
   );
+  const queueQ = useQuery({
+    ...sessionQueueQuery(sessionId),
+    enabled: canUse,
+  });
+  const queuedMessages =
+    liveQueue?.sessionId === sessionId
+      ? liveQueue.messages
+      : (queueQ.data ?? []);
   const subthreadCount = state.items.filter(
     (i) => i.kind === 'subthread',
   ).length;
@@ -663,6 +1056,7 @@ export default function ChatView({
       void qc.invalidateQueries({ queryKey: ['agents', agentId, 'sessions'] });
     }
   }, [agentId, subthreadCount, qc]);
+  const containerRef = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
@@ -679,13 +1073,43 @@ export default function ChatView({
     el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   };
 
+  const hasWorktree =
+    Boolean(session?.project && !session.project.direct) ||
+    Boolean(session?.git?.branch);
+
+  const handleRewound = useCallback(
+    (promptText: string) => {
+      setDraft(sessionId, promptText);
+      reload();
+      if (agentId) {
+        void qc.invalidateQueries({
+          queryKey: ['agents', agentId, 'sessions'],
+        });
+      }
+    },
+    [sessionId, reload, agentId, qc],
+  );
+
+  const sentHistory = useMemo(
+    () =>
+      state.items
+        .filter((i) => i.kind === 'user' && i.text.trim().length > 0)
+        .map((i) => (i as Extract<ChatItem, { kind: 'user' }>).text),
+    [state.items],
+  );
+
   const groups = groupItems(state.items);
   const last = state.items[state.items.length - 1];
   const awaitingPermission =
     last?.kind === 'permission' && !last.resolved && running;
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
+    <div ref={containerRef} className="relative flex min-h-0 flex-1 flex-col">
+      <QuoteSelectionPopover
+        sessionId={sessionId}
+        containerRef={containerRef}
+        enabled={canUse}
+      />
       <div className="pointer-events-none absolute top-2 right-4 z-10 hidden md:block">
         <div className="pointer-events-auto">
           <Presence viewers={viewers} />
@@ -721,6 +1145,9 @@ export default function ChatView({
                 item={g.item}
                 sessionId={sessionId}
                 canUse={canUse}
+                running={running}
+                hasWorktree={hasWorktree}
+                onRewound={handleRewound}
                 myName={me.data?.user.name}
                 subthreads={subthreads}
               />
@@ -765,11 +1192,16 @@ export default function ChatView({
         {canUse ? (
           <SessionComposer
             sessionId={sessionId}
+            agentId={agentId}
+            cwd={session?.cwd}
             running={running}
             sleeping={agentState === 'sleeping'}
             offline={agentState === 'unreachable'}
             meta={composerMeta}
             usage={state.usage}
+            queuedMessages={queuedMessages}
+            onQueueMutated={() => setLiveQueue(null)}
+            sentHistory={sentHistory}
             onSent={toBottom}
           />
         ) : (

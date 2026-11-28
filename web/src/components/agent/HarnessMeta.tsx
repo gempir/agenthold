@@ -13,9 +13,15 @@ import {
   modelsQuery,
   sessionsQuery,
   type Agent,
+  type PermissionMode,
   type Session,
 } from '@/api/queries';
-import { ModelPicker, type HarnessChoice } from '@/components/ModelPicker';
+import {
+  ModelPicker,
+  type DraftModelTarget,
+  type HarnessChoice,
+} from '@/components/ModelPicker';
+import { PermissionModePicker } from '@/components/agent/PermissionModePicker';
 import { choiceLabel, toChoice, type Choice } from '@/lib/models';
 
 export function useHarnessName(id: string) {
@@ -24,10 +30,9 @@ export function useHarnessName(id: string) {
 }
 
 /**
- * Moves the agent to another harness (the harness is the agent's, not a
- * conversation's): the model starts over on the new harness's default or the
- * model picked, the conversations' own models are reset by the server, and
- * the caches that describe the old harness are refreshed.
+ * Moves the agent's default harness (used from agent settings and draft
+ * single-harness switch). Inside an existing thread, HarnessMeta switches only
+ * that thread via PATCH /sessions/{sessionId}/harness instead.
  */
 export function useSwitchHarness(agent: Agent) {
   const qc = useQueryClient();
@@ -51,24 +56,32 @@ export function useSwitchHarness(agent: Agent) {
 }
 
 /**
- * The harness and the conversation's model inside the composer: one picker
- * opens on the model, the harness's logo in front of it. The owner finds the
- * other harnesses with their models in the picker's rail and can move the
- * agent there; others pick among the models the harness reported. Without a
- * session (a draft) the choice is held by the caller and applied when the
- * session is created.
+ * The harness, model, and permission mode controls inside the composer footer:
+ * - Inside a thread (`session` set): switches harness, model, and permission
+ *   mode for THIS thread ONLY (`PATCH /sessions/{sessionId}/harness`,
+ *   `PUT /sessions/{sessionId}/model`, `PATCH /sessions/{sessionId}/settings`).
+ * - On a draft (`!session`): holds draft choices (including Shift-click
+ *   multi-model selection) and applies them when the thread(s) start.
  */
 export function HarnessMeta({
   agent,
   session,
   draft,
   onDraft,
+  multiModels,
+  onMultiModels,
+  permissionMode,
+  onPermissionMode,
   canUse = true,
 }: {
   agent: Agent;
   session?: Session;
   draft?: Choice;
   onDraft?: (c: Choice) => void;
+  multiModels?: DraftModelTarget[];
+  onMultiModels?: (models: DraftModelTarget[]) => void;
+  permissionMode?: PermissionMode;
+  onPermissionMode?: (mode: PermissionMode) => void;
   canUse?: boolean;
 }) {
   const qc = useQueryClient();
@@ -81,22 +94,50 @@ export function HarnessMeta({
     modelsQuery(agent.id, pinnedHarness ? effectiveHarness : undefined),
   );
   const isOwner = agent.role === 'owner';
+  // Inside a thread, any user who can prompt can switch THIS thread's harness.
+  // On a draft, only owners see other harnesses (switching changes agent default).
   const otherHarnesses =
-    isOwner && !pinnedHarness
-      ? (harnesses.data ?? []).filter((h) => h.id !== agent.harness)
-      : [];
+    session && canUse
+      ? (harnesses.data ?? []).filter((h) => h.id !== effectiveHarness)
+      : isOwner
+        ? (harnesses.data ?? []).filter((h) => h.id !== effectiveHarness)
+        : [];
   const otherModels = useQueries({
-    queries: otherHarnesses.map((h) => modelsQuery(agent.id, h.id)),
+    queries: otherHarnesses.map((h) => ({
+      ...modelsQuery(agent.id, h.id),
+      enabled: isOwner,
+    })),
   });
   const sessions = useQuery(sessionsQuery(agent.id));
-  const switchHarness = useSwitchHarness(agent);
+  const switchAgentHarness = useSwitchHarness(agent);
+  const switchThreadHarness = useMutation({
+    mutationFn: ({ harness, model }: { harness: string; model: string }) =>
+      unwrap(
+        api.PATCH('/sessions/{sessionId}/harness', {
+          params: { path: { sessionId: session!.id } },
+          body: {
+            harness,
+            ...(model ? { model } : {}),
+            modelOptions: {},
+          },
+        }),
+      ),
+    onSuccess: async (_s, vars) => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: sessionsQuery(agent.id).queryKey }),
+        qc.invalidateQueries({
+          queryKey: modelsQuery(agent.id, vars.harness).queryKey,
+        }),
+      ]);
+    },
+  });
   const agentDefault = pinnedHarness
     ? { model: '', options: {} }
     : toChoice({
         model: agent.model,
         options: agent.modelOptions,
       });
-  const set = useMutation({
+  const setModel = useMutation({
     mutationFn: (c: Choice) =>
       unwrap(
         api.PUT('/sessions/{sessionId}/model', {
@@ -107,11 +148,27 @@ export function HarnessMeta({
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ['agents', agent.id, 'sessions'] }),
   });
+  const setPerm = useMutation({
+    mutationFn: (mode: PermissionMode) =>
+      unwrap(
+        api.PATCH('/sessions/{sessionId}/settings', {
+          params: { path: { sessionId: session!.id } },
+          body: { permissionMode: mode },
+        }),
+      ),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['agents', agent.id, 'sessions'] }),
+  });
   const value = session
-    ? set.isPending && set.variables
-      ? set.variables
+    ? setModel.isPending && setModel.variables
+      ? setModel.variables
       : toChoice(session.model)
     : (draft ?? { model: '', options: {} });
+  const effectivePermission: PermissionMode = session
+    ? (setPerm.isPending && setPerm.variables) ||
+      session.permissionMode ||
+      'full-access'
+    : (permissionMode ?? 'full-access');
   const defaultLabel = choiceLabel(models.data, agentDefault, 'Default model');
   const switchable = models.data?.switchable ?? true;
   const others: HarnessChoice[] = otherHarnesses.map((h, i) => ({
@@ -120,18 +177,23 @@ export function HarnessMeta({
     iconUrl: h.iconUrl,
     catalog: otherModels[i]?.data,
   }));
+  const err = setModel.error ?? setPerm.error;
   return (
     <div className="flex min-w-0 items-center gap-0.5">
       <ModelPicker
         catalog={models.data}
         value={value}
         defaultLabel={defaultLabel}
-        defaultDescription="The model in the agent's settings"
+        defaultDescription={
+          pinnedHarness
+            ? `${name}'s default model`
+            : "The model in the agent's settings"
+        }
         // Shared users choose among the models the harness reported.
         disabled={
           !canUse ||
           (!switchable && !!session && others.length === 0) ||
-          (!isOwner && models.data?.source !== 'harness')
+          (!isOwner && !session && models.data?.source !== 'harness')
         }
         allowCustom={isOwner}
         label="Model for this conversation"
@@ -140,31 +202,49 @@ export function HarnessMeta({
           name,
           iconUrl: currentHarness?.iconUrl,
         }}
+        multiSelect={!session && !!onMultiModels}
+        selectedModels={!session ? multiModels : undefined}
+        onSelectedModelsChange={!session ? onMultiModels : undefined}
         harnessSwitch={
           others.length > 0
             ? {
                 agentName: agent.name,
+                scope: session ? 'thread' : 'agent',
                 others,
-                busy: sessions.data?.some((s) => s.running),
+                busy: session
+                  ? session.running
+                  : sessions.data?.some((s) => s.running),
                 loginLink: (
                   <Link to="/settings/providers" className="underline">
                     Provider logins.
                   </Link>
                 ),
                 onSwitch: async (harness, model) => {
-                  await switchHarness.mutateAsync({ harness, model });
-                  onDraft?.({ model: '', options: {} });
+                  if (session) {
+                    await switchThreadHarness.mutateAsync({ harness, model });
+                  } else {
+                    await switchAgentHarness.mutateAsync({ harness, model });
+                    onDraft?.({ model: '', options: {} });
+                    onMultiModels?.([]);
+                  }
                 },
               }
             : undefined
         }
-        onChange={(c) => (session ? set.mutate(c) : onDraft?.(c))}
+        onChange={(c) => (session ? setModel.mutate(c) : onDraft?.(c))}
       />
-      {set.error && (
+      {(session || onPermissionMode) && (
+        <PermissionModePicker
+          value={effectivePermission}
+          disabled={!canUse || setPerm.isPending}
+          onChange={(mode) =>
+            session ? setPerm.mutate(mode) : onPermissionMode?.(mode)
+          }
+        />
+      )}
+      {err && (
         <span role="alert" className="truncate text-destructive">
-          {set.error instanceof Error
-            ? set.error.message
-            : 'Could not set the model'}
+          {err instanceof Error ? err.message : 'Could not update settings'}
         </span>
       )}
     </div>

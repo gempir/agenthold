@@ -1,8 +1,18 @@
 import { useState } from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'bun:test';
-import { ModelPicker, type HarnessChoice } from './ModelPicker';
+import {
+  ModelPicker,
+  type DraftModelTarget,
+  type HarnessChoice,
+} from './ModelPicker';
 import type { Choice, ModelCatalog } from '@/lib/models';
 
 beforeEach(() => localStorage.clear());
@@ -660,4 +670,85 @@ it('lists only the current harness without a switch', async () => {
   render(<Harness initial={{ model: 'opus', options: {} }} />);
   await userEvent.click(screen.getByRole('button', { name: /Model:/ }));
   expect(screen.queryByText(/Switch .* to/)).toBeNull();
+});
+
+it('supports Shift-click multi-model selection across harnesses on drafts', async () => {
+  function MultiHarness() {
+    const [v, setV] = useState<Choice>({ model: 'opus', options: {} });
+    const [multi, setMulti] = useState<DraftModelTarget[]>([]);
+    return (
+      <ModelPicker
+        catalog={catalog}
+        value={v}
+        defaultLabel="Agent default"
+        onChange={setV}
+        multiSelect
+        selectedModels={multi}
+        onSelectedModelsChange={setMulti}
+        harnessSwitch={{
+          agentName: 'demo2',
+          onSwitch: () => Promise.resolve(),
+          others: [{ id: 'codex', name: 'Codex', catalog: codexCatalog }],
+        }}
+      />
+    );
+  }
+  render(<MultiHarness />);
+  const user = userEvent.setup();
+  const trigger = screen.getByRole('button', { name: /Model:/ });
+  await user.click(trigger);
+  expect(
+    screen.getByText(/Shift-click to select multiple models/),
+  ).toBeVisible();
+
+  // Shift-click Sonnet -> selects Opus + Sonnet
+  fireEvent.click(screen.getByRole('option', { name: 'Sonnet 5.5' }), {
+    shiftKey: true,
+  });
+  expect(
+    screen.getByText('2 models selected (parallel threads)'),
+  ).toBeVisible();
+  expect(trigger).toHaveTextContent('+1');
+
+  // Shift-click GPT-5 from Codex tab -> selects 3 models without triggering agent switch confirm
+  await user.click(screen.getByRole('tab', { name: 'Codex' }));
+  fireEvent.click(screen.getByRole('option', { name: 'GPT-5' }), {
+    shiftKey: true,
+  });
+  expect(
+    screen.getByText('3 models selected (parallel threads)'),
+  ).toBeVisible();
+  expect(screen.queryByRole('group', { name: /Switch to/ })).toBeNull();
+
+  // Clear resets back to single selection
+  await user.click(screen.getByRole('button', { name: 'Clear' }));
+  expect(
+    screen.getByText(/Shift-click to select multiple models/),
+  ).toBeVisible();
+});
+
+it('uses per-thread wording when harnessSwitch scope is thread', async () => {
+  const onSwitch = vi.fn().mockResolvedValue(undefined);
+  render(
+    <ModelPicker
+      catalog={catalog}
+      value={{ model: 'opus', options: {} }}
+      defaultLabel="Agent default"
+      onChange={() => {}}
+      harnessSwitch={{
+        agentName: 'demo2',
+        scope: 'thread',
+        onSwitch,
+        others: [{ id: 'codex', name: 'Codex', catalog: codexCatalog }],
+      }}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: /Model:/ }));
+  await user.click(screen.getByRole('tab', { name: 'Codex' }));
+  expect(screen.getByText(/switches this thread to Codex/)).toBeVisible();
+  await user.click(screen.getByRole('option', { name: 'GPT-5' }));
+  const confirm = screen.getByRole('group', { name: 'Switch to Codex' });
+  expect(confirm).toHaveTextContent('Switches this thread to Codex');
+  expect(confirm).not.toHaveTextContent('all threads');
 });

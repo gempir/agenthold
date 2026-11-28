@@ -582,3 +582,33 @@ export const projectScriptsQuery = (agentId: string, path: string) =>
     refetchInterval: RUNNING_POLL_MS,
     retry: false,
   });
+
+export type OrgTool = components['schemas']['OrgTool'];
+export type OrgToolInput = components['schemas']['OrgToolInput'];
+export type OrgToolConnectResponse =
+  components['schemas']['OrgToolConnectResponse'];
+export type OrgSkill = components['schemas']['OrgSkill'];
+export type OrgSkillInput = components['schemas']['OrgSkillInput'];
+export type OrgProviderLogin = components['schemas']['OrgProviderLogin'];
+export type OrgProviderLoginInput =
+  components['schemas']['OrgProviderLoginInput'];
+
+/** Organization tools with the signed-in user's effective state. */
+export const orgToolsQuery = queryOptions({
+  queryKey: ['org', 'tools'],
+  queryFn: () => unwrap(api.GET('/org/tools')),
+  retry: false,
+});
+
+export const orgSkillsQuery = queryOptions({
+  queryKey: ['org', 'skills'],
+  queryFn: () => unwrap(api.GET('/org/skills')),
+  retry: false,
+});
+
+/** Provider logins the organization shares with every user. */
+export const orgProvidersQuery = queryOptions({
+  queryKey: ['org', 'providers'],
+  queryFn: () => unwrap(api.GET('/org/providers')),
+  retry: false,
+});

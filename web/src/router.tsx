@@ -16,12 +16,11 @@ import { isPanelTab, type PanelTab } from '@/components/agent/AgentPanel';
 import { isAgentSection, type AgentSection } from '@/components/agent/sections';
 import { AccountSettings } from '@/pages/AccountSettings';
 import { AgentPage } from '@/pages/AgentPage';
-import { ExecutorAccountsPage } from '@/pages/ExecutorAccountsPage';
-import { GitSettingsPage } from '@/pages/GitSettingsPage';
 import { AgentSettingsPage } from '@/pages/AgentSettingsPage';
 import { AppPage, isAppSection, type AppSection } from '@/pages/AppPage';
 import { HomePage } from '@/pages/HomePage';
 import { ImagesPage } from '@/pages/ImagesPage';
+import { IntegrationsPage } from '@/pages/IntegrationsPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NewChatPage } from '@/pages/NewChatPage';
 import { NodesPage } from '@/pages/NodesPage';
@@ -37,11 +36,7 @@ import { ProvidersPage } from '@/pages/ProvidersPage';
 import { SlackLinkPage } from '@/pages/SlackLinkPage';
 import { SlackPage } from '@/pages/SlackPage';
 import { ThreadsSettingsPage } from '@/pages/ThreadsSettingsPage';
-import {
-  AgentsSettingsPage,
-  SecretsSettingsPage,
-  ToolsSettingsPage,
-} from '@/pages/LibraryPages';
+import { AgentsSettingsPage, SecretsSettingsPage } from '@/pages/LibraryPages';
 
 const str = (v: unknown) => (v == null || v === '' ? undefined : String(v));
 
@@ -244,10 +239,18 @@ const agentsSettingsRoute = createRoute({
   component: AgentsSettingsPage,
 });
 
+// Integrations: one page, one URL per tab. /settings/accounts, /git and
+// /tools predate it and stay as its tabs so old links keep working.
+const integrationsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/integrations',
+  component: () => <IntegrationsPage tab="org" />,
+});
+
 const accountsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: '/accounts',
-  component: ExecutorAccountsPage,
+  component: () => <IntegrationsPage tab="accounts" />,
 });
 
 const secretsRoute = createRoute({
@@ -282,13 +285,13 @@ const projectsSettingsRoute = createRoute({
 const gitRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: '/git',
-  component: GitSettingsPage,
+  component: () => <IntegrationsPage tab="git" />,
 });
 
 const toolsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: '/tools',
-  component: ToolsSettingsPage,
+  component: () => <IntegrationsPage tab="advanced" />,
 });
 
 const routeTree = rootRoute.addChildren([
@@ -310,6 +313,7 @@ const routeTree = rootRoute.addChildren([
       threadsSettingsRoute,
       projectsSettingsRoute,
       agentsSettingsRoute,
+      integrationsRoute,
       accountsRoute,
       secretsRoute,
       toolsRoute,

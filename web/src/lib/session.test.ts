@@ -362,3 +362,125 @@ describe('groupItems', () => {
     });
   });
 });
+
+describe('secret and account connect requests', () => {
+  it('parses a secret_request into a pending card item', () => {
+    n = 0;
+    const s = fold([
+      ev('secret_request', {
+        requestId: 'sreq_1',
+        name: 'STRIPE_KEY',
+        description: 'Needed to create test charges',
+        hosts: ['api.stripe.com', 42],
+        envVar: 'STRIPE_API_KEY',
+        header: 'Authorization',
+      }),
+    ]);
+    expect(s.items).toEqual([
+      {
+        kind: 'secret_request',
+        seq: 1,
+        requestId: 'sreq_1',
+        name: 'STRIPE_KEY',
+        description: 'Needed to create test charges',
+        hosts: ['api.stripe.com'],
+        envVar: 'STRIPE_API_KEY',
+        header: 'Authorization',
+      },
+    ]);
+  });
+
+  it('ignores a secret_request without a request id', () => {
+    n = 0;
+    const s = fold([ev('secret_request', { name: 'X' })]);
+    expect(s.items).toEqual([]);
+    expect(s.lastSeq).toBe(1);
+  });
+
+  it('resolves the matching secret request and leaves others pending', () => {
+    n = 0;
+    const s = fold([
+      ev('secret_request', { requestId: 'a', name: 'A', hosts: [] }),
+      ev('secret_request', { requestId: 'b', name: 'B', hosts: [] }),
+      ev('secret_request_resolved', {
+        requestId: 'a',
+        status: 'submitted',
+        secretId: 'sec_1',
+        name: 'A',
+        envVar: 'A_KEY',
+        placeholder: 'ah_placeholder',
+        by: 'u1',
+      }),
+      ev('secret_request_resolved', { requestId: 'zzz', status: 'declined' }),
+    ]);
+    const [a, b] = s.items as Extract<ChatItem, { kind: 'secret_request' }>[];
+    expect(a.resolved).toEqual({
+      status: 'submitted',
+      name: 'A',
+      envVar: 'A_KEY',
+      placeholder: 'ah_placeholder',
+      by: 'u1',
+    });
+    expect(b.resolved).toBeUndefined();
+    expect(s.items).toHaveLength(2);
+  });
+
+  it('treats any non-submitted resolution as declined', () => {
+    n = 0;
+    const s = fold([
+      ev('secret_request', { requestId: 'a', name: 'A', hosts: [] }),
+      ev('secret_request_resolved', { requestId: 'a', status: 'declined' }),
+    ]);
+    const [a] = s.items as Extract<ChatItem, { kind: 'secret_request' }>[];
+    expect(a.resolved).toEqual({ status: 'declined' });
+  });
+
+  it('parses account_connect_request into a connect card item', () => {
+    n = 0;
+    const s = fold([
+      ev('account_connect_request', {
+        requestId: 'acreq_1',
+        toolId: 'otl_1',
+        slug: 'linear',
+        name: 'Linear',
+        description: 'Issues',
+        kind: 'executor_app',
+        authMode: 'user_oauth',
+        reason: 'To file the bug you described',
+        connected: false,
+        connectEndpoint: '/api/v1/me/org-tools/otl_1/connect',
+      }),
+      ev('account_connect_request', { slug: 'missing-tool-id' }),
+    ]);
+    expect(s.items).toEqual([
+      {
+        kind: 'account_connect',
+        seq: 1,
+        requestId: 'acreq_1',
+        toolId: 'otl_1',
+        slug: 'linear',
+        name: 'Linear',
+        description: 'Issues',
+        toolKind: 'executor_app',
+        authMode: 'user_oauth',
+        reason: 'To file the bug you described',
+        connected: false,
+      },
+    ]);
+  });
+
+  it('keeps secret and connect cards out of work groups', () => {
+    n = 0;
+    const s = fold([
+      upd({ sessionUpdate: 'tool_call', toolCallId: 't1', title: 'a' }),
+      ev('secret_request', { requestId: 'a', name: 'A', hosts: [] }),
+      upd({ sessionUpdate: 'tool_call', toolCallId: 't2', title: 'b' }),
+      upd({ sessionUpdate: 'tool_call', toolCallId: 't3', title: 'c' }),
+    ]);
+    expect(groupItems(s.items).map((g) => g.kind)).toEqual([
+      'item',
+      'item',
+      'work',
+    ]);
+  });
+});

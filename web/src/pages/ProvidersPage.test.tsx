@@ -1,3 +1,4 @@
+import { stubGlobal } from '@/test-setup';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it } from 'bun:test';
@@ -45,6 +46,7 @@ it('connects a provider login without echoing it', async () => {
     'GET /me': me,
     'GET /me/provider-logins': () => ({ body: [claude(connected)] }),
     'GET /me/harnesses': [],
+    'GET /org/providers': [],
     'PUT /me/provider-logins/claude-code': () => {
       connected = true;
       return { body: claude(true) };
@@ -269,4 +271,136 @@ it('runs Antigravity interactive Google sign-in from harness settings', async ()
   expect(
     calls.find((c) => c.key === 'POST /agents/a1/harness/auth/submit')?.body,
   ).toEqual({ flowId: 'af_1', code: 'my-auth-code' });
+});
+
+const pool = (
+  provider: string,
+  configured: boolean,
+  over: Record<string, unknown> = {},
+) => ({
+  provider,
+  configured,
+  enabled: configured,
+  ...(configured && { kind: 'api_key', label: 'Team key' }),
+  ...over,
+});
+
+it('shows which providers the organization provides, and personal logins override them', async () => {
+  mockApi({
+    'GET /me': me,
+    'GET /me/provider-logins': [claude(false)],
+    'GET /me/harnesses': [],
+    'GET /org/providers': [
+      pool('claude-code', true),
+      pool('codex', false),
+      pool('antigravity', true, { enabled: false }),
+      pool('opencode', false),
+    ],
+  });
+  renderApp('/settings/providers');
+  const pools = await screen.findByRole('region', {
+    name: 'Organization provider pools',
+  });
+  // Users only see providers that are actually provided.
+  expect(
+    within(pools).getByRole('listitem', {
+      name: 'Claude Code organization pool',
+    }),
+  ).toHaveTextContent('Provided by organization');
+  expect(within(pools).queryByText('Codex')).toBeNull();
+  expect(within(pools).queryByText('Antigravity')).toBeNull();
+  expect(within(pools).queryByRole('button')).toBeNull();
+
+  const section = screen.getByRole('region', { name: 'Claude Code' });
+  expect(section).toHaveTextContent('Provided by organization');
+  expect(section).toHaveTextContent('you can chat right away');
+  expect(
+    within(section).getByRole('button', { name: 'Use my own' }),
+  ).toBeVisible();
+});
+
+it('hides org pools from users when the organization provides none', async () => {
+  mockApi({
+    'GET /me': me,
+    'GET /me/provider-logins': [claude(false)],
+    'GET /me/harnesses': [],
+    'GET /org/providers': [pool('claude-code', false), pool('codex', false)],
+  });
+  renderApp('/settings/providers');
+  await screen.findByRole('region', { name: 'Claude Code' });
+  expect(
+    screen.queryByRole('region', { name: 'Organization provider pools' }),
+  ).toBeNull();
+});
+
+it('lets admins configure, update and remove org provider logins', async () => {
+  let pools = [pool('claude-code', false), pool('codex', true)];
+  const { calls } = mockApi({
+    'GET /me': { ...me, admin: true },
+    'GET /me/provider-logins': [claude(false)],
+    'GET /me/harnesses': [],
+    'GET /org/providers': () => ({ body: pools }),
+    'PUT /org/providers/claude-code': (r: { body: unknown }) => {
+      pools = [pool('claude-code', true, { kind: 'gateway' }), pools[1]];
+      return { body: { ...pools[0], ...(r.body as object) } };
+    },
+    'DELETE /org/providers/codex': () => {
+      pools = [pools[0], pool('codex', false)];
+      return { status: 204 };
+    },
+  });
+  const user = userEvent.setup();
+  stubGlobal('confirm', () => true);
+  renderApp('/settings/providers');
+  const region = await screen.findByRole('region', {
+    name: 'Organization provider pools',
+  });
+  const claudeRow = within(region).getByRole('listitem', {
+    name: 'Claude Code organization pool',
+  });
+  expect(claudeRow).toHaveTextContent('not provided');
+  await user.click(
+    within(claudeRow).getByRole('button', { name: 'Configure' }),
+  );
+  const form = within(claudeRow).getByRole('form', {
+    name: 'Organization Claude Code login',
+  });
+  await user.selectOptions(within(form).getByLabelText('Credential type'), [
+    'gateway',
+  ]);
+  await user.type(
+    within(form).getByLabelText('Gateway URL'),
+    'https://llm.example.com',
+  );
+  await user.type(within(form).getByLabelText('API key'), 'gw-secret');
+  await user.type(within(form).getByLabelText('Label (optional)'), 'Gateway');
+  await user.click(
+    within(form).getByRole('button', { name: 'Save organization login' }),
+  );
+  await waitFor(() =>
+    expect(
+      calls.find((c) => c.key === 'PUT /org/providers/claude-code')?.body,
+    ).toEqual({
+      kind: 'gateway',
+      enabled: true,
+      label: 'Gateway',
+      credential: 'gw-secret',
+      baseUrl: 'https://llm.example.com',
+    }),
+  );
+  expect(
+    await within(claudeRow).findByText('Provided by organization'),
+  ).toBeVisible();
+  expect(region).not.toHaveTextContent('gw-secret');
+
+  const codexRow = within(region).getByRole('listitem', {
+    name: 'Codex organization pool',
+  });
+  await user.click(within(codexRow).getByRole('button', { name: 'Remove' }));
+  await waitFor(() =>
+    expect(calls.some((c) => c.key === 'DELETE /org/providers/codex')).toBe(
+      true,
+    ),
+  );
+  expect(await within(codexRow).findByText('not provided')).toBeVisible();
 });

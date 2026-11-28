@@ -58,6 +58,8 @@ import { pushStash } from '@/lib/composerStash';
 import { ToolCard } from '@/components/chat/ToolCard';
 import { HtmlRenderCard } from '@/components/chat/HtmlRenderCard';
 import { McpAppCard } from '@/components/chat/McpAppCard';
+import { SecretRequestCard } from '@/components/chat/SecretRequestCard';
+import { AccountConnectCard } from '@/components/chat/AccountConnectCard';
 import { useSessionStream } from '@/components/chat/useSessionStream';
 import { ActivityLink } from '@/components/chat/LiveLog';
 import {
@@ -551,6 +553,12 @@ function Item({
       );
     case 'permission':
       return <Permission item={item} sessionId={sessionId} canUse={canUse} />;
+    case 'secret_request':
+      return (
+        <SecretRequestCard item={item} sessionId={sessionId} canUse={canUse} />
+      );
+    case 'account_connect':
+      return <AccountConnectCard item={item} canUse={canUse} />;
     case 'turn_end':
       return item.stopReason === 'end_turn' || !item.stopReason ? null : (
         <p className="text-xs text-muted-foreground">
@@ -1172,6 +1180,8 @@ export default function ChatView({
   const last = state.items[state.items.length - 1];
   const awaitingPermission =
     last?.kind === 'permission' && !last.resolved && running;
+  const awaitingSecret =
+    last?.kind === 'secret_request' && !last.resolved && running;
 
   return (
     <div ref={containerRef} className="relative flex min-h-0 flex-1 flex-col">
@@ -1250,7 +1260,9 @@ export default function ChatView({
                   ? 'Waking the agent…'
                   : awaitingPermission
                     ? 'Waiting for approval'
-                    : 'Working'
+                    : awaitingSecret
+                      ? 'Waiting for your secret'
+                      : 'Working'
               }
             />
           )}

@@ -36,13 +36,13 @@ A secret attached to the agent may set `GH_TOKEN` itself (see [precedence](#who-
 
 ## Author identity
 
-**Settings → Git** sets the name and email on commits made in your agents (`GET` and `PUT /api/v1/me/git`).
+**Settings → Integrations → Git & GitHub** sets the name and email on commits made in your agents (`GET` and `PUT /api/v1/me/git`).
 An empty value falls back to the name or email in your agenthold profile. agenthold writes the resulting
 identity to `/etc/agenthold/gitconfig` in the sandbox.
 
 ## Connect GitHub
 
-When the server has a GitHub app configured ([for operators](#set-up-connect-github)), **Settings → Git**
+When the server has a GitHub app configured ([for operators](#set-up-connect-github)), **Settings → Integrations → Git & GitHub**
 shows a **GitHub** card:
 
 1. Select **Connect GitHub**. agenthold asks GitHub for a sign-in code and shows it, for example `WXYZ-0001`.
@@ -75,7 +75,7 @@ reports under `github` whether the server can connect accounts, and for which ho
 
 ## Credentials for HTTPS hosts
 
-**Settings → Git** also stores pasted HTTPS credentials per host (`POST /api/v1/me/git/credentials`). Use
+**Settings → Integrations → Git & GitHub** also stores pasted HTTPS credentials per host (`POST /api/v1/me/git/credentials`). Use
 this for a GitHub token when the server has no GitHub app, or for GitLab or a custom git host. A credential is a
 token with an optional label and username, encrypted at rest with the master key like other
 [secrets](/egress/#secrets).
@@ -103,7 +103,7 @@ gh api repos/owner/repo/issues
 `gh` sends the marker from `GH_TOKEN` in its `Authorization` header. When the agent's owner has a credential for
 `github.com`, the proxy replaces the whole header with that credential, so GitHub sees the owner's token. When
 there is none, the proxy answers the request itself with `401` and a message that says to connect GitHub in
-**Settings → Git**. GitHub itself would only answer "Bad credentials". Git over HTTPS uses the same credential, so
+**Settings → Integrations → Git & GitHub**. GitHub itself would only answer "Bad credentials". Git over HTTPS uses the same credential, so
 `git push` and `gh pr create` act as the same account. `gh` uses HTTPS for git by default. Keep it that way: SSH
 remotes get no credential from agenthold.
 

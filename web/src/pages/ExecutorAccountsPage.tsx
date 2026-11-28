@@ -5,9 +5,8 @@ import {
   ExternalLink,
   HeartPulse,
   Pencil,
-  Play,
   Plus,
-  RefreshCw,
+  TriangleAlert,
   Trash2,
 } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
@@ -22,7 +21,6 @@ import {
   type ExecutorRequirement,
 } from '@/api/queries';
 import { ErrorText, Loading } from '@/components/Spinner';
-import { SettingsHeader } from '@/components/layout/SettingsLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -36,8 +34,11 @@ import {
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 
-/** Account-level Executor page: manage connected external accounts and apps. */
-export function ExecutorAccountsPage() {
+/**
+ * Connected accounts and installed apps, powered by Executor. The runtime
+ * itself starts on demand, so only a quiet banner shows when it is off.
+ */
+export function ExecutorAccountsSection() {
   const qc = useQueryClient();
   const statusQ = useQuery(executorStatusQuery);
   const canLoadOverview = Boolean(
@@ -66,16 +67,6 @@ export function ExecutorAccountsPage() {
       qc.invalidateQueries({ queryKey: executorOverviewQuery.queryKey }),
     ]);
   };
-
-  const startExec = useMutation({
-    mutationFn: () => unwrap(api.POST('/me/executor/start')),
-    onSuccess: invalidateAll,
-  });
-
-  const restartExec = useMutation({
-    mutationFn: () => unwrap(api.POST('/me/executor/restart')),
-    onSuccess: invalidateAll,
-  });
 
   const deleteApp = useMutation({
     mutationFn: (appId: string) =>
@@ -169,91 +160,34 @@ export function ExecutorAccountsPage() {
 
   return (
     <>
-      <SettingsHeader
-        title="Accounts"
-        description="Connect external apps and accounts once with Executor. Every enabled agent uses them over MCP without credentials ever entering its sandbox."
-      />
       {statusQ.isPending && <Loading />}
       <ErrorText error={statusQ.error} />
       {status && (
         <div className="grid max-w-4xl gap-6">
-          <section
-            aria-label="Executor runtime"
-            className="flex flex-col gap-3 rounded-lg border p-4"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-sm font-semibold">Executor runtime</h2>
-                <StatusBadge
-                  enabled={status.enabled}
-                  available={status.available}
-                  running={status.running}
-                />
-                {status.version && (
-                  <code className="text-xs text-muted-foreground">
-                    {status.version}
-                  </code>
+          {(!status.enabled || !status.available) && (
+            <p
+              role="status"
+              aria-label="Integrations unavailable"
+              className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm text-amber-800 dark:text-amber-300"
+            >
+              <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span>
+                {!status.enabled
+                  ? 'Connected accounts are turned off on this server.'
+                  : 'Connected accounts are unavailable on this server right now.'}
+                {status.reason && (
+                  <span className="block text-xs text-muted-foreground">
+                    {status.reason}
+                  </span>
                 )}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {status.available && status.enabled && !status.running && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={startExec.isPending}
-                    onClick={() => startExec.mutate()}
-                  >
-                    <Play className="size-3.5" aria-hidden />
-                    Start
-                  </Button>
-                )}
-                {status.available && status.enabled && status.running && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={restartExec.isPending}
-                    onClick={() => restartExec.mutate()}
-                  >
-                    <RefreshCw className="size-3.5" aria-hidden />
-                    Restart
-                  </Button>
-                )}
-                {status.dashboardUrl && status.available && status.enabled && (
-                  <Button asChild size="sm" variant="outline">
-                    <a
-                      href={status.dashboardUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Open Executor dashboard
-                      <ExternalLink className="size-3.5" aria-hidden />
-                    </a>
-                  </Button>
-                )}
-              </div>
-            </div>
-            {status.reason && (
-              <p className="text-sm text-muted-foreground">{status.reason}</p>
-            )}
-            {status.available && status.enabled && !status.oauthReady && (
-              <p className="text-xs text-muted-foreground">
-                API-key and token accounts can be connected directly below.
-                Configure an HTTPS preview domain (
-                <code>preview.host_suffix</code>) or{' '}
-                <code>executor.public_url</code> to enable OAuth2 provider
-                sign-in and the full Executor dashboard.
-              </p>
-            )}
-            <ErrorText error={startExec.error ?? restartExec.error} />
-          </section>
+              </span>
+            </p>
+          )}
 
           {canLoadOverview && (
             <>
               {overviewQ.isPending && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loading />
-                  <span>Starting your isolated Executor instance…</span>
-                </div>
+                <Loading label="Loading your connected accounts" />
               )}
               <ErrorText
                 error={
@@ -278,8 +212,8 @@ export function ExecutorAccountsPage() {
                           Connected accounts
                         </h2>
                         <p className="text-sm text-muted-foreground">
-                          Saved credentials live encrypted in your private
-                          Executor vault on the controller.
+                          Saved credentials stay encrypted on the server and
+                          never enter agent sandboxes.
                         </p>
                       </div>
                     </div>
@@ -386,27 +320,29 @@ export function ExecutorAccountsPage() {
                   </section>
 
                   <section
-                    aria-label="Executor apps"
+                    aria-label="Installed integrations"
                     className="flex flex-col gap-3"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div>
-                        <h2 className="text-base font-semibold">Apps</h2>
+                        <h2 className="text-base font-semibold">
+                          Installed integrations
+                        </h2>
                         <p className="text-sm text-muted-foreground">
-                          Install apps from the Executor catalog or import any
-                          remote MCP server, then link your accounts.
+                          Add integrations from the catalog, then link your
+                          accounts.
                         </p>
                       </div>
                       <Button size="sm" onClick={() => setAddOpen(true)}>
                         <Plus className="size-4" aria-hidden />
-                        Add app
+                        Add integration
                       </Button>
                     </div>
                     <ul aria-label="Installed apps" className="grid gap-3">
                       {apps.length === 0 && (
                         <li className="rounded-lg border p-4 text-sm text-muted-foreground">
-                          No apps installed yet. Click Add app to install from
-                          the Executor catalog.
+                          No integrations installed yet. Click Add integration
+                          to browse the catalog.
                         </li>
                       )}
                       {apps.map((app) => (
@@ -432,7 +368,7 @@ export function ExecutorAccountsPage() {
                                 onClick={() => {
                                   if (
                                     confirm(
-                                      `Remove ${app.name} from Executor? Your saved accounts are kept.`,
+                                      `Remove ${app.name}? Your saved accounts are kept.`,
                                     )
                                   )
                                     deleteApp.mutate(app.id);
@@ -573,26 +509,6 @@ export function ExecutorAccountsPage() {
   );
 }
 
-function StatusBadge({
-  enabled,
-  available,
-  running,
-}: {
-  enabled: boolean;
-  available: boolean;
-  running: boolean;
-}) {
-  if (!enabled) return <Badge variant="secondary">Disabled</Badge>;
-  if (!available)
-    return (
-      <Badge variant="outline" className="border-destructive text-destructive">
-        Unavailable
-      </Badge>
-    );
-  if (running) return <Badge variant="default">Running</Badge>;
-  return <Badge variant="outline">Stopped</Badge>;
-}
-
 function AccountStatusBadge({ status }: { status: string }) {
   switch (status) {
     case 'ready':
@@ -676,10 +592,9 @@ function AddAppDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add Executor app</DialogTitle>
+          <DialogTitle>Add integration</DialogTitle>
           <DialogDescription>
-            Install an app from the official Executor catalog or import a remote
-            MCP server.
+            Install an app from the catalog or import a remote MCP server.
           </DialogDescription>
         </DialogHeader>
         <div className="flex gap-2">
@@ -897,7 +812,7 @@ function ConnectAccountDialog({
         <DialogHeader>
           <DialogTitle>Connect {requirement.providerName}</DialogTitle>
           <DialogDescription>
-            Credentials are stored encrypted in Executor and never enter your
+            Credentials are stored encrypted on the server and never enter your
             agent sandboxes.
           </DialogDescription>
         </DialogHeader>
@@ -996,8 +911,8 @@ function ConnectAccountDialog({
                 {oauthReady && session.browserUrl ? (
                   <>
                     <p className="text-sm text-muted-foreground">
-                      Complete sign-in with {requirement.providerName} in your
-                      signed-in Executor dashboard, then return here.
+                      Complete sign-in with {requirement.providerName} in the
+                      window that opens, then return here.
                     </p>
                     <div className="flex flex-wrap items-center gap-2">
                       <Button asChild>
@@ -1006,7 +921,7 @@ function ConnectAccountDialog({
                           target="_blank"
                           rel="noreferrer"
                         >
-                          Continue in Executor
+                          Continue sign-in
                           <ExternalLink className="size-3.5" aria-hidden />
                         </a>
                       </Button>
@@ -1017,10 +932,9 @@ function ConnectAccountDialog({
                   </>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    OAuth2 sign-in requires an HTTPS Executor dashboard origin (
-                    <code>preview.host_suffix</code> or{' '}
-                    <code>executor.public_url</code>). Configure HTTPS or choose
-                    a token/API-key method if available.
+                    Browser sign-in needs HTTPS on this server. Choose a token
+                    or API-key method if available, or ask an administrator to
+                    enable HTTPS for integrations.
                   </p>
                 )}
               </div>

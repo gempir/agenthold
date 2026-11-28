@@ -1,19 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, Outlet, useRouterState } from '@tanstack/react-router';
 import {
+  Blocks,
   Bot,
-  GitBranch,
   KeyRound,
   LayoutDashboard,
   Layers,
-  Link2,
   LockKeyhole,
   MessageSquare,
   MessagesSquare,
   Plug,
   Server,
   UserRound,
-  Wrench,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -22,6 +20,7 @@ import {
 } from '@/components/layout/SettingsLayout';
 import { Crumb } from '@/components/layout/TopBar';
 import { meQuery, versionQuery, type Version } from '@/api/queries';
+import { INTEGRATIONS_PATHS } from '@/pages/IntegrationsPage';
 
 /**
  * Account-level settings pages, each a child route of /settings. Add a page
@@ -37,10 +36,8 @@ export const ACCOUNT_SETTINGS_NAV: {
   { to: '/settings/profile', label: 'Profile', icon: UserRound },
   { to: '/settings/threads', label: 'Threads', icon: MessagesSquare },
   { to: '/settings/agents', label: 'Agents', icon: Bot },
-  { to: '/settings/accounts', label: 'Accounts', icon: Link2 },
+  { to: '/settings/integrations', label: 'Integrations', icon: Blocks },
   { to: '/settings/secrets', label: 'Secrets', icon: LockKeyhole },
-  { to: '/settings/tools', label: 'Tools', icon: Wrench },
-  { to: '/settings/git', label: 'Git', icon: GitBranch },
   { to: '/settings/providers', label: 'Provider logins', icon: Plug },
   { to: '/settings/tokens', label: 'API tokens', icon: KeyRound },
   { to: '/settings/slack', label: 'Slack', icon: MessageSquare },
@@ -53,6 +50,13 @@ export const ACCOUNT_SETTINGS_NAV: {
   { to: '/settings/images', label: 'Images', icon: Layers, admin: true },
   { to: '/settings/nodes', label: 'Nodes', icon: Server, admin: true },
 ];
+
+/** Integrations owns the older /settings/accounts, /git and /tools tabs. */
+function isActive(to: string, path: string): boolean {
+  if (to === '/settings/integrations')
+    return INTEGRATIONS_PATHS.some((p) => path.startsWith(p));
+  return path.startsWith(to);
+}
 
 function formatVersion(v?: Version): string {
   if (!v) return '';
@@ -94,7 +98,7 @@ export function AccountSettings() {
         </Crumb>
       }
       nav={ACCOUNT_SETTINGS_NAV.filter((n) => !n.admin || admin).map((n) => (
-        <SettingsNavItem key={n.to} active={path.startsWith(n.to)}>
+        <SettingsNavItem key={n.to} active={isActive(n.to, path)}>
           <Link to={n.to}>
             <n.icon className="size-4 shrink-0" aria-hidden />
             {n.label}

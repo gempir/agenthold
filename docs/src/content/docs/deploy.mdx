@@ -224,6 +224,16 @@ changed), KVM-tests with that binary and publishes → korriban's puller switche
 
 ## Disk usage
 
+The demo VM uses a 500 GiB sparse disk on scarif's external HDD at
+`/Volumes/Terramaster/agenthold/disk`, with `~/.lima/agenthold/disk` symlinked to it. This puts
+the Linux filesystem, build caches, release store and agent data on Terramaster. The drive must be
+mounted before the VM starts. `/etc/agenthold/pull.conf` sets
+`host_mount=/Volumes/Terramaster/agenthold/host-storage`, a read-only Lima mount of an empty directory
+on the same HDD, so deployment checks the actual backing volume's free space as well as the guest's.
+The VM configuration stays under `~/.lima/agenthold`; its `disk` setting is `500GiB`.
+macOS must allow `limactl` to access removable volumes for its login startup job to open the disk;
+SSH access alone does not grant that job permission.
+
 The shared base and the per-agent disks can consume substantial host storage. A sparse Lima disk reports its
 full configured size to the guest while the Mac only pays for the blocks that were written, so the guest can
 show tens of GiB free that the Mac does not have. Measured on the Scarif demo VM:

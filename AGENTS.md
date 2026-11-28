@@ -19,6 +19,11 @@ still builds and smoke-tests both amd64 and arm64 release binaries as workflow a
 downloads binaries from GitHub Releases by default; kernels, base images and harness layers are never on GitHub. The
 controller advertises its node port as `192.168.178.100:8091` (Lima forwards 8091 to the LAN).
 
+The VM's 500 GiB sparse disk lives on the external HDD at
+`/Volumes/Terramaster/agenthold/disk`, symlinked from `~/.lima/agenthold/disk` on scarif.
+Keep Terramaster mounted before starting the VM. The read-only guest mount
+`/Volumes/Terramaster/agenthold/host-storage` lets the puller check the backing HDD's free space.
+
 # korriban (amd64 edge node)
 
 `korriban` is an edge node of the demo: `ssh gempir@192.168.178.153`, bare-metal x86_64 Arch Linux (Ryzen 7

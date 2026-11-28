@@ -209,6 +209,10 @@ func (p postgresQueries) CreateProviderLogin(ctx context.Context, arg db.CreateP
 	return p.q.CreateProviderLogin(ctx, postgres.CreateProviderLoginParams(arg))
 }
 
+func (p postgresQueries) CreatePushVAPIDKey(ctx context.Context, arg db.CreatePushVAPIDKeyParams) error {
+	return p.q.CreatePushVAPIDKey(ctx, postgres.CreatePushVAPIDKeyParams(arg))
+}
+
 func (p postgresQueries) CreateSandbox(ctx context.Context, arg db.CreateSandboxParams) error {
 	return p.q.CreateSandbox(ctx, postgres.CreateSandboxParams(arg))
 }
@@ -339,6 +343,10 @@ func (p postgresQueries) DeleteProjectSource(ctx context.Context, id string) err
 func (p postgresQueries) DeleteProviderLogin(ctx context.Context, arg db.DeleteProviderLoginParams) (int64, error) {
 	value, err := p.q.DeleteProviderLogin(ctx, postgres.DeleteProviderLoginParams(arg))
 	return value, err
+}
+
+func (p postgresQueries) DeletePushSubscription(ctx context.Context, arg db.DeletePushSubscriptionParams) error {
+	return p.q.DeletePushSubscription(ctx, postgres.DeletePushSubscriptionParams(arg))
 }
 
 func (p postgresQueries) DeleteSchedule(ctx context.Context, id string) error {
@@ -600,6 +608,11 @@ func (p postgresQueries) GetProviderLogin(ctx context.Context, arg db.GetProvide
 func (p postgresQueries) GetProviderLoginByID(ctx context.Context, id string) (db.ProviderLogin, error) {
 	value, err := p.q.GetProviderLoginByID(ctx, id)
 	return db.ProviderLogin(value), err
+}
+
+func (p postgresQueries) GetPushVAPIDKey(ctx context.Context) (db.PushVapidKey, error) {
+	value, err := p.q.GetPushVAPIDKey(ctx)
+	return db.PushVapidKey(value), err
 }
 
 func (p postgresQueries) GetReleasedExposureName(ctx context.Context, name string) (db.ExposureReleasedName, error) {
@@ -1134,6 +1147,18 @@ func (p postgresQueries) ListProviderLogins(ctx context.Context) ([]db.ProviderL
 	result := make([]db.ProviderLogin, 0, len(value))
 	for _, row := range value {
 		result = append(result, db.ProviderLogin(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListPushSubscriptions(ctx context.Context, userID string) ([]db.PushSubscription, error) {
+	value, err := p.q.ListPushSubscriptions(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.PushSubscription, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.PushSubscription(row))
 	}
 	return result, nil
 }
@@ -1824,6 +1849,10 @@ func (p postgresQueries) UpsertModelCatalog(ctx context.Context, arg db.UpsertMo
 
 func (p postgresQueries) UpsertOrgProviderLogin(ctx context.Context, arg db.UpsertOrgProviderLoginParams) error {
 	return p.q.UpsertOrgProviderLogin(ctx, postgres.UpsertOrgProviderLoginParams(arg))
+}
+
+func (p postgresQueries) UpsertPushSubscription(ctx context.Context, arg db.UpsertPushSubscriptionParams) error {
+	return p.q.UpsertPushSubscription(ctx, postgres.UpsertPushSubscriptionParams(arg))
 }
 
 func (p postgresQueries) UpsertService(ctx context.Context, arg db.UpsertServiceParams) error {

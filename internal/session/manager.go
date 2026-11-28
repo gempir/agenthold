@@ -12,6 +12,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/gempir/agenthold/internal/push"
+
 	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/gempir/agenthold/internal/audit"
@@ -84,10 +86,11 @@ type connKey struct {
 // answering one turn's request ends only that turn while other turns use it,
 // and is restarted once none does.
 type Manager struct {
-	store *store.Store
-	wake  Waker
-	log   *log
-	lg    *slog.Logger
+	Notifier push.Notifier
+	store    *store.Store
+	wake     Waker
+	log      *log
+	lg       *slog.Logger
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -631,6 +634,7 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 		_ = m.log.append(lctx, sessionID, EventError, "", map[string]string{"message": "Could not start the turn: " + err.Error()})
 		release()
 		_ = m.log.append(lctx, sessionID, EventTurnEnd, "", map[string]any{"stopReason": "error"})
+		m.notifySession(lctx, sessionID, "Turn failed", false)
 		m.wg.Done()
 		return err
 	}
@@ -683,6 +687,13 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 		}
 		release()
 		_ = m.log.append(lctx, sessionID, EventTurnEnd, "", end)
+		if !cancelled {
+			title := "Turn completed"
+			if err != nil {
+				title = "Turn failed"
+			}
+			m.notifySession(lctx, sessionID, title, err == nil)
+		}
 		if err == nil && t.conn != nil {
 			m.probeLater(t.conn)
 		}
@@ -1690,4 +1701,30 @@ func (m *Manager) dropConn(hc *harnessConn) {
 		delete(m.conns, key)
 	}
 	m.mu.Unlock()
+}
+
+// notifySession suppresses completion alerts while the owner is viewing this thread.
+func (m *Manager) notifySession(ctx context.Context, id, title string, smart bool) {
+	if m.Notifier == nil {
+		return
+	}
+	sess, err := m.store.GetAgentSession(ctx, id)
+	if err != nil {
+		return
+	}
+	agent, err := m.store.GetAgent(ctx, sess.AgentID)
+	if err != nil {
+		return
+	}
+	if smart {
+		m.log.mu.Lock()
+		viewers := m.log.viewers(id)
+		m.log.mu.Unlock()
+		for _, v := range viewers {
+			if v.ID == agent.OwnerID {
+				return
+			}
+		}
+	}
+	m.Notifier.NotifyUser(ctx, agent.OwnerID, push.Notification{Title: title, Body: "Your thread needs your attention", URL: "/a/" + sess.AgentID + "?s=" + id, Tag: id})
 }

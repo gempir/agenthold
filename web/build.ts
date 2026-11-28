@@ -1,4 +1,4 @@
-import { mkdir, rm } from 'node:fs/promises';
+import { cp, mkdir, rm } from 'node:fs/promises';
 import tailwind from 'bun-plugin-tailwind';
 
 const outdir = 'dist';
@@ -22,3 +22,15 @@ await Bun.build({
   },
   plugins: [tailwind],
 });
+
+await cp('public', outdir, { recursive: true });
+
+const html = await Bun.file(`${outdir}/index.html`).text();
+await Bun.write(
+  `${outdir}/index.html`,
+  html.replace(/href="[^"]*manifest[^"]*"/g, 'href="/manifest.webmanifest"'),
+);
+
+for (const icon of ['favicon.svg', 'apple-touch-icon.png']) {
+  await cp(icon, `${outdir}/${icon}`);
+}

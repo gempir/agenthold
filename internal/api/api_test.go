@@ -46,6 +46,7 @@ import (
 	"github.com/gempir/agenthold/internal/platform"
 	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/project"
+	"github.com/gempir/agenthold/internal/push"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/fake"
 	"github.com/gempir/agenthold/internal/scripts"
@@ -275,7 +276,12 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	e.sessions.OnActivity(e.tracker.Touch)
 	e.scheduler = &trigger.Scheduler{Log: slogDiscard{}, Now: e.clock.Now}
 	e.sleeper = &idle.Sleeper{Store: st, Sandboxes: e.sandboxes, Tracker: e.tracker, Busy: e.sessions.AgentBusy, Node: n, Now: e.clock.Now}
+	pushSvc, pushErr := push.New(t.Context(), st, box, "https://example.com")
+	if pushErr != nil {
+		t.Fatal(pushErr)
+	}
 	a := api.New(api.Deps{
+		Push: pushSvc,
 		Stats: func(ctx context.Context, agentID string) (tunnel.Stats, error) {
 			e.statsMu.Lock()
 			fn := e.statsFn

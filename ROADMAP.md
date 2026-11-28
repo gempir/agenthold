@@ -65,7 +65,7 @@ Update checkboxes as each milestone merges cleanly to `main` with `make test` an
   - Single-thread **Guest links** (live read-only stream + owner-approved prompt queue, 24h expiry, instant revoke).
   - Route controller-side Executor & Org MCP calls using the **prompting user's** identity (or org service credential), enabling safe multiplayer collaboration without leaking owner tokens.
   - Multiplayer thread UX: live typing/viewing presence, shared diff review comments persisted per thread, `@teammate` handoff notifications.
-- [ ] **3B. PWA + Web Push Notifications**
+- [x] **3B. PWA + Web Push Notifications**
   - Web app manifest, service worker, VAPID key generation/storage, subscription management in Settings, and push alerts on turn completion, errors, approvals/questions, guest prompt requests, and watched PR events.
 - [ ] **3C. Full Git & Pull Request Hub + 24/7 PR Watching (`00022_pull_requests.sql`)**
   - In-thread Git actions: Commit (with optional AI commit message), Push, Create PR (with AI title/body), auto-link PRs matching thread branch.

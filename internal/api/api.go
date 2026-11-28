@@ -28,6 +28,7 @@ import (
 	"github.com/gempir/agenthold/internal/node"
 	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/project"
+	"github.com/gempir/agenthold/internal/push"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/secrets"
 	"github.com/gempir/agenthold/internal/session"
@@ -38,6 +39,7 @@ import (
 
 // Deps are the services the API needs.
 type Deps struct {
+	Push      *push.Service
 	Store     *store.Store
 	Auth      *auth.Service
 	PublicURL string

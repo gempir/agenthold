@@ -1,11 +1,11 @@
-import { useId, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useId, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Link,
   useNavigate,
   useParams,
   useSearch,
-} from '@tanstack/react-router';
+} from "@tanstack/react-router";
 import {
   Bot,
   Check,
@@ -17,54 +17,52 @@ import {
   Loader2,
   LogOut,
   Moon,
-  PanelLeftClose,
   PenLine,
+  SquarePen,
   Plus,
   Search,
   Settings,
   Sun,
   Undo2,
   Users,
-  X,
-} from 'lucide-react';
-import { api, unwrap } from '@/api/client';
+} from "lucide-react";
+import { api, unwrap } from "@/api/client";
 import {
   appsQuery,
   isTransient,
   meQuery,
   type SessionGit,
-} from '@/api/queries';
-import { ROLE_LABEL } from '@/lib/roles';
-import { AgentStateDot } from '@/components/AgentStateBadge';
-import { AgentBadge } from '@/components/AgentBadge';
-import { Avatar } from '@/components/Avatar';
-import { ErrorText } from '@/components/Spinner';
-import { Button } from '@/components/ui/button';
-import { Menu, MenuItem, MenuSeparator } from '@/components/ui/menu';
-import { readPref, useShell, writePref } from '@/components/layout/shell';
-import { useChatIndex, type ChatEntry } from '@/hooks/useChatIndex';
-import { useJustFinished } from '@/hooks/useJustFinished';
-import { useLogout } from '@/hooks/useLogout';
-import { useSettle } from '@/hooks/useSettle';
-import { getTheme, setTheme, type Theme } from '@/lib/theme';
-import { useHasDraft } from '@/lib/drafts';
-import { relTime, useNow } from '@/lib/time';
-import { cn } from '@/lib/utils';
+} from "@/api/queries";
+import { ROLE_LABEL } from "@/lib/roles";
+import type { PanelTab } from "@/components/agent/AgentPanel";
+import { AgentStateDot } from "@/components/AgentStateBadge";
+import { AgentBadge } from "@/components/AgentBadge";
+import { Avatar } from "@/components/Avatar";
+import { ErrorText } from "@/components/Spinner";
+import { Menu, MenuItem, MenuSeparator } from "@/components/ui/menu";
+import { readPref, useShell, writePref } from "@/components/layout/shell";
+import { useChatIndex, type ChatEntry } from "@/hooks/useChatIndex";
+import { useJustFinished } from "@/hooks/useJustFinished";
+import { useLogout } from "@/hooks/useLogout";
+import { useSettle } from "@/hooks/useSettle";
+import { getTheme, setTheme, type Theme } from "@/lib/theme";
+import { useHasDraft } from "@/lib/drafts";
+import { relTime, useNow } from "@/lib/time";
+import { cn } from "@/lib/utils";
 
 const THREADS_PAGE = 40;
 const SETTLED_PREVIEW = 10;
 const SETTLED_PAGE = 50;
 /** localStorage key (agenthold.<key>) of the Settled section's fold. */
-export const SETTLED_OPEN_PREF = 'sidebar.settledOpen';
+export const SETTLED_OPEN_PREF = "sidebar.settledOpen";
 /** localStorage key of the Apps section's fold. */
-export const APPS_OPEN_PREF = 'sidebar.appsOpen';
+export const APPS_OPEN_PREF = "sidebar.appsOpen";
 
 /** Who may settle: whoever may send prompts to the agent. */
 const canUse = (c: ChatEntry) =>
-  c.agent.role === 'owner' || c.agent.role === 'shared';
+  c.agent.role === "owner" || c.agent.role === "shared";
 
-export function Sidebar({ onClose }: { onClose?: () => void }) {
-  const shell = useShell();
+export function Sidebar() {
   const me = useQuery(meQuery);
   const index = useChatIndex();
   const params = useParams({ strict: false }) as {
@@ -72,18 +70,18 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     appId?: string;
   };
   const search = useSearch({ strict: false }) as { s?: string };
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
   const [appsOpen, setAppsOpenState] = useState(
-    () => !!params.appId || readPref(APPS_OPEN_PREF, '') === '1',
+    () => !!params.appId || readPref(APPS_OPEN_PREF, "") === "1",
   );
   const setAppsOpen = (o: boolean) => {
     setAppsOpenState(o);
-    writePref(APPS_OPEN_PREF, o ? '1' : '');
+    writePref(APPS_OPEN_PREF, o ? "1" : "");
   };
   const [threadLimit, setThreadLimit] = useState(THREADS_PAGE);
   const [settledLimit, setSettledLimit] = useState(SETTLED_PREVIEW);
   const [settledOpen, setSettledOpenState] = useState(
-    () => readPref(SETTLED_OPEN_PREF, '') === '1',
+    () => readPref(SETTLED_OPEN_PREF, "") === "1",
   );
   const [agentsOpen, setAgentsOpen] = useState(false);
   const settle = useSettle();
@@ -96,7 +94,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
 
   const setSettledOpen = (o: boolean) => {
     setSettledOpenState(o);
-    writePref(SETTLED_OPEN_PREF, o ? '1' : '');
+    writePref(SETTLED_OPEN_PREF, o ? "1" : "");
   };
 
   const q = query.trim().toLowerCase();
@@ -110,8 +108,8 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     matches(
       session.title,
       agent.name,
-      session.git?.project ?? '',
-      session.git?.branch ?? '',
+      session.git?.project ?? "",
+      session.git?.branch ?? "",
     );
   const active = index.active.filter(threadMatches);
   const settled = index.settled.filter(threadMatches);
@@ -122,7 +120,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const shownAgents = agentsExpanded
     ? agents
     : agents.filter(
-        ({ agent }) => agent.state === 'running' || isTransient(agent.state),
+        ({ agent }) => agent.state === "running" || isTransient(agent.state),
       );
 
   const latestSession = (agentId: string) =>
@@ -161,39 +159,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             className="min-w-0 flex-1 bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
         </label>
-        {onClose ? (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground"
-            aria-label="Close sidebar"
-            onClick={onClose}
-          >
-            <X className="size-4" />
-          </Button>
-        ) : (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground"
-            aria-label="Hide sidebar"
-            title="Hide sidebar"
-            onClick={() => shell.setCollapsed(true)}
-          >
-            <PanelLeftClose className="size-4" />
-          </Button>
-        )}
-      </div>
-
-      <div className="shrink-0 px-3 pb-2">
-        <Link
-          to="/new"
-          onClick={onClose}
-          className="flex h-8 w-full items-center gap-2 rounded-lg px-2 font-medium hover:bg-accent/50"
-        >
-          <PenLine className="size-4 text-muted-foreground" aria-hidden />
-          New thread
-        </Link>
+        <NewThreadLink />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
@@ -204,10 +170,10 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
           {!index.loading && active.length === 0 && (
             <li className="px-2 py-1.5 text-muted-foreground">
               {q
-                ? 'No matching active threads.'
+                ? "No matching active threads."
                 : index.settled.length > 0
-                  ? 'No active threads. Settled ones are below.'
-                  : 'No threads yet.'}
+                  ? "No active threads. Settled ones are below."
+                  : "No threads yet."}
             </li>
           )}
           {active.slice(0, threadLimit).map((c) => (
@@ -257,8 +223,8 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               <ChevronRight
                 aria-hidden
                 className={cn(
-                  'size-3.5 transition-transform',
-                  agentsExpanded && 'rotate-90',
+                  "size-3.5 transition-transform",
+                  agentsExpanded && "rotate-90",
                 )}
               />
             </button>
@@ -274,17 +240,17 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                       to="/a/$agentId"
                       params={{ agentId: agent.id }}
                       search={{ s: latestSession(agent.id) }}
-                      aria-current={current ? 'page' : undefined}
+                      aria-current={current ? "page" : undefined}
                       className={cn(
-                        'flex h-8 items-center gap-2 rounded-lg pr-9 pl-2 hover:bg-accent/50',
-                        current && 'bg-accent/70',
+                        "flex h-8 items-center gap-2 rounded-lg pr-9 pl-2 hover:bg-accent/50",
+                        current && "bg-accent/70",
                       )}
                     >
                       <AgentStateDot state={agent.state} />
                       <span className="min-w-0 flex-1 truncate">
                         {agent.name}
                       </span>
-                      {agent.role === 'shared' && (
+                      {agent.role === "shared" && (
                         <Users
                           className="size-3.5 shrink-0 text-muted-foreground"
                           aria-label={`shared by ${agent.owner.name}`}
@@ -327,8 +293,8 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               <ChevronRight
                 aria-hidden
                 className={cn(
-                  'size-3.5 transition-transform',
-                  showSettled && 'rotate-90',
+                  "size-3.5 transition-transform",
+                  showSettled && "rotate-90",
                 )}
               />
             </button>
@@ -364,8 +330,8 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                       onClick={() => setSettledLimit((l) => l + SETTLED_PAGE)}
                       className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
                     >
-                      Show{' '}
-                      {Math.min(settled.length - settledLimit, SETTLED_PAGE)}{' '}
+                      Show{" "}
+                      {Math.min(settled.length - settledLimit, SETTLED_PAGE)}{" "}
                       more
                     </button>
                   </li>
@@ -399,7 +365,7 @@ function ThreadCard({
   onSettle?: () => void;
   settling: boolean;
 }) {
-  const title = session.title || 'New thread';
+  const title = session.title || "New thread";
   const hasDraft = useHasDraft(session.id);
   const by =
     session.origin != null
@@ -434,10 +400,10 @@ function ThreadCard({
         to="/a/$agentId"
         params={{ agentId: agent.id }}
         search={{ s: session.id }}
-        aria-current={active ? 'page' : undefined}
+        aria-current={active ? "page" : undefined}
         className={cn(
-          'grid grid-cols-1 gap-0.5 rounded-lg bg-accent/25 px-2 py-1.5 hover:bg-accent/50',
-          active && 'bg-accent/70 hover:bg-accent/70',
+          "grid grid-cols-1 gap-0.5 rounded-lg bg-accent/25 px-2 py-1.5 hover:bg-accent/50",
+          active && "bg-accent/70 hover:bg-accent/70",
         )}
       >
         <span className="truncate text-[13px] leading-5 font-medium text-foreground">
@@ -446,10 +412,10 @@ function ThreadCard({
         <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           <AgentBadge name={agent.name} />
           <span className="min-w-0 truncate">
-            {[agent.name, by].filter(Boolean).join(' · ')}
+            {[agent.name, by].filter(Boolean).join(" · ")}
           </span>
           {session.origin && <Bot className="size-3 shrink-0" aria-hidden />}
-          {agent.role === 'shared' && (
+          {agent.role === "shared" && (
             <Users
               className="size-3 shrink-0"
               aria-label={`shared by ${agent.owner.name}`}
@@ -457,9 +423,9 @@ function ThreadCard({
           )}
           <span
             className={cn(
-              'ml-auto flex shrink-0 items-center',
+              "ml-auto flex shrink-0 items-center",
               onSettle &&
-                'group-focus-within:invisible group-hover:invisible [@media(hover:none)]:invisible',
+                "group-focus-within:invisible group-hover:invisible [@media(hover:none)]:invisible",
             )}
           >
             {status}
@@ -496,7 +462,7 @@ function SettledRow({
   active: boolean;
   onUnsettle?: () => void;
 }) {
-  const title = session.title || 'New thread';
+  const title = session.title || "New thread";
   const hasDraft = useHasDraft(session.id);
   return (
     <li className="group relative">
@@ -504,13 +470,13 @@ function SettledRow({
         to="/a/$agentId"
         params={{ agentId: agent.id }}
         search={{ s: session.id }}
-        aria-current={active ? 'page' : undefined}
+        aria-current={active ? "page" : undefined}
         title={[title, agent.name, session.git?.project, session.git?.branch]
           .filter(Boolean)
-          .join(' · ')}
+          .join(" · ")}
         className={cn(
-          'flex h-8 items-center gap-2 rounded-lg bg-accent/25 px-2 hover:bg-accent/50',
-          active && 'bg-accent/70',
+          "flex h-8 items-center gap-2 rounded-lg bg-accent/25 px-2 hover:bg-accent/50",
+          active && "bg-accent/70",
         )}
       >
         <AgentBadge name={agent.name} />
@@ -528,9 +494,9 @@ function SettledRow({
         )}
         <span
           className={cn(
-            'shrink-0 text-xs text-muted-foreground tabular-nums',
+            "shrink-0 text-xs text-muted-foreground tabular-nums",
             onUnsettle &&
-              'group-focus-within:invisible group-hover:invisible [@media(hover:none)]:invisible',
+              "group-focus-within:invisible group-hover:invisible [@media(hover:none)]:invisible",
           )}
         >
           {hasDraft ? (
@@ -566,7 +532,7 @@ function GitLine({ git }: { git: SessionGit }) {
   return (
     <span
       data-testid="chat-git"
-      title={[git.project, git.branch].filter(Boolean).join(' · ')}
+      title={[git.project, git.branch].filter(Boolean).join(" · ")}
       className="flex min-w-0 items-center gap-2 truncate text-xs text-muted-foreground"
     >
       {git.project && (
@@ -593,8 +559,8 @@ function SkeletonRows({ n, tall }: { n: number; tall?: boolean }) {
           key={i}
           aria-hidden
           className={cn(
-            'mx-2 my-1 animate-pulse rounded-md bg-accent/50',
-            tall ? 'h-9' : 'h-5',
+            "mx-2 my-1 animate-pulse rounded-md bg-accent/50",
+            tall ? "h-9" : "h-5",
           )}
         />
       ))}
@@ -654,7 +620,7 @@ function Footer() {
             <MenuItem
               onClick={() => {
                 close();
-                void navigate({ to: '/settings' });
+                void navigate({ to: "/settings" });
               }}
             >
               <Settings className="size-4 text-muted-foreground" aria-hidden />
@@ -662,17 +628,17 @@ function Footer() {
             </MenuItem>
             <MenuItem
               onClick={() => {
-                const next = theme === 'dark' ? 'light' : 'dark';
+                const next = theme === "dark" ? "light" : "dark";
                 setTheme(next);
                 setThemeState(next);
               }}
             >
-              {theme === 'dark' ? (
+              {theme === "dark" ? (
                 <Sun className="size-4 text-muted-foreground" aria-hidden />
               ) : (
                 <Moon className="size-4 text-muted-foreground" aria-hidden />
               )}
-              {theme === 'dark' ? 'Light theme' : 'Dark theme'}
+              {theme === "dark" ? "Light theme" : "Dark theme"}
             </MenuItem>
             <MenuSeparator />
             <MenuItem
@@ -706,17 +672,17 @@ function AppsSection({
   const params = useParams({ strict: false }) as { appId?: string };
   const apps = useQuery(appsQuery);
   const create = useMutation({
-    mutationFn: (name: string) => unwrap(api.POST('/apps', { body: { name } })),
+    mutationFn: (name: string) => unwrap(api.POST("/apps", { body: { name } })),
     onSuccess: async (app) => {
       await qc.invalidateQueries({ queryKey: appsQuery.queryKey });
-      await navigate({ to: '/apps/$appId', params: { appId: app.id } });
+      await navigate({ to: "/apps/$appId", params: { appId: app.id } });
     },
   });
   const all = apps.data ?? [];
   const list = all.filter((a) => !q || a.name.toLowerCase().includes(q));
   // Folded, the section still lists the apps that are running.
   const expanded = open || !!q;
-  const shown = expanded ? list : list.filter((a) => a.state === 'running');
+  const shown = expanded ? list : list.filter((a) => a.state === "running");
   if (apps.isSuccess && all.length === 0 && !expanded) return null;
   return (
     <>
@@ -731,8 +697,8 @@ function AppsSection({
         <ChevronRight
           aria-hidden
           className={cn(
-            'size-3.5 transition-transform',
-            expanded && 'rotate-90',
+            "size-3.5 transition-transform",
+            expanded && "rotate-90",
           )}
         />
       </button>
@@ -745,8 +711,8 @@ function AppsSection({
         {expanded && apps.isSuccess && list.length === 0 && (
           <li className="px-2 py-1.5 text-muted-foreground">
             {q
-              ? 'No matching apps.'
-              : 'No apps yet. Agents create them with deploy_app.'}
+              ? "No matching apps."
+              : "No apps yet. Agents create them with deploy_app."}
           </li>
         )}
         {shown.map((a) => (
@@ -754,11 +720,11 @@ function AppsSection({
             <Link
               to="/apps/$appId"
               params={{ appId: a.id }}
-              aria-current={params.appId === a.id ? 'page' : undefined}
+              aria-current={params.appId === a.id ? "page" : undefined}
               title={a.url || a.name}
               className={cn(
-                'grid grid-cols-1 rounded-lg px-2 py-1.5 hover:bg-accent/50',
-                params.appId === a.id && 'bg-accent/70',
+                "grid grid-cols-1 rounded-lg px-2 py-1.5 hover:bg-accent/50",
+                params.appId === a.id && "bg-accent/70",
               )}
             >
               <span className="flex min-w-0 items-center gap-2">
@@ -767,7 +733,7 @@ function AppsSection({
               </span>
               {a.url && (
                 <span className="truncate pl-4 text-xs text-muted-foreground">
-                  {a.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                  {a.url.replace(/^https?:\/\//, "").replace(/\/$/, "")}
                 </span>
               )}
             </Link>
@@ -779,7 +745,7 @@ function AppsSection({
               type="button"
               disabled={create.isPending}
               onClick={() => {
-                const name = globalThis.prompt?.('Name of the new app')?.trim();
+                const name = globalThis.prompt?.("Name of the new app")?.trim();
                 if (name) create.mutate(name);
               }}
               className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-50"
@@ -791,5 +757,29 @@ function AppsSection({
         )}
       </ul>
     </>
+  );
+}
+
+/** New thread: with the agent in view, else the new-thread page. */
+function NewThreadLink() {
+  const { agentId } = useParams({ strict: false }) as { agentId?: string };
+  const { panel } = useSearch({ strict: false }) as { panel?: PanelTab };
+  const cls =
+    "inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground";
+  return agentId ? (
+    <Link
+      to="/a/$agentId"
+      params={{ agentId }}
+      search={{ panel }}
+      aria-label="New thread"
+      title="New thread"
+      className={cls}
+    >
+      <SquarePen className="size-4" />
+    </Link>
+  ) : (
+    <Link to="/new" aria-label="New thread" title="New thread" className={cls}>
+      <SquarePen className="size-4" />
+    </Link>
   );
 }

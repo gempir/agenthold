@@ -160,7 +160,7 @@ export function NewChatPage() {
 
   return (
     <>
-      <TopBar newThread={false}>
+      <TopBar>
         <Crumb current>New thread</Crumb>
       </TopBar>
       {body}

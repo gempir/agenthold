@@ -177,4 +177,50 @@ describe('groupItems', () => {
     expect(g[3]).toMatchObject({ kind: 'work' });
     expect((g[3] as { items: ChatItem[] }).items).toHaveLength(3);
   });
+
+  it('upserts subthread events in place and keeps them outside folded work groups', () => {
+    let s = initialChatState;
+    s = applyEvent(s, {
+      seq: 1,
+      at: '2030-01-01T00:00:00Z',
+      type: 'subthread',
+      data: {
+        sessionId: 'ses_sub1',
+        agentId: 'ag_1',
+        title: 'Codex review',
+        harness: 'codex',
+        branch: 'feat/auth',
+        status: 'running',
+      },
+    });
+    expect(s.items).toHaveLength(1);
+    expect(s.items[0]).toMatchObject({
+      kind: 'subthread',
+      sessionId: 'ses_sub1',
+      harness: 'codex',
+      status: 'running',
+    });
+    s = applyEvent(s, {
+      seq: 2,
+      at: '2030-01-01T00:00:10Z',
+      type: 'subthread',
+      data: {
+        sessionId: 'ses_sub1',
+        agentId: 'ag_1',
+        title: 'Codex review',
+        harness: 'codex',
+        status: 'completed',
+        summary: 'Fixed 2 edge cases and added tests.',
+      },
+    });
+    expect(s.items).toHaveLength(1);
+    expect(s.items[0]).toMatchObject({
+      kind: 'subthread',
+      status: 'completed',
+      branch: 'feat/auth',
+      summary: 'Fixed 2 edge cases and added tests.',
+    });
+    const g = groupItems([tool(1), s.items[0], tool(3)]);
+    expect(g.map((x) => x.kind)).toEqual(['item', 'item', 'item']);
+  });
 });

@@ -66,7 +66,7 @@ func (q *Queries) DeleteAgentSession(ctx context.Context, id string) error {
 }
 
 const getAgentSession = `-- name: GetAgentSession :one
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch FROM agent_sessions WHERE id = ?
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch, harness FROM agent_sessions WHERE id = ?
 `
 
 func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession, error) {
@@ -96,6 +96,7 @@ func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession,
 		&i.HandoffSeq,
 		&i.ProjectID,
 		&i.ProjectBranch,
+		&i.Harness,
 	)
 	return i, err
 }
@@ -165,7 +166,7 @@ func (q *Queries) InsertSessionEvent(ctx context.Context, arg InsertSessionEvent
 }
 
 const linkedSessions = `-- name: LinkedSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch FROM agent_sessions WHERE agent_id = ? AND origin_agent_id = ? ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch, harness FROM agent_sessions WHERE agent_id = ? AND origin_agent_id = ? ORDER BY updated_at DESC
 `
 
 type LinkedSessionsParams struct {
@@ -207,6 +208,7 @@ func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) 
 			&i.HandoffSeq,
 			&i.ProjectID,
 			&i.ProjectBranch,
+			&i.Harness,
 		); err != nil {
 			return nil, err
 		}
@@ -222,7 +224,7 @@ func (q *Queries) LinkedSessions(ctx context.Context, arg LinkedSessionsParams) 
 }
 
 const listAgentSessions = `-- name: ListAgentSessions :many
-SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch FROM agent_sessions WHERE agent_id = ? ORDER BY updated_at DESC
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch, harness FROM agent_sessions WHERE agent_id = ? ORDER BY updated_at DESC
 `
 
 func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]AgentSession, error) {
@@ -258,6 +260,7 @@ func (q *Queries) ListAgentSessions(ctx context.Context, agentID string) ([]Agen
 			&i.HandoffSeq,
 			&i.ProjectID,
 			&i.ProjectBranch,
+			&i.Harness,
 		); err != nil {
 			return nil, err
 		}
@@ -305,6 +308,59 @@ func (q *Queries) ListAutoSettleCandidates(ctx context.Context, now int64) ([]Li
 			&i.Title,
 			&i.OwnerID,
 			&i.ThreadAutoSettleDays,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChildSessions = `-- name: ListChildSessions :many
+SELECT id, agent_id, acp_session_id, title, status, created_by, created_at, updated_at, origin_agent_id, origin_session_id, model, model_options, cwd, git_project, git_branch, git_repo_path, settled_at, settled_by, unsettled_at, acp_harness, handoff_seq, project_id, project_branch, harness FROM agent_sessions WHERE origin_session_id = ? ORDER BY created_at ASC
+`
+
+// Sub-threads started from a parent session, oldest first.
+func (q *Queries) ListChildSessions(ctx context.Context, originSessionID string) ([]AgentSession, error) {
+	rows, err := q.db.QueryContext(ctx, listChildSessions, originSessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentSession{}
+	for rows.Next() {
+		var i AgentSession
+		if err := rows.Scan(
+			&i.ID,
+			&i.AgentID,
+			&i.AcpSessionID,
+			&i.Title,
+			&i.Status,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.OriginAgentID,
+			&i.OriginSessionID,
+			&i.Model,
+			&i.ModelOptions,
+			&i.Cwd,
+			&i.GitProject,
+			&i.GitBranch,
+			&i.GitRepoPath,
+			&i.SettledAt,
+			&i.SettledBy,
+			&i.UnsettledAt,
+			&i.AcpHarness,
+			&i.HandoffSeq,
+			&i.ProjectID,
+			&i.ProjectBranch,
+			&i.Harness,
 		); err != nil {
 			return nil, err
 		}
@@ -451,10 +507,11 @@ func (q *Queries) ResetRunningSessions(ctx context.Context) error {
 }
 
 const resetSessionModels = `-- name: ResetSessionModels :exec
-UPDATE agent_sessions SET model = '', model_options = '{}' WHERE agent_id = ?
+UPDATE agent_sessions SET model = '', model_options = '{}' WHERE agent_id = ? AND harness = ''
 `
 
 // A new harness knows nothing of the models chosen on the old one.
+// Sub-threads pinned to their own harness keep theirs.
 func (q *Queries) ResetSessionModels(ctx context.Context, agentID string) error {
 	_, err := q.db.ExecContext(ctx, resetSessionModels, agentID)
 	return err
@@ -567,6 +624,20 @@ type SetSessionHandoffSeqParams struct {
 
 func (q *Queries) SetSessionHandoffSeq(ctx context.Context, arg SetSessionHandoffSeqParams) error {
 	_, err := q.db.ExecContext(ctx, setSessionHandoffSeq, arg.HandoffSeq, arg.ID)
+	return err
+}
+
+const setSessionHarness = `-- name: SetSessionHarness :exec
+UPDATE agent_sessions SET harness = ? WHERE id = ?
+`
+
+type SetSessionHarnessParams struct {
+	Harness string
+	ID      string
+}
+
+func (q *Queries) SetSessionHarness(ctx context.Context, arg SetSessionHarnessParams) error {
+	_, err := q.db.ExecContext(ctx, setSessionHarness, arg.Harness, arg.ID)
 	return err
 }
 

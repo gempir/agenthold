@@ -177,6 +177,8 @@ type Querier interface {
 	// Active, idle sessions whose agent owner's auto-settle period has passed
 	// since their last activity or their last unsettle by hand.
 	ListAutoSettleCandidates(ctx context.Context, now int64) ([]ListAutoSettleCandidatesRow, error)
+	// Sub-threads started from a parent session, oldest first.
+	ListChildSessions(ctx context.Context, originSessionID string) ([]AgentSession, error)
 	ListCustomHarnessesByOwner(ctx context.Context, ownerID string) ([]CustomHarness, error)
 	ListExposures(ctx context.Context, agentID string) ([]Exposure, error)
 	ListGitCredentials(ctx context.Context, userID string) ([]GitCredential, error)
@@ -242,6 +244,7 @@ type Querier interface {
 	// After a restart no turn is running anymore.
 	ResetRunningSessions(ctx context.Context) error
 	// A new harness knows nothing of the models chosen on the old one.
+	// Sub-threads pinned to their own harness keep theirs.
 	ResetSessionModels(ctx context.Context, agentID string) error
 	SetAgentExecutor(ctx context.Context, arg SetAgentExecutorParams) error
 	SetAgentExecutorApprovalMode(ctx context.Context, arg SetAgentExecutorApprovalModeParams) error
@@ -274,6 +277,7 @@ type Querier interface {
 	SetSessionACPID(ctx context.Context, arg SetSessionACPIDParams) error
 	SetSessionGit(ctx context.Context, arg SetSessionGitParams) error
 	SetSessionHandoffSeq(ctx context.Context, arg SetSessionHandoffSeqParams) error
+	SetSessionHarness(ctx context.Context, arg SetSessionHarnessParams) error
 	SetSessionModel(ctx context.Context, arg SetSessionModelParams) error
 	SetSessionNative(ctx context.Context, arg SetSessionNativeParams) error
 	SetSessionOrigin(ctx context.Context, arg SetSessionOriginParams) error

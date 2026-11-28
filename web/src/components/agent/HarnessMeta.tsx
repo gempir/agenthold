@@ -73,22 +73,29 @@ export function HarnessMeta({
 }) {
   const qc = useQueryClient();
   const harnesses = useQuery(harnessesQuery);
-  const currentHarness = harnesses.data?.find((h) => h.id === agent.harness);
-  const name = currentHarness?.name ?? agent.harness;
-  const models = useQuery(modelsQuery(agent.id));
+  const effectiveHarness = session?.harness || agent.harness;
+  const pinnedHarness = !!session?.harness && session.harness !== agent.harness;
+  const currentHarness = harnesses.data?.find((h) => h.id === effectiveHarness);
+  const name = currentHarness?.name ?? effectiveHarness;
+  const models = useQuery(
+    modelsQuery(agent.id, pinnedHarness ? effectiveHarness : undefined),
+  );
   const isOwner = agent.role === 'owner';
-  const otherHarnesses = isOwner
-    ? (harnesses.data ?? []).filter((h) => h.id !== agent.harness)
-    : [];
+  const otherHarnesses =
+    isOwner && !pinnedHarness
+      ? (harnesses.data ?? []).filter((h) => h.id !== agent.harness)
+      : [];
   const otherModels = useQueries({
     queries: otherHarnesses.map((h) => modelsQuery(agent.id, h.id)),
   });
   const sessions = useQuery(sessionsQuery(agent.id));
   const switchHarness = useSwitchHarness(agent);
-  const agentDefault = toChoice({
-    model: agent.model,
-    options: agent.modelOptions,
-  });
+  const agentDefault = pinnedHarness
+    ? { model: '', options: {} }
+    : toChoice({
+        model: agent.model,
+        options: agent.modelOptions,
+      });
   const set = useMutation({
     mutationFn: (c: Choice) =>
       unwrap(
@@ -128,7 +135,11 @@ export function HarnessMeta({
         }
         allowCustom={isOwner}
         label="Model for this conversation"
-        harness={{ id: agent.harness, name, iconUrl: currentHarness?.iconUrl }}
+        harness={{
+          id: effectiveHarness,
+          name,
+          iconUrl: currentHarness?.iconUrl,
+        }}
         harnessSwitch={
           others.length > 0
             ? {

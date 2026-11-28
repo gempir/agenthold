@@ -76,6 +76,8 @@ var ErrNoThread = errors.New("no thread of yours with that id")
 type threadInfo struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
+	Harness   string `json:"harness,omitempty"`
+	ParentID  string `json:"parentId,omitempty"`
 	UpdatedAt string `json:"updatedAt"`
 	Running   bool   `json:"running,omitempty"`
 	Current   bool   `json:"current,omitempty"`
@@ -100,7 +102,7 @@ func (p *Service) listThreads(ctx context.Context, caller db.Agent, current stri
 			more++
 			continue
 		}
-		t := threadInfo{ID: r.ID, Title: r.Title, UpdatedAt: rfc3339(r.UpdatedAt), Current: r.ID == current, Settled: r.SettledAt.Valid}
+		t := threadInfo{ID: r.ID, Title: r.Title, Harness: r.Harness, ParentID: r.OriginSessionID, UpdatedAt: rfc3339(r.UpdatedAt), Current: r.ID == current, Settled: r.SettledAt.Valid}
 		if p.Sessions != nil {
 			t.Running = p.Sessions.Running(r.ID)
 		}

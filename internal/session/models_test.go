@@ -538,7 +538,7 @@ func TestProbeOnlyForAdaptersThatAllowIt(t *testing.T) {
 	e := newEnv(t)
 	e.ok("hello")
 	e.m.mu.Lock()
-	conn := e.m.conns[agentID]
+	conn := e.m.conns[connKey{agentID: agentID, harness: "fake"}]
 	e.m.mu.Unlock()
 	saved := conn.adapter.ProbeModels
 	conn.adapter.ProbeModels = false
@@ -566,7 +566,7 @@ func TestProbeDoesNotReplaceTheReportedState(t *testing.T) {
 	}
 	// A late update for the finished probe session is ignored.
 	e.m.mu.Lock()
-	conn := e.m.conns[agentID]
+	conn := e.m.conns[connKey{agentID: agentID, harness: "fake"}]
 	e.m.mu.Unlock()
 	if conn.tracks("fs-probe-gone") {
 		t.Fatal("an unknown session is tracked")

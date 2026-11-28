@@ -846,6 +846,18 @@ func (p postgresQueries) ListAutoSettleCandidates(ctx context.Context, now int64
 	return result, nil
 }
 
+func (p postgresQueries) ListChildSessions(ctx context.Context, originSessionID string) ([]db.AgentSession, error) {
+	value, err := p.q.ListChildSessions(ctx, originSessionID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.AgentSession, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.AgentSession(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListCustomHarnessesByOwner(ctx context.Context, ownerID string) ([]db.CustomHarness, error) {
 	value, err := p.q.ListCustomHarnessesByOwner(ctx, ownerID)
 	if err != nil {
@@ -1432,6 +1444,10 @@ func (p postgresQueries) SetSessionGit(ctx context.Context, arg db.SetSessionGit
 
 func (p postgresQueries) SetSessionHandoffSeq(ctx context.Context, arg db.SetSessionHandoffSeqParams) error {
 	return p.q.SetSessionHandoffSeq(ctx, postgres.SetSessionHandoffSeqParams(arg))
+}
+
+func (p postgresQueries) SetSessionHarness(ctx context.Context, arg db.SetSessionHarnessParams) error {
+	return p.q.SetSessionHarness(ctx, postgres.SetSessionHarnessParams(arg))
 }
 
 func (p postgresQueries) SetSessionModel(ctx context.Context, arg db.SetSessionModelParams) error {

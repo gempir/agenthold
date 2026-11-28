@@ -940,3 +940,65 @@ it('titles the browser tab after the open thread and its agent', async () => {
   await router.navigate({ to: '/a/$agentId', params: { agentId: 'a1' } });
   await waitFor(() => expect(document.title).toBe('builder'));
 });
+
+it('visualizes sub-threads and lets you jump into a codex sub-thread and back out to the parent', async () => {
+  stubGlobal('WebSocket', FakeSocket);
+  const parent = session({
+    id: 's1',
+    title: 'Implement auth',
+    git: { project: 'agenthold', branch: 'feat/auth' },
+  });
+  const sub = session({
+    id: 's2',
+    title: 'Review auth diff',
+    harness: 'codex',
+    running: true,
+    cwd: 'projects/agenthold/.threads/abc',
+    git: { project: 'agenthold', branch: 'feat/auth' },
+    origin: {
+      agentId: 'a1',
+      agentName: 'builder',
+      sessionId: 's1',
+      sessionTitle: 'Implement auth',
+    },
+  });
+  mockApi({
+    'GET /me': me,
+    'GET /harnesses': harnessTypes,
+    'GET /agents': [agent({ role: 'owner', state: 'running' })],
+    'GET /agents/a1': agent({ role: 'owner', state: 'running' }),
+    'GET /agents/a1/sessions': [parent, sub],
+    'GET /agents/a1/models': claudeModels,
+    'GET /agents/a1/models?harness=codex': codexModels,
+    'GET /agents/a1/models?harness=opencode': opencodeModels,
+  });
+
+  const { router } = renderApp('/a/a1?s=s1');
+  // Parent thread shows the active sub-thread strip so you can jump in.
+  const bar = await screen.findByTestId('subthreads-bar');
+  const jumpIn = within(bar).getByRole('link', { name: /Review auth diff/ });
+  expect(jumpIn).toHaveAttribute('href', '/a/a1?s=s2');
+
+  await userEvent.click(jumpIn);
+  await waitFor(() => expect(router.state.location.href).toBe('/a/a1?s=s2'));
+
+  // Sub-thread shows a Back to parent jump-out bar, Codex label, and shared worktree.
+  const banner = await screen.findByTestId('subthread-banner');
+  expect(banner).toHaveTextContent('Codex sub-thread');
+  expect(banner).toHaveTextContent('Shared worktree');
+  const backLink = within(banner).getByRole('link', {
+    name: /Back to Implement auth/,
+  });
+  expect(backLink).toHaveAttribute('href', '/a/a1?s=s1');
+
+  // Composer reflects the sub-thread's pinned Codex harness.
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: /Model for this conversation/ }),
+    ).toHaveAttribute('title', 'Codex'),
+  );
+
+  // Jump right back out to the parent thread.
+  await userEvent.click(backLink);
+  await waitFor(() => expect(router.state.location.href).toBe('/a/a1?s=s1'));
+});

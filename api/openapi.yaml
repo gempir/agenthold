@@ -1415,6 +1415,39 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /sessions/{sessionId}/subthreads:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      operationId: startSubthread
+      tags: [sessions]
+      description: |
+        Start a sub-thread of this session on the same agent machine, sharing its working directory and git
+        worktree. Optionally run the sub-thread on another harness (for example Codex from a Claude Code thread)
+        and model. When text is given, the first turn starts immediately.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string, maxLength: 200 }
+                harness: { type: string, description: "Harness id for this sub-thread (default: the agent's harness)." }
+                model: { type: string, description: "Optional model id for the sub-thread's harness." }
+                modelOptions:
+                  type: object
+                  additionalProperties: { type: string }
+                text: { type: string, description: "Optional first prompt to send immediately." }
+      responses:
+        "201":
+          description: Sub-thread started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
   /sessions/{sessionId}/settle:
     parameters:
       - $ref: "#/components/parameters/SessionId"
@@ -4253,12 +4286,16 @@ components:
         agentId: { type: string }
         origin:
           type: object
-          description: Set when another agent started the session (send_message or ask).
+          description: Set when another agent or parent thread started this session (sub-thread, send_message, ask, or assign_task).
           required: [agentId, agentName, sessionId]
           properties:
             agentId: { type: string }
             agentName: { type: string }
-            sessionId: { type: string, description: The other agent's session that sent the messages. }
+            sessionId: { type: string, description: The parent or calling agent's session that started this thread. }
+            sessionTitle: { type: string, description: The parent session's title, if known. }
+        harness:
+          type: string
+          description: "The harness this session runs on when pinned separately from the agent's default (e.g. a Codex sub-thread on a Claude Code agent)."
         title: { type: string }
         running: { type: boolean }
         cwd: { type: string, description: "Working directory relative to the agent's home directory." }
@@ -4310,13 +4347,14 @@ components:
         at: { type: string, format: date-time }
         type:
           type: string
-          enum: [prompt, update, permission, permission_resolved, turn_end, error, notice]
+          enum: [prompt, update, permission, permission_resolved, turn_end, error, notice, subthread]
           description: |
             prompt: {text, user{id,name}}; update: an ACP SessionUpdate
             (discriminated by "sessionUpdate"); permission: {requestId,
             toolCall, options[{optionId,name,kind}], policy};
             permission_resolved: {requestId, optionId, by}; turn_end:
-            {stopReason}; error/notice: {message}.
+            {stopReason}; error/notice: {message}; subthread: {sessionId,
+            agentId, title, harness, model, status, summary}.
         userId: { type: string }
         data:
           type: object

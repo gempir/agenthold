@@ -162,6 +162,7 @@ type Querier interface {
 	ListAllImageBuilds(ctx context.Context) ([]ImageBuild, error)
 	ListAllMachines(ctx context.Context) ([]ListAllMachinesRow, error)
 	ListAutoSettleCandidates(ctx context.Context, now int64) ([]ListAutoSettleCandidatesRow, error)
+	ListChildSessions(ctx context.Context, originSessionID string) ([]AgentSession, error)
 	ListCustomHarnessesByOwner(ctx context.Context, ownerID string) ([]CustomHarness, error)
 	ListExposures(ctx context.Context, agentID string) ([]Exposure, error)
 	ListGitCredentials(ctx context.Context, userID string) ([]GitCredential, error)
@@ -242,6 +243,7 @@ type Querier interface {
 	SetSessionACPID(ctx context.Context, arg SetSessionACPIDParams) error
 	SetSessionGit(ctx context.Context, arg SetSessionGitParams) error
 	SetSessionHandoffSeq(ctx context.Context, arg SetSessionHandoffSeqParams) error
+	SetSessionHarness(ctx context.Context, arg SetSessionHarnessParams) error
 	SetSessionModel(ctx context.Context, arg SetSessionModelParams) error
 	SetSessionNative(ctx context.Context, arg SetSessionNativeParams) error
 	SetSessionOrigin(ctx context.Context, arg SetSessionOriginParams) error

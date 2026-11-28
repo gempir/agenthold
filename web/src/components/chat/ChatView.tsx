@@ -1,18 +1,22 @@
 import {
   lazy,
   Suspense,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import {
   ArrowDown,
+  ArrowUpRight,
   Check,
   ChevronRight,
   Circle,
   CircleAlert,
+  GitBranch,
   ListTodo,
   Loader2,
   ShieldCheck,
@@ -32,13 +36,20 @@ import {
 import { ToolCard } from '@/components/chat/ToolCard';
 import { useSessionStream } from '@/components/chat/useSessionStream';
 import { ActivityLink } from '@/components/chat/LiveLog';
-import { meQuery, type SandboxState } from '@/api/queries';
+import {
+  harnessesQuery,
+  meQuery,
+  type SandboxState,
+  type Session,
+} from '@/api/queries';
 import { Avatar } from '@/components/Avatar';
+import { HarnessIcon } from '@/components/HarnessIcon';
 import {
   groupItems,
   type ChatItem,
   type ContextUsage,
   type PlanEntry,
+  type SubthreadItem,
   type Viewer,
 } from '@/lib/session';
 import { elapsed, useNow } from '@/lib/time';
@@ -303,18 +314,110 @@ function MessageImages({
   );
 }
 
+function SubthreadCard({
+  item,
+  live,
+}: {
+  item: SubthreadItem;
+  live?: Session;
+}) {
+  const harnesses = useQuery(harnessesQuery);
+  const harnessId = live?.harness || item.harness;
+  const harnessMeta = harnesses.data?.find((h) => h.id === harnessId);
+  const harnessName = harnessMeta?.name ?? harnessId;
+  const title = live?.title || item.title;
+  const isRunning = live ? live.running : item.status === 'running';
+  const status: SubthreadItem['status'] = isRunning
+    ? 'running'
+    : item.status === 'failed'
+      ? 'failed'
+      : item.status === 'idle' && !live
+        ? 'idle'
+        : 'completed';
+  const branch = live?.git?.branch || item.branch;
+
+  return (
+    <div
+      data-testid="subthread-card"
+      className="rounded-xl border bg-card/60 p-3 transition-colors hover:border-foreground/20"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <HarnessIcon
+          harness={harnessId}
+          iconUrl={harnessMeta?.iconUrl}
+          className="size-4 shrink-0"
+        />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+          {title}
+        </span>
+        {status === 'running' ? (
+          <span className="flex shrink-0 items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 text-xs font-medium text-sky-600 dark:text-sky-400">
+            <Loader2 className="size-3 animate-spin" aria-hidden />
+            Working
+          </span>
+        ) : status === 'failed' ? (
+          <span className="flex shrink-0 items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-medium text-destructive">
+            <CircleAlert className="size-3" aria-hidden />
+            Failed
+          </span>
+        ) : status === 'completed' ? (
+          <span className="flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            <Check className="size-3" aria-hidden />
+            Done
+          </span>
+        ) : null}
+        <Link
+          to="/a/$agentId"
+          params={{ agentId: item.agentId }}
+          search={{ s: item.sessionId }}
+          className="inline-flex shrink-0 items-center gap-1 rounded-lg border bg-background px-2.5 py-1 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-accent"
+        >
+          {status === 'running' ? 'Watch live' : 'Jump in'}
+          <ArrowUpRight className="size-3.5" aria-hidden />
+        </Link>
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
+        {harnessName && <span>{harnessName} sub-thread</span>}
+        {item.model && <span className="font-mono">{item.model}</span>}
+        {branch ? (
+          <span className="flex items-center gap-1 font-mono">
+            <GitBranch className="size-3" aria-hidden />
+            {branch}
+          </span>
+        ) : (
+          <span>Shared worktree</span>
+        )}
+      </div>
+      {item.summary && status !== 'running' && (
+        <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+          {item.summary}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function Item({
   item,
   sessionId,
   canUse,
   myName,
+  subthreads,
 }: {
   item: ChatItem;
   sessionId: string;
   canUse: boolean;
   myName?: string;
+  subthreads?: Session[];
 }) {
   switch (item.kind) {
+    case 'subthread':
+      return (
+        <SubthreadCard
+          item={item}
+          live={subthreads?.find((s) => s.id === item.sessionId)}
+        />
+      );
     case 'user':
       return (
         <div className="ml-auto flex max-w-[85%] flex-col items-end gap-1">
@@ -520,6 +623,8 @@ function SessionComposer({
 
 export default function ChatView({
   sessionId,
+  agentId,
+  subthreads,
   onOpenActivity,
   canUse,
   initialRunning = false,
@@ -529,6 +634,9 @@ export default function ChatView({
   notice,
 }: {
   sessionId: string;
+  agentId?: string;
+  /** Child sub-threads of this session, for live running state and titles. */
+  subthreads?: Session[];
   /** Opens the agent's Activity tab: offered while the agent wakes or starts, and after an error. */
   onOpenActivity?: () => void;
   canUse: boolean;
@@ -541,11 +649,20 @@ export default function ChatView({
   /** Agent state banner shown right above the composer. */
   notice?: ReactNode;
 }) {
+  const qc = useQueryClient();
   const me = useQuery(meQuery);
   const { state, running, connected, viewers } = useSessionStream(
     sessionId,
     initialRunning,
   );
+  const subthreadCount = state.items.filter(
+    (i) => i.kind === 'subthread',
+  ).length;
+  useEffect(() => {
+    if (agentId && subthreadCount > 0) {
+      void qc.invalidateQueries({ queryKey: ['agents', agentId, 'sessions'] });
+    }
+  }, [agentId, subthreadCount, qc]);
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
@@ -605,6 +722,7 @@ export default function ChatView({
                 sessionId={sessionId}
                 canUse={canUse}
                 myName={me.data?.user.name}
+                subthreads={subthreads}
               />
             ),
           )}

@@ -2,17 +2,26 @@ import { lazy, Suspense, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import {
+  ArrowLeft,
+  ArrowUpRight,
   Bot,
   Check,
   FolderGit2,
   FolderKanban,
   GitBranch,
+  Loader2,
   PanelRight,
   Settings2,
   Undo2,
 } from 'lucide-react';
-import { agentQuery, sessionsQuery, type Agent } from '@/api/queries';
+import {
+  agentQuery,
+  harnessesQuery,
+  sessionsQuery,
+  type Agent,
+} from '@/api/queries';
 import { AgentStateDot } from '@/components/AgentStateBadge';
+import { HarnessIcon } from '@/components/HarnessIcon';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
 import { AgentLoadError } from '@/components/agent/AgentLoadError';
@@ -64,6 +73,7 @@ export function AgentPage({
 }) {
   const q = useQuery(agentQuery(agentId));
   const sessions = useQuery(sessionsQuery(agentId));
+  const harnesses = useQuery(harnessesQuery);
   const [wide, setWideState] = useState(
     () => readPref('panelWide', '') === '1',
   );
@@ -100,6 +110,28 @@ export function AgentPage({
   const access = accessOf(a);
   const selected = active;
   const notice = <AgentNotice agent={a} canUse={access.canUse} />;
+  const isSubthread =
+    !!selected?.origin &&
+    selected.origin.agentId === a.id &&
+    !!selected.origin.sessionId;
+  const parentSession = selected?.origin?.sessionId
+    ? sessions.data?.find((s) => s.id === selected.origin?.sessionId)
+    : undefined;
+  const parentTitle =
+    parentSession?.title || selected?.origin?.sessionTitle || 'Parent thread';
+  const childSessions = selected
+    ? (sessions.data ?? [])
+        .filter(
+          (s) =>
+            s.origin?.agentId === a.id && s.origin.sessionId === selected.id,
+        )
+        .slice()
+        .sort((x, y) => x.createdAt.localeCompare(y.createdAt))
+    : [];
+  const harnessNameOf = (id: string) =>
+    harnesses.data?.find((h) => h.id === id)?.name ?? id;
+  const harnessIconOf = (id: string) =>
+    harnesses.data?.find((h) => h.id === id)?.iconUrl;
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -176,6 +208,21 @@ export function AgentPage({
           </Crumb>
           {selected && (
             <>
+              {isSubthread && selected.origin && (
+                <>
+                  <CrumbSep />
+                  <Crumb className="hidden max-w-[28%] shrink sm:flex">
+                    <Link
+                      to="/a/$agentId"
+                      params={{ agentId }}
+                      search={{ s: selected.origin.sessionId }}
+                      className="truncate hover:text-foreground hover:underline"
+                    >
+                      {parentTitle}
+                    </Link>
+                  </Crumb>
+                </>
+              )}
               <CrumbSep />
               <Crumb current className="min-w-0">
                 <span className="truncate">
@@ -243,7 +290,40 @@ export function AgentPage({
         </TopBar>
 
         <ErrorText error={settle.error} />
-        {selected?.origin && (
+        {isSubthread && selected?.origin && (
+          <div
+            role="note"
+            data-testid="subthread-banner"
+            className="flex flex-wrap items-center gap-2 border-b bg-card/40 px-3 py-1.5 text-xs md:px-4"
+          >
+            <Link
+              to="/a/$agentId"
+              params={{ agentId }}
+              search={{ s: selected.origin.sessionId }}
+              className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1 font-medium text-foreground shadow-xs transition-colors hover:bg-accent"
+            >
+              <ArrowLeft className="size-3.5" aria-hidden />
+              <span className="max-w-52 truncate">Back to {parentTitle}</span>
+            </Link>
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <HarnessIcon
+                harness={selected.harness || a.harness}
+                iconUrl={harnessIconOf(selected.harness || a.harness)}
+                className="size-3.5"
+              />
+              <span>
+                {harnessNameOf(selected.harness || a.harness)} sub-thread
+              </span>
+              {(selected.cwd || selected.git?.branch) && (
+                <>
+                  <span aria-hidden>·</span>
+                  <span>Shared worktree</span>
+                </>
+              )}
+            </span>
+          </div>
+        )}
+        {!isSubthread && selected?.origin && (
           <p
             role="note"
             className="mx-auto mt-1 flex max-w-3xl items-center gap-2 rounded-full border px-3 py-1 text-xs text-muted-foreground"
@@ -263,12 +343,56 @@ export function AgentPage({
             </Link>
           </p>
         )}
+        {!isSubthread && childSessions.length > 0 && (
+          <div
+            data-testid="subthreads-bar"
+            className="flex flex-wrap items-center gap-1.5 border-b bg-card/30 px-3 py-1.5 text-xs md:px-4"
+          >
+            <span className="text-muted-foreground">Sub-threads</span>
+            {childSessions.map((sub) => {
+              const h = sub.harness || a.harness;
+              return (
+                <Link
+                  key={sub.id}
+                  to="/a/$agentId"
+                  params={{ agentId }}
+                  search={{ s: sub.id }}
+                  className="inline-flex max-w-60 items-center gap-1.5 rounded-full border bg-background px-2.5 py-0.5 text-foreground transition-colors hover:bg-accent"
+                >
+                  <HarnessIcon
+                    harness={h}
+                    iconUrl={harnessIconOf(h)}
+                    className="size-3 shrink-0"
+                  />
+                  {sub.running ? (
+                    <Loader2
+                      aria-label="running"
+                      className="size-3 shrink-0 animate-spin text-sky-500 dark:text-sky-400"
+                    />
+                  ) : (
+                    <Check
+                      className="size-3 shrink-0 text-emerald-600 dark:text-emerald-400"
+                      aria-hidden
+                    />
+                  )}
+                  <span className="truncate">{sub.title || 'Sub-thread'}</span>
+                  <ArrowUpRight
+                    className="size-3 shrink-0 text-muted-foreground"
+                    aria-hidden
+                  />
+                </Link>
+              );
+            })}
+          </div>
+        )}
 
         {sessionId ? (
           <Suspense fallback={<Loading />}>
             <ChatView
               key={sessionId}
               sessionId={sessionId}
+              agentId={agentId}
+              subthreads={childSessions}
               onOpenActivity={
                 access.canUse ? () => onPanel('activity') : undefined
               }

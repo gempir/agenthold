@@ -197,6 +197,9 @@ func (a *API) SetSessionModel(ctx context.Context, req gen.SetSessionModelReques
 	if err != nil {
 		return nil, err
 	}
+	if s.Harness != "" {
+		agent.Harness = s.Harness
+	}
 	choice := choiceFrom(*req.Body)
 	_, cerr := a.authz.Agent(ctx, me(ctx).ID, s.AgentID, authz.AgentConfigure)
 	if err := a.validateChoice(ctx, agent, choice, session.OwnChoice(s), cerr == nil); err != nil {

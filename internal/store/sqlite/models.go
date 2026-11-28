@@ -77,6 +77,7 @@ type AgentSession struct {
 	HandoffSeq      int64
 	ProjectID       string
 	ProjectBranch   string
+	Harness         string
 }
 
 type AgentSessionEvent struct {

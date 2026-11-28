@@ -425,29 +425,57 @@ func (s *Service) Prepare(ctx context.Context, ag db.Agent, ts *tunnel.Session) 
 	now := s.now()
 	_ = s.Store.TouchProviderLogin(ctx, db.TouchProviderLoginParams{LastUsedAt: now.Unix(), ID: l.ID})
 	s.recordAgent(ctx, ag, l.UserID, ActionUse, l.Provider, map[string]any{"kind": l.Kind, "loginUser": l.UserID})
+	if s.Invalidate != nil {
+		s.Invalidate()
+	}
 	return d.Env, nil
 }
 
-// Egress implements egress.AccountLogins.
+// Egress implements egress.AccountLogins. It delivers injections and refresh
+// responders for the agent's own harness, plus any other harness pinned on a
+// sub-thread of this agent (e.g. a Codex sub-thread on a Claude Code agent)
+// when the agent is linked to a user's account logins.
 func (s *Service) Egress(ctx context.Context, ag db.Agent) ([]secrets.Injection, []egress.Responder, error) {
-	l, al, d, err := s.delivery(ctx, ag)
-	if err != nil || l == nil {
-		return nil, nil, err
+	harnesses := []string{ag.Harness}
+	seen := map[string]bool{ag.Harness: true}
+	if ag.LoginUserID != "" {
+		if sessions, err := s.Store.ListAgentSessions(ctx, ag.ID); err == nil {
+			for _, sess := range sessions {
+				if sess.Harness != "" && !seen[sess.Harness] {
+					seen[sess.Harness] = true
+					harnesses = append(harnesses, sess.Harness)
+				}
+			}
+		}
 	}
 	var injs []secrets.Injection
-	for _, in := range d.Injections {
-		injs = append(injs, secrets.Injection{
-			SecretID: "login:" + l.ID, Rule: secrets.Rule{Hosts: in.Hosts, Header: in.Header},
-			Value: in.Value, Placeholder: in.Placeholder, HeaderOnly: true, PathPrefixes: in.PathPrefixes,
-		})
-	}
 	var resp []egress.Responder
-	rf, canRefresh := al.(harness.Refresher)
-	for _, ic := range d.Intercepts {
-		if !canRefresh {
+	for _, h := range harnesses {
+		cur := ag
+		cur.Harness = h
+		l, al, d, err := s.delivery(ctx, cur)
+		if err != nil {
+			if h == ag.Harness {
+				return nil, nil, err
+			}
 			continue
 		}
-		resp = append(resp, egress.Responder{Host: ic.Host, Method: ic.Method, Path: ic.Path, Placeholder: ic.Placeholder, Handle: s.interceptHandler(ic, l.ID, rf)})
+		if l == nil {
+			continue
+		}
+		for _, in := range d.Injections {
+			injs = append(injs, secrets.Injection{
+				SecretID: "login:" + l.ID, Rule: secrets.Rule{Hosts: in.Hosts, Header: in.Header},
+				Value: in.Value, Placeholder: in.Placeholder, HeaderOnly: true, PathPrefixes: in.PathPrefixes,
+			})
+		}
+		rf, canRefresh := al.(harness.Refresher)
+		for _, ic := range d.Intercepts {
+			if !canRefresh {
+				continue
+			}
+			resp = append(resp, egress.Responder{Host: ic.Host, Method: ic.Method, Path: ic.Path, Placeholder: ic.Placeholder, Handle: s.interceptHandler(ic, l.ID, rf)})
+		}
 	}
 	return injs, resp, nil
 }

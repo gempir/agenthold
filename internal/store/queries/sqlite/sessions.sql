@@ -60,6 +60,13 @@ UPDATE agents SET credentials_in_sandbox = 1 WHERE id = ?;
 -- name: SetSessionOrigin :exec
 UPDATE agent_sessions SET origin_agent_id = ?, origin_session_id = ? WHERE id = ?;
 
+-- name: SetSessionHarness :exec
+UPDATE agent_sessions SET harness = ? WHERE id = ?;
+
+-- name: ListChildSessions :many
+-- Sub-threads started from a parent session, oldest first.
+SELECT * FROM agent_sessions WHERE origin_session_id = ? ORDER BY created_at ASC;
+
 -- name: LinkedSessions :many
 -- Sessions of an agent that another agent started, newest first.
 SELECT * FROM agent_sessions WHERE agent_id = ? AND origin_agent_id = ? ORDER BY updated_at DESC;
@@ -69,7 +76,8 @@ UPDATE agents SET model = ?, model_options = ?, updated_at = ? WHERE id = ?;
 
 -- name: ResetSessionModels :exec
 -- A new harness knows nothing of the models chosen on the old one.
-UPDATE agent_sessions SET model = '', model_options = '{}' WHERE agent_id = ?;
+-- Sub-threads pinned to their own harness keep theirs.
+UPDATE agent_sessions SET model = '', model_options = '{}' WHERE agent_id = ? AND harness = '';
 
 -- name: SetSessionModel :exec
 UPDATE agent_sessions SET model = ?, model_options = ? WHERE id = ?;

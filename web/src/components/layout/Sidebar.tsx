@@ -36,6 +36,7 @@ import type { PanelTab } from '@/components/agent/AgentPanel';
 import { AgentStateDot } from '@/components/AgentStateBadge';
 import { AgentBadge } from '@/components/AgentBadge';
 import { Avatar } from '@/components/Avatar';
+import { HarnessIcon } from '@/components/HarnessIcon';
 import { ErrorText } from '@/components/Spinner';
 import { Menu, MenuItem, MenuSeparator } from '@/components/ui/menu';
 import { readPref, useShell, writePref } from '@/components/layout/shell';
@@ -108,6 +109,27 @@ export function Sidebar() {
     );
   const active = index.active.filter(threadMatches);
   const settled = index.settled.filter(threadMatches);
+  // Group same-agent sub-threads underneath their active parent thread so
+  // nested work is visible at a glance without cluttering the top-level list.
+  const activeIds = new Set(active.map((c) => c.session.id));
+  const childrenByParent = new Map<string, ChatEntry[]>();
+  const topActive: ChatEntry[] = [];
+  for (const c of active) {
+    const parentId =
+      c.session.origin?.agentId === c.agent.id
+        ? c.session.origin.sessionId
+        : '';
+    if (parentId && activeIds.has(parentId)) {
+      const list = childrenByParent.get(parentId) ?? [];
+      list.push(c);
+      childrenByParent.set(parentId, list);
+    } else {
+      topActive.push(c);
+    }
+  }
+  for (const list of childrenByParent.values()) {
+    list.sort((a, b) => a.session.createdAt.localeCompare(b.session.createdAt));
+  }
   // A search looks into settled threads too.
   const showSettled = settledOpen || (!!q && settled.length > 0);
 
@@ -169,13 +191,16 @@ export function Sidebar() {
                       : 'No threads yet.'}
                 </li>
               )}
-              {active.slice(0, threadLimit).map((c) => (
+              {topActive.slice(0, threadLimit).map((c) => (
                 <ThreadCard
                   key={c.session.id}
                   chat={c}
+                  subthreads={childrenByParent.get(c.session.id)}
+                  activeSessionId={search.s}
                   now={now}
                   active={search.s === c.session.id}
                   done={done.has(c.session.id)}
+                  doneIds={done}
                   me={me.data?.user.id}
                   onSettle={
                     canUse(c)
@@ -189,7 +214,7 @@ export function Sidebar() {
                   }
                 />
               ))}
-              {active.length > threadLimit && (
+              {topActive.length > threadLimit && (
                 <li>
                   <button
                     type="button"
@@ -480,17 +505,23 @@ function AppsSidebarView({
 /** An active thread: agent, title, and how it stands; Settle on hover. */
 function ThreadCard({
   chat: { session, agent },
+  subthreads,
+  activeSessionId,
   now,
   active,
   done,
+  doneIds,
   me,
   onSettle,
   settling,
 }: {
   chat: ChatEntry;
+  subthreads?: ChatEntry[];
+  activeSessionId?: string;
   now: number;
   active: boolean;
   done: boolean;
+  doneIds: Set<string>;
   me?: string;
   onSettle?: () => void;
   settling: boolean;
@@ -499,7 +530,9 @@ function ThreadCard({
   const hasDraft = useHasDraft(session.id);
   const by =
     session.origin != null
-      ? `from ${session.origin.agentName}`
+      ? session.origin.agentId === agent.id
+        ? 'sub-thread'
+        : `from ${session.origin.agentName}`
       : me && session.createdBy.id !== me
         ? `by ${session.createdBy.name}`
         : null;
@@ -525,56 +558,107 @@ function ThreadCard({
     </span>
   );
   return (
-    <li className="group relative">
-      <Link
-        to="/a/$agentId"
-        params={{ agentId: agent.id }}
-        search={{ s: session.id }}
-        aria-current={active ? 'page' : undefined}
-        className={cn(
-          'grid grid-cols-1 gap-0.5 rounded-lg bg-accent/25 px-2 py-1.5 hover:bg-accent/50',
-          active && 'bg-accent/70 hover:bg-accent/70',
-        )}
-      >
-        <span className="truncate text-[13px] leading-5 font-medium text-foreground">
-          {title}
-        </span>
-        <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          <AgentBadge name={agent.name} />
-          <span className="min-w-0 truncate">
-            {[agent.name, by].filter(Boolean).join(' · ')}
-          </span>
-          {session.origin && <Bot className="size-3 shrink-0" aria-hidden />}
-          {agent.role === 'shared' && (
-            <Users
-              className="size-3 shrink-0"
-              aria-label={`shared by ${agent.owner.name}`}
-            />
+    <li>
+      <div className="group relative">
+        <Link
+          to="/a/$agentId"
+          params={{ agentId: agent.id }}
+          search={{ s: session.id }}
+          aria-current={active ? 'page' : undefined}
+          className={cn(
+            'grid grid-cols-1 gap-0.5 rounded-lg bg-accent/25 px-2 py-1.5 hover:bg-accent/50',
+            active && 'bg-accent/70 hover:bg-accent/70',
           )}
-          <span
-            className={cn(
-              'ml-auto flex shrink-0 items-center',
-              onSettle &&
-                'group-focus-within:invisible group-hover:invisible [@media(hover:none)]:invisible',
-            )}
-          >
-            {status}
-          </span>
-        </span>
-        {hasGit(gitOf(session)) && <GitLine git={gitOf(session)!} />}
-      </Link>
-      {onSettle && (
-        <button
-          type="button"
-          onClick={onSettle}
-          disabled={settling}
-          aria-label={`Settle thread ${title}`}
-          title="Settle thread"
-          className="absolute right-1.5 bottom-1.5 flex h-5 items-center gap-1 rounded-md border bg-background px-1.5 text-[11px] font-medium text-muted-foreground opacity-0 shadow-xs group-focus-within:opacity-100 group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100 disabled:opacity-50 [@media(hover:none)]:opacity-100"
         >
-          <Check className="size-3" aria-hidden />
-          Settle
-        </button>
+          <span className="truncate text-[13px] leading-5 font-medium text-foreground">
+            {title}
+          </span>
+          <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <AgentBadge name={agent.name} />
+            <span className="min-w-0 truncate">
+              {[agent.name, by].filter(Boolean).join(' · ')}
+            </span>
+            {session.origin && <Bot className="size-3 shrink-0" aria-hidden />}
+            {agent.role === 'shared' && (
+              <Users
+                className="size-3 shrink-0"
+                aria-label={`shared by ${agent.owner.name}`}
+              />
+            )}
+            <span
+              className={cn(
+                'ml-auto flex shrink-0 items-center',
+                onSettle &&
+                  'group-focus-within:invisible group-hover:invisible [@media(hover:none)]:invisible',
+              )}
+            >
+              {status}
+            </span>
+          </span>
+          {hasGit(gitOf(session)) && <GitLine git={gitOf(session)!} />}
+        </Link>
+        {onSettle && (
+          <button
+            type="button"
+            onClick={onSettle}
+            disabled={settling}
+            aria-label={`Settle thread ${title}`}
+            title="Settle thread"
+            className="absolute right-1.5 bottom-1.5 flex h-5 items-center gap-1 rounded-md border bg-background px-1.5 text-[11px] font-medium text-muted-foreground opacity-0 shadow-xs group-focus-within:opacity-100 group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100 disabled:opacity-50 [@media(hover:none)]:opacity-100"
+          >
+            <Check className="size-3" aria-hidden />
+            Settle
+          </button>
+        )}
+      </div>
+      {subthreads && subthreads.length > 0 && (
+        <ul
+          aria-label={`Sub-threads of ${title}`}
+          className="mt-1 ml-3 grid grid-cols-1 gap-0.5 border-l pl-2"
+        >
+          {subthreads.map(({ session: sub, agent: subAgent }) => {
+            const subActive = activeSessionId === sub.id;
+            const subDone = doneIds.has(sub.id);
+            const subTitle = sub.title || 'Sub-thread';
+            return (
+              <li key={sub.id}>
+                <Link
+                  to="/a/$agentId"
+                  params={{ agentId: subAgent.id }}
+                  search={{ s: sub.id }}
+                  aria-current={subActive ? 'page' : undefined}
+                  title={subTitle}
+                  className={cn(
+                    'flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                    subActive && 'bg-accent/70 text-foreground',
+                  )}
+                >
+                  <HarnessIcon
+                    harness={sub.harness || subAgent.harness}
+                    className="size-3 shrink-0"
+                  />
+                  <span className="min-w-0 flex-1 truncate">{subTitle}</span>
+                  {sub.running ? (
+                    <Loader2
+                      role="img"
+                      aria-label="running"
+                      className="size-3 shrink-0 animate-spin text-sky-500 dark:text-sky-400"
+                    />
+                  ) : subDone ? (
+                    <Check
+                      className="size-3 shrink-0 text-emerald-600 dark:text-emerald-400"
+                      aria-hidden
+                    />
+                  ) : (
+                    <span className="shrink-0 text-[11px] tabular-nums">
+                      {relTime(sub.updatedAt, now)}
+                    </span>
+                  )}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </li>
   );

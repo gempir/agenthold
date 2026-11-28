@@ -337,6 +337,11 @@ func (m *Manager) observeOptions(conn *harnessConn, acpID string, opts []ConfigO
 	m.catMu.Lock()
 	defer m.catMu.Unlock()
 	ctx := context.WithoutCancel(m.ctx)
+	// Sub-threads running on another harness must not overwrite the agent's
+	// primary harness catalog.
+	if ag, err := m.store.GetAgent(ctx, conn.agentID); err == nil && ag.Harness != conn.adapter.ID {
+		return
+	}
 	row, err := m.store.GetModelCatalog(ctx, conn.agentID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		m.lg.Warn("read model catalog", "agent", conn.agentID, "err", err)
@@ -425,8 +430,12 @@ const catalogRefresh = time.Hour
 // start with a model from the environment). Otherwise a new default model
 // needs the harness to restart.
 func (m *Manager) LiveSwitchable(agentID string) bool {
+	ag, err := m.store.GetAgent(context.WithoutCancel(m.ctx), agentID)
+	if err != nil {
+		return true
+	}
 	m.mu.Lock()
-	c := m.conns[agentID]
+	c := m.conns[connKey{agentID: agentID, harness: ag.Harness}]
 	m.mu.Unlock()
 	if c == nil {
 		return true // nothing running: the next start reads the new default
@@ -474,7 +483,11 @@ func (m *Manager) applyChoice(ctx context.Context, conn *harnessConn, sessionID,
 	}
 	want, own := OwnChoice(sess), true
 	if want.Empty() {
-		want, own = AgentChoice(agent), false
+		// Only inherit the agent's default model when this session runs on the
+		// agent's own harness (not a sub-thread pinned to another harness).
+		if sess.Harness == "" || sess.Harness == agent.Harness {
+			want, own = AgentChoice(agent), false
+		}
 	}
 	current := conn.configFor(acpID)
 	mo, hasModel := modelOption(current)

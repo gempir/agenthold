@@ -88,8 +88,12 @@ func (m *Manager) busy(c *harnessConn) bool {
 // ProbeModels describes the models of the agent's running harness whose
 // options the catalog does not know yet (see probeConn).
 func (m *Manager) ProbeModels(ctx context.Context, agentID string) error {
+	ag, err := m.store.GetAgent(ctx, agentID)
+	if err != nil {
+		return err
+	}
 	m.mu.Lock()
-	conn := m.conns[agentID]
+	conn := m.conns[connKey{agentID: agentID, harness: ag.Harness}]
 	m.mu.Unlock()
 	if conn == nil {
 		return nil

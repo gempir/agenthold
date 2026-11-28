@@ -287,3 +287,28 @@ it('switches the sidebar between threads, agents and apps from the footer bar', 
   expect(appsBtn).toHaveAttribute('aria-pressed', 'false');
   expect(within(nav).getByRole('list', { name: 'Threads' })).toBeVisible();
 });
+
+it('nests active sub-threads under their parent thread in the sidebar', async () => {
+  setup([
+    session({ id: 's1', title: 'Parent task' }),
+    session({
+      id: 's2',
+      title: 'Codex helper',
+      harness: 'codex',
+      running: true,
+      origin: {
+        agentId: 'a1',
+        agentName: 'web-dev',
+        sessionId: 's1',
+        sessionTitle: 'Parent task',
+      },
+    }),
+  ]);
+  renderApp('/settings/threads');
+  const subList = await screen.findByRole('list', {
+    name: 'Sub-threads of Parent task',
+  });
+  const link = within(subList).getByRole('link', { name: /Codex helper/ });
+  expect(link).toHaveAttribute('href', '/a/a1?s=s2');
+  expect(within(link).getByRole('img', { name: 'running' })).toBeVisible();
+});

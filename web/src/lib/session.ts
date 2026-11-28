@@ -49,6 +49,20 @@ export interface PlanEntry {
   status: string;
 }
 
+export interface SubthreadItem {
+  kind: 'subthread';
+  seq: number;
+  sessionId: string;
+  agentId: string;
+  title: string;
+  harness: string;
+  model?: string;
+  cwd?: string;
+  branch?: string;
+  status: 'running' | 'completed' | 'failed' | 'idle';
+  summary?: string;
+}
+
 export type ChatItem =
   | {
       kind: 'user';
@@ -61,6 +75,7 @@ export type ChatItem =
   | { kind: 'agent'; seq: number; text: string }
   | { kind: 'thought'; seq: number; text: string }
   | ToolCall
+  | SubthreadItem
   | {
       kind: 'permission';
       seq: number;
@@ -285,6 +300,52 @@ export function applyEvent(s: ChatState, ev: SessionEvent): ChatState {
         ],
       };
       break;
+    case 'subthread': {
+      const sessionId = str(d.sessionId);
+      if (!sessionId) break;
+      const rawStatus = str(d.status, 'running');
+      const status: SubthreadItem['status'] =
+        rawStatus === 'completed' ||
+        rawStatus === 'failed' ||
+        rawStatus === 'idle'
+          ? rawStatus
+          : 'running';
+      const idx = s.items.findIndex(
+        (i) => i.kind === 'subthread' && i.sessionId === sessionId,
+      );
+      if (idx >= 0) {
+        const prev = s.items[idx] as SubthreadItem;
+        const updated: SubthreadItem = {
+          ...prev,
+          title: str(d.title) || prev.title,
+          harness: str(d.harness) || prev.harness,
+          model: str(d.model) || prev.model,
+          cwd: str(d.cwd) || prev.cwd,
+          branch: str(d.branch) || prev.branch,
+          status,
+          summary: str(d.summary) || prev.summary,
+        };
+        const items = s.items.slice();
+        items[idx] = updated;
+        next = { ...s, items };
+      } else {
+        const entry: SubthreadItem = {
+          kind: 'subthread',
+          seq: ev.seq,
+          sessionId,
+          agentId: str(d.agentId),
+          title: str(d.title, 'Sub-thread'),
+          harness: str(d.harness),
+          ...(str(d.model) && { model: str(d.model) }),
+          ...(str(d.cwd) && { cwd: str(d.cwd) }),
+          ...(str(d.branch) && { branch: str(d.branch) }),
+          status,
+          ...(str(d.summary) && { summary: str(d.summary) }),
+        };
+        next = { ...s, items: [...s.items, entry] };
+      }
+      break;
+    }
   }
   return { ...next, lastSeq: ev.seq };
 }

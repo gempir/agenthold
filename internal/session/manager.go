@@ -66,10 +66,19 @@ const HomeDir = "/home/agent"
 // Waker returns the agent's tunnel session, starting the sandbox if needed.
 type Waker func(ctx context.Context, agentID string, status func(string)) (*tunnel.Session, error)
 
+// connKey identifies one live harness process inside an agent's sandbox. An
+// agent can run more than one harness at once when a thread starts a sub-thread
+// on another harness (for example Claude Code starting a Codex sub-thread in
+// the same worktree).
+type connKey struct {
+	agentID string
+	harness string
+}
+
 // Manager runs harness connections and sessions.
 //
-// One harness process (a harnessConn) serves all sessions of an agent. A
-// failure of the process ends every turn on it; a harness that stops
+// One harness process (a harnessConn) serves all sessions of an agent on that
+// harness. A failure of the process ends every turn on it; a harness that stops
 // answering one turn's request ends only that turn while other turns use it,
 // and is restarted once none does.
 type Manager struct {
@@ -83,12 +92,12 @@ type Manager struct {
 	wg     sync.WaitGroup
 
 	mu      sync.Mutex
-	closing bool                    // Close was called: no new turns or connections
-	conns   map[string]*harnessConn // by agent id
-	turns   map[string]*turn        // by session id
-	// starting serializes harness startup per agent (a size-1 channel, so a
-	// waiting turn can be cancelled).
-	starting map[string]chan struct{}
+	closing bool                     // Close was called: no new turns or connections
+	conns   map[connKey]*harnessConn // by agent + harness id
+	turns   map[string]*turn         // by session id
+	// starting serializes harness startup per agent+harness (a size-1 channel,
+	// so a waiting turn can be cancelled).
+	starting map[connKey]chan struct{}
 	warming  map[string]bool
 	activity func(agentID string)
 	audit    *audit.Log
@@ -121,17 +130,23 @@ type Logins interface {
 // SetLogins sets the account logins provider.
 func (m *Manager) SetLogins(l Logins) { m.logins = l }
 
-// Restart stops the agent's harness so the next turn starts it with current
+// Restart stops the agent's harnesses so the next turn starts them with current
 // settings (an account login changed). Running turns finish first.
 func (m *Manager) Restart(agentID string) {
 	m.mu.Lock()
-	c := m.conns[agentID]
-	busy := c != nil && m.inUse(c)
-	if busy {
-		c.stale, c.staleWhy = true, "the harness restarted to apply new settings"
+	var idle []*harnessConn
+	for k, c := range m.conns {
+		if k.agentID != agentID {
+			continue
+		}
+		if m.inUse(c) {
+			c.stale, c.staleWhy = true, "the harness restarted to apply new settings"
+		} else {
+			idle = append(idle, c)
+		}
 	}
 	m.mu.Unlock()
-	if c != nil && !busy {
+	for _, c := range idle {
 		c.close("the harness restarted to apply new settings")
 	}
 }
@@ -172,7 +187,7 @@ func NewManager(st *store.Store, wake Waker, lg *slog.Logger) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
 		store: st, wake: wake, log: newLog(st), lg: lg, ctx: ctx, cancel: cancel,
-		conns: map[string]*harnessConn{}, turns: map[string]*turn{}, starting: map[string]chan struct{}{},
+		conns: map[connKey]*harnessConn{}, turns: map[string]*turn{}, starting: map[connKey]chan struct{}{},
 		warming: map[string]bool{},
 	}
 	m.endInterruptedTurns(ctx)
@@ -390,6 +405,9 @@ type CreateOpts struct {
 	Cwd string
 	// GitProject, GitBranch and GitRepoPath describe the repository Cwd is in.
 	GitProject, GitBranch, GitRepoPath string
+	// Harness pins this session to a specific harness (e.g. "codex" for a
+	// sub-thread on a Claude Code agent); '' uses the agent's default harness.
+	Harness string
 }
 
 // CreateWith is Create with options.
@@ -405,7 +423,7 @@ func (m *Manager) CreateWith(ctx context.Context, agentID, userID, title string,
 	if err := m.store.CreateAgentSession(ctx, db.CreateAgentSessionParams{ID: s.ID, AgentID: agentID, Title: s.Title, CreatedBy: userID, CreatedAt: now, UpdatedAt: now}); err != nil {
 		return s, err
 	}
-	if opts != (CreateOpts{}) {
+	if opts.Cwd != "" || opts.GitProject != "" || opts.GitBranch != "" || opts.GitRepoPath != "" {
 		if err := m.store.SetSessionGit(ctx, db.SetSessionGitParams{
 			Cwd: opts.Cwd, GitProject: opts.GitProject, GitBranch: opts.GitBranch, GitRepoPath: opts.GitRepoPath, ID: s.ID,
 		}); err != nil {
@@ -413,7 +431,22 @@ func (m *Manager) CreateWith(ctx context.Context, agentID, userID, title string,
 		}
 		s.Cwd, s.GitProject, s.GitBranch, s.GitRepoPath = opts.Cwd, opts.GitProject, opts.GitBranch, opts.GitRepoPath
 	}
+	if opts.Harness != "" {
+		if err := m.store.SetSessionHarness(ctx, db.SetSessionHarnessParams{Harness: opts.Harness, ID: s.ID}); err != nil {
+			return s, err
+		}
+		s.Harness = opts.Harness
+	}
 	return s, nil
+}
+
+// RecordSubthread appends a subthread status event to parentSessionID's log so
+// viewers see the sub-thread immediately and can jump into it while it runs.
+func (m *Manager) RecordSubthread(ctx context.Context, parentSessionID string, data map[string]any) error {
+	if parentSessionID == "" {
+		return nil
+	}
+	return m.log.append(ctx, parentSessionID, EventSubthread, "", data)
 }
 
 // Subscribe returns events after `after` and a live subscription. A non-nil
@@ -457,6 +490,25 @@ type PromptOpts struct {
 func (m *Manager) AgentDepth(agentID string) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	d := 0
+	for _, t := range m.turns {
+		if t.agentID == agentID && t.depth > d {
+			d = t.depth
+		}
+	}
+	return d
+}
+
+// SessionDepth is the depth of sessionID's running turn, falling back to
+// AgentDepth when sessionID is empty or not currently running.
+func (m *Manager) SessionDepth(agentID, sessionID string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if sessionID != "" {
+		if t, ok := m.turns[sessionID]; ok {
+			return t.depth
+		}
+	}
 	d := 0
 	for _, t := range m.turns {
 		if t.agentID == agentID && t.depth > d {
@@ -621,7 +673,7 @@ func (m *Manager) run(t *turn, sess db.AgentSession, text string, images []Promp
 			status(msg)
 		}
 	}
-	conn, err := m.connection(ctx, sess.AgentID, notice)
+	conn, err := m.connectionFor(ctx, sess.AgentID, sess.Harness, notice)
 	if err != nil {
 		return nil, err
 	}
@@ -777,7 +829,9 @@ func (m *Manager) activate(ctx context.Context, t *turn, conn *harnessConn, sess
 		return sess.AcpSessionID, "", 0, nil
 	}
 
-	if sess.ProjectID != "" && m.workspaces != nil {
+	// Sub-threads share their parent's worktree (cwd) directly and never
+	// create a new project workspace of their own.
+	if sess.ProjectID != "" && m.workspaces != nil && (sess.OriginSessionID == "" || sess.Cwd == "") {
 		dir, err := m.workspaces.Prepare(ctx, conn.ts, sess)
 		if err != nil {
 			return "", "", 0, fmt.Errorf("prepare the project workspace: %w", err)
@@ -1082,6 +1136,97 @@ func (m *Manager) Ask(ctx context.Context, sessionID, userID, userName, text str
 	}
 }
 
+// WaitTurn waits for sessionID's current turn (if any) to end and returns the
+// final answer of its latest turn. If the session is already idle, it returns
+// the final answer of the most recent completed turn immediately.
+func (m *Manager) WaitTurn(ctx context.Context, sessionID string) (string, error) {
+	backlog, sub, err := m.log.subscribe(ctx, sessionID, 0, nil)
+	if err != nil {
+		return "", err
+	}
+	defer sub.Close()
+	var answer strings.Builder
+	var lastErr string
+	lastPromptSeq := int64(0)
+	lastEndSeq := int64(0)
+	var lastStop string
+	fold := func(ev Event) {
+		switch ev.Type {
+		case EventPrompt:
+			lastPromptSeq = ev.Seq
+			answer.Reset()
+			lastErr = ""
+			lastStop = ""
+		case EventUpdate:
+			var u struct {
+				Kind    string `json:"sessionUpdate"`
+				Content struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			}
+			if json.Unmarshal(ev.Data, &u) != nil {
+				return
+			}
+			switch u.Kind {
+			case "agent_message_chunk":
+				answer.WriteString(u.Content.Text)
+			case "tool_call":
+				answer.Reset()
+			}
+		case EventError:
+			var e struct {
+				Message string `json:"message"`
+			}
+			_ = json.Unmarshal(ev.Data, &e)
+			lastErr = e.Message
+		case EventTurnEnd:
+			var e struct {
+				StopReason string `json:"stopReason"`
+			}
+			_ = json.Unmarshal(ev.Data, &e)
+			lastEndSeq = ev.Seq
+			lastStop = e.StopReason
+		}
+	}
+	for _, ev := range backlog {
+		fold(ev)
+	}
+	done := func() (string, bool, error) {
+		if lastPromptSeq == 0 {
+			return "", true, nil
+		}
+		if lastEndSeq > lastPromptSeq {
+			if lastErr != "" {
+				return strings.TrimSpace(answer.String()), true, errors.New(lastErr)
+			}
+			if lastStop != "end_turn" && lastStop != "" {
+				return strings.TrimSpace(answer.String()), true, fmt.Errorf("the turn ended: %s", lastStop)
+			}
+			return strings.TrimSpace(answer.String()), true, nil
+		}
+		return "", false, nil
+	}
+	if ans, ok, err := done(); ok || !m.Running(sessionID) {
+		if !ok && lastErr != "" {
+			return strings.TrimSpace(answer.String()), errors.New(lastErr)
+		}
+		return ans, err
+	}
+	for {
+		select {
+		case ev := <-sub.C:
+			fold(ev)
+			if ans, ok, err := done(); ok {
+				return ans, err
+			}
+		case <-sub.Lost():
+			return "", errors.New("lost the sub-thread's events")
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+}
+
 // Cancel stops the running turn. Before the prompt reached the harness the
 // turn simply ends; afterwards the harness is asked to stop (session/cancel),
 // and if it has not ended the turn after cancelGrace, the turn ends without
@@ -1177,14 +1322,17 @@ type HarnessInfo struct {
 	AuthMethods []acp.AuthMethod
 }
 
-// Harness returns the agent's harness state, connecting if connect is set.
+// Harness returns the agent's primary harness state, connecting if connect is set.
 func (m *Manager) Harness(ctx context.Context, agentID string, connect bool) (HarnessInfo, error) {
+	ag, err := m.store.GetAgent(ctx, agentID)
+	if err != nil {
+		return HarnessInfo{}, err
+	}
 	m.mu.Lock()
-	c := m.conns[agentID]
+	c := m.conns[connKey{agentID: agentID, harness: ag.Harness}]
 	m.mu.Unlock()
 	if c == nil && connect {
-		var err error
-		if c, err = m.connection(ctx, agentID, nil); err != nil {
+		if c, err = m.connectionFor(ctx, agentID, ag.Harness, nil); err != nil {
 			return HarnessInfo{}, err
 		}
 	}
@@ -1198,12 +1346,17 @@ func (m *Manager) Harness(ctx context.Context, agentID string, connect bool) (Ha
 	return info, nil
 }
 
-// Disconnect stops an agent's harness (after settings changes, or when the sandbox sleeps).
+// Disconnect stops all of an agent's harnesses (after settings changes, or when the sandbox sleeps).
 func (m *Manager) Disconnect(agentID string) {
 	m.mu.Lock()
-	c := m.conns[agentID]
+	var cs []*harnessConn
+	for k, c := range m.conns {
+		if k.agentID == agentID {
+			cs = append(cs, c)
+		}
+	}
 	m.mu.Unlock()
-	if c != nil {
+	for _, c := range cs {
 		c.close("the harness was stopped because the agent's sandbox is stopping or its settings changed")
 	}
 }
@@ -1218,10 +1371,6 @@ var warmTimeout = time.Minute
 func (m *Manager) Warm(agentID string) {
 	m.mu.Lock()
 	if m.closing || m.wake == nil || m.warming[agentID] {
-		m.mu.Unlock()
-		return
-	}
-	if c := m.conns[agentID]; c != nil && !c.closed() && !m.restartable(c) {
 		m.mu.Unlock()
 		return
 	}
@@ -1241,31 +1390,50 @@ func (m *Manager) Warm(agentID string) {
 		if err != nil || ag.Kind == "app" {
 			return
 		}
+		m.mu.Lock()
+		if c := m.conns[connKey{agentID: agentID, harness: ag.Harness}]; c != nil && !c.closed() && !m.restartable(c) {
+			m.mu.Unlock()
+			return
+		}
+		m.mu.Unlock()
 		sb, err := m.store.GetSandbox(ctx, agentID)
 		if err != nil || sb.State != "running" {
 			return
 		}
-		if _, err := m.connection(ctx, agentID, nil); err != nil && m.ctx.Err() == nil {
+		if _, err := m.connectionFor(ctx, agentID, ag.Harness, nil); err != nil && m.ctx.Err() == nil {
 			m.lg.Debug("harness: background warm-up skipped", "agent", agentID, "err", err)
 		}
 	}()
 }
 
-// connection returns the agent's live harness connection, starting it if needed.
-func (m *Manager) connection(ctx context.Context, agentID string, notice func(string)) (*harnessConn, error) {
+// connectionFor returns the live connection for agentID running harnessID
+// (empty = the agent's default harness), starting it if needed.
+func (m *Manager) connectionFor(ctx context.Context, agentID, harnessID string, notice func(string)) (*harnessConn, error) {
+	agent, err := m.store.GetAgent(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if agent.Kind == "app" {
+		return nil, ErrNoHarness
+	}
+	if harnessID == "" {
+		harnessID = agent.Harness
+	}
+	key := connKey{agentID: agentID, harness: harnessID}
+
 	m.mu.Lock()
 	if m.closing {
 		m.mu.Unlock()
 		return nil, errShuttingDown
 	}
-	if c := m.conns[agentID]; c != nil && !c.closed() && !m.restartable(c) {
+	if c := m.conns[key]; c != nil && !c.closed() && !m.restartable(c) {
 		m.mu.Unlock()
 		return c, nil
 	}
-	lock := m.starting[agentID]
+	lock := m.starting[key]
 	if lock == nil {
 		lock = make(chan struct{}, 1)
-		m.starting[agentID] = lock
+		m.starting[key] = lock
 	}
 	m.mu.Unlock()
 	select {
@@ -1277,7 +1445,7 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 	m.mu.Lock()
 	var stale *harnessConn
 	why := ""
-	if c := m.conns[agentID]; c != nil && !c.closed() {
+	if c := m.conns[key]; c != nil && !c.closed() {
 		if !m.restartable(c) {
 			m.mu.Unlock()
 			return c, nil
@@ -1289,7 +1457,8 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 		stale.close(why)
 	}
 
-	agent, err := m.store.GetAgent(ctx, agentID)
+	// Reload agent in case settings changed while waiting for the startup lock.
+	agent, err = m.store.GetAgent(ctx, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -1299,15 +1468,15 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 	var ad *harness.Adapter
 	var ok bool
 	if m.resolver != nil {
-		ad, ok, err = m.resolver.AdapterFor(ctx, agent.Harness)
+		ad, ok, err = m.resolver.AdapterFor(ctx, harnessID)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		ad, ok = harness.Get(agent.Harness)
+		ad, ok = harness.Get(harnessID)
 	}
 	if !ok {
-		return nil, fmt.Errorf("unknown harness %q", agent.Harness)
+		return nil, fmt.Errorf("unknown harness %q", harnessID)
 	}
 	status := func(msg string) {
 		if notice != nil {
@@ -1315,7 +1484,7 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 		}
 	}
 	began := time.Now()
-	m.lg.Info("harness: starting "+ad.Name+"; waiting for the machine", "agent", agentID)
+	m.lg.Info("harness: starting "+ad.Name+"; waiting for the machine", "agent", agentID, "harness", ad.ID)
 	wctx, wcancel := context.WithTimeout(ctx, wakeTimeout)
 	ts, err := m.wake(wctx, agentID, status)
 	wcancel()
@@ -1326,13 +1495,16 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 		}
 		return nil, err
 	}
-	// The default model goes into the environment only while the harness is
-	// not known to switch models through its session config options: then
-	// sessions start on the harness's own default and the turn applies it.
-	cfg := harness.Config{Model: agent.Model}
-	if c, ok, _ := m.Catalog(ctx, agentID); ok && c.Harness == ad.ID {
-		if _, switches := c.ModelOption(); switches {
-			cfg.Model = ""
+	// The default model goes into the environment only for the agent's own
+	// harness, and only while the harness is not known to switch models
+	// through its session config options.
+	var cfg harness.Config
+	if harnessID == agent.Harness {
+		cfg.Model = agent.Model
+		if c, ok, _ := m.Catalog(ctx, agentID); ok && c.Harness == ad.ID {
+			if _, switches := c.ModelOption(); switches {
+				cfg.Model = ""
+			}
 		}
 	}
 	home := sandboxHome(ctx, ts)
@@ -1348,19 +1520,21 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 	if m.logins != nil {
 		lbegan := time.Now()
 		lctx, lcancel := context.WithTimeout(ctx, loginsTimeout)
-		extra, err := m.logins.Prepare(lctx, agent, ts)
+		loginAgent := agent
+		loginAgent.Harness = harnessID
+		extra, err := m.logins.Prepare(lctx, loginAgent, ts)
 		lcancel()
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 		if err != nil {
-			m.lg.Warn("account login unavailable", "agent", agentID, "err", err)
+			m.lg.Warn("account login unavailable", "agent", agentID, "harness", harnessID, "err", err)
 			status("The account login could not be prepared: " + err.Error())
 		}
 		for k, v := range extra {
 			env[k] = v
 		}
-		m.lg.Info("harness: account login prepared", "agent", agentID, "took", time.Since(lbegan))
+		m.lg.Info("harness: account login prepared", "agent", agentID, "harness", harnessID, "took", time.Since(lbegan))
 	}
 
 	hc := newHarnessConn(m, agentID, ad, ts)
@@ -1369,10 +1543,10 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 	spawned := time.Now()
 	proc, err := m.open(ctx, hc, ts, cmd, env)
 	if err != nil {
-		m.lg.Warn("harness: could not start the process", "agent", agentID, "took", time.Since(spawned), "err", err)
+		m.lg.Warn("harness: could not start the process", "agent", agentID, "harness", ad.ID, "took", time.Since(spawned), "err", err)
 		return nil, err
 	}
-	m.lg.Info("harness: process started", "agent", agentID, "command", strings.Join(cmd, " "), "took", time.Since(spawned))
+	m.lg.Info("harness: process started", "agent", agentID, "harness", ad.ID, "command", strings.Join(cmd, " "), "took", time.Since(spawned))
 	hc.start(proc, env)
 	var init acp.InitializeResponse
 	var initOpts []ConfigOption
@@ -1411,7 +1585,7 @@ func (m *Manager) connection(ctx context.Context, agentID string, notice func(st
 		hc.close("the server shut down while the harness started")
 		return nil, hc.failure()
 	}
-	m.conns[agentID] = hc
+	m.conns[key] = hc
 	m.mu.Unlock()
 	m.lg.Info("harness connected", "agent", agentID, "harness", ad.ID, "took", time.Since(began))
 	return hc, nil
@@ -1455,9 +1629,10 @@ func (m *Manager) restartable(c *harnessConn) bool {
 }
 
 func (m *Manager) dropConn(hc *harnessConn) {
+	key := connKey{agentID: hc.agentID, harness: hc.adapter.ID}
 	m.mu.Lock()
-	if m.conns[hc.agentID] == hc {
-		delete(m.conns, hc.agentID)
+	if m.conns[key] == hc {
+		delete(m.conns, key)
 	}
 	m.mu.Unlock()
 }

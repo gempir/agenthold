@@ -1083,6 +1083,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{sessionId}/subthreads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Start a sub-thread of this session on the same agent machine, sharing its working directory and git
+         *     worktree. Optionally run the sub-thread on another harness (for example Codex from a Claude Code thread)
+         *     and model. When text is given, the first turn starts immediately.
+         */
+        post: operations["startSubthread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{sessionId}/settle": {
         parameters: {
             query?: never;
@@ -3462,13 +3485,17 @@ export interface components {
         Session: {
             id: string;
             agentId: string;
-            /** @description Set when another agent started the session (send_message or ask). */
+            /** @description Set when another agent or parent thread started this session (sub-thread, send_message, ask, or assign_task). */
             origin?: {
                 agentId: string;
                 agentName: string;
-                /** @description The other agent's session that sent the messages. */
+                /** @description The parent or calling agent's session that started this thread. */
                 sessionId: string;
+                /** @description The parent session's title */
+                sessionTitle?: string;
             };
+            /** @description The harness this session runs on when pinned separately from the agent's default (e.g. a Codex sub-thread on a Claude Code agent). */
+            harness?: string;
             title: string;
             running: boolean;
             /** @description Working directory relative to the agent's home directory. */
@@ -3512,10 +3539,11 @@ export interface components {
              *     (discriminated by "sessionUpdate"); permission: {requestId,
              *     toolCall, options[{optionId,name,kind}], policy};
              *     permission_resolved: {requestId, optionId, by}; turn_end:
-             *     {stopReason}; error/notice: {message}.
+             *     {stopReason}; error/notice: {message}; subthread: {sessionId,
+             *     agentId, title, harness, model, status, summary}.
              * @enum {string}
              */
-            type: "prompt" | "update" | "permission" | "permission_resolved" | "turn_end" | "error" | "notice";
+            type: "prompt" | "update" | "permission" | "permission_resolved" | "turn_end" | "error" | "notice" | "subthread";
             userId?: string;
             data: {
                 [key: string]: unknown;
@@ -6296,6 +6324,46 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+        };
+    };
+    startSubthread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    title?: string;
+                    /** @description Harness id for this sub-thread (default: the agent's harness). */
+                    harness?: string;
+                    /** @description Optional model id for the sub-thread's harness. */
+                    model?: string;
+                    modelOptions?: {
+                        [key: string]: string;
+                    };
+                    /** @description Optional first prompt to send immediately. */
+                    text?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Sub-thread started. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
         };
     };
     settleSession: {

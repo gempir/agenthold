@@ -24,6 +24,7 @@ const (
 	EventTurnEnd            = "turn_end"            // {stopReason}
 	EventError              = "error"               // {message}
 	EventNotice             = "notice"              // {message}
+	EventSubthread          = "subthread"           // {sessionId, agentId, title, harness, model, status, summary}
 )
 
 // Event is one entry in a session's log.

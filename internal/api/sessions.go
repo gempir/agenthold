@@ -155,16 +155,27 @@ func (a *API) apiSession(ctx context.Context, s db.AgentSession) (gen.Session, e
 			out.Project = &gen.SessionProject{Id: p.ID, Name: p.Name, Direct: s.ProjectBranch == "", Branch: opt(s.ProjectBranch)}
 		}
 	}
+	if s.Harness != "" {
+		h := s.Harness
+		out.Harness = &h
+	}
 	if s.OriginAgentID != "" {
 		name := "(deleted agent)"
 		if ag, err := a.Store.GetAgent(ctx, s.OriginAgentID); err == nil {
 			name = ag.Name
 		}
+		var parentTitle *string
+		if s.OriginSessionID != "" {
+			if ps, err := a.Store.GetAgentSession(ctx, s.OriginSessionID); err == nil && ps.Title != "" {
+				parentTitle = &ps.Title
+			}
+		}
 		out.Origin = &struct {
-			AgentId   string `json:"agentId"`
-			AgentName string `json:"agentName"`
-			SessionId string `json:"sessionId"`
-		}{s.OriginAgentID, name, s.OriginSessionID}
+			AgentId      string  `json:"agentId"`
+			AgentName    string  `json:"agentName"`
+			SessionId    string  `json:"sessionId"`
+			SessionTitle *string `json:"sessionTitle,omitempty"`
+		}{AgentId: s.OriginAgentID, AgentName: name, SessionId: s.OriginSessionID, SessionTitle: parentTitle}
 	}
 	return out, nil
 }
@@ -289,6 +300,133 @@ func (a *API) sessionGitStart(ctx context.Context, ag db.Agent, b gen.CreateSess
 	}
 	opts.GitProject, opts.GitBranch, opts.GitRepoPath = repo.Project, repo.Branch, repo.Path
 	return opts, nil
+}
+
+// StartSubthread implements gen.StrictServerInterface.
+func (a *API) StartSubthread(ctx context.Context, req gen.StartSubthreadRequestObject) (gen.StartSubthreadResponseObject, error) {
+	parent, err := a.sessionAccess(ctx, req.SessionId, authz.AgentPrompt)
+	if err != nil {
+		return nil, err
+	}
+	agent, err := a.Store.GetAgent(ctx, parent.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	var title, harnessID, model, text string
+	modelOpts := map[string]string{}
+	if b := req.Body; b != nil {
+		title = strings.TrimSpace(deref(b.Title))
+		if len(title) > 200 {
+			return nil, badRequest("title must be at most 200 characters")
+		}
+		harnessID = strings.TrimSpace(deref(b.Harness))
+		model = strings.TrimSpace(deref(b.Model))
+		if b.ModelOptions != nil {
+			for k, v := range *b.ModelOptions {
+				modelOpts[k] = v
+			}
+		}
+		text = strings.TrimSpace(deref(b.Text))
+	}
+	effectiveHarness := agent.Harness
+	pinnedHarness := ""
+	if harnessID != "" {
+		ad, ok, err := a.resolveAdapter(ctx, harnessID)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, badRequest("unknown harness " + harnessID)
+		}
+		effectiveHarness = ad.ID
+		if ad.ID != agent.Harness {
+			pinnedHarness = ad.ID
+		}
+	}
+	opts := session.CreateOpts{
+		Cwd:         parent.Cwd,
+		GitProject:  parent.GitProject,
+		GitBranch:   parent.GitBranch,
+		GitRepoPath: parent.GitRepoPath,
+		Harness:     pinnedHarness,
+	}
+	if parent.ProjectID != "" {
+		if opts.GitBranch == "" {
+			opts.GitBranch = parent.ProjectBranch
+		}
+		if opts.GitProject == "" {
+			if proj, perr := a.Store.GetProject(ctx, parent.ProjectID); perr == nil {
+				opts.GitProject = proj.Name
+			}
+		}
+	}
+	child, err := a.Sessions.CreateWith(ctx, parent.AgentID, me(ctx).ID, title, opts)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.Store.SetSessionOrigin(ctx, db.SetSessionOriginParams{
+		OriginAgentID:   parent.AgentID,
+		OriginSessionID: parent.ID,
+		ID:              child.ID,
+	}); err != nil {
+		return nil, err
+	}
+	if model != "" || len(modelOpts) > 0 {
+		choice := session.Choice{Model: model, Options: modelOpts}
+		targetAgent := agent
+		targetAgent.Harness = effectiveHarness
+		_, cerr := a.authz.Agent(ctx, me(ctx).ID, parent.AgentID, authz.AgentConfigure)
+		if err := a.validateChoice(ctx, targetAgent, choice, session.Choice{}, cerr == nil); err != nil {
+			_ = a.Sessions.Delete(ctx, child.ID)
+			return nil, err
+		}
+		if err := a.Sessions.SetSessionChoice(ctx, child.ID, choice); err != nil {
+			return nil, err
+		}
+	}
+	displayTitle := child.Title
+	if text != "" && session.IsPlaceholderTitle(displayTitle) {
+		displayTitle = truncateRunes(strings.Join(strings.Fields(text), " "), 60)
+	}
+	ev := map[string]any{
+		"sessionId": child.ID,
+		"agentId":   parent.AgentID,
+		"title":     displayTitle,
+		"harness":   effectiveHarness,
+		"status":    "idle",
+	}
+	if text != "" {
+		ev["status"] = "running"
+	}
+	if model != "" {
+		ev["model"] = model
+	}
+	if child.Cwd != "" {
+		ev["cwd"] = child.Cwd
+	}
+	if child.GitBranch != "" {
+		ev["branch"] = child.GitBranch
+	}
+	_ = a.Sessions.RecordSubthread(ctx, parent.ID, ev)
+	if pinnedHarness != "" && a.Egress != nil {
+		a.Egress.Invalidate()
+	}
+	a.record(ctx, agent, audit.SessionCreate, child.ID, map[string]any{"subthread": true, "parentSession": parent.ID, "harness": effectiveHarness})
+	if text != "" {
+		u := me(ctx)
+		if err := a.Sessions.PromptWith(ctx, child.ID, u.ID, u.Name, text, nil, session.PromptOpts{}); err != nil {
+			return nil, err
+		}
+	}
+	child, err = a.Store.GetAgentSession(ctx, child.ID)
+	if err != nil {
+		return nil, err
+	}
+	g, err := a.apiSession(ctx, child)
+	if err != nil {
+		return nil, err
+	}
+	return gen.StartSubthread201JSONResponse(g), nil
 }
 
 // GetSession implements gen.StrictServerInterface.

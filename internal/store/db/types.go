@@ -165,6 +165,7 @@ type SetServiceEnabledParams = sqlite.SetServiceEnabledParams
 type SetSessionACPIDParams = sqlite.SetSessionACPIDParams
 type SetSessionGitParams = sqlite.SetSessionGitParams
 type SetSessionHandoffSeqParams = sqlite.SetSessionHandoffSeqParams
+type SetSessionHarnessParams = sqlite.SetSessionHarnessParams
 type SetSessionModelParams = sqlite.SetSessionModelParams
 type SetSessionNativeParams = sqlite.SetSessionNativeParams
 type SetSessionOriginParams = sqlite.SetSessionOriginParams

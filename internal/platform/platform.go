@@ -120,6 +120,7 @@ var exposureTools = []map[string]any{
 // tools lists the tools offered to agents.
 func (p *Service) tools() []map[string]any {
 	out := append(append([]map[string]any{}, Tools...), threadTools...)
+	out = append(out, subthreadTools...)
 	if p.Preview.Enabled() {
 		out = append(out, exposureTools...)
 	}
@@ -167,6 +168,9 @@ func (p *Service) Call(ctx context.Context, callerID, sessionID, tool string, ar
 		return nil, err
 	} else if authz.UserRole(owner) == config.RoleDisabled {
 		return nil, errors.New("this agent's owner has no access to this agenthold")
+	}
+	if isSubthreadTool(tool) {
+		return p.subthreadCall(ctx, caller, sessionID, tool, args)
 	}
 	if p.Projects != nil && isProjectTool(tool) {
 		return p.projectCall(ctx, caller, sessionID, tool, args)

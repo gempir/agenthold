@@ -5140,6 +5140,59 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  # --- Phase 3B: Web Push Notifications ---
+  /me/push/vapid-key:
+    get:
+      operationId: GetPushVapidKey
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PushVapidKey" }
+  /me/push/subscriptions:
+    get:
+      operationId: ListPushSubscriptions
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PushSubscriptionList" }
+    post:
+      operationId: RegisterPushSubscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PushSubscriptionInput" }
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PushSubscriptionList" }
+  /me/push/subscriptions/{subscriptionId}:
+    delete:
+      operationId: DeletePushSubscription
+      parameters:
+        - { name: subscriptionId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PushResult" }
+  /me/push/test:
+    post:
+      operationId: TestPush
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PushResult" }
+
 security:
   - session: []
   - token: []
@@ -7980,3 +8033,34 @@ components:
       properties:
         choice: { type: string }
         reason: { type: string }
+
+    PushVapidKey:
+      type: object
+      required: [enabled, publicKey]
+      properties:
+        enabled: { type: boolean }
+        publicKey: { type: string }
+    PushResult:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+    PushSubscriptionInput:
+      type: object
+      required: [endpoint, p256dh, auth]
+      properties:
+        endpoint: { type: string }
+        p256dh: { type: string }
+        auth: { type: string }
+        userAgent: { type: string }
+    PushSubscription:
+      type: object
+      required: [id, endpoint, userAgent, createdAt]
+      properties:
+        id: { type: string }
+        endpoint: { type: string }
+        userAgent: { type: string }
+        createdAt: { type: integer, format: int64 }
+    PushSubscriptionList:
+      type: array
+      items: { $ref: "#/components/schemas/PushSubscription" }

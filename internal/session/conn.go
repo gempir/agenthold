@@ -763,6 +763,7 @@ func (c *harnessConn) RequestPermission(ctx context.Context, p acp.RequestPermis
 		_ = c.m.log.append(lctx, sessionID, EventPermissionResolved, "", map[string]string{"requestId": requestID, "optionId": string(opt), "by": "auto"})
 		return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(opt)}, nil
 	}
+	c.m.notifySession(lctx, sessionID, "Approval needed", false)
 	// Pending permission wakes a snoozed thread so the user sees the approval card.
 	_, _ = c.m.store.UnsnoozeSession(lctx, sessionID)
 	_ = c.m.log.append(lctx, sessionID, EventPermission, "", map[string]any{

@@ -385,6 +385,23 @@ type ProviderLogin struct {
 	UpdatedAt     int64
 }
 
+type PushSubscription struct {
+	ID        string
+	UserID    string
+	Endpoint  string
+	P256dh    string
+	Auth      string
+	UserAgent string
+	CreatedAt int64
+}
+
+type PushVapidKey struct {
+	ID                  string
+	PublicKey           string
+	EncryptedPrivateKey []byte
+	CreatedAt           int64
+}
+
 type Sandbox struct {
 	AgentID        string
 	NodeID         string

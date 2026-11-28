@@ -50,6 +50,7 @@ type Querier interface {
 	CreateProject(ctx context.Context, arg CreateProjectParams) error
 	CreateProjectSource(ctx context.Context, arg CreateProjectSourceParams) error
 	CreateProviderLogin(ctx context.Context, arg CreateProviderLoginParams) error
+	CreatePushVAPIDKey(ctx context.Context, arg CreatePushVAPIDKeyParams) error
 	CreateSandbox(ctx context.Context, arg CreateSandboxParams) error
 	CreateSchedule(ctx context.Context, arg CreateScheduleParams) error
 	CreateSecret(ctx context.Context, arg CreateSecretParams) error
@@ -89,6 +90,7 @@ type Querier interface {
 	DeleteProject(ctx context.Context, id string) error
 	DeleteProjectSource(ctx context.Context, id string) error
 	DeleteProviderLogin(ctx context.Context, arg DeleteProviderLoginParams) (int64, error)
+	DeletePushSubscription(ctx context.Context, arg DeletePushSubscriptionParams) error
 	DeleteSchedule(ctx context.Context, id string) error
 	DeleteSecret(ctx context.Context, id string) error
 	DeleteService(ctx context.Context, arg DeleteServiceParams) (int64, error)
@@ -148,6 +150,7 @@ type Querier interface {
 	GetProject(ctx context.Context, id string) (Project, error)
 	GetProviderLogin(ctx context.Context, arg GetProviderLoginParams) (ProviderLogin, error)
 	GetProviderLoginByID(ctx context.Context, id string) (ProviderLogin, error)
+	GetPushVAPIDKey(ctx context.Context) (PushVapidKey, error)
 	GetReleasedExposureName(ctx context.Context, name string) (ExposureReleasedName, error)
 	GetSandbox(ctx context.Context, agentID string) (Sandbox, error)
 	GetSandboxByDriverID(ctx context.Context, driverID string) (Sandbox, error)
@@ -224,6 +227,7 @@ type Querier interface {
 	ListProjects(ctx context.Context, ownerID string) ([]Project, error)
 	ListProviderLogins(ctx context.Context) ([]ProviderLogin, error)
 	ListPullRequestSessions(ctx context.Context, arg ListPullRequestSessionsParams) ([]SessionPullRequest, error)
+	ListPushSubscriptions(ctx context.Context, userID string) ([]PushSubscription, error)
 	ListQueuedRunsForWorkflow(ctx context.Context, workflowID string) ([]WorkflowRun, error)
 	ListRefreshableGitCredentials(ctx context.Context, expiresAt int64) ([]GitCredential, error)
 	ListSandboxSubnets(ctx context.Context) ([]ListSandboxSubnetsRow, error)
@@ -372,6 +376,7 @@ type Querier interface {
 	UpsertModelCatalog(ctx context.Context, arg UpsertModelCatalogParams) error
 	UpsertModelPrice(ctx context.Context, arg UpsertModelPriceParams) error
 	UpsertOrgProviderLogin(ctx context.Context, arg UpsertOrgProviderLoginParams) error
+	UpsertPushSubscription(ctx context.Context, arg UpsertPushSubscriptionParams) error
 	UpsertService(ctx context.Context, arg UpsertServiceParams) error
 	UpsertSessionPullRequest(ctx context.Context, arg UpsertSessionPullRequestParams) error
 	UpsertSessionShare(ctx context.Context, arg UpsertSessionShareParams) error

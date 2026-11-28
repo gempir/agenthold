@@ -47,6 +47,7 @@ import (
 	"github.com/gempir/agenthold/internal/pr"
 	"github.com/gempir/agenthold/internal/preview"
 	"github.com/gempir/agenthold/internal/project"
+	"github.com/gempir/agenthold/internal/push"
 	"github.com/gempir/agenthold/internal/runtimeassets"
 	"github.com/gempir/agenthold/internal/sandbox"
 	"github.com/gempir/agenthold/internal/sandbox/firecracker"
@@ -308,6 +309,10 @@ func run() error {
 
 	acpCatalog := acpstore.NewCatalog(filepath.Join(cfg.DataDir, "cache"))
 	harnessResolver := &acpstore.Resolver{Store: st, Catalog: acpCatalog}
+	pushSvc, err := push.New(ctx, st, box, cfg.PublicURL)
+	if err != nil {
+		return fmt.Errorf("initialize web push: %w", err)
+	}
 	sessions := session.NewManager(st, nil, logger)
 	usageSvc := &usage.Service{Store: st, Log: logger}
 	sessions.SetUsageRecorder(func(rctx context.Context, u session.TurnUsage) {
@@ -326,6 +331,7 @@ func run() error {
 			logger.Warn("usage: record turn", "session", u.SessionID, "err", err)
 		}
 	})
+	sessions.Notifier = pushSvc
 	sessions.SetResolver(harnessResolver)
 	sessions.SetLogins(loginSvc)
 	sessions.SetModelProbe(true)
@@ -495,7 +501,7 @@ func run() error {
 	})
 
 	apiSrv := api.New(api.Deps{
-		Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Node: cluster, Nodes: cluster, Limits: cfg.Sandbox,
+		Push: pushSvc, Store: st, Auth: authSvc, PublicURL: cfg.PublicURL, Sandboxes: sandboxes, Node: cluster, Nodes: cluster, Limits: cfg.Sandbox,
 		Box: box, Egress: directory, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc, Git: gitSvc, Executor: executorMgr,
 		Projects: projects, PullRequests: pullRequests,
 		Preview: previewSvc, Identity: identity, Apps: appsMgr, Images: imageMgr, Activity: activityLog,

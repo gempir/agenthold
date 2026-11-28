@@ -1,3 +1,4 @@
+import { PushNotificationsSection } from '@/components/PushNotificationsSection';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Bot, LogOut, Moon, Sun } from 'lucide-react';
@@ -27,6 +28,7 @@ export function ProfilePage() {
     <>
       <SettingsHeader title="Profile" />
       <div className="grid gap-4">
+        <PushNotificationsSection />
         <Card className="flex flex-wrap items-center gap-3 p-4">
           {user && <Avatar name={user.name} url={user.avatarUrl} />}
           <div className="grid min-w-0 flex-1 leading-tight">

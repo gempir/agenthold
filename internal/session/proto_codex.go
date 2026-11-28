@@ -48,11 +48,13 @@ type codexThreadCfg struct {
 
 type codexActiveTurn struct {
 	turnID string
+	usage  *acp.Usage
 	done   chan codexTurnResult
 }
 
 type codexTurnResult struct {
 	stopReason acp.StopReason
+	usage      *acp.Usage
 	err        error
 }
 
@@ -643,7 +645,7 @@ func (p *codexProtoClient) Prompt(ctx context.Context, sessionID, text string, i
 		if res.err != nil {
 			return acp.PromptResponse{}, res.err
 		}
-		return acp.PromptResponse{StopReason: res.stopReason}, nil
+		return acp.PromptResponse{StopReason: res.stopReason, Usage: res.usage}, nil
 	case <-ctx.Done():
 		return acp.PromptResponse{}, ctx.Err()
 	case <-p.done:
@@ -835,18 +837,30 @@ func (p *codexProtoClient) handleNotification(method string, params json.RawMess
 			ThreadID   string `json:"threadId"`
 			TokenUsage struct {
 				Last struct {
-					TotalTokens int64 `json:"totalTokens"`
+					InputTokens           int64 `json:"inputTokens"`
+					CachedInputTokens     int64 `json:"cachedInputTokens"`
+					OutputTokens          int64 `json:"outputTokens"`
+					ReasoningOutputTokens int64 `json:"reasoningOutputTokens"`
+					TotalTokens           int64 `json:"totalTokens"`
 				} `json:"last"`
 				Total struct {
-					TotalTokens int64 `json:"totalTokens"`
+					InputTokens           int64 `json:"inputTokens"`
+					CachedInputTokens     int64 `json:"cachedInputTokens"`
+					OutputTokens          int64 `json:"outputTokens"`
+					ReasoningOutputTokens int64 `json:"reasoningOutputTokens"`
+					TotalTokens           int64 `json:"totalTokens"`
 				} `json:"total"`
 				ModelContextWindow int64 `json:"modelContextWindow"`
 			} `json:"tokenUsage"`
 		}
 		if json.Unmarshal(params, &n) == nil {
-			used := n.TokenUsage.Last.TotalTokens
+			src := n.TokenUsage.Last
+			if src.TotalTokens == 0 && src.InputTokens == 0 && src.OutputTokens == 0 {
+				src = n.TokenUsage.Total
+			}
+			used := src.TotalTokens
 			if used == 0 {
-				used = n.TokenUsage.Total.TotalTokens
+				used = src.InputTokens + src.OutputTokens + src.CachedInputTokens
 			}
 			if used > 0 {
 				p.emitRawUpdate(n.ThreadID, map[string]any{
@@ -854,6 +868,23 @@ func (p *codexProtoClient) handleNotification(method string, params json.RawMess
 					"used":          used,
 					"size":          n.TokenUsage.ModelContextWindow,
 				})
+				cacheRead := int(src.CachedInputTokens)
+				outTok := int(src.OutputTokens + src.ReasoningOutputTokens)
+				inTok := int(src.InputTokens)
+				if inTok == 0 && outTok == 0 && cacheRead == 0 {
+					inTok = int(used)
+				}
+				u := &acp.Usage{
+					InputTokens:      inTok,
+					OutputTokens:     outTok,
+					CachedReadTokens: &cacheRead,
+					TotalTokens:      int(used),
+				}
+				p.mu.Lock()
+				if act := p.turns[n.ThreadID]; act != nil {
+					act.usage = u
+				}
+				p.mu.Unlock()
 			}
 		}
 	case "turn/completed":
@@ -870,9 +901,13 @@ func (p *codexProtoClient) handleNotification(method string, params json.RawMess
 		if json.Unmarshal(params, &n) == nil {
 			p.mu.Lock()
 			act := p.turns[n.ThreadID]
+			var turnUsage *acp.Usage
+			if act != nil {
+				turnUsage = act.usage
+			}
 			p.mu.Unlock()
 			if act != nil {
-				var res codexTurnResult
+				res := codexTurnResult{usage: turnUsage}
 				switch n.Turn.Status {
 				case "interrupted", "cancelled":
 					res.stopReason = acp.StopReasonCancelled

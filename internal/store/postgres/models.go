@@ -251,6 +251,14 @@ type McpServer struct {
 	UpdatedAt int64
 }
 
+type ModelPrice struct {
+	Model         string
+	InputPerM     float64
+	OutputPerM    float64
+	CacheReadPerM float64
+	UpdatedAt     int64
+}
+
 type Node struct {
 	ID                 string
 	Name               string
@@ -577,6 +585,21 @@ type SlackUser struct {
 	CreatedAt   int64
 }
 
+type UsageRecord struct {
+	ID               string
+	UserID           string
+	AgentID          string
+	SessionID        string
+	Harness          string
+	Model            string
+	InputTokens      int64
+	OutputTokens     int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+	CostUsd          float64
+	CreatedAt        int64
+}
+
 type User struct {
 	ID                   string
 	Email                string
@@ -618,4 +641,50 @@ type Webhook struct {
 	UpdatedAt       int64
 	LastDeliveryAt  sql.NullInt64
 	LastError       string
+}
+
+type Workflow struct {
+	ID             string
+	OwnerID        string
+	Name           string
+	Description    string
+	DefinitionJson string
+	Enabled        int64
+	CreatedAt      int64
+	UpdatedAt      int64
+}
+
+type WorkflowRun struct {
+	ID          string
+	WorkflowID  string
+	OwnerID     string
+	Status      string
+	TriggerKind string
+	InputJson   string
+	OutputJson  string
+	Error       string
+	CurrentStep int64
+	StartedAt   sql.NullInt64
+	FinishedAt  sql.NullInt64
+	CreatedAt   int64
+	UpdatedAt   int64
+}
+
+type WorkflowStep struct {
+	ID             string
+	RunID          string
+	StepIndex      int64
+	Name           string
+	Kind           string
+	Status         string
+	SessionID      string
+	PromptOrCmd    string
+	AskTitle       string
+	AskChoicesJson string
+	AnswerJson     string
+	AnsweredBy     string
+	Output         string
+	Error          string
+	StartedAt      sql.NullInt64
+	FinishedAt     sql.NullInt64
 }

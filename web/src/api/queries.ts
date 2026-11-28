@@ -733,3 +733,60 @@ export const sessionPullRequestsQuery = (sessionId: string) =>
     refetchInterval: 60_000,
     retry: false,
   });
+
+export type UsageSummary = components['schemas']['UsageSummary'];
+export type UsageBucket = components['schemas']['UsageBucket'];
+export type UsageModelBreakdown = components['schemas']['UsageModelBreakdown'];
+export type UsageUserBreakdown = components['schemas']['UsageUserBreakdown'];
+export type UsageModelPrice = components['schemas']['UsageModelPrice'];
+export type UsageModelPriceInput =
+  components['schemas']['UsageModelPriceInput'];
+export type UsageRange = '24h' | '7d' | '30d' | '90d';
+export type UsageScope = 'me' | 'org';
+
+export const usageSummaryQuery = (range: UsageRange, scope: UsageScope) =>
+  queryOptions({
+    queryKey: ['usage', 'summary', range, scope],
+    queryFn: () =>
+      unwrap(
+        api.GET('/usage/summary', {
+          params: { query: { range, scope } },
+        }),
+      ),
+    retry: false,
+  });
+
+export const usagePricesQuery = queryOptions({
+  queryKey: ['usage', 'prices'],
+  queryFn: () => unwrap(api.GET('/usage/prices')),
+  retry: false,
+});
+
+export type Workflow = components['schemas']['Workflow'];
+export type WorkflowInput = components['schemas']['WorkflowInput'];
+export type WorkflowDefinition = components['schemas']['WorkflowDefinition'];
+export type WorkflowStepDef = components['schemas']['WorkflowStepDef'];
+export type WorkflowStepKind = components['schemas']['WorkflowStepKind'];
+export type WorkflowRun = components['schemas']['WorkflowRun'];
+export type WorkflowStep = components['schemas']['WorkflowStep'];
+export type WorkflowRunFilter = 'all' | 'needs_input' | 'running';
+
+export const workflowsQuery = queryOptions({
+  queryKey: ['workflows'],
+  queryFn: () => unwrap(api.GET('/workflows')),
+  retry: false,
+});
+
+export const workflowRunsQuery = (status: WorkflowRunFilter = 'all') =>
+  queryOptions({
+    queryKey: ['workflow-runs', status],
+    queryFn: () =>
+      unwrap(
+        api.GET('/workflow-runs', {
+          params: { query: { status } },
+        }),
+      ),
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
+    retry: false,
+  });

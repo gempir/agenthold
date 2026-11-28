@@ -58,6 +58,8 @@ import (
 	"github.com/gempir/agenthold/internal/tools"
 	"github.com/gempir/agenthold/internal/trigger"
 	"github.com/gempir/agenthold/internal/tunnel"
+	"github.com/gempir/agenthold/internal/usage"
+	"github.com/gempir/agenthold/internal/workflows"
 )
 
 type env struct {
@@ -86,11 +88,13 @@ type env struct {
 	identity *preview.Signer
 	platform *platform.Service
 	// prs is the pull request hub, talking to the fake GitHub prGitHub.
-	prs      *pr.Service
-	prGitHub *prtest.GitHub
-	apps     *apps.Manager
-	images   *images.Manager
-	acpStore *acpstore.Catalog
+	prs       *pr.Service
+	prGitHub  *prtest.GitHub
+	apps      *apps.Manager
+	images    *images.Manager
+	acpStore  *acpstore.Catalog
+	usage     *usage.Service
+	workflows *workflows.Engine
 
 	// api, auth and box are the in-process API and its services (the Slack
 	// integration calls the handlers directly).
@@ -288,6 +292,21 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		}
 	}()
 	e.clock = &clock{t: time.Now()}
+	e.usage = &usage.Service{Store: st, Now: e.clock.Now}
+	e.sessions.SetUsageRecorder(func(rctx context.Context, u session.TurnUsage) {
+		_ = e.usage.Record(rctx, usage.RecordInput{
+			UserID:           u.UserID,
+			AgentID:          u.AgentID,
+			SessionID:        u.SessionID,
+			Harness:          u.Harness,
+			Model:            u.Model,
+			InputTokens:      u.InputTokens,
+			OutputTokens:     u.OutputTokens,
+			CacheReadTokens:  u.CacheReadTokens,
+			CacheWriteTokens: u.CacheWriteTokens,
+			ReportedCostUSD:  u.CostUSD,
+		})
+	})
 	e.tracker = idle.NewTracker()
 	e.tracker.SetClock(e.clock.Now)
 	e.sessions.OnActivity(e.tracker.Touch)
@@ -308,11 +327,19 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins, Git: e.git, Projects: e.projects,
 		PullRequests: e.prs,
 		Preview:      e.preview, Identity: e.identity, Apps: e.apps, Images: e.images, Activity: e.activity, UserMaxAgents: cfg.Auth.UserMaxAgents,
-		Org: cfg.Org, ACPStore: e.acpStore, Harnesses: resolver,
+		Org: cfg.Org, ACPStore: e.acpStore, Harnesses: resolver, Usage: e.usage, Now: e.clock.Now,
 	})
 	e.api, e.auth, e.box = a, authSvc, box
 	e.sessions.SetWaker(a.Wake)
 	e.apps.Wake = a.Wake
+	e.workflows = workflows.NewEngine(workflows.Config{
+		Store:  st,
+		Agents: &workflows.SessionAgentRunner{Store: st, Sessions: e.sessions},
+		Shell:  &workflows.TunnelShellRunner{Store: st, Wake: a.Wake},
+		Now:    e.clock.Now,
+	})
+	a.Workflows = e.workflows
+	t.Cleanup(e.workflows.Close)
 	e.sandboxes.SetBusy(e.sessions.AgentBusy)
 	e.scheduler.Runner = a.Triggers
 	e.sandboxes.OnChange(func(agentID string, p sandbox.Phase) {

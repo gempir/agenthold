@@ -107,12 +107,38 @@ type Manager struct {
 	tools    Tools
 	// workspaces prepares where project threads work; nil: they work where
 	// their cwd says.
-	workspaces Workspaces
-	logins     Logins
-	resolver   Resolver
-	catMu      sync.Mutex // serializes model catalog updates
-	qmu        sync.Mutex // serializes queue enqueue/pop transitions
-	probe      bool       // describe unknown models after turns (SetModelProbe)
+	workspaces    Workspaces
+	logins        Logins
+	resolver      Resolver
+	usageRecorder UsageRecorder
+	catMu         sync.Mutex // serializes model catalog updates
+	qmu           sync.Mutex // serializes queue enqueue/pop transitions
+	probe         bool       // describe unknown models after turns (SetModelProbe)
+}
+
+// TurnUsage is the token and cost accounting captured on turn completion.
+type TurnUsage struct {
+	UserID           string
+	AgentID          string
+	SessionID        string
+	Harness          string
+	Model            string
+	InputTokens      int64
+	OutputTokens     int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+	CostUSD          float64
+}
+
+// UsageRecorder receives per-turn usage records after a turn completes.
+type UsageRecorder func(ctx context.Context, u TurnUsage)
+
+// SetUsageRecorder registers a best-effort callback invoked when a turn reports
+// token or cost usage.
+func (m *Manager) SetUsageRecorder(fn UsageRecorder) {
+	m.mu.Lock()
+	m.usageRecorder = fn
+	m.mu.Unlock()
 }
 
 // Resolver resolves built-in and user-configured ACP Store / local ACP
@@ -706,7 +732,7 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 
 	go func() {
 		defer m.wg.Done()
-		end, err := m.run(t, sess, text, opts.Images, promptSeq, status)
+		end, tu, err := m.run(t, sess, userID, text, opts.Images, promptSeq, status)
 		m.mu.Lock()
 		t.finished = true
 		if t.killTimer != nil {
@@ -716,6 +742,7 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 		cancelled := t.cancelled
 		steering := t.steering
 		touched := touchedPlace{path: t.touchedPath, dir: t.touchedDir}
+		recorder := m.usageRecorder
 		m.mu.Unlock()
 		if c := t.conn; c != nil && !c.closed() {
 			m.refreshSessionGit(lctx, c, sess, touched)
@@ -744,6 +771,11 @@ func (m *Manager) PromptWith(ctx context.Context, sessionID, userID, userName, t
 		}
 		release()
 		_ = m.log.append(lctx, sessionID, EventTurnEnd, "", end)
+		if recorder != nil && tu != nil {
+			rctx, rcancel := context.WithTimeout(lctx, 5*time.Second)
+			recorder(rctx, *tu)
+			rcancel()
+		}
 		if err == nil && t.conn != nil {
 			m.probeLater(t.conn)
 		}
@@ -768,9 +800,9 @@ func titleFrom(text string) string {
 	return t
 }
 
-// run executes one turn and returns the data of its turn_end event, which the
-// caller appends once the turn has been released.
-func (m *Manager) run(t *turn, sess db.AgentSession, text string, images []PromptImage, promptSeq int64, status func(string)) (map[string]any, error) {
+// run executes one turn and returns the data of its turn_end event and optional
+// token usage, which the caller records once the turn has been released.
+func (m *Manager) run(t *turn, sess db.AgentSession, userID, text string, images []PromptImage, promptSeq int64, status func(string)) (map[string]any, *TurnUsage, error) {
 	ctx := t.setup
 	notice := func(msg string) {
 		_ = m.log.append(context.WithoutCancel(ctx), sess.ID, EventNotice, "", map[string]string{"message": msg})
@@ -780,29 +812,30 @@ func (m *Manager) run(t *turn, sess db.AgentSession, text string, images []Promp
 	}
 	conn, err := m.connectionFor(ctx, sess.AgentID, sess.Harness, notice)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	m.mu.Lock()
 	t.conn = conn
 	m.mu.Unlock()
 	acpID, inlineCtx, handoffToSeq, err := m.activate(ctx, t, conn, sess, text, promptSeq, notice)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	conn.bind(acpID, sess.ID)
 	if err := m.applyChoice(ctx, conn, sess.ID, acpID, notice); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	m.mu.Lock()
 	if t.cancelled {
 		m.mu.Unlock()
-		return nil, context.Canceled
+		return nil, nil, context.Canceled
 	}
 	t.acpID, t.prompting = acpID, true
 	m.mu.Unlock()
 	m.lg.Info("harness: prompt sent", "agent", sess.AgentID, "session", sess.ID)
 	conn.promptAt.Store(time.Now().UnixNano())
+	usageBefore := conn.usageOf(acpID)
 
 	promptText := WithInlineContext(inlineCtx, text)
 	if NormalizePermissionMode(sess.PermissionMode) == PermissionPlan && !IsSlashCommand(text) && conn.adapter.EffectiveProtocol() != harness.ProtocolClaude {
@@ -823,20 +856,82 @@ func (m *Manager) run(t *turn, sess db.AgentSession, text string, images []Promp
 		var se *stoppedError
 		if cause := context.Cause(t.prompt); t.prompt.Err() != nil && errors.As(cause, &se) {
 			conn.forget(acpID) // the harness may still be busy with it
-			return nil, cause
+			return nil, nil, cause
 		}
 		if conn.ended() {
-			return nil, conn.failure()
+			return nil, nil, conn.failure()
 		}
 		if m.shuttingDown() {
-			return nil, errors.New("the server shut down during the turn; send the message again to retry")
+			return nil, nil, errors.New("the server shut down during the turn; send the message again to retry")
 		}
 		if authRequired(err) {
-			return nil, errLoginNeeded
+			return nil, nil, errLoginNeeded
 		}
-		return nil, &harnessError{msg: fmt.Sprintf("%s failed the prompt: %s", conn.name, refusal(err)), err: err}
+		return nil, nil, &harnessError{msg: fmt.Sprintf("%s failed the prompt: %s", conn.name, refusal(err)), err: err}
 	}
-	return map[string]any{"stopReason": res.StopReason, "usage": res.Usage}, nil
+	tu := m.extractTurnUsage(context.WithoutCancel(ctx), sess, userID, conn, acpID, usageBefore, res)
+	return map[string]any{"stopReason": res.StopReason, "usage": res.Usage}, tu, nil
+}
+
+func (m *Manager) extractTurnUsage(ctx context.Context, sess db.AgentSession, userID string, conn *harnessConn, acpID string, before ContextUsage, res acp.PromptResponse) *TurnUsage {
+	uid := userID
+	if uid == "" {
+		uid = sess.CreatedBy
+	}
+	if uid == "" {
+		return nil
+	}
+	var inTok, outTok, cacheRead, cacheWrite int64
+	var costUSD float64
+	if res.Meta != nil {
+		if v, ok := res.Meta["costUsd"].(float64); ok && v > 0 {
+			costUSD = v
+		}
+	}
+	if res.Usage != nil {
+		inTok = int64(res.Usage.InputTokens)
+		outTok = int64(res.Usage.OutputTokens)
+		if res.Usage.CachedReadTokens != nil {
+			cacheRead = int64(*res.Usage.CachedReadTokens)
+		}
+		if res.Usage.CachedWriteTokens != nil {
+			cacheWrite = int64(*res.Usage.CachedWriteTokens)
+		}
+		if inTok == 0 && outTok == 0 && cacheRead == 0 && cacheWrite == 0 && res.Usage.TotalTokens > 0 {
+			inTok = int64(res.Usage.TotalTokens)
+		}
+	} else {
+		after := conn.usageOf(acpID)
+		if after.UsedTokens > before.UsedTokens {
+			inTok = after.UsedTokens - before.UsedTokens
+		}
+		if after.CostUSD > before.CostUSD {
+			costUSD = after.CostUSD - before.CostUSD
+		}
+	}
+	if inTok+outTok+cacheRead+cacheWrite <= 0 && costUSD <= 0 {
+		return nil
+	}
+	model := conn.currentModel(acpID)
+	if model == "" {
+		if fresh, err := m.store.GetAgentSession(ctx, sess.ID); err == nil && fresh.Model != "" {
+			model = fresh.Model
+		} else if ag, err := m.store.GetAgent(ctx, sess.AgentID); err == nil {
+			model = ag.Model
+		}
+	}
+	return &TurnUsage{
+		UserID:           uid,
+		AgentID:          sess.AgentID,
+		SessionID:        sess.ID,
+		Harness:          conn.adapter.ID,
+		Model:            model,
+		InputTokens:      inTok,
+		OutputTokens:     outTok,
+		CacheReadTokens:  cacheRead,
+		CacheWriteTokens: cacheWrite,
+		CostUSD:          costUSD,
+	}
 }
 
 func (m *Manager) shuttingDown() bool {

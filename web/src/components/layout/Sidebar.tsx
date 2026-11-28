@@ -1059,6 +1059,8 @@ function Footer({
   const [theme, setThemeState] = useState<Theme>(getTheme);
   const user = me.data?.user;
   const inSettings = pathname.startsWith('/settings');
+  const inWorkflows = pathname.startsWith('/workflows');
+  const inUsage = pathname.startsWith('/usage');
 
   return (
     <div className="@container shrink-0 border-t px-2.5 py-2">
@@ -1197,23 +1199,34 @@ function Footer({
           <GitPullRequest className="size-4" aria-hidden />
         </Link>
         <div className="ml-auto flex items-center gap-1">
-          {(
-            [
-              ['Automations', Workflow],
-              ['Usage', ChartNoAxesColumn],
-            ] as const
-          ).map(([label, Icon]) => (
-            <button
-              key={String(label)}
-              type="button"
-              disabled
-              title={String(label) + ' (coming soon)'}
-              aria-label={String(label)}
-              className="hidden size-6 items-center justify-center text-muted-foreground/40 @[360px]:flex"
-            >
-              <Icon className="size-3.5" />
-            </button>
-          ))}
+          <Link
+            to="/workflows"
+            aria-label="Workflows"
+            title="Workflows"
+            aria-current={inWorkflows ? 'page' : undefined}
+            className={cn(
+              'flex size-7 items-center justify-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+              inWorkflows
+                ? 'bg-accent text-foreground'
+                : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+            )}
+          >
+            <Workflow className="size-3.5" aria-hidden />
+          </Link>
+          <Link
+            to="/usage"
+            aria-label="Usage"
+            title="Usage"
+            aria-current={inUsage ? 'page' : undefined}
+            className={cn(
+              'flex size-7 items-center justify-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+              inUsage
+                ? 'bg-accent text-foreground'
+                : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+            )}
+          >
+            <ChartNoAxesColumn className="size-3.5" aria-hidden />
+          </Link>
           <button
             type="button"
             aria-pressed={view === 'agents'}

@@ -60,7 +60,9 @@ import (
 	"github.com/gempir/agenthold/internal/tools"
 	"github.com/gempir/agenthold/internal/trigger"
 	"github.com/gempir/agenthold/internal/tunnel"
+	"github.com/gempir/agenthold/internal/usage"
 	"github.com/gempir/agenthold/internal/version"
+	"github.com/gempir/agenthold/internal/workflows"
 	"github.com/gempir/agenthold/web"
 )
 
@@ -307,6 +309,23 @@ func run() error {
 	acpCatalog := acpstore.NewCatalog(filepath.Join(cfg.DataDir, "cache"))
 	harnessResolver := &acpstore.Resolver{Store: st, Catalog: acpCatalog}
 	sessions := session.NewManager(st, nil, logger)
+	usageSvc := &usage.Service{Store: st, Log: logger}
+	sessions.SetUsageRecorder(func(rctx context.Context, u session.TurnUsage) {
+		if err := usageSvc.Record(rctx, usage.RecordInput{
+			UserID:           u.UserID,
+			AgentID:          u.AgentID,
+			SessionID:        u.SessionID,
+			Harness:          u.Harness,
+			Model:            u.Model,
+			InputTokens:      u.InputTokens,
+			OutputTokens:     u.OutputTokens,
+			CacheReadTokens:  u.CacheReadTokens,
+			CacheWriteTokens: u.CacheWriteTokens,
+			ReportedCostUSD:  u.CostUSD,
+		}); err != nil {
+			logger.Warn("usage: record turn", "session", u.SessionID, "err", err)
+		}
+	})
 	sessions.SetResolver(harnessResolver)
 	sessions.SetLogins(loginSvc)
 	sessions.SetModelProbe(true)
@@ -480,12 +499,24 @@ func run() error {
 		Box: box, Egress: directory, Sessions: sessions, Idle: sleeper, Audit: auditLog, Triggers: runner, Logins: loginSvc, Git: gitSvc, Executor: executorMgr,
 		Projects: projects, PullRequests: pullRequests,
 		Preview: previewSvc, Identity: identity, Apps: appsMgr, Images: imageMgr, Activity: activityLog,
-		ACPStore: acpCatalog, Harnesses: harnessResolver,
+		ACPStore: acpCatalog, Harnesses: harnessResolver, Usage: usageSvc,
 		ShowTestHarness: cfg.TestHarness || driverName == "fake", UserMaxAgents: cfg.Auth.UserMaxAgents, Org: cfg.Org,
 	})
 	sessions.SetWaker(apiSrv.Wake)
 	appsMgr.Wake = apiSrv.Wake
 	sandboxes.SetBusy(sessions.AgentBusy)
+	workflowEngine := workflows.NewEngine(workflows.Config{
+		Store:  st,
+		Agents: &workflows.SessionAgentRunner{Store: st, Sessions: sessions},
+		Shell:  &workflows.TunnelShellRunner{Store: st, Wake: apiSrv.Wake},
+		Log:    logger,
+	})
+	apiSrv.Workflows = workflowEngine
+	if err := workflowEngine.Start(ctx); err != nil {
+		logger.Error("start workflows engine", "err", err)
+	}
+	go workflowEngine.RunScheduler(ctx, 15*time.Second)
+	defer workflowEngine.Close()
 	// Slack acts through the API's handlers, as the linked users.
 	slackSvc := slackapp.New(slackapp.Options{
 		Store: st, Box: box, API: apiSrv, Auth: authSvc, Sessions: sessions, PublicURL: cfg.PublicURL, Log: logger,

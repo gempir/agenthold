@@ -3880,6 +3880,195 @@ export interface paths {
         patch: operations["updateSessionPullRequest"];
         trace?: never;
     };
+    "/usage/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Aggregated token and estimated USD cost usage across a time range.
+         *     Admins may pass scope=org to view organization-wide usage and per-user breakdown.
+         */
+        get: operations["getUsageSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/usage/prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Effective USD per-million token prices (built-in defaults merged with admin overrides). */
+        get: operations["listUsagePrices"];
+        /** @description Set or reset a custom USD per-million token price for a model (admin only). */
+        put: operations["putUsagePrice"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description List workflow definitions owned by the signed-in user. */
+        get: operations["listWorkflows"];
+        put?: never;
+        /** @description Create a durable multi-stage workflow definition. */
+        post: operations["createWorkflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/{workflowId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflowId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Update a workflow definition. */
+        put: operations["updateWorkflow"];
+        post?: never;
+        /** @description Delete a workflow definition and its runs. */
+        delete: operations["deleteWorkflow"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/{workflowId}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflowId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Manually start a new run of a workflow. */
+        post: operations["startWorkflowRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflow-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description List workflow runs owned by the signed-in user. */
+        get: operations["listWorkflowRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflow-runs/{runId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        /** @description Get one workflow run and all its steps. */
+        get: operations["getWorkflowRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflow-runs/{runId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Cancel an active, queued, or waiting workflow run. */
+        post: operations["cancelWorkflowRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflow-runs/{runId}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Resume a failed or paused workflow run from its unfinished step. */
+        post: operations["resumeWorkflowRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflow-runs/{runId}/steps/{stepId}/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+                stepId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Answer a human-approval ask step and resume the workflow run. */
+        post: operations["answerWorkflowStep"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -6076,6 +6265,212 @@ export interface components {
             pullRequest: components["schemas"]["SessionPullRequest"];
             /** @description The worktree the thread works in (relative to the home). */
             worktree: string;
+        };
+        UsageTotals: {
+            /** Format: int64 */
+            totalTokens: number;
+            /** Format: int64 */
+            inputTokens: number;
+            /** Format: int64 */
+            outputTokens: number;
+            /** Format: int64 */
+            cacheReadTokens: number;
+            /** Format: int64 */
+            cacheWriteTokens: number;
+            /** Format: double */
+            totalCostUsd: number;
+            /** Format: int64 */
+            turnCount: number;
+        };
+        UsageBucket: {
+            /** @description UTC bucket label (YYYY-MM-DD, or YYYY-MM-DDTHH:00Z for 24h range). */
+            bucket: string;
+            /** Format: int64 */
+            totalTokens: number;
+            /** Format: int64 */
+            inputTokens: number;
+            /** Format: int64 */
+            outputTokens: number;
+            /** Format: int64 */
+            cacheReadTokens: number;
+            /** Format: int64 */
+            cacheWriteTokens: number;
+            /** Format: double */
+            costUsd: number;
+            /** Format: int64 */
+            turnCount: number;
+        };
+        UsageModelBreakdown: {
+            harness: string;
+            model: string;
+            /** Format: int64 */
+            totalTokens: number;
+            /** Format: int64 */
+            inputTokens: number;
+            /** Format: int64 */
+            outputTokens: number;
+            /** Format: int64 */
+            cacheReadTokens: number;
+            /** Format: int64 */
+            cacheWriteTokens: number;
+            /** Format: double */
+            costUsd: number;
+            /** Format: int64 */
+            turnCount: number;
+            priced: boolean;
+        };
+        UsageUserBreakdown: {
+            userId: string;
+            userName: string;
+            userEmail: string;
+            /** Format: int64 */
+            totalTokens: number;
+            /** Format: int64 */
+            inputTokens: number;
+            /** Format: int64 */
+            outputTokens: number;
+            /** Format: double */
+            costUsd: number;
+            /** Format: int64 */
+            turnCount: number;
+        };
+        UsageSummary: {
+            /** @enum {string} */
+            range: "24h" | "7d" | "30d" | "90d";
+            /** @enum {string} */
+            scope: "me" | "org";
+            totals: components["schemas"]["UsageTotals"];
+            series: components["schemas"]["UsageBucket"][];
+            byModel: components["schemas"]["UsageModelBreakdown"][];
+            byUser: components["schemas"]["UsageUserBreakdown"][];
+        };
+        UsageModelPrice: {
+            model: string;
+            /** Format: double */
+            inputPerM: number;
+            /** Format: double */
+            outputPerM: number;
+            /** Format: double */
+            cacheReadPerM: number;
+            custom: boolean;
+            /** Format: date-time */
+            updatedAt?: string;
+        };
+        UsageModelPriceInput: {
+            model: string;
+            /** Format: double */
+            inputPerM: number;
+            /** Format: double */
+            outputPerM: number;
+            /** Format: double */
+            cacheReadPerM?: number;
+            /** @description If true */
+            reset?: boolean;
+        };
+        /** @enum {string} */
+        WorkflowStepKind: "agent" | "shell" | "ask";
+        WorkflowStepDef: {
+            name: string;
+            kind: components["schemas"]["WorkflowStepKind"];
+            agentId?: string;
+            prompt?: string;
+            reuseSession?: boolean;
+            command?: string;
+            cwd?: string;
+            askTitle?: string;
+            askChoices?: string[];
+            continueOnChoices?: string[];
+        };
+        WorkflowDefinition: {
+            steps: components["schemas"]["WorkflowStepDef"][];
+            schedule?: string;
+            timezone?: string;
+            concurrencyLimit?: number;
+            webhookEnabled?: boolean;
+        };
+        WorkflowInput: {
+            name: string;
+            description?: string;
+            definition: components["schemas"]["WorkflowDefinition"];
+            enabled?: boolean;
+            rotateWebhookToken?: boolean;
+        };
+        Workflow: {
+            id: string;
+            ownerId: string;
+            name: string;
+            description: string;
+            definition: components["schemas"]["WorkflowDefinition"];
+            enabled: boolean;
+            hasWebhook: boolean;
+            /** @description Only returned when a webhook token is created or rotated. */
+            webhookUrl?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        WorkflowRunStartInput: {
+            input?: {
+                [key: string]: unknown;
+            };
+        };
+        /** @enum {string} */
+        WorkflowRunStatus: "queued" | "running" | "needs_input" | "completed" | "failed" | "cancelled";
+        /** @enum {string} */
+        WorkflowTriggerKind: "manual" | "schedule" | "webhook";
+        /** @enum {string} */
+        WorkflowStepStatus: "pending" | "running" | "waiting" | "completed" | "failed" | "skipped";
+        WorkflowStep: {
+            id: string;
+            runId: string;
+            stepIndex: number;
+            name: string;
+            kind: components["schemas"]["WorkflowStepKind"];
+            status: components["schemas"]["WorkflowStepStatus"];
+            agentId?: string;
+            sessionId?: string;
+            promptOrCmd?: string;
+            askTitle?: string;
+            askChoices: string[];
+            answerChoice?: string;
+            answerReason?: string;
+            answeredBy?: string;
+            output?: string;
+            error?: string;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+        };
+        WorkflowRun: {
+            id: string;
+            workflowId: string;
+            workflowName: string;
+            ownerId: string;
+            status: components["schemas"]["WorkflowRunStatus"];
+            triggerKind: components["schemas"]["WorkflowTriggerKind"];
+            input: {
+                [key: string]: unknown;
+            };
+            output: {
+                [key: string]: unknown;
+            };
+            error?: string;
+            currentStep: number;
+            steps: components["schemas"]["WorkflowStep"][];
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        WorkflowStepAnswerInput: {
+            choice: string;
+            reason?: string;
         };
     };
     responses: {
@@ -12957,6 +13352,323 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    getUsageSummary: {
+        parameters: {
+            query?: {
+                range?: "24h" | "7d" | "30d" | "90d";
+                scope?: "me" | "org";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Usage summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageSummary"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    listUsagePrices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Model prices. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageModelPrice"][];
+                };
+            };
+        };
+    };
+    putUsagePrice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UsageModelPriceInput"];
+            };
+        };
+        responses: {
+            /** @description Updated model price. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageModelPrice"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    listWorkflows: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"][];
+                };
+            };
+        };
+    };
+    createWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowInput"];
+            };
+        };
+        responses: {
+            /** @description Created workflow. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"];
+                };
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    updateWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflowId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowInput"];
+            };
+        };
+        responses: {
+            /** @description Updated workflow. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflowId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    startWorkflowRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflowId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["WorkflowRunStartInput"];
+            };
+        };
+        responses: {
+            /** @description Started or queued workflow run. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    listWorkflowRuns: {
+        parameters: {
+            query?: {
+                status?: "all" | "needs_input" | "running";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflow runs with step checkpoints. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"][];
+                };
+            };
+        };
+    };
+    getWorkflowRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflow run. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    cancelWorkflowRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancelled workflow run. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"];
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    resumeWorkflowRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resumed workflow run. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"];
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    answerWorkflowStep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+                stepId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowStepAnswerInput"];
+            };
+        };
+        responses: {
+            /** @description Updated workflow run. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"];
+                };
+            };
+            400: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
         };

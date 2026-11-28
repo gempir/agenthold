@@ -55,6 +55,11 @@ func (p postgresQueries) CopyServices(ctx context.Context, arg db.CopyServicesPa
 	return p.q.CopyServices(ctx, postgres.CopyServicesParams(arg))
 }
 
+func (p postgresQueries) CountActiveRunsForWorkflow(ctx context.Context, workflowID string) (int64, error) {
+	value, err := p.q.CountActiveRunsForWorkflow(ctx, workflowID)
+	return value, err
+}
+
 func (p postgresQueries) CountAgentApps(ctx context.Context, createdByAgentID string) (int64, error) {
 	value, err := p.q.CountAgentApps(ctx, createdByAgentID)
 	return value, err
@@ -249,12 +254,28 @@ func (p postgresQueries) CreateSlackThread(ctx context.Context, arg db.CreateSla
 	return p.q.CreateSlackThread(ctx, postgres.CreateSlackThreadParams(arg))
 }
 
+func (p postgresQueries) CreateUsageRecord(ctx context.Context, arg db.CreateUsageRecordParams) error {
+	return p.q.CreateUsageRecord(ctx, postgres.CreateUsageRecordParams(arg))
+}
+
 func (p postgresQueries) CreateUser(ctx context.Context, arg db.CreateUserParams) error {
 	return p.q.CreateUser(ctx, postgres.CreateUserParams(arg))
 }
 
 func (p postgresQueries) CreateWebhook(ctx context.Context, arg db.CreateWebhookParams) error {
 	return p.q.CreateWebhook(ctx, postgres.CreateWebhookParams(arg))
+}
+
+func (p postgresQueries) CreateWorkflow(ctx context.Context, arg db.CreateWorkflowParams) error {
+	return p.q.CreateWorkflow(ctx, postgres.CreateWorkflowParams(arg))
+}
+
+func (p postgresQueries) CreateWorkflowRun(ctx context.Context, arg db.CreateWorkflowRunParams) error {
+	return p.q.CreateWorkflowRun(ctx, postgres.CreateWorkflowRunParams(arg))
+}
+
+func (p postgresQueries) CreateWorkflowStep(ctx context.Context, arg db.CreateWorkflowStepParams) error {
+	return p.q.CreateWorkflowStep(ctx, postgres.CreateWorkflowStepParams(arg))
 }
 
 func (p postgresQueries) DeleteAPIToken(ctx context.Context, arg db.DeleteAPITokenParams) (int64, error) {
@@ -311,6 +332,11 @@ func (p postgresQueries) DeleteImage(ctx context.Context, id string) error {
 
 func (p postgresQueries) DeleteMCPServer(ctx context.Context, id string) error {
 	return p.q.DeleteMCPServer(ctx, id)
+}
+
+func (p postgresQueries) DeleteModelPrice(ctx context.Context, model string) (int64, error) {
+	value, err := p.q.DeleteModelPrice(ctx, model)
+	return value, err
 }
 
 func (p postgresQueries) DeleteNode(ctx context.Context, id string) error {
@@ -440,6 +466,11 @@ func (p postgresQueries) DeleteUserToolPreference(ctx context.Context, arg db.De
 
 func (p postgresQueries) DeleteWebhook(ctx context.Context, id string) error {
 	return p.q.DeleteWebhook(ctx, id)
+}
+
+func (p postgresQueries) DeleteWorkflow(ctx context.Context, id string) (int64, error) {
+	value, err := p.q.DeleteWorkflow(ctx, id)
+	return value, err
 }
 
 func (p postgresQueries) DetachMCPServer(ctx context.Context, arg db.DetachMCPServerParams) (int64, error) {
@@ -572,6 +603,11 @@ func (p postgresQueries) GetMCPServer(ctx context.Context, id string) (db.McpSer
 func (p postgresQueries) GetModelCatalog(ctx context.Context, agentID string) (db.AgentModelCatalog, error) {
 	value, err := p.q.GetModelCatalog(ctx, agentID)
 	return db.AgentModelCatalog(value), err
+}
+
+func (p postgresQueries) GetModelPrice(ctx context.Context, model string) (db.ModelPrice, error) {
+	value, err := p.q.GetModelPrice(ctx, model)
+	return db.ModelPrice(value), err
 }
 
 func (p postgresQueries) GetNode(ctx context.Context, id string) (db.Node, error) {
@@ -774,6 +810,21 @@ func (p postgresQueries) GetWebhookByToken(ctx context.Context, tokenHash string
 	return db.Webhook(value), err
 }
 
+func (p postgresQueries) GetWorkflow(ctx context.Context, id string) (db.Workflow, error) {
+	value, err := p.q.GetWorkflow(ctx, id)
+	return db.Workflow(value), err
+}
+
+func (p postgresQueries) GetWorkflowRun(ctx context.Context, id string) (db.WorkflowRun, error) {
+	value, err := p.q.GetWorkflowRun(ctx, id)
+	return db.WorkflowRun(value), err
+}
+
+func (p postgresQueries) GetWorkflowStep(ctx context.Context, id string) (db.WorkflowStep, error) {
+	value, err := p.q.GetWorkflowStep(ctx, id)
+	return db.WorkflowStep(value), err
+}
+
 func (p postgresQueries) HasAnySessionShareOnAgent(ctx context.Context, arg db.HasAnySessionShareOnAgentParams) (int64, error) {
 	value, err := p.q.HasAnySessionShareOnAgent(ctx, postgres.HasAnySessionShareOnAgentParams(arg))
 	return value, err
@@ -817,6 +868,18 @@ func (p postgresQueries) ListAPITokens(ctx context.Context, userID string) ([]db
 	result := make([]db.ApiToken, 0, len(value))
 	for _, row := range value {
 		result = append(result, db.ApiToken(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListActiveWorkflowRuns(ctx context.Context) ([]db.WorkflowRun, error) {
+	value, err := p.q.ListActiveWorkflowRuns(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.WorkflowRun, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.WorkflowRun(row))
 	}
 	return result, nil
 }
@@ -1025,6 +1088,18 @@ func (p postgresQueries) ListDefaultOrgSkills(ctx context.Context) ([]db.OrgSkil
 	return result, nil
 }
 
+func (p postgresQueries) ListEnabledWorkflows(ctx context.Context) ([]db.Workflow, error) {
+	value, err := p.q.ListEnabledWorkflows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.Workflow, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.Workflow(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListExposures(ctx context.Context, agentID string) ([]db.Exposure, error) {
 	value, err := p.q.ListExposures(ctx, agentID)
 	if err != nil {
@@ -1093,6 +1168,18 @@ func (p postgresQueries) ListImages(ctx context.Context) ([]db.Image, error) {
 	result := make([]db.Image, 0, len(value))
 	for _, row := range value {
 		result = append(result, db.Image(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListModelPrices(ctx context.Context) ([]db.ModelPrice, error) {
+	value, err := p.q.ListModelPrices(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.ModelPrice, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.ModelPrice(row))
 	}
 	return result, nil
 }
@@ -1225,6 +1312,18 @@ func (p postgresQueries) ListPullRequestSessions(ctx context.Context, arg db.Lis
 	result := make([]db.SessionPullRequest, 0, len(value))
 	for _, row := range value {
 		result = append(result, db.SessionPullRequest(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListQueuedRunsForWorkflow(ctx context.Context, workflowID string) ([]db.WorkflowRun, error) {
+	value, err := p.q.ListQueuedRunsForWorkflow(ctx, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.WorkflowRun, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.WorkflowRun(row))
 	}
 	return result, nil
 }
@@ -1409,6 +1508,18 @@ func (p postgresQueries) ListUnfinishedSessions(ctx context.Context) ([]string, 
 	return result, nil
 }
 
+func (p postgresQueries) ListUsageRecordsSince(ctx context.Context, createdAt int64) ([]db.UsageRecord, error) {
+	value, err := p.q.ListUsageRecordsSince(ctx, createdAt)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.UsageRecord, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.UsageRecord(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListUserAgents(ctx context.Context, userID string) ([]db.ListUserAgentsRow, error) {
 	value, err := p.q.ListUserAgents(ctx, userID)
 	if err != nil {
@@ -1529,6 +1640,54 @@ func (p postgresQueries) ListUserToolPreferences(ctx context.Context, userID str
 	return result, nil
 }
 
+func (p postgresQueries) ListUserUsageRecordsSince(ctx context.Context, arg db.ListUserUsageRecordsSinceParams) ([]db.UsageRecord, error) {
+	value, err := p.q.ListUserUsageRecordsSince(ctx, postgres.ListUserUsageRecordsSinceParams(arg))
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.UsageRecord, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.UsageRecord(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListUserWorkflowRuns(ctx context.Context, arg db.ListUserWorkflowRunsParams) ([]db.WorkflowRun, error) {
+	value, err := p.q.ListUserWorkflowRuns(ctx, postgres.ListUserWorkflowRunsParams(arg))
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.WorkflowRun, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.WorkflowRun(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListUserWorkflowRunsByStatus(ctx context.Context, arg db.ListUserWorkflowRunsByStatusParams) ([]db.WorkflowRun, error) {
+	value, err := p.q.ListUserWorkflowRunsByStatus(ctx, postgres.ListUserWorkflowRunsByStatusParams(arg))
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.WorkflowRun, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.WorkflowRun(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListUserWorkflows(ctx context.Context, ownerID string) ([]db.Workflow, error) {
+	value, err := p.q.ListUserWorkflows(ctx, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.Workflow, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.Workflow(row))
+	}
+	return result, nil
+}
+
 func (p postgresQueries) ListUsersByVerifiedEmail(ctx context.Context, lower string) ([]db.User, error) {
 	value, err := p.q.ListUsersByVerifiedEmail(ctx, lower)
 	if err != nil {
@@ -1561,6 +1720,30 @@ func (p postgresQueries) ListWatchedPullRequests(ctx context.Context) ([]db.List
 	result := make([]db.ListWatchedPullRequestsRow, 0, len(value))
 	for _, row := range value {
 		result = append(result, db.ListWatchedPullRequestsRow{SessionPullRequest: db.SessionPullRequest(row.SessionPullRequest), AgentID: row.AgentID, OwnerID: row.OwnerID, SessionTitle: row.SessionTitle})
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListWorkflowRunsByWorkflow(ctx context.Context, arg db.ListWorkflowRunsByWorkflowParams) ([]db.WorkflowRun, error) {
+	value, err := p.q.ListWorkflowRunsByWorkflow(ctx, postgres.ListWorkflowRunsByWorkflowParams(arg))
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.WorkflowRun, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.WorkflowRun(row))
+	}
+	return result, nil
+}
+
+func (p postgresQueries) ListWorkflowSteps(ctx context.Context, runID string) ([]db.WorkflowStep, error) {
+	value, err := p.q.ListWorkflowSteps(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.WorkflowStep, 0, len(value))
+	for _, row := range value {
+		result = append(result, db.WorkflowStep(row))
 	}
 	return result, nil
 }
@@ -2030,12 +2213,28 @@ func (p postgresQueries) UpdateWebhook(ctx context.Context, arg db.UpdateWebhook
 	return p.q.UpdateWebhook(ctx, postgres.UpdateWebhookParams(arg))
 }
 
+func (p postgresQueries) UpdateWorkflow(ctx context.Context, arg db.UpdateWorkflowParams) error {
+	return p.q.UpdateWorkflow(ctx, postgres.UpdateWorkflowParams(arg))
+}
+
+func (p postgresQueries) UpdateWorkflowRunState(ctx context.Context, arg db.UpdateWorkflowRunStateParams) error {
+	return p.q.UpdateWorkflowRunState(ctx, postgres.UpdateWorkflowRunStateParams(arg))
+}
+
+func (p postgresQueries) UpdateWorkflowStep(ctx context.Context, arg db.UpdateWorkflowStepParams) error {
+	return p.q.UpdateWorkflowStep(ctx, postgres.UpdateWorkflowStepParams(arg))
+}
+
 func (p postgresQueries) UpsertLocalNode(ctx context.Context, arg db.UpsertLocalNodeParams) error {
 	return p.q.UpsertLocalNode(ctx, postgres.UpsertLocalNodeParams(arg))
 }
 
 func (p postgresQueries) UpsertModelCatalog(ctx context.Context, arg db.UpsertModelCatalogParams) error {
 	return p.q.UpsertModelCatalog(ctx, postgres.UpsertModelCatalogParams(arg))
+}
+
+func (p postgresQueries) UpsertModelPrice(ctx context.Context, arg db.UpsertModelPriceParams) error {
+	return p.q.UpsertModelPrice(ctx, postgres.UpsertModelPriceParams(arg))
 }
 
 func (p postgresQueries) UpsertOrgProviderLogin(ctx context.Context, arg db.UpsertOrgProviderLoginParams) error {

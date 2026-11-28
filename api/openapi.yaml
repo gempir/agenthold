@@ -3904,6 +3904,267 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  # --- Phase 2A: Organization Tools, Skills, Provider Logins & In-Thread Secret Requests ---
+
+  /org/tools:
+    get:
+      operationId: listOrgTools
+      tags: [org]
+      description: >-
+        List organization-provided MCP servers and Executor apps visible to the
+        signed-in user's role, including per-user enabled preference, hasSecret
+        flag (never secret values), and Executor connection status when available.
+      responses:
+        "200":
+          description: Organization tools.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/OrgTool" }
+    post:
+      operationId: createOrgTool
+      tags: [org]
+      description: Create an organization-provided MCP server or Executor app (Admin only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OrgToolInput" }
+      responses:
+        "201":
+          description: Created organization tool.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrgTool" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /org/tools/{toolId}:
+    parameters:
+      - name: toolId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: updateOrgTool
+      tags: [org]
+      description: Update an organization tool (Admin only). Omit secret to preserve the existing encrypted secret.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OrgToolInput" }
+      responses:
+        "200":
+          description: Updated organization tool.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrgTool" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteOrgTool
+      tags: [org]
+      description: Delete an organization tool (Admin only).
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /me/org-tools/{toolId}:
+    parameters:
+      - name: toolId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: setUserOrgToolPreference
+      tags: [org]
+      description: Enable or disable an organization tool for the signed-in user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserOrgToolPreferenceInput" }
+      responses:
+        "200":
+          description: Updated tool status for the signed-in user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrgTool" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /me/org-tools/{toolId}/connect:
+    parameters:
+      - name: toolId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: connectOrgTool
+      tags: [org]
+      description: >-
+        One-step connect for an executor_app organization tool with user_oauth:
+        transparently installs the catalog app into the user's Executor instance
+        if not yet installed and starts/returns an account connection session.
+      responses:
+        "200":
+          description: Installed app and connection session (or already connected status).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrgToolConnectResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /org/skills:
+    get:
+      operationId: listOrgSkills
+      tags: [org]
+      description: List organization-wide skills auto-delivered to agents.
+      responses:
+        "200":
+          description: Organization skills.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/OrgSkill" }
+    post:
+      operationId: createOrgSkill
+      tags: [org]
+      description: Create an organization skill (Admin only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OrgSkillInput" }
+      responses:
+        "201":
+          description: Created organization skill.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrgSkill" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /org/skills/{skillId}:
+    parameters:
+      - name: skillId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: updateOrgSkill
+      tags: [org]
+      description: Update an organization skill (Admin only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OrgSkillInput" }
+      responses:
+        "200":
+          description: Updated organization skill.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrgSkill" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteOrgSkill
+      tags: [org]
+      description: Delete an organization skill (Admin only).
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /org/providers:
+    get:
+      operationId: listOrgProviders
+      tags: [org]
+      description: List organization shared provider logins (never returns secrets).
+      responses:
+        "200":
+          description: Organization provider logins.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/OrgProviderLogin" }
+
+  /org/providers/{provider}:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: upsertOrgProvider
+      tags: [org]
+      description: Configure or update an organization shared provider login (Admin only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OrgProviderLoginInput" }
+      responses:
+        "200":
+          description: Configured organization provider login.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrgProviderLogin" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteOrgProvider
+      tags: [org]
+      description: Remove an organization shared provider login (Admin only).
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{sessionId}/secret-requests/{requestId}:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+      - name: requestId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: respondSecretRequest
+      tags: [sessions]
+      description: >-
+        Submit or decline an in-thread secret request emitted by the request_secret
+        platform MCP tool. Submitted values are encrypted directly into the user's
+        secret store and egress proxy and never appear in chat history.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SecretRequestSubmitInput" }
+      responses:
+        "200":
+          description: Resolution result (never contains the secret value).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SecretRequestResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
 security:
   - session: []
   - token: []
@@ -4686,9 +4947,10 @@ components:
       properties:
         source:
           type: string
-          enum: [account, secret, sandbox, unsupported]
+          enum: [account, org, secret, sandbox, unsupported]
           description: |
-            account: the account login of `user`. secret: an API key secret attached to the agent wins.
+            account: the account login of `user`. org: an organization-wide shared provider login fallback.
+            secret: an API key secret attached to the agent wins.
             sandbox: whatever is signed in inside the sandbox. unsupported: the harness has no account logins.
         user:
           $ref: "#/components/schemas/User"
@@ -4965,14 +5227,17 @@ components:
         at: { type: string, format: date-time }
         type:
           type: string
-          enum: [prompt, update, permission, permission_resolved, turn_end, error, notice, subthread]
+          enum: [prompt, update, permission, permission_resolved, turn_end, error, notice, subthread, secret_request, secret_request_resolved, account_connect_request]
           description: |
             prompt: {text, user{id,name}}; update: an ACP SessionUpdate
             (discriminated by "sessionUpdate"); permission: {requestId,
             toolCall, options[{optionId,name,kind}], policy};
             permission_resolved: {requestId, optionId, by}; turn_end:
             {stopReason}; error/notice: {message}; subthread: {sessionId,
-            agentId, title, harness, model, status, summary}.
+            agentId, title, harness, model, status, summary};
+            secret_request: {requestId, name, description, hosts, envVar?, header?};
+            secret_request_resolved: {requestId, status, secretId?, name?, envVar?, placeholder?, by};
+            account_connect_request: {requestId, toolId, slug, name, description?, kind, authMode, reason?, connected, connectEndpoint}.
         userId: { type: string }
         data:
           type: object
@@ -5906,3 +6171,147 @@ components:
         methods:
           type: array
           items: { $ref: "#/components/schemas/ExecutorAuthMethod" }
+
+    # --- Phase 2A: Organization Tools, Skills, Provider Logins & In-Thread Secret Requests ---
+
+    OrgToolConfig:
+      type: object
+      properties:
+        url: { type: string }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+        command: { type: string }
+        args:
+          type: array
+          items: { type: string }
+        env:
+          type: object
+          additionalProperties: { type: string }
+        executorCatalogId: { type: string }
+
+    OrgTool:
+      type: object
+      required: [id, slug, name, description, kind, authMode, config, hasSecret, secretHosts, enabledByDefault, userEnabled, connected, allowedRoles, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        name: { type: string }
+        description: { type: string }
+        kind: { type: string, enum: [mcp_http, mcp_stdio, executor_app] }
+        authMode: { type: string, enum: [none, org_shared, user_oauth] }
+        config: { $ref: "#/components/schemas/OrgToolConfig" }
+        hasSecret: { type: boolean, description: "True when an encrypted org-shared secret is configured; values are never returned." }
+        secretHosts:
+          type: array
+          items: { type: string }
+        enabledByDefault: { type: boolean }
+        userEnabled: { type: boolean, description: "Effective enabled state for the signed-in user." }
+        connected: { type: boolean, description: "For user_oauth executor_app tools, whether the user has a linked account." }
+        allowedRoles:
+          type: array
+          items: { type: string }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    OrgToolInput:
+      type: object
+      required: [slug, name, kind]
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        description: { type: string }
+        kind: { type: string, enum: [mcp_http, mcp_stdio, executor_app] }
+        authMode: { type: string, enum: [none, org_shared, user_oauth] }
+        config: { $ref: "#/components/schemas/OrgToolConfig" }
+        secret: { type: string, description: "Optional org-shared secret value (write-only; never returned)." }
+        clearSecret: { type: boolean, description: "When true on update, clears the stored secret." }
+        secretHosts:
+          type: array
+          items: { type: string }
+        enabledByDefault: { type: boolean }
+        allowedRoles:
+          type: array
+          items: { type: string }
+
+    UserOrgToolPreferenceInput:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+
+    OrgToolConnectResponse:
+      type: object
+      required: [toolId, slug, connected]
+      properties:
+        toolId: { type: string }
+        slug: { type: string }
+        connected: { type: boolean }
+        app: { $ref: "#/components/schemas/ExecutorApp" }
+        session: { $ref: "#/components/schemas/ExecutorConnectionSession" }
+
+    OrgSkill:
+      type: object
+      required: [id, name, description, content, enabledByDefault, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        content: { type: string }
+        enabledByDefault: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    OrgSkillInput:
+      type: object
+      required: [name, description, content]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        content: { type: string }
+        enabledByDefault: { type: boolean }
+
+    OrgProviderLogin:
+      type: object
+      required: [provider, configured, enabled]
+      properties:
+        provider: { type: string }
+        configured: { type: boolean }
+        kind: { type: string, enum: [api_key, oauth_token, gateway] }
+        label: { type: string }
+        enabled: { type: boolean }
+        updatedBy: { type: string }
+        updatedAt: { type: string, format: date-time }
+
+    OrgProviderLoginInput:
+      type: object
+      required: [kind]
+      properties:
+        kind: { type: string, enum: [api_key, oauth_token, gateway] }
+        label: { type: string }
+        credential: { type: string, description: "API key or OAuth token (write-only; required on initial setup)." }
+        baseUrl: { type: string, description: "Gateway base URL when kind is gateway." }
+        header: { type: string, description: "Optional custom auth header for gateway kind." }
+        hosts:
+          type: array
+          items: { type: string }
+        enabled: { type: boolean }
+
+    SecretRequestSubmitInput:
+      type: object
+      properties:
+        value: { type: string, description: "Secret value (encrypted directly to the user's secret store; never persisted in chat history)." }
+        decline: { type: boolean, description: "When true, declines the agent's secret request." }
+        name: { type: string, description: "Optional override for the saved secret's name." }
+        envVar: { type: string, description: "Optional override for the environment variable attached to the agent." }
+
+    SecretRequestResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [submitted, declined] }
+        secretId: { type: string }
+        name: { type: string }
+        envVar: { type: string }
+        placeholder: { type: string }

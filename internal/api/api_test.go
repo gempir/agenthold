@@ -195,6 +195,9 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 	localNode.SetDataDir(nodeDataDir)
 	localNode.SetLayerBuilder(images.FakeLayerBuilder(nodeDataDir))
 	box, _ := secrets.NewBox(bytes.Repeat([]byte{1}, secrets.KeySize))
+	if err := tools.SyncOrgConfig(t.Context(), st, box, cfg.Org); err != nil {
+		t.Fatal(err)
+	}
 	ca, err := egress.LoadOrCreateCA(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -286,7 +289,7 @@ func newEnvWith(t *testing.T, configure func(*config.Config)) *env {
 		Box: box, Egress: e.directory, Sessions: e.sessions, Idle: e.sleeper, Audit: &audit.Log{Store: st}, ShowTestHarness: true,
 		Triggers: &trigger.Runner{Store: st, Sessions: e.sessions, Audit: &audit.Log{Store: st}}, Logins: e.logins, Git: e.git, Projects: e.projects,
 		Preview: e.preview, Identity: e.identity, Apps: e.apps, Images: e.images, Activity: e.activity, UserMaxAgents: cfg.Auth.UserMaxAgents,
-		ACPStore: e.acpStore, Harnesses: resolver,
+		Org: cfg.Org, ACPStore: e.acpStore, Harnesses: resolver,
 	})
 	e.api, e.auth, e.box = a, authSvc, box
 	e.sessions.SetWaker(a.Wake)

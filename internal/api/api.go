@@ -84,6 +84,7 @@ type Deps struct {
 	// UserMaxAgents is auth.user_max_agents: how many agents a user with the
 	// User role may own. Nil means no limit.
 	UserMaxAgents *int
+	Org           config.Org
 	Limits        config.Sandbox
 	Now           func() time.Time
 }

@@ -48,7 +48,7 @@ Update checkboxes as each milestone merges cleanly to `main` with `make test` an
 ---
 
 ## Phase 2 — Organization Tools & "Login Once" Integrations
-- [ ] **2A. Org Tool Catalog, Org Skills & Org Shared Provider Pools (`00020_org_tools.sql`)**
+- [x] **2A. Org Tool Catalog, Org Skills & Org Shared Provider Pools (`00020_org_tools.sql`)**
   - Admin-managed Org Tools (remote HTTP MCP, stdio MCP, Executor catalog apps) with `auth_mode`: `org_shared` (zero-setup shared credential via controller/proxy), `user_oauth` (admin configures once, user connects once), or `none`.
   - Admin-managed Org Skills auto-delivered to every agent's harness skills directory alongside user skills.
   - Admin-managed Org Provider Logins (shared Anthropic/OpenAI/Gemini/OpenRouter API keys or gateways) so new users can chat immediately after SSO login without personal API keys, while still allowing personal logins as override.

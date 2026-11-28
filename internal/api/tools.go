@@ -13,7 +13,9 @@ import (
 
 	"github.com/gempir/agenthold/internal/api/gen"
 	"github.com/gempir/agenthold/internal/audit"
+	"github.com/gempir/agenthold/internal/auth"
 	"github.com/gempir/agenthold/internal/authz"
+	"github.com/gempir/agenthold/internal/config"
 	"github.com/gempir/agenthold/internal/id"
 	"github.com/gempir/agenthold/internal/store"
 	"github.com/gempir/agenthold/internal/store/db"
@@ -126,8 +128,21 @@ func (a *API) ListMCPServers(ctx context.Context, _ gen.ListMCPServersRequestObj
 	return out, nil
 }
 
+func (a *API) checkCustomMCPAllowed(ctx context.Context) error {
+	if a.Org.UserCustomMCPAllowed() {
+		return nil
+	}
+	if auth.Role(*me(ctx)) == config.RoleAdmin {
+		return nil
+	}
+	return errStatus(http.StatusForbidden, "custom MCP servers are disabled by organization policy; use organization-provided tools or ask an admin")
+}
+
 // CreateMCPServer implements gen.StrictServerInterface.
 func (a *API) CreateMCPServer(ctx context.Context, req gen.CreateMCPServerRequestObject) (gen.CreateMCPServerResponseObject, error) {
+	if err := a.checkCustomMCPAllowed(ctx); err != nil {
+		return nil, err
+	}
 	s, err := a.mcpFromInput(ctx, me(ctx).ID, *req.Body)
 	if err != nil {
 		return nil, err
@@ -157,6 +172,9 @@ func (a *API) ListAgentMCPServers(ctx context.Context, req gen.ListAgentMCPServe
 
 // CreateAgentMCPServer implements gen.StrictServerInterface.
 func (a *API) CreateAgentMCPServer(ctx context.Context, req gen.CreateAgentMCPServerRequestObject) (gen.CreateAgentMCPServerResponseObject, error) {
+	if err := a.checkCustomMCPAllowed(ctx); err != nil {
+		return nil, err
+	}
 	acc, err := a.authz.Agent(ctx, me(ctx).ID, req.AgentId, authz.AgentConfigure)
 	if err != nil {
 		return nil, err

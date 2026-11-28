@@ -222,12 +222,19 @@ func TestExecutorAPIAndAgentSettings(t *testing.T) {
 		t.Fatalf("unexpected health: %+v", health)
 	}
 
-	// Agent Executor settings: default enabled=false, mode=model; patchable; preserved on clone; auto-disabled on share.
+	// Agent Executor settings: default enabled=true when Executor is available, mode=model;
+	// explicit opt-out respected; patchable; preserved on clone; auto-disabled on share.
 	var ag gen.Agent
 	expect(t, "create agent", alice.do(http.MethodPost, "/agents", map[string]any{"name": "exec-agent", "harness": "fake"}, &ag), http.StatusCreated)
 	e.sandboxes.Wait()
-	if ag.ExecutorEnabled || ag.ExecutorApprovalMode != gen.Model {
+	if !ag.ExecutorEnabled || ag.ExecutorApprovalMode != gen.Model {
 		t.Fatalf("unexpected default agent executor settings: enabled=%v mode=%v", ag.ExecutorEnabled, ag.ExecutorApprovalMode)
+	}
+	var optedOut gen.Agent
+	expect(t, "create agent explicit opt-out", alice.do(http.MethodPost, "/agents", map[string]any{"name": "exec-optout", "harness": "fake", "executorEnabled": false}, &optedOut), http.StatusCreated)
+	e.sandboxes.Wait()
+	if optedOut.ExecutorEnabled {
+		t.Fatalf("expected explicit executorEnabled=false opt-out to be respected")
 	}
 	var patched gen.Agent
 	expect(t, "patch agent", alice.do(http.MethodPatch, "/agents/"+ag.Id, map[string]any{

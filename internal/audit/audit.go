@@ -97,6 +97,16 @@ const (
 	ExecutorAccountLink   = "executor.account.link"
 	ExecutorAccountUnlink = "executor.account.unlink"
 	ExecutorAccountDelete = "executor.account.delete"
+
+	OrgToolCreate     = "org.tool.create"
+	OrgToolUpdate     = "org.tool.update"
+	OrgToolDelete     = "org.tool.delete"
+	OrgSkillCreate    = "org.skill.create"
+	OrgSkillUpdate    = "org.skill.update"
+	OrgSkillDelete    = "org.skill.delete"
+	OrgProviderPut    = "org.provider.put"
+	OrgProviderDelete = "org.provider.delete"
+	SecretRequest     = "session.secret_request"
 )
 
 // Entry is one audit record. AgentID is empty for account-level actions.

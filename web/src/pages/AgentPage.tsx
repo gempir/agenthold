@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -29,8 +29,20 @@ import { AgentNotice } from '@/components/agent/AgentNotice';
 import {
   AgentPanel,
   panelTabNeedsUse,
+  type PanelActions,
   type PanelTab,
 } from '@/components/agent/AgentPanel';
+import {
+  closePanelTab,
+  fileTab,
+  openPanelTab,
+  parseTab,
+  threadLinkHandlers,
+  threadTab,
+  type DynamicTab,
+} from '@/components/agent/panelTabs';
+import { ThreadDetailsCard } from '@/components/agent/ThreadDetailsCard';
+import { resolveFileRef } from '@/lib/files';
 import {
   GitMeta,
   SessionGitLine,
@@ -77,6 +89,7 @@ export function AgentPage({
   const [wide, setWideState] = useState(
     () => readPref('panelWide', '') === '1',
   );
+  const navigate = useNavigate();
   const start = useStartChat();
   const settle = useSettle();
   const [gitDraft, setGitDraft] = useGitDraft(cwd);
@@ -109,6 +122,31 @@ export function AgentPage({
   const a = q.data;
   const access = accessOf(a);
   const selected = active;
+
+  // The panel's workspace: files and threads open in tabs beside the thread.
+  const openTab = (t: DynamicTab) => onPanel(openPanelTab(agentId, t));
+  const closeTab = (t: DynamicTab) => {
+    const next = closePanelTab(
+      agentId,
+      t,
+      parseTab(t).kind === 'file' ? 'files' : 'overview',
+    );
+    if (panel === t) onPanel(next);
+  };
+  const actions: PanelActions = {
+    onOpenFile: (path, line) => openTab(fileTab(path, line)),
+    onOpenThread: (id) => openTab(threadTab(id)),
+    onOpenInMain: (id) => {
+      const t = threadTab(id);
+      const next = closePanelTab(agentId, t);
+      void navigate({
+        to: '/a/$agentId',
+        params: { agentId },
+        search: { s: id, panel: panel === t ? next : panel },
+      });
+    },
+    onCloseTab: closeTab,
+  };
   const notice = <AgentNotice agent={a} canUse={access.canUse} />;
   const isSubthread =
     !!selected?.origin &&
@@ -165,6 +203,12 @@ export function AgentPage({
                   </span>
                 </Button>
               )}
+              <ThreadDetailsCard
+                agent={a}
+                session={selected}
+                canUse={access.canUse}
+                onOpenDiff={() => onPanel('diff')}
+              />
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -357,6 +401,12 @@ export function AgentPage({
                   to="/a/$agentId"
                   params={{ agentId }}
                   search={{ s: sub.id }}
+                  title="Open beside this thread (⌘-click: open in the main view)"
+                  {...threadLinkHandlers(
+                    sub.id,
+                    actions.onOpenThread,
+                    actions.onOpenInMain,
+                  )}
                   className="inline-flex max-w-60 items-center gap-1.5 rounded-full border bg-background px-2.5 py-0.5 text-foreground transition-colors hover:bg-accent"
                 >
                   <HarnessIcon
@@ -399,6 +449,12 @@ export function AgentPage({
               canUse={access.canUse}
               agentState={a.state}
               initialRunning={selected?.running}
+              // Links in replies are relative to the thread's directory.
+              onOpenFile={(path, line) =>
+                actions.onOpenFile(resolveFileRef(path, selected?.cwd), line)
+              }
+              onOpenSubthread={actions.onOpenThread}
+              onOpenSubthreadInMain={actions.onOpenInMain}
               composerMeta={
                 <>
                   <HarnessMeta
@@ -485,6 +541,7 @@ export function AgentPage({
             writePref('panelWide', w ? '1' : '');
           }}
           onClose={() => onPanel(undefined)}
+          actions={actions}
         />
       )}
     </div>

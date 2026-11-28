@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { File, Folder, Trash2 } from 'lucide-react';
+import { Download, File, Folder, Search, Trash2 } from 'lucide-react';
 import { api, ApiError, unwrap } from '@/api/client';
 import { ErrorText, Loading } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,15 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { breadcrumbs, contentUrl, formatSize, joinPath } from '@/lib/files';
+import { cn } from '@/lib/utils';
+import {
+  AGENT_HOME,
+  breadcrumbs,
+  contentUrl,
+  formatSize,
+  homeRel,
+  joinPath,
+} from '@/lib/files';
 
 type Entry = {
   name: string;
@@ -26,11 +34,15 @@ export function FilesTab({
   canUse,
   onStart,
   starting,
+  onOpenFile,
 }: {
   agentId: string;
   canUse: boolean;
   onStart: () => void;
   starting: boolean;
+  /** Opens a file (path relative to the home) in the file viewer; without
+   * it, a click downloads the file. */
+  onOpenFile?: (path: string) => void;
 }) {
   const qc = useQueryClient();
   const [path, setPath] = useState('');
@@ -38,6 +50,8 @@ export function FilesTab({
   const [folder, setFolder] = useState('');
   const [toDelete, setToDelete] = useState<Entry | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const [filter, setFilter] = useState('');
+  const term = useDebounced(filter.trim(), 200);
   const key = ['agents', agentId, 'files', path];
 
   const q = useQuery({
@@ -51,6 +65,23 @@ export function FilesTab({
     retry: false,
   });
   const dir = q.data?.path ?? path;
+  // Search works relative to the home; outside it there is no filter.
+  const base = homeRel(dir);
+  const searchable = !base.startsWith('/');
+  const search = useQuery({
+    queryKey: ['agents', agentId, 'files', 'search', base, term],
+    queryFn: () =>
+      unwrap(
+        api.GET('/agents/{agentId}/files/search', {
+          params: {
+            path: { agentId },
+            query: { ...(base && { path: base }), q: term, limit: 50 },
+          },
+        }),
+      ),
+    enabled: !!term && searchable && !!q.data,
+    retry: false,
+  });
   const refresh = () =>
     qc.invalidateQueries({ queryKey: ['agents', agentId, 'files'] });
 
@@ -194,56 +225,116 @@ export function FilesTab({
       <ErrorText error={upload.error} />
       <ErrorText error={del.error} />
 
-      <ul className="divide-y rounded-lg border text-sm">
-        {entries.length === 0 && (
-          <li className="p-3 text-muted-foreground">Empty directory</li>
-        )}
-        {entries.map((e) => {
-          const abs = joinPath(q.data.path, e.name);
-          return (
-            <li key={e.name} className="flex items-center gap-3 px-3 py-2">
-              {e.isDir ? (
-                <Folder className="size-4 shrink-0" aria-hidden />
-              ) : (
-                <File className="size-4 shrink-0" aria-hidden />
-              )}
-              {e.isDir ? (
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 truncate text-left hover:underline"
-                  onClick={() => setPath(abs)}
+      {searchable && (
+        <label className="relative block">
+          <Search
+            className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <Input
+            aria-label="Find files"
+            placeholder="Find files by name"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            onKeyDown={(e) => e.key === 'Escape' && setFilter('')}
+            className="h-8 pl-8 text-sm"
+          />
+        </label>
+      )}
+
+      {term && searchable ? (
+        <SearchResults
+          loading={search.isPending}
+          error={search.error}
+          results={search.data?.results ?? []}
+          truncated={!!search.data?.truncated}
+          onPick={(m) => {
+            const rel = base ? `${base}/${m.path}` : m.path;
+            setFilter('');
+            if (m.isDir) setPath(`${AGENT_HOME}/${rel}`);
+            else if (onOpenFile) onOpenFile(rel);
+            else
+              window.location.assign(
+                contentUrl(agentId, `${AGENT_HOME}/${rel}`),
+              );
+          }}
+        />
+      ) : (
+        <ul className="divide-y rounded-lg border text-sm">
+          {entries.length === 0 && (
+            <li className="p-3 text-muted-foreground">Empty directory</li>
+          )}
+          {entries.map((e) => {
+            const abs = joinPath(q.data.path, e.name);
+            return (
+              <li key={e.name} className="flex items-center gap-3 px-3 py-2">
+                {e.isDir ? (
+                  <Folder className="size-4 shrink-0" aria-hidden />
+                ) : (
+                  <File className="size-4 shrink-0" aria-hidden />
+                )}
+                {e.isDir ? (
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 truncate text-left hover:underline"
+                    onClick={() => setPath(abs)}
+                  >
+                    {e.name}
+                  </button>
+                ) : onOpenFile ? (
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 truncate text-left hover:underline"
+                    onClick={() => onOpenFile(homeRel(abs))}
+                  >
+                    {e.name}
+                  </button>
+                ) : (
+                  <a
+                    className="min-w-0 flex-1 truncate hover:underline"
+                    href={contentUrl(agentId, abs)}
+                    download={e.name}
+                  >
+                    {e.name}
+                  </a>
+                )}
+                <span className="w-20 text-right text-muted-foreground">
+                  {e.isDir ? '' : formatSize(e.size)}
+                </span>
+                <span
+                  className={cn(
+                    'hidden w-44 text-muted-foreground',
+                    !onOpenFile && 'sm:inline',
+                  )}
                 >
-                  {e.name}
-                </button>
-              ) : (
-                <a
-                  className="min-w-0 flex-1 truncate hover:underline"
-                  href={contentUrl(agentId, abs)}
-                  download={e.name}
-                >
-                  {e.name}
-                </a>
-              )}
-              <span className="w-20 text-right text-muted-foreground">
-                {e.isDir ? '' : formatSize(e.size)}
-              </span>
-              <span className="hidden w-44 text-muted-foreground sm:inline">
-                {new Date(e.modTime).toLocaleString()}
-              </span>
-              {canUse && (
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label={`Delete ${e.name}`}
-                  onClick={() => setToDelete(e)}
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+                  {new Date(e.modTime).toLocaleString()}
+                </span>
+                {onOpenFile && !e.isDir && (
+                  <a
+                    href={contentUrl(agentId, abs)}
+                    download={e.name}
+                    aria-label={`Download ${e.name}`}
+                    title="Download"
+                    className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <Download className="size-4" aria-hidden />
+                  </a>
+                )}
+                {canUse && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label={`Delete ${e.name}`}
+                    onClick={() => setToDelete(e)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       <Dialog open={mkdirOpen} onOpenChange={setMkdirOpen}>
         <DialogContent>
@@ -308,5 +399,69 @@ export function FilesTab({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function useDebounced<T>(value: T, ms: number): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return v;
+}
+
+type Match = { path: string; name: string; isDir: boolean };
+
+function SearchResults({
+  loading,
+  error,
+  results,
+  truncated,
+  onPick,
+}: {
+  loading: boolean;
+  error: unknown;
+  results: Match[];
+  truncated: boolean;
+  onPick: (m: Match) => void;
+}) {
+  if (loading) return <Loading />;
+  if (error) return <ErrorText error={error} />;
+  return (
+    <ul
+      aria-label="Matching files"
+      className="divide-y rounded-lg border text-sm"
+    >
+      {results.length === 0 && (
+        <li className="p-3 text-muted-foreground">No matching files</li>
+      )}
+      {results.map((m) => (
+        <li key={m.path}>
+          <button
+            type="button"
+            onClick={() => onPick(m)}
+            className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-accent/60"
+          >
+            {m.isDir ? (
+              <Folder className="size-4 shrink-0" aria-hidden />
+            ) : (
+              <File className="size-4 shrink-0" aria-hidden />
+            )}
+            <span className="min-w-0 flex-1 truncate">
+              {m.name}
+              <span className="ml-2 text-xs text-muted-foreground">
+                {m.path}
+              </span>
+            </span>
+          </button>
+        </li>
+      ))}
+      {truncated && (
+        <li className="p-2 text-xs text-muted-foreground">
+          More files match; refine the name.
+        </li>
+      )}
+    </ul>
   );
 }

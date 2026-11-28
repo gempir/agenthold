@@ -52,6 +52,8 @@ import {
   type SubthreadItem,
   type Viewer,
 } from '@/lib/session';
+import { threadLinkHandlers } from '@/components/agent/panelTabs';
+import type { OpenFile } from '@/components/chat/Markdown';
 import { elapsed, useNow } from '@/lib/time';
 import { cn } from '@/lib/utils';
 
@@ -314,13 +316,21 @@ function MessageImages({
   );
 }
 
+/** Opening threads from the chat: beside it, or in the main view. */
+type ThreadOpeners = {
+  onOpenSubthread?: (sessionId: string) => void;
+  onOpenSubthreadInMain?: (sessionId: string) => void;
+};
+
 function SubthreadCard({
   item,
   live,
+  onOpenSubthread,
+  onOpenSubthreadInMain,
 }: {
   item: SubthreadItem;
   live?: Session;
-}) {
+} & ThreadOpeners) {
   const harnesses = useQuery(harnessesQuery);
   const harnessId = live?.harness || item.harness;
   const harnessMeta = harnesses.data?.find((h) => h.id === harnessId);
@@ -370,6 +380,16 @@ function SubthreadCard({
           to="/a/$agentId"
           params={{ agentId: item.agentId }}
           search={{ s: item.sessionId }}
+          title={
+            onOpenSubthread
+              ? 'Open beside this thread (⌘-click: open in the main view)'
+              : undefined
+          }
+          {...threadLinkHandlers(
+            item.sessionId,
+            onOpenSubthread,
+            onOpenSubthreadInMain,
+          )}
           className="inline-flex shrink-0 items-center gap-1 rounded-lg border bg-background px-2.5 py-1 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-accent"
         >
           {status === 'running' ? 'Watch live' : 'Jump in'}
@@ -403,19 +423,23 @@ function Item({
   canUse,
   myName,
   subthreads,
+  onOpenFile,
+  ...openers
 }: {
   item: ChatItem;
   sessionId: string;
   canUse: boolean;
   myName?: string;
   subthreads?: Session[];
-}) {
+  onOpenFile?: OpenFile;
+} & ThreadOpeners) {
   switch (item.kind) {
     case 'subthread':
       return (
         <SubthreadCard
           item={item}
           live={subthreads?.find((s) => s.id === item.sessionId)}
+          {...openers}
         />
       );
     case 'user':
@@ -440,7 +464,7 @@ function Item({
           <Suspense
             fallback={<p className="whitespace-pre-wrap">{item.text}</p>}
           >
-            <Markdown text={item.text} />
+            <Markdown text={item.text} onOpenFile={onOpenFile} />
           </Suspense>
         </div>
       );
@@ -632,6 +656,10 @@ export default function ChatView({
   composerMeta,
   composerFooter,
   notice,
+  compact,
+  onOpenFile,
+  onOpenSubthread,
+  onOpenSubthreadInMain,
 }: {
   sessionId: string;
   agentId?: string;
@@ -648,7 +676,11 @@ export default function ChatView({
   composerFooter?: ReactNode;
   /** Agent state banner shown right above the composer. */
   notice?: ReactNode;
-}) {
+  /** Narrow layout, e.g. in the side panel. */
+  compact?: boolean;
+  /** Makes file links in replies open in the file viewer. */
+  onOpenFile?: OpenFile;
+} & ThreadOpeners) {
   const qc = useQueryClient();
   const me = useQuery(meQuery);
   const { state, running, connected, viewers } = useSessionStream(
@@ -686,7 +718,12 @@ export default function ChatView({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div className="pointer-events-none absolute top-2 right-4 z-10 hidden md:block">
+      <div
+        className={cn(
+          'pointer-events-none absolute top-2 right-4 z-10 hidden md:block',
+          compact && 'md:hidden',
+        )}
+      >
         <div className="pointer-events-auto">
           <Presence viewers={viewers} />
         </div>
@@ -702,7 +739,12 @@ export default function ChatView({
         }}
         className="min-h-0 flex-1 overflow-y-auto"
       >
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pt-8 pb-10 md:px-8">
+        <div
+          className={cn(
+            'mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pt-8 pb-10 md:px-8',
+            compact && 'px-3 pt-4 pb-6 md:px-4',
+          )}
+        >
           {state.items.length === 0 && !running && (
             <p className="py-16 text-center text-sm text-muted-foreground">
               {connected ? 'No messages yet.' : 'Loading conversation…'}
@@ -723,6 +765,9 @@ export default function ChatView({
                 canUse={canUse}
                 myName={me.data?.user.name}
                 subthreads={subthreads}
+                onOpenFile={onOpenFile}
+                onOpenSubthread={onOpenSubthread}
+                onOpenSubthreadInMain={onOpenSubthreadInMain}
               />
             ),
           )}
@@ -744,7 +789,12 @@ export default function ChatView({
         </div>
       </div>
 
-      <div className="relative mx-auto w-full max-w-3xl shrink-0 px-3 pb-3 md:px-8 md:pb-5">
+      <div
+        className={cn(
+          'relative mx-auto w-full max-w-3xl shrink-0 px-3 pb-3 md:px-8 md:pb-5',
+          compact && 'md:px-3 md:pb-3',
+        )}
+      >
         {!atBottom && (
           <button
             type="button"

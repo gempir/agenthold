@@ -3412,6 +3412,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{sessionId}/visuals/{eventSeq}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                eventSeq: number;
+            };
+            cookie?: never;
+        };
+        /** @description Return the raw self-contained HTML for a stored visual or MCP App session event, served with strict sandbox Content-Security-Policy headers. Pass download=true to trigger an attachment download. */
+        get: operations["getSessionVisual"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4385,10 +4405,13 @@ export interface components {
              *     agentId, title, harness, model, status, summary};
              *     secret_request: {requestId, name, description, hosts, envVar?, header?};
              *     secret_request_resolved: {requestId, status, secretId?, name?, envVar?, placeholder?, by};
-             *     account_connect_request: {requestId, toolId, slug, name, description?, kind, authMode, reason?, connected, connectEndpoint}.
+             *     account_connect_request: {requestId, toolId, slug, name, description?, kind, authMode, reason?, connected, connectEndpoint};
+             *     visual:
+             *     {title, html, height}; mcp_app: {title, html, server,
+             *     toolCallId, resourceUri, actions, height}.
              * @enum {string}
              */
-            type: "prompt" | "update" | "permission" | "permission_resolved" | "turn_end" | "error" | "notice" | "subthread" | "secret_request" | "secret_request_resolved" | "account_connect_request";
+            type: "prompt" | "update" | "permission" | "permission_resolved" | "turn_end" | "error" | "notice" | "subthread" | "secret_request" | "secret_request_resolved" | "account_connect_request" | "visual" | "mcp_app";
             userId?: string;
             data: {
                 [key: string]: unknown;
@@ -5357,6 +5380,26 @@ export interface components {
             key?: string;
             dx?: number;
             dy?: number;
+        };
+        VisualEventData: {
+            title?: string;
+            html: string;
+            height?: number;
+        };
+        McpAppAction: {
+            name: string;
+            label?: string;
+            description?: string;
+            readOnly?: boolean;
+        };
+        McpAppEventData: {
+            title: string;
+            html: string;
+            server?: string;
+            toolCallId?: string;
+            resourceUri?: string;
+            height?: number;
+            actions?: components["schemas"]["McpAppAction"][];
         };
     };
     responses: {
@@ -11462,6 +11505,33 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+        };
+    };
+    getSessionVisual: {
+        parameters: {
+            query?: {
+                download?: boolean;
+            };
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                eventSeq: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sandboxed HTML document. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
         };
     };
 }

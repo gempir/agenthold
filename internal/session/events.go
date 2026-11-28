@@ -28,6 +28,8 @@ const (
 	EventSecretRequest         = "secret_request"          // {requestId, name, description, hosts, envVar?, header?}
 	EventSecretRequestResolved = "secret_request_resolved" // {requestId, status, secretId?, name?, envVar?, placeholder?, by}
 	EventAccountConnectRequest = "account_connect_request" // {requestId, toolId, slug, name, description?, kind, authMode, reason?, connected, connectEndpoint}
+	EventVisual                = "visual"                  // {title, html, height}
+	EventMCPApp                = "mcp_app"                 // {title, html, server, toolCallId, resourceUri, actions, height}
 )
 
 // Event is one entry in a session's log.

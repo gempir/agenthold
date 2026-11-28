@@ -25,6 +25,36 @@ export interface ToolLocation {
   line?: number | null;
 }
 
+export interface VisualItem {
+  kind: 'visual';
+  seq: number;
+  title: string;
+  html: string;
+  height?: number;
+}
+
+export interface McpAppAction {
+  name: string;
+  label?: string;
+  description?: string;
+  readOnly?: boolean;
+}
+
+export interface McpAppPayload {
+  title: string;
+  html: string;
+  server?: string;
+  toolCallId?: string;
+  resourceUri?: string;
+  actions?: McpAppAction[];
+  height?: number;
+}
+
+export interface McpAppItem extends McpAppPayload {
+  kind: 'mcp_app';
+  seq: number;
+}
+
 export interface ToolCall {
   kind: 'tool';
   id: string;
@@ -36,6 +66,7 @@ export interface ToolCall {
   locations: ToolLocation[];
   rawInput?: unknown;
   rawOutput?: unknown;
+  mcpApp?: McpAppPayload;
 }
 
 export interface PermissionOption {
@@ -77,6 +108,8 @@ export type ChatItem =
   | { kind: 'thought'; seq: number; text: string }
   | ToolCall
   | SubthreadItem
+  | VisualItem
+  | McpAppItem
   | {
       kind: 'permission';
       seq: number;
@@ -134,7 +167,167 @@ function appendChunk(
   return [...items, { kind, seq, text }];
 }
 
-function toolFields(u: Obj): Partial<ToolCall> {
+function parseMcpAppActions(raw: unknown): McpAppAction[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: McpAppAction[] = [];
+  for (const item of raw) {
+    if (!isObj(item)) continue;
+    const name = str(item.name).trim();
+    if (!name) continue;
+    const label = str(item.label).trim();
+    const description = str(item.description).trim();
+    const readOnly = Boolean(item.readOnly ?? item.read_only);
+    out.push({
+      name,
+      ...(label ? { label } : {}),
+      ...(description ? { description } : {}),
+      ...(readOnly ? { readOnly } : {}),
+    });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+function parseMcpAppPayload(
+  d: Obj,
+  fallbackTitle?: string,
+  fallbackToolCallId?: string,
+): McpAppPayload | undefined {
+  const html = str(d.html) || str(d.text);
+  if (!html.trim()) return undefined;
+  const title = str(d.title).trim() || fallbackTitle?.trim() || 'MCP App';
+  const server = str(d.server).trim();
+  const toolCallId =
+    str(d.toolCallId).trim() ||
+    str(d.tool_call_id).trim() ||
+    fallbackToolCallId?.trim() ||
+    '';
+  const resourceUri =
+    str(d.resourceUri).trim() ||
+    str(d.resource_uri).trim() ||
+    str(d.uri).trim();
+  const actions = parseMcpAppActions(d.actions);
+  const height =
+    typeof d.height === 'number' && Number.isFinite(d.height) && d.height > 0
+      ? d.height
+      : undefined;
+  return {
+    title,
+    html,
+    ...(server ? { server } : {}),
+    ...(toolCallId ? { toolCallId } : {}),
+    ...(resourceUri ? { resourceUri } : {}),
+    ...(actions ? { actions } : {}),
+    ...(height ? { height } : {}),
+  };
+}
+
+function extractMcpAppFromObj(
+  obj: Obj,
+  fallbackTitle?: string,
+  fallbackToolCallId?: string,
+): McpAppPayload | undefined {
+  // Convention 1: _meta.ui ({ html, title?, resourceUri?, server?, actions?, resource?: { text/html, uri } })
+  if (isObj(obj._meta) && isObj(obj._meta.ui)) {
+    const ui = obj._meta.ui;
+    const direct = parseMcpAppPayload(ui, fallbackTitle, fallbackToolCallId);
+    if (direct) return direct;
+    if (isObj(ui.resource)) {
+      const merged: Obj = { ...ui, ...ui.resource };
+      const nested = parseMcpAppPayload(
+        merged,
+        fallbackTitle,
+        fallbackToolCallId,
+      );
+      if (nested) return nested;
+    }
+  }
+
+  // Convention 2: ui_resource or uiResource object
+  const uiRes = isObj(obj.ui_resource)
+    ? obj.ui_resource
+    : isObj(obj.uiResource)
+      ? obj.uiResource
+      : null;
+  if (uiRes) {
+    const parsed = parseMcpAppPayload(uiRes, fallbackTitle, fallbackToolCallId);
+    if (parsed) return parsed;
+  }
+
+  // Convention 3: content array containing ui:// or text/html embedded resource
+  if (Array.isArray(obj.content)) {
+    for (const entry of obj.content) {
+      if (!isObj(entry)) continue;
+      const inner = isObj(entry.content) ? entry.content : entry;
+      const res = isObj(inner.resource)
+        ? inner.resource
+        : inner.type === 'resource'
+          ? inner
+          : null;
+      if (res) {
+        const uri = str(res.uri);
+        const mime = str(res.mimeType).toLowerCase();
+        if (uri.startsWith('ui://') || mime.includes('text/html')) {
+          const parsed = parseMcpAppPayload(
+            res,
+            fallbackTitle,
+            fallbackToolCallId,
+          );
+          if (parsed) return parsed;
+        }
+      }
+      // JSON text block carrying _meta.ui / ui_resource (some MCP adapters serialize tool results as JSON text)
+      if (typeof inner.text === 'string' && inner.text.trim().startsWith('{')) {
+        try {
+          const decoded: unknown = JSON.parse(inner.text);
+          if (isObj(decoded)) {
+            const parsed = extractMcpAppFromObj(
+              decoded,
+              fallbackTitle,
+              fallbackToolCallId,
+            );
+            if (parsed) return parsed;
+          }
+        } catch {
+          // plain text, not JSON
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Detects MCP App UI payloads embedded in ACP tool_call / tool_call_update events
+ * (supports _meta.ui.html, ui_resource, and ui:// / text/html MCP resources).
+ */
+export function extractMcpAppFromTool(
+  u: Obj,
+  fallbackTitle?: string,
+): McpAppPayload | undefined {
+  const toolCallId = str(u.toolCallId);
+  const title = str(u.title) || fallbackTitle;
+  const fromRoot = extractMcpAppFromObj(u, title, toolCallId);
+  if (fromRoot) return fromRoot;
+  if (isObj(u.rawOutput)) {
+    const fromOut = extractMcpAppFromObj(u.rawOutput, title, toolCallId);
+    if (fromOut) return fromOut;
+  }
+  if (typeof u.rawOutput === 'string' && u.rawOutput.trim().startsWith('{')) {
+    try {
+      const decoded: unknown = JSON.parse(u.rawOutput);
+      if (isObj(decoded)) {
+        const fromStr = extractMcpAppFromObj(decoded, title, toolCallId);
+        if (fromStr) return fromStr;
+      }
+    } catch {
+      // not JSON
+    }
+  }
+  return undefined;
+}
+
+function toolFields(u: Obj, fallbackTitle?: string): Partial<ToolCall> {
   const out: Partial<ToolCall> = {};
   if (typeof u.title === 'string') out.title = u.title;
   if (typeof u.kind === 'string') out.toolKind = u.kind as ToolKind;
@@ -143,16 +336,19 @@ function toolFields(u: Obj): Partial<ToolCall> {
   if (Array.isArray(u.locations)) out.locations = u.locations as ToolLocation[];
   if (u.rawInput != null) out.rawInput = u.rawInput;
   if (u.rawOutput != null) out.rawOutput = u.rawOutput;
+  const mcpApp = extractMcpAppFromTool(u, fallbackTitle);
+  if (mcpApp) out.mcpApp = mcpApp;
   return out;
 }
 
 function upsertTool(items: ChatItem[], seq: number, u: Obj): ChatItem[] {
   const id = str(u.toolCallId);
   const idx = items.findIndex((i) => i.kind === 'tool' && i.id === id);
-  const fields = toolFields(u);
-  if (idx >= 0) {
+  const prev = idx >= 0 ? (items[idx] as ToolCall) : undefined;
+  const fields = toolFields(u, prev?.title);
+  if (idx >= 0 && prev) {
     const next = items.slice();
-    next[idx] = { ...(items[idx] as ToolCall), ...fields };
+    next[idx] = { ...prev, ...fields };
     return next;
   }
   const t: ToolCall = {
@@ -347,6 +543,47 @@ export function applyEvent(s: ChatState, ev: SessionEvent): ChatState {
       }
       break;
     }
+    case 'visual': {
+      const html = str(d.html);
+      if (!html.trim()) break;
+      const height =
+        typeof d.height === 'number' &&
+        Number.isFinite(d.height) &&
+        d.height > 0
+          ? d.height
+          : undefined;
+      const entry: VisualItem = {
+        kind: 'visual',
+        seq: ev.seq,
+        title: str(d.title).trim(),
+        html,
+        ...(height ? { height } : {}),
+      };
+      next = { ...s, items: [...s.items, entry] };
+      break;
+    }
+    case 'mcp_app': {
+      const payload = parseMcpAppPayload(d);
+      if (!payload) break;
+      if (payload.toolCallId) {
+        const idx = s.items.findIndex(
+          (i) => i.kind === 'tool' && i.id === payload.toolCallId,
+        );
+        if (idx >= 0) {
+          const items = s.items.slice();
+          items[idx] = { ...(items[idx] as ToolCall), mcpApp: payload };
+          next = { ...s, items };
+          break;
+        }
+      }
+      const entry: McpAppItem = {
+        kind: 'mcp_app',
+        seq: ev.seq,
+        ...payload,
+      };
+      next = { ...s, items: [...s.items, entry] };
+      break;
+    }
   }
   return { ...next, lastSeq: ev.seq };
 }
@@ -445,7 +682,8 @@ export const backoffMs = (attempt: number) =>
 export type ChatGroup =
   { kind: 'work'; items: ChatItem[] } | { kind: 'item'; item: ChatItem };
 
-const isWork = (i: ChatItem) => i.kind === 'tool' || i.kind === 'thought';
+const isWork = (i: ChatItem) =>
+  (i.kind === 'tool' && !i.mcpApp) || i.kind === 'thought';
 
 /** Folds runs of two or more consecutive tool calls and thoughts into one
  * "work" group so the conversation reads as messages, not as a log. */

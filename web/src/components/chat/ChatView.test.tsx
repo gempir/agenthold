@@ -661,3 +661,49 @@ it('uploads non-image file attachments to the agent workspace before sending', a
     stubGlobal('fetch', origFetch);
   }
 });
+
+it('renders inline visual cards and interactive MCP Apps below tool calls', async () => {
+  mockApi({});
+  renderChat(true);
+  const sock = FakeSocket.all[0];
+  act(() => {
+    sock.emit(
+      ev(1, 'visual', {
+        title: 'Build Duration',
+        html: '<div>42s</div>',
+        height: 220,
+      }),
+    );
+    sock.emit(
+      ev(2, 'update', {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'tc_app',
+        title: 'Open Issue Board',
+        kind: 'other',
+        status: 'completed',
+        rawOutput: {
+          _meta: {
+            ui: {
+              title: 'Issue Board',
+              html: '<section>board</section>',
+              server: 'linear',
+            },
+          },
+        },
+      }),
+    );
+  });
+
+  expect(await screen.findByTestId('html-render-card')).toBeInTheDocument();
+  expect(screen.getByTitle('Build Duration')).toHaveAttribute(
+    'sandbox',
+    'allow-scripts',
+  );
+  expect(await screen.findByTestId('mcp-app-card')).toBeInTheDocument();
+  expect(screen.getByText('Open Issue Board')).toBeInTheDocument();
+  expect(screen.getByText('linear')).toBeInTheDocument();
+  expect(screen.getByTitle('Issue Board')).toHaveAttribute(
+    'sandbox',
+    'allow-scripts',
+  );
+});

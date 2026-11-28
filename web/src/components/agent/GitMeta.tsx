@@ -1,41 +1,45 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate } from '@tanstack/react-router';
 import {
   Check,
   ChevronDown,
   Copy,
   FolderGit2,
+  FolderKanban,
   GitBranch,
   RefreshCw,
+  Settings,
 } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
 import {
-  agentGitReposQuery,
+  projectsQuery,
   type Agent,
-  type GitRepo,
+  type Project,
   type Session,
 } from '@/api/queries';
-import { Input } from '@/components/ui/input';
 import { Menu, MenuItem, MenuSeparator } from '@/components/ui/menu';
 import { cn } from '@/lib/utils';
 
-/** Where a draft chat starts: a repository (or home), optionally on a branch
- * or in a fresh worktree. */
+/** Where a draft thread starts: a configured project, home, or an explicit
+ * directory passed from the agent's Git tab. */
 export interface GitDraft {
-  /** Directory relative to home; empty for home. */
+  /** Selected project id; empty when not bound to a project. */
+  projectId: string;
+  /** Work directly in the project's main checkouts instead of a new branch. */
+  direct: boolean;
+  /** Directory relative to home (from ?cwd=); empty for home. */
   cwd: string;
-  branch: string;
-  worktree: boolean;
 }
 
 export const EMPTY_GIT_DRAFT: GitDraft = {
+  projectId: '',
+  direct: false,
   cwd: '',
-  branch: '',
-  worktree: false,
 };
 
 /**
- * The draft's git choice. It starts from `initialCwd` (the `?cwd=` of the
+ * The draft's workspace choice. Starts from `initialCwd` (the `?cwd=` of the
  * page) and follows it when that changes, until the user picks something else.
  */
 export function useGitDraft(
@@ -49,46 +53,44 @@ export function useGitDraft(
   return [draft, (d) => setPicked({ from: initialCwd, draft: d })];
 }
 
-/** The createSession fields of a draft. */
+/** The startChat fields of a draft workspace choice. */
 export function gitStartArgs(d: GitDraft) {
-  const branch = d.branch.trim();
+  if (d.projectId) {
+    return {
+      projectId: d.projectId,
+      ...(d.direct && { direct: true }),
+    };
+  }
   return {
     ...(d.cwd && { cwd: d.cwd }),
-    ...(d.cwd &&
-      branch && {
-        gitBranch: branch,
-        createBranch: true,
-        createWorktree: d.worktree,
-      }),
   };
 }
 
 const basename = (p: string) => p.split('/').filter(Boolean).pop() ?? p;
 
 /**
- * Where a draft conversation starts, in the composer's meta bar: a picker
- * over the repositories found in the agent's home, and the choice to start
- * in a new worktree. A started thread shows its branch in SessionGitLine.
+ * Where a draft conversation starts, in the composer's meta bar: a clean picker
+ * over the user's configured projects (or an explicit `?cwd=` from GitTab).
+ * A started thread shows its project/branch in SessionGitLine.
  */
 export function GitMeta({
-  agent,
   draft,
   onDraft,
   canUse = true,
 }: {
-  agent: Agent;
+  agent?: Agent;
   draft?: GitDraft;
   onDraft?: (d: GitDraft) => void;
   canUse?: boolean;
 }) {
   if (!draft || !onDraft || !canUse) return null;
-  return <DraftGitPicker agent={agent} draft={draft} onDraft={onDraft} />;
+  return <DraftProjectPicker draft={draft} onDraft={onDraft} />;
 }
 
 /**
  * The project and branch a started thread is on, as a quiet line under its
  * composer: the branch can be copied, and re-detected with refresh. Nothing
- * when the thread is not known to be in a repository.
+ * when the thread is not known to be in a project or repository.
  */
 export function SessionGitLine({
   agent,
@@ -112,11 +114,15 @@ export function SessionGitLine({
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ['agents', agent.id, 'sessions'] }),
   });
+  const proj = session.project;
   const git = session.git;
-  if (!git || !(git.project || git.branch)) return null;
+  if (!proj && (!git || !(git.project || git.branch))) return null;
+
+  const branch = proj ? (proj.branch ?? '') : (git?.branch ?? '');
   const copy = async () => {
+    if (!branch) return;
     try {
-      await navigator.clipboard.writeText(git.branch);
+      await navigator.clipboard.writeText(branch);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -128,23 +134,39 @@ export function SessionGitLine({
       data-testid="session-git"
       className="flex min-w-0 items-center gap-1 px-3 text-xs text-muted-foreground/80"
     >
-      {git.project && (
-        <span
-          title={git.repoPath ? `~/${git.repoPath}` : git.project}
-          className="flex min-w-0 shrink items-center gap-1"
+      {proj ? (
+        <Link
+          to="/projects/$projectId"
+          params={{ projectId: proj.id }}
+          className="flex min-w-0 shrink items-center gap-1 hover:text-foreground"
         >
-          <FolderGit2 className="size-3 shrink-0" aria-hidden />
-          <span className="truncate">{git.project}</span>
+          <FolderKanban className="size-3 shrink-0" aria-hidden />
+          <span className="truncate">{proj.name}</span>
+        </Link>
+      ) : (
+        git?.project && (
+          <span
+            title={git.repoPath ? `~/${git.repoPath}` : git.project}
+            className="flex min-w-0 shrink items-center gap-1"
+          >
+            <FolderGit2 className="size-3 shrink-0" aria-hidden />
+            <span className="truncate">{git.project}</span>
+          </span>
+        )
+      )}
+      {proj?.direct && !branch && (
+        <span className="ml-1.5 truncate font-mono text-[11px]">
+          main checkouts
         </span>
       )}
-      {git.branch && (
+      {branch && (
         <>
           <GitBranch className="ml-1.5 size-3 shrink-0" aria-hidden />
           <span
-            title={git.branch}
+            title={branch}
             className="min-w-0 truncate font-mono text-[11px]"
           >
-            {git.branch}
+            {branch}
           </span>
           <button
             type="button"
@@ -161,7 +183,7 @@ export function SessionGitLine({
           </button>
         </>
       )}
-      {canUse && (
+      {canUse && !proj && (
         <button
           type="button"
           aria-label="Refresh git branch"
@@ -180,31 +202,32 @@ export function SessionGitLine({
   );
 }
 
-function DraftGitPicker({
-  agent,
+function sourceSummary(p: Project) {
+  if (p.sources.length === 0) return '';
+  if (p.sources.length === 1) return p.sources[0].name;
+  return `${p.sources.length} sources`;
+}
+
+function DraftProjectPicker({
   draft,
   onDraft,
 }: {
-  agent: Agent;
   draft: GitDraft;
   onDraft: (d: GitDraft) => void;
 }) {
-  const repos = useQuery({
-    ...agentGitReposQuery(agent.id),
-    enabled: agent.state === 'running',
-  });
-  const list = repos.data?.connected ? repos.data.repos : [];
-  const selected = list.find((r) => r.path === draft.cwd);
-  // Nothing to choose from and nothing preselected: stay out of the way.
+  const navigate = useNavigate();
+  const projects = useQuery(projectsQuery);
+  const list = projects.data ?? [];
+  const selected = list.find((p) => p.id === draft.projectId);
+  // Nothing to choose from and no preselected directory: stay out of the way.
   if (list.length === 0 && !draft.cwd) return null;
 
-  const project = selected?.project ?? (draft.cwd ? basename(draft.cwd) : '');
-  const branch = draft.branch.trim() || selected?.branch;
-  const pick = (r?: GitRepo) =>
-    onDraft({ cwd: r?.path ?? '', branch: '', worktree: false });
+  const pickProject = (p?: Project) =>
+    onDraft({ projectId: p?.id ?? '', direct: false, cwd: '' });
 
   return (
     <Menu
+      side="top"
       trigger={({ open, toggle }) => (
         <button
           type="button"
@@ -214,103 +237,110 @@ function DraftGitPicker({
           onClick={toggle}
           className="flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-muted-foreground hover:bg-accent hover:text-foreground"
         >
-          <FolderGit2 className="size-3.5 shrink-0" aria-hidden />
-          {project ? (
+          {draft.cwd && !selected ? (
             <>
-              <span className="max-w-32 truncate text-foreground">
-                {project}
+              <FolderGit2 className="size-3.5 shrink-0" aria-hidden />
+              <span className="max-w-36 truncate text-foreground">
+                {basename(draft.cwd)}
               </span>
-              {branch && (
-                <span className="hidden max-w-28 truncate font-mono text-xs sm:inline">
-                  {draft.worktree && '+ '}
-                  {branch}
-                </span>
+            </>
+          ) : selected ? (
+            <>
+              <FolderKanban className="size-3.5 shrink-0" aria-hidden />
+              <span className="max-w-36 truncate text-foreground">
+                {selected.name}
+              </span>
+              {draft.direct && (
+                <span className="hidden font-mono text-xs sm:inline">main</span>
               )}
             </>
           ) : (
-            <span>No project</span>
+            <>
+              <FolderKanban className="size-3.5 shrink-0" aria-hidden />
+              <span>No project</span>
+            </>
           )}
           <ChevronDown className="size-3.5" aria-hidden />
         </button>
       )}
-      className="bottom-full top-auto mb-1 w-72 max-w-[90vw]"
+      className="w-64 max-w-[90vw]"
     >
       {(close) => (
         <>
           <MenuItem
-            active={!draft.cwd}
+            active={!draft.projectId && !draft.cwd}
             onClick={() => {
-              pick();
+              pickProject();
               close();
             }}
           >
-            <span className="min-w-0 flex-1 truncate">
-              Home directory (no project)
-            </span>
+            <span className="min-w-0 flex-1 truncate">No project</span>
+            <span className="text-xs text-muted-foreground">Home</span>
           </MenuItem>
           {list.length > 0 && <MenuSeparator />}
-          {list.map((r) => (
+          {list.map((p) => (
             <MenuItem
-              key={r.path}
-              active={r.path === draft.cwd}
+              key={p.id}
+              active={p.id === draft.projectId}
               onClick={() => {
-                pick(r);
+                pickProject(p);
                 close();
               }}
             >
-              <FolderGit2
+              <FolderKanban
                 className="size-3.5 shrink-0 text-muted-foreground"
                 aria-hidden
               />
-              <span className="min-w-0 flex-1 truncate">
-                {r.project}
-                {r.isWorktree && (
-                  <span className="text-xs text-muted-foreground">
-                    {' '}
-                    · worktree
-                  </span>
-                )}
-              </span>
-              <span className="max-w-24 truncate font-mono text-xs text-muted-foreground">
-                {r.branch}
-              </span>
+              <span className="min-w-0 flex-1 truncate">{p.name}</span>
+              {p.sources.length > 0 && (
+                <span className="max-w-24 truncate text-xs text-muted-foreground">
+                  {sourceSummary(p)}
+                </span>
+              )}
             </MenuItem>
           ))}
-          {draft.cwd && (
+          {draft.cwd && !selected && (
             <>
               <MenuSeparator />
-              <div className="grid gap-2 px-2 py-1.5 text-sm">
-                <label className="grid gap-1 text-xs text-muted-foreground">
-                  Branch
-                  <Input
-                    value={draft.branch}
-                    placeholder={selected?.branch ?? 'current branch'}
-                    onChange={(e) =>
-                      onDraft({ ...draft, branch: e.target.value })
-                    }
-                    autoComplete="off"
-                    spellCheck={false}
-                    className="h-8 font-mono text-xs"
-                  />
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={draft.worktree}
-                    onChange={(e) =>
-                      onDraft({ ...draft, worktree: e.target.checked })
-                    }
-                  />
-                  Create worktree
-                </label>
-                {draft.worktree && !draft.branch.trim() && (
-                  <p className="text-xs text-muted-foreground">
-                    Name the branch of the new worktree.
-                  </p>
-                )}
-              </div>
+              <MenuItem active onClick={close}>
+                <FolderGit2
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                  aria-hidden
+                />
+                <span className="min-w-0 flex-1 truncate font-mono text-xs">
+                  ~/{draft.cwd}
+                </span>
+              </MenuItem>
             </>
           )}
+          {selected && (
+            <>
+              <MenuSeparator />
+              <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground">
+                <input
+                  type="checkbox"
+                  checked={draft.direct}
+                  onChange={(e) =>
+                    onDraft({ ...draft, direct: e.target.checked })
+                  }
+                />
+                <span>Work directly in main checkouts</span>
+              </label>
+            </>
+          )}
+          <MenuSeparator />
+          <MenuItem
+            onClick={() => {
+              close();
+              void navigate({ to: '/settings/projects' });
+            }}
+          >
+            <Settings
+              className="size-3.5 shrink-0 text-muted-foreground"
+              aria-hidden
+            />
+            <span className="min-w-0 flex-1 truncate">Manage projects</span>
+          </MenuItem>
         </>
       )}
     </Menu>

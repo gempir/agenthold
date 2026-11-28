@@ -106,7 +106,15 @@ export function ProjectPage({
       crumbs={
         <>
           <Crumb>
-            <Link to="/projects">Projects</Link>
+            <Link to="/settings" className="hover:text-foreground">
+              Settings
+            </Link>
+          </Crumb>
+          <CrumbSep />
+          <Crumb>
+            <Link to="/settings/projects" className="hover:text-foreground">
+              Projects
+            </Link>
           </Crumb>
           <CrumbSep />
           <Crumb current>{p.name}</Crumb>
@@ -699,7 +707,7 @@ function ProjectSettings({ project }: { project: Project }) {
       ),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['projects'] });
-      void navigate({ to: '/projects' });
+      void navigate({ to: '/settings/projects' });
     },
   });
   return (

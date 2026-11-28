@@ -40,7 +40,10 @@ it('creates a project with a repository', async () => {
     'GET /projects/p1': project,
     'GET /projects/p1/status': { threads: [], overlaps: [] },
   });
-  renderApp('/projects?new=true');
+  const { router } = renderApp('/projects?new=true');
+  await waitFor(() =>
+    expect(router.state.location.pathname).toBe('/settings/projects'),
+  );
   const user = userEvent.setup();
   await user.type(await screen.findByRole('textbox', { name: 'Name' }), 'Shop');
   await user.type(

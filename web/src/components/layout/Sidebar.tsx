@@ -4,37 +4,33 @@ import {
   Link,
   useNavigate,
   useParams,
+  useRouterState,
   useSearch,
 } from '@tanstack/react-router';
 import {
+  AppWindow,
   Bot,
   Check,
+  ChevronLeft,
   ChevronRight,
-  ChevronsUpDown,
   FolderGit2,
-  FolderKanban,
   GitBranch,
   Layers,
   Loader2,
   LogOut,
   Moon,
   PenLine,
-  SquarePen,
   Plus,
   Search,
   Settings,
+  SquarePen,
   Sun,
   Undo2,
+  UserRound,
   Users,
 } from 'lucide-react';
 import { api, unwrap } from '@/api/client';
-import {
-  appsQuery,
-  projectsQuery,
-  isTransient,
-  meQuery,
-  type SessionGit,
-} from '@/api/queries';
+import { appsQuery, meQuery, type SessionGit } from '@/api/queries';
 import { ROLE_LABEL } from '@/lib/roles';
 import type { PanelTab } from '@/components/agent/AgentPanel';
 import { AgentStateDot } from '@/components/AgentStateBadge';
@@ -57,10 +53,8 @@ const SETTLED_PREVIEW = 10;
 const SETTLED_PAGE = 50;
 /** localStorage key (agenthold.<key>) of the Settled section's fold. */
 export const SETTLED_OPEN_PREF = 'sidebar.settledOpen';
-/** localStorage key of the Apps section's fold. */
-export const APPS_OPEN_PREF = 'sidebar.appsOpen';
-/** localStorage key of the Projects section's fold. */
-const PROJECTS_OPEN_PREF = 'sidebar.projectsOpen';
+
+type SidebarView = 'threads' | 'agents' | 'apps';
 
 /** Who may settle: whoever may send prompts to the agent. */
 const canUse = (c: ChatEntry) =>
@@ -68,34 +62,22 @@ const canUse = (c: ChatEntry) =>
 
 export function Sidebar() {
   const me = useQuery(meQuery);
+  const apps = useQuery(appsQuery);
   const index = useChatIndex();
   const params = useParams({ strict: false }) as {
     agentId?: string;
     appId?: string;
-    projectId?: string;
   };
   const search = useSearch({ strict: false }) as { s?: string };
-  const [query, setQuery] = useState('');
-  const [appsOpen, setAppsOpenState] = useState(
-    () => !!params.appId || readPref(APPS_OPEN_PREF, '') === '1',
+  const [view, setView] = useState<SidebarView>(() =>
+    params.appId ? 'apps' : 'threads',
   );
-  const setAppsOpen = (o: boolean) => {
-    setAppsOpenState(o);
-    writePref(APPS_OPEN_PREF, o ? '1' : '');
-  };
+  const [query, setQuery] = useState('');
   const [threadLimit, setThreadLimit] = useState(THREADS_PAGE);
   const [settledLimit, setSettledLimit] = useState(SETTLED_PREVIEW);
   const [settledOpen, setSettledOpenState] = useState(
     () => readPref(SETTLED_OPEN_PREF, '') === '1',
   );
-  const [agentsOpen, setAgentsOpen] = useState(false);
-  const [projectsOpen, setProjectsOpenState] = useState(
-    () => !!params.projectId || readPref(PROJECTS_OPEN_PREF, '') === '1',
-  );
-  const setProjectsOpen = (o: boolean) => {
-    setProjectsOpenState(o);
-    writePref(PROJECTS_OPEN_PREF, o ? '1' : '');
-  };
   const settle = useSettle();
   const settledListId = useId();
   const now = useNow(30_000);
@@ -128,13 +110,6 @@ export function Sidebar() {
   const settled = index.settled.filter(threadMatches);
   // A search looks into settled threads too.
   const showSettled = settledOpen || (!!q && settled.length > 0);
-  // Folded, the section still lists the awake agents.
-  const agentsExpanded = agentsOpen || !!q;
-  const shownAgents = agentsExpanded
-    ? agents
-    : agents.filter(
-        ({ agent }) => agent.state === 'running' || isTransient(agent.state),
-      );
 
   const latestSession = (agentId: string) =>
     (
@@ -152,6 +127,7 @@ export function Sidebar() {
           to="/"
           aria-label="agenthold"
           title="agenthold"
+          onClick={() => setView('threads')}
           className="shrink-0 px-1"
         >
           <span
@@ -175,193 +151,329 @@ export function Sidebar() {
         <NewThreadLink />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-        <ErrorText error={index.error ?? settle.error} />
+      {view === 'threads' && (
+        <>
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+            <ErrorText error={index.error ?? settle.error} />
 
-        <ul aria-label="Threads" className="mb-3 grid grid-cols-1 gap-1">
-          {index.loading && active.length === 0 && <SkeletonRows n={4} tall />}
-          {!index.loading && active.length === 0 && (
-            <li className="px-2 py-1.5 text-muted-foreground">
-              {q
-                ? 'No matching active threads.'
-                : index.settled.length > 0
-                  ? 'No active threads. Settled ones are below.'
-                  : 'No threads yet.'}
-            </li>
-          )}
-          {active.slice(0, threadLimit).map((c) => (
-            <ThreadCard
-              key={c.session.id}
-              chat={c}
-              now={now}
-              active={search.s === c.session.id}
-              done={done.has(c.session.id)}
-              me={me.data?.user.id}
-              onSettle={
-                canUse(c)
-                  ? () => settle.mutate({ session: c.session, settle: true })
-                  : undefined
-              }
-              settling={
-                settle.isPending &&
-                settle.variables?.session.id === c.session.id
-              }
-            />
-          ))}
-          {active.length > threadLimit && (
-            <li>
+            <ul aria-label="Threads" className="mb-3 grid grid-cols-1 gap-1">
+              {index.loading && active.length === 0 && (
+                <SkeletonRows n={4} tall />
+              )}
+              {!index.loading && active.length === 0 && (
+                <li className="px-2 py-1.5 text-muted-foreground">
+                  {q
+                    ? 'No matching active threads.'
+                    : index.settled.length > 0
+                      ? 'No active threads. Settled ones are below.'
+                      : 'No threads yet.'}
+                </li>
+              )}
+              {active.slice(0, threadLimit).map((c) => (
+                <ThreadCard
+                  key={c.session.id}
+                  chat={c}
+                  now={now}
+                  active={search.s === c.session.id}
+                  done={done.has(c.session.id)}
+                  me={me.data?.user.id}
+                  onSettle={
+                    canUse(c)
+                      ? () =>
+                          settle.mutate({ session: c.session, settle: true })
+                      : undefined
+                  }
+                  settling={
+                    settle.isPending &&
+                    settle.variables?.session.id === c.session.id
+                  }
+                />
+              ))}
+              {active.length > threadLimit && (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => setThreadLimit((l) => l + THREADS_PAGE)}
+                    className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Show more
+                  </button>
+                </li>
+              )}
+            </ul>
+          </div>
+
+          {index.settled.length > 0 && (
+            <div className="shrink-0 border-t px-3 py-1">
               <button
                 type="button"
-                onClick={() => setThreadLimit((l) => l + THREADS_PAGE)}
-                className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+                aria-expanded={showSettled}
+                aria-controls={settledListId}
+                onClick={() => setSettledOpen(!showSettled)}
+                className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
               >
-                Show more
+                <span className="flex-1 text-left">Settled</span>
+                <span className="tabular-nums">
+                  {q ? settled.length : index.settled.length}
+                </span>
+                <ChevronRight
+                  aria-hidden
+                  className={cn(
+                    'size-3.5 transition-transform',
+                    showSettled && 'rotate-90',
+                  )}
+                />
               </button>
+              {showSettled && (
+                <ul
+                  id={settledListId}
+                  aria-label="Settled threads"
+                  className="grid max-h-[40vh] grid-cols-1 gap-px overflow-y-auto pb-1"
+                >
+                  {settled.length === 0 && (
+                    <li className="px-2 py-1.5 text-muted-foreground">
+                      No matching settled threads.
+                    </li>
+                  )}
+                  {settled.slice(0, settledLimit).map((c) => (
+                    <SettledRow
+                      key={c.session.id}
+                      chat={c}
+                      now={now}
+                      active={search.s === c.session.id}
+                      onUnsettle={
+                        canUse(c)
+                          ? () =>
+                              settle.mutate({
+                                session: c.session,
+                                settle: false,
+                              })
+                          : undefined
+                      }
+                    />
+                  ))}
+                  {settled.length > settledLimit && (
+                    <li>
+                      <button
+                        type="button"
+                        onClick={() => setSettledLimit((l) => l + SETTLED_PAGE)}
+                        className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        Show{' '}
+                        {Math.min(settled.length - settledLimit, SETTLED_PAGE)}{' '}
+                        more
+                      </button>
+                    </li>
+                  )}
+                </ul>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {view === 'agents' && (
+        <AgentsSidebarView
+          agents={agents}
+          loading={index.loading}
+          error={index.error}
+          query={q}
+          currentAgentId={params.agentId}
+          latestSession={latestSession}
+          onBack={() => setView('threads')}
+        />
+      )}
+
+      {view === 'apps' && (
+        <AppsSidebarView query={q} onBack={() => setView('threads')} />
+      )}
+
+      <Footer
+        view={view}
+        onView={setView}
+        agentsCount={index.agents.length}
+        appsCount={apps.data?.length ?? 0}
+      />
+    </nav>
+  );
+}
+
+function AgentsSidebarView({
+  agents,
+  loading,
+  error,
+  query: q,
+  currentAgentId,
+  latestSession,
+  onBack,
+}: {
+  agents: ReturnType<typeof useChatIndex>['agents'];
+  loading: boolean;
+  error: unknown;
+  query: string;
+  currentAgentId?: string;
+  latestSession: (agentId: string) => string | undefined;
+  onBack: () => void;
+}) {
+  const shell = useShell();
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex h-9 shrink-0 items-center gap-1 px-3">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Back to threads"
+          className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+        >
+          <ChevronLeft className="size-3.5" aria-hidden />
+          <span>Agents</span>
+        </button>
+        <button
+          type="button"
+          onClick={shell.openNewAgent}
+          aria-label="New agent"
+          title="New agent"
+          className="ml-auto flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <Plus className="size-3.5" />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+        <ErrorText error={error} />
+        <ul aria-label="Agents" className="grid grid-cols-1 gap-1">
+          {loading && agents.length === 0 && <SkeletonRows n={3} />}
+          {!loading && agents.length === 0 && (
+            <li className="px-2 py-1.5 text-muted-foreground">
+              {q ? 'No matching agents.' : 'No agents yet.'}
             </li>
           )}
+          {agents.map(({ agent }) => {
+            const current = currentAgentId === agent.id;
+            return (
+              <li key={agent.id} className="group relative">
+                <Link
+                  to="/a/$agentId"
+                  params={{ agentId: agent.id }}
+                  search={{ s: latestSession(agent.id) }}
+                  aria-current={current ? 'page' : undefined}
+                  className={cn(
+                    'flex h-9 items-center gap-2 rounded-lg pr-9 pl-2 hover:bg-accent/50',
+                    current && 'bg-accent/70',
+                  )}
+                >
+                  <AgentStateDot state={agent.state} />
+                  <span className="min-w-0 flex-1 truncate">{agent.name}</span>
+                  {agent.role === 'shared' && (
+                    <Users
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                      aria-label={`shared by ${agent.owner.name}`}
+                    />
+                  )}
+                </Link>
+                <Link
+                  to="/a/$agentId"
+                  params={{ agentId: agent.id }}
+                  aria-label={`New thread with ${agent.name}`}
+                  title="New thread"
+                  className="absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+                >
+                  <Plus className="size-3.5" />
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       </div>
+    </div>
+  );
+}
 
-      <div className="shrink-0 border-t px-3 pt-1 pb-1 empty:hidden">
-        {agents.length > 0 && (
-          <>
-            <button
-              type="button"
-              aria-expanded={agentsExpanded}
-              onClick={() => setAgentsOpen(!agentsOpen)}
-              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
-            >
-              <span className="flex-1 text-left">Agents</span>
-              <span className="tabular-nums">{agents.length}</span>
-              <ChevronRight
-                aria-hidden
-                className={cn(
-                  'size-3.5 transition-transform',
-                  agentsExpanded && 'rotate-90',
-                )}
-              />
-            </button>
-            <ul
-              aria-label="Agents"
-              className="grid max-h-[30vh] grid-cols-1 gap-px overflow-y-auto pb-1"
-            >
-              {shownAgents.map(({ agent }) => {
-                const current = params.agentId === agent.id;
-                return (
-                  <li key={agent.id} className="group relative">
-                    <Link
-                      to="/a/$agentId"
-                      params={{ agentId: agent.id }}
-                      search={{ s: latestSession(agent.id) }}
-                      aria-current={current ? 'page' : undefined}
-                      className={cn(
-                        'flex h-8 items-center gap-2 rounded-lg pr-9 pl-2 hover:bg-accent/50',
-                        current && 'bg-accent/70',
-                      )}
-                    >
-                      <AgentStateDot state={agent.state} />
-                      <span className="min-w-0 flex-1 truncate">
-                        {agent.name}
-                      </span>
-                      {agent.role === 'shared' && (
-                        <Users
-                          className="size-3.5 shrink-0 text-muted-foreground"
-                          aria-label={`shared by ${agent.owner.name}`}
-                        />
-                      )}
-                    </Link>
-                    <Link
-                      to="/a/$agentId"
-                      params={{ agentId: agent.id }}
-                      aria-label={`New thread with ${agent.name}`}
-                      title="New thread"
-                      className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-                    >
-                      <Plus className="size-3.5" />
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        )}
-        <ProjectsSection
-          query={q}
-          open={projectsOpen}
-          onToggle={() => setProjectsOpen(!projectsOpen)}
-        />
-        <AppsSection
-          query={q}
-          open={appsOpen}
-          onToggle={() => setAppsOpen(!appsOpen)}
-        />
-        {index.settled.length > 0 && (
-          <>
-            <button
-              type="button"
-              aria-expanded={showSettled}
-              aria-controls={settledListId}
-              onClick={() => setSettledOpen(!showSettled)}
-              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
-            >
-              <span className="flex-1 text-left">Settled</span>
-              <span className="tabular-nums">
-                {q ? settled.length : index.settled.length}
-              </span>
-              <ChevronRight
-                aria-hidden
-                className={cn(
-                  'size-3.5 transition-transform',
-                  showSettled && 'rotate-90',
-                )}
-              />
-            </button>
-            {showSettled && (
-              <ul
-                id={settledListId}
-                aria-label="Settled threads"
-                className="grid max-h-[40vh] grid-cols-1 gap-px overflow-y-auto pb-1"
-              >
-                {settled.length === 0 && (
-                  <li className="px-2 py-1.5 text-muted-foreground">
-                    No matching settled threads.
-                  </li>
-                )}
-                {settled.slice(0, settledLimit).map((c) => (
-                  <SettledRow
-                    key={c.session.id}
-                    chat={c}
-                    now={now}
-                    active={search.s === c.session.id}
-                    onUnsettle={
-                      canUse(c)
-                        ? () =>
-                            settle.mutate({ session: c.session, settle: false })
-                        : undefined
-                    }
-                  />
-                ))}
-                {settled.length > settledLimit && (
-                  <li>
-                    <button
-                      type="button"
-                      onClick={() => setSettledLimit((l) => l + SETTLED_PAGE)}
-                      className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      Show{' '}
-                      {Math.min(settled.length - settledLimit, SETTLED_PAGE)}{' '}
-                      more
-                    </button>
-                  </li>
-                )}
-              </ul>
-            )}
-          </>
-        )}
+/** Apps: machines without a harness, reached at their URLs. */
+function AppsSidebarView({
+  query: q,
+  onBack,
+}: {
+  query: string;
+  onBack: () => void;
+}) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const params = useParams({ strict: false }) as { appId?: string };
+  const apps = useQuery(appsQuery);
+  const create = useMutation({
+    mutationFn: (name: string) => unwrap(api.POST('/apps', { body: { name } })),
+    onSuccess: async (app) => {
+      await qc.invalidateQueries({ queryKey: appsQuery.queryKey });
+      await navigate({ to: '/apps/$appId', params: { appId: app.id } });
+    },
+  });
+  const all = apps.data ?? [];
+  const list = all.filter((a) => !q || a.name.toLowerCase().includes(q));
+  const promptNewApp = () => {
+    const name = globalThis.prompt?.('Name of the new app')?.trim();
+    if (name) create.mutate(name);
+  };
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex h-9 shrink-0 items-center gap-1 px-3">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Back to threads"
+          className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+        >
+          <ChevronLeft className="size-3.5" aria-hidden />
+          <span>Apps</span>
+        </button>
+        <button
+          type="button"
+          disabled={create.isPending}
+          onClick={promptNewApp}
+          aria-label="New app"
+          title="New app"
+          className="ml-auto flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+        >
+          <Plus className="size-3.5" />
+        </button>
       </div>
-
-      <Footer />
-    </nav>
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+        <ErrorText error={apps.error ?? create.error} />
+        <ul aria-label="Apps" className="grid grid-cols-1 gap-1">
+          {apps.isPending && <SkeletonRows n={3} />}
+          {apps.isSuccess && list.length === 0 && (
+            <li className="px-2 py-1.5 text-muted-foreground">
+              {q
+                ? 'No matching apps.'
+                : 'No apps yet. Agents create them with deploy_app.'}
+            </li>
+          )}
+          {list.map((a) => (
+            <li key={a.id}>
+              <Link
+                to="/apps/$appId"
+                params={{ appId: a.id }}
+                aria-current={params.appId === a.id ? 'page' : undefined}
+                title={a.url || a.name}
+                className={cn(
+                  'grid grid-cols-1 rounded-lg px-2 py-1.5 hover:bg-accent/50',
+                  params.appId === a.id && 'bg-accent/70',
+                )}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <AgentStateDot state={a.state} />
+                  <span className="min-w-0 flex-1 truncate">{a.name}</span>
+                </span>
+                {a.url && (
+                  <span className="truncate pl-4 text-xs text-muted-foreground">
+                    {a.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                  </span>
+                )}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
   );
 }
 
@@ -592,273 +704,199 @@ function SkeletonRows({ n, tall }: { n: number; tall?: boolean }) {
   );
 }
 
-/** You: a menu with new agent, settings, theme and sign out. */
-function Footer() {
+/** Bottom menu bar: profile icon, settings button, and Agents/Apps view switchers. */
+function Footer({
+  view,
+  onView,
+  agentsCount,
+  appsCount,
+}: {
+  view: SidebarView;
+  onView: (v: SidebarView) => void;
+  agentsCount: number;
+  appsCount: number;
+}) {
   const shell = useShell();
   const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const me = useQuery(meQuery);
   const logout = useLogout();
   const [theme, setThemeState] = useState<Theme>(getTheme);
   const user = me.data?.user;
-  return (
-    <div className="shrink-0 border-t px-2 py-1.5">
-      <Menu
-        side="top"
-        className="w-full"
-        trigger={({ open, toggle }) => (
-          <button
-            type="button"
-            aria-haspopup="menu"
-            aria-expanded={open}
-            aria-label="Account menu"
-            onClick={toggle}
-            className="flex w-full min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-accent/40"
-          >
-            {user && <Avatar name={user.name} url={user.avatarUrl} size="sm" />}
-            <span className="grid min-w-0 flex-1 leading-tight">
-              <span className="truncate">{user?.name}</span>
-              {me.data?.role && (
-                <span className="text-xs text-muted-foreground">
-                  {ROLE_LABEL[me.data.role]}
-                </span>
-              )}
-            </span>
-            <ChevronsUpDown
-              className="size-3.5 shrink-0 text-muted-foreground"
-              aria-hidden
-            />
-          </button>
-        )}
-      >
-        {(close) => (
-          <>
-            <MenuItem
-              onClick={() => {
-                close();
-                shell.openNewAgent();
-              }}
-            >
-              <Bot className="size-4 text-muted-foreground" aria-hidden />
-              New agent
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                close();
-                void navigate({ to: '/settings' });
-              }}
-            >
-              <Settings className="size-4 text-muted-foreground" aria-hidden />
-              Settings
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                const next = theme === 'dark' ? 'light' : 'dark';
-                setTheme(next);
-                setThemeState(next);
-              }}
-            >
-              {theme === 'dark' ? (
-                <Sun className="size-4 text-muted-foreground" aria-hidden />
-              ) : (
-                <Moon className="size-4 text-muted-foreground" aria-hidden />
-              )}
-              {theme === 'dark' ? 'Light theme' : 'Dark theme'}
-            </MenuItem>
-            <MenuSeparator />
-            <MenuItem
-              onClick={() => {
-                close();
-                logout.mutate();
-              }}
-            >
-              <LogOut className="size-4 text-muted-foreground" aria-hidden />
-              Sign out
-            </MenuItem>
-          </>
-        )}
-      </Menu>
-    </div>
-  );
-}
+  const inSettings =
+    pathname.startsWith('/settings') || pathname.startsWith('/projects');
 
-/** Projects: repositories and folders agents work on, with tasks. */
-function ProjectsSection({
-  query: q,
-  open,
-  onToggle,
-}: {
-  query: string;
-  open: boolean;
-  onToggle: () => void;
-}) {
-  const params = useParams({ strict: false }) as { projectId?: string };
-  const projects = useQuery(projectsQuery);
-  const all = projects.data ?? [];
-  const list = all.filter((p) => !q || p.name.toLowerCase().includes(q));
-  const expanded = open || !!q;
   return (
-    <>
-      <button
-        type="button"
-        aria-expanded={expanded}
-        onClick={onToggle}
-        className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
-      >
-        <span className="flex-1 text-left">Projects</span>
-        <span className="tabular-nums">{all.length}</span>
-        <ChevronRight
-          aria-hidden
-          className={cn(
-            'size-3.5 transition-transform',
-            expanded && 'rotate-90',
-          )}
-        />
-      </button>
-      {expanded && (
-        <ul
-          aria-label="Projects"
-          className="grid max-h-[30vh] grid-cols-1 gap-px overflow-y-auto pb-1"
-        >
-          {projects.isSuccess && list.length === 0 && q && (
-            <li className="px-2 py-1.5 text-muted-foreground">
-              No matching projects.
-            </li>
-          )}
-          {list.map((p) => (
-            <li key={p.id}>
-              <Link
-                to="/projects/$projectId"
-                params={{ projectId: p.id }}
-                aria-current={params.projectId === p.id ? 'page' : undefined}
-                className={cn(
-                  'flex h-8 items-center gap-2 rounded-lg px-2 hover:bg-accent/50',
-                  params.projectId === p.id && 'bg-accent/70',
-                )}
-              >
-                <FolderKanban
-                  className="size-3.5 shrink-0 text-muted-foreground"
-                  aria-hidden
-                />
-                <span className="min-w-0 flex-1 truncate">{p.name}</span>
-              </Link>
-            </li>
-          ))}
-          <li>
-            <Link
-              to="/projects"
-              search={{ new: true }}
-              className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-            >
-              <Plus className="size-3.5" aria-hidden />
-              New project
-            </Link>
-          </li>
-        </ul>
-      )}
-    </>
-  );
-}
-
-/** Apps: machines without a harness, reached at their URLs. */
-function AppsSection({
-  query: q,
-  open,
-  onToggle,
-}: {
-  query: string;
-  open: boolean;
-  onToggle: () => void;
-}) {
-  const qc = useQueryClient();
-  const navigate = useNavigate();
-  const params = useParams({ strict: false }) as { appId?: string };
-  const apps = useQuery(appsQuery);
-  const create = useMutation({
-    mutationFn: (name: string) => unwrap(api.POST('/apps', { body: { name } })),
-    onSuccess: async (app) => {
-      await qc.invalidateQueries({ queryKey: appsQuery.queryKey });
-      await navigate({ to: '/apps/$appId', params: { appId: app.id } });
-    },
-  });
-  const all = apps.data ?? [];
-  const list = all.filter((a) => !q || a.name.toLowerCase().includes(q));
-  // Folded, the section still lists the apps that are running.
-  const expanded = open || !!q;
-  const shown = expanded ? list : list.filter((a) => a.state === 'running');
-  if (apps.isSuccess && all.length === 0 && !expanded) return null;
-  return (
-    <>
-      <button
-        type="button"
-        aria-expanded={expanded}
-        onClick={onToggle}
-        className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
-      >
-        <span className="flex-1 text-left">Apps</span>
-        <span className="tabular-nums">{all.length}</span>
-        <ChevronRight
-          aria-hidden
-          className={cn(
-            'size-3.5 transition-transform',
-            expanded && 'rotate-90',
-          )}
-        />
-      </button>
-      <ErrorText error={apps.error ?? create.error} />
-      <ul
-        aria-label="Apps"
-        className="grid max-h-[30vh] grid-cols-1 gap-px overflow-y-auto pb-1"
-      >
-        {expanded && apps.isPending && <SkeletonRows n={3} />}
-        {expanded && apps.isSuccess && list.length === 0 && (
-          <li className="px-2 py-1.5 text-muted-foreground">
-            {q
-              ? 'No matching apps.'
-              : 'No apps yet. Agents create them with deploy_app.'}
-          </li>
-        )}
-        {shown.map((a) => (
-          <li key={a.id}>
-            <Link
-              to="/apps/$appId"
-              params={{ appId: a.id }}
-              aria-current={params.appId === a.id ? 'page' : undefined}
-              title={a.url || a.name}
-              className={cn(
-                'grid grid-cols-1 rounded-lg px-2 py-1.5 hover:bg-accent/50',
-                params.appId === a.id && 'bg-accent/70',
-              )}
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                <AgentStateDot state={a.state} />
-                <span className="min-w-0 flex-1 truncate">{a.name}</span>
-              </span>
-              {a.url && (
-                <span className="truncate pl-4 text-xs text-muted-foreground">
-                  {a.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
-                </span>
-              )}
-            </Link>
-          </li>
-        ))}
-        {expanded && (
-          <li>
+    <div className="@container shrink-0 border-t px-2.5 py-2">
+      <div className="flex items-center gap-1">
+        <Menu
+          side="top"
+          align="start"
+          trigger={({ open, toggle }) => (
             <button
               type="button"
-              disabled={create.isPending}
-              onClick={() => {
-                const name = globalThis.prompt?.('Name of the new app')?.trim();
-                if (name) create.mutate(name);
-              }}
-              className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-50"
+              aria-haspopup="menu"
+              aria-expanded={open}
+              aria-label="Account menu"
+              title={user?.name ?? 'Account'}
+              onClick={toggle}
+              className={cn(
+                'flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+                open && 'bg-accent',
+              )}
             >
-              <Plus className="size-3.5" aria-hidden />
-              New app
+              {user ? (
+                <Avatar name={user.name} url={user.avatarUrl} size="sm" />
+              ) : (
+                <UserRound
+                  className="size-4 text-muted-foreground"
+                  aria-hidden
+                />
+              )}
             </button>
-          </li>
-        )}
-      </ul>
-    </>
+          )}
+        >
+          {(close) => (
+            <>
+              {user && (
+                <>
+                  <div className="flex items-center gap-2 px-2 py-1.5">
+                    <Avatar name={user.name} url={user.avatarUrl} size="sm" />
+                    <div className="grid min-w-0 leading-tight">
+                      <span className="truncate text-sm font-medium">
+                        {user.name}
+                      </span>
+                      {me.data?.role && (
+                        <span className="text-xs text-muted-foreground">
+                          {ROLE_LABEL[me.data.role]}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <MenuSeparator />
+                </>
+              )}
+              <MenuItem
+                onClick={() => {
+                  close();
+                  shell.openNewAgent();
+                }}
+              >
+                <Bot className="size-4 text-muted-foreground" aria-hidden />
+                New agent
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  close();
+                  void navigate({ to: '/settings/profile' });
+                }}
+              >
+                <UserRound
+                  className="size-4 text-muted-foreground"
+                  aria-hidden
+                />
+                Profile
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  const next = theme === 'dark' ? 'light' : 'dark';
+                  setTheme(next);
+                  setThemeState(next);
+                }}
+              >
+                {theme === 'dark' ? (
+                  <Sun className="size-4 text-muted-foreground" aria-hidden />
+                ) : (
+                  <Moon className="size-4 text-muted-foreground" aria-hidden />
+                )}
+                {theme === 'dark' ? 'Light theme' : 'Dark theme'}
+              </MenuItem>
+              <MenuSeparator />
+              <MenuItem
+                onClick={() => {
+                  close();
+                  logout.mutate();
+                }}
+              >
+                <LogOut className="size-4 text-muted-foreground" aria-hidden />
+                Sign out
+              </MenuItem>
+            </>
+          )}
+        </Menu>
+
+        <Link
+          to="/settings"
+          aria-label="Settings"
+          title="Settings"
+          aria-current={inSettings ? 'page' : undefined}
+          className={cn(
+            'flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+            inSettings
+              ? 'bg-accent text-foreground'
+              : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+          )}
+        >
+          <Settings className="size-4" aria-hidden />
+        </Link>
+
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            aria-pressed={view === 'agents'}
+            aria-label={`Agents (${agentsCount})`}
+            title="Agents"
+            onClick={() => onView(view === 'agents' ? 'threads' : 'agents')}
+            className={cn(
+              'flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+              view === 'agents'
+                ? 'bg-accent text-foreground'
+                : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+            )}
+          >
+            <Bot className="size-3.5 shrink-0" aria-hidden />
+            <span className="hidden @[268px]:inline">Agents</span>
+            <span
+              className={cn(
+                'rounded-md px-1.5 py-0.5 text-[11px] leading-none tabular-nums',
+                view === 'agents'
+                  ? 'bg-background/70 text-foreground'
+                  : 'bg-accent/70 text-muted-foreground',
+              )}
+            >
+              {agentsCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            aria-pressed={view === 'apps'}
+            aria-label={`Apps (${appsCount})`}
+            title="Apps"
+            onClick={() => onView(view === 'apps' ? 'threads' : 'apps')}
+            className={cn(
+              'flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+              view === 'apps'
+                ? 'bg-accent text-foreground'
+                : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+            )}
+          >
+            <AppWindow className="size-3.5 shrink-0" aria-hidden />
+            <span className="hidden @[268px]:inline">Apps</span>
+            <span
+              className={cn(
+                'rounded-md px-1.5 py-0.5 text-[11px] leading-none tabular-nums',
+                view === 'apps'
+                  ? 'bg-background/70 text-foreground'
+                  : 'bg-accent/70 text-muted-foreground',
+              )}
+            >
+              {appsCount}
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

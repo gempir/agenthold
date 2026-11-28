@@ -6,7 +6,7 @@ import {
   agentPollInterval,
   agentsPollInterval,
   type Agent,
-  type GitRepo,
+  type Project,
   type Session,
 } from '@/api/queries';
 import { AgentStateBadge } from '@/components/AgentStateBadge';
@@ -718,15 +718,17 @@ it('shared users see only the current harness in the model picker', async () => 
   expect(calls.some((c) => c.key.includes('models?harness'))).toBe(false);
 });
 
-const repo = (over: Partial<GitRepo> = {}): GitRepo => ({
-  path: 'projects/web',
-  project: 'web',
-  branch: 'main',
-  detached: false,
-  dirty: false,
-  ahead: 0,
-  behind: 0,
-  isWorktree: false,
+const project = (over: Partial<Project> = {}): Project => ({
+  id: 'p1',
+  name: 'agenthold',
+  slug: 'agenthold',
+  description: '',
+  instructions: '',
+  sources: [
+    { id: 'src1', name: 'agenthold', kind: 'repo', url: 'https://x/repo.git' },
+  ],
+  createdAt: '2030-01-01T00:00:00Z',
+  updatedAt: '2030-01-01T00:00:00Z',
   ...over,
 });
 
@@ -806,7 +808,7 @@ it('the sidebar search matches threads by project and branch', async () => {
   expect(within(chats).getByText('Second')).toBeVisible();
 });
 
-it('starting a chat with a selected repository passes its cwd', async () => {
+it('starting a chat with a selected project creates a project thread', async () => {
   stubGlobal('WebSocket', FakeSocket);
   const { calls } = mockApi({
     'GET /me': me,
@@ -815,27 +817,39 @@ it('starting a chat with a selected repository passes its cwd', async () => {
     ],
     'GET /agents/a1': agent({ state: 'running' }),
     'GET /agents/a1/sessions': [],
-    'GET /agents/a1/git/repos': {
-      connected: true,
-      repos: [repo(), repo({ path: 'projects/api', project: 'api' })],
-    },
-    'POST /agents/a1/sessions': () => ({
+    'GET /projects': [project()],
+    'POST /projects/p1/threads': () => ({
       status: 201,
-      body: session({ id: 's9' }),
+      body: session({
+        id: 's9',
+        project: {
+          id: 'p1',
+          name: 'agenthold',
+          direct: false,
+          branch: 'agenthold/s9',
+        },
+      }),
     }),
     'POST /sessions/s9/prompt': { status: 202 },
   });
   const { router } = renderApp('/a/a1');
   await userEvent.click(await screen.findByRole('button', { name: 'Project' }));
-  await userEvent.click(await screen.findByRole('menuitem', { name: /api/ }));
+  // Only configured projects appear — no raw disk worktrees.
+  expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
+    expect.stringContaining('No project'),
+    expect.stringContaining('agenthold'),
+    expect.stringContaining('Manage projects'),
+  ]);
+  await userEvent.click(screen.getByRole('menuitem', { name: /agenthold/ }));
   await userEvent.type(
     screen.getByRole('textbox', { name: 'Message' }),
     'go{Enter}',
   );
   await waitFor(() => expect(router.state.location.href).toBe('/a/a1?s=s9'));
-  expect(calls.find((c) => c.key === 'POST /agents/a1/sessions')?.body).toEqual(
-    { cwd: 'projects/api' },
-  );
+  expect(
+    calls.find((c) => c.key === 'POST /projects/p1/threads')?.body,
+  ).toEqual({ agentId: 'a1' });
+  expect(calls.some((c) => c.key === 'GET /agents/a1/git/repos')).toBe(false);
 });
 
 it('a ?cwd= preselects the repository of the draft', async () => {
@@ -845,7 +859,7 @@ it('a ?cwd= preselects the repository of the draft', async () => {
     'GET /harnesses': [],
     'GET /agents/a1': agent({ state: 'running' }),
     'GET /agents/a1/sessions': [],
-    'GET /agents/a1/git/repos': { connected: true, repos: [repo()] },
+    'GET /projects': [],
     'POST /agents/a1/sessions': () => ({
       status: 201,
       body: session({ id: 's9' }),

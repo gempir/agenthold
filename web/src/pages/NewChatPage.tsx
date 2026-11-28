@@ -119,7 +119,7 @@ export function NewChatPage() {
                       active={agent.id === chosen.agent.id}
                       onClick={() => {
                         setPicked(agent.id);
-                        setGitDraft(EMPTY_GIT_DRAFT);
+                        if (gitDraft.cwd) setGitDraft(EMPTY_GIT_DRAFT);
                         close();
                       }}
                     >

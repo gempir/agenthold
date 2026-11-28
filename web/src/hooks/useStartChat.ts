@@ -5,9 +5,9 @@ import { api, unwrap } from '@/api/client';
 import type { ImageType } from '@/lib/attachments';
 import type { Choice } from '@/lib/models';
 
-/** Starts a conversation: creates a session, sets its model when one was
- * picked, sends the first message and opens it. The server titles the
- * session from that first message. */
+/** Starts a conversation: creates a session (or project thread), sets its
+ * model when one was picked, sends the first message and opens it. The server
+ * titles the session from that first message. */
 export function useStartChat() {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -17,23 +17,37 @@ export function useStartChat() {
       text: string;
       images?: { mimeType: ImageType; data: string }[];
       model?: Choice;
-      /** Working directory relative to home, e.g. a repository. */
+      /** Start a thread of this project. */
+      projectId?: string;
+      /** Work directly in the project's main checkouts instead of a branch. */
+      direct?: boolean;
+      /** Working directory relative to home, e.g. a repository from GitTab. */
       cwd?: string;
       gitBranch?: string;
       createBranch?: boolean;
       createWorktree?: boolean;
     }) => {
-      const s = await unwrap(
-        api.POST('/agents/{agentId}/sessions', {
-          params: { path: { agentId: v.agentId } },
-          body: {
-            ...(v.cwd && { cwd: v.cwd }),
-            ...(v.gitBranch && { gitBranch: v.gitBranch }),
-            ...(v.createBranch && { createBranch: true }),
-            ...(v.createWorktree && { createWorktree: true }),
-          },
-        }),
-      );
+      const s = v.projectId
+        ? await unwrap(
+            api.POST('/projects/{projectId}/threads', {
+              params: { path: { projectId: v.projectId } },
+              body: {
+                agentId: v.agentId,
+                ...(v.direct && { direct: true }),
+              },
+            }),
+          )
+        : await unwrap(
+            api.POST('/agents/{agentId}/sessions', {
+              params: { path: { agentId: v.agentId } },
+              body: {
+                ...(v.cwd && { cwd: v.cwd }),
+                ...(v.gitBranch && { gitBranch: v.gitBranch }),
+                ...(v.createBranch && { createBranch: true }),
+                ...(v.createWorktree && { createWorktree: true }),
+              },
+            }),
+          );
       if (v.model?.model || Object.keys(v.model?.options ?? {}).length) {
         await unwrap(
           api.PUT('/sessions/{sessionId}/model', {
@@ -50,11 +64,14 @@ export function useStartChat() {
       );
       return s;
     },
-    onSuccess: async (s) => {
+    onSuccess: async (s, v) => {
       setDraft(agentDraftKey(s.agentId), '');
       await qc.invalidateQueries({
         queryKey: ['agents', s.agentId, 'sessions'],
       });
+      if (v.projectId) {
+        await qc.invalidateQueries({ queryKey: ['projects', v.projectId] });
+      }
       await navigate({
         to: '/a/$agentId',
         params: { agentId: s.agentId },

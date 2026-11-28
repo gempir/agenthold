@@ -9,7 +9,7 @@ folders. Every thread of a project works in a **workspace of its own**: a git wo
 branch for that thread. Two threads, or two agents, never edit the same work tree unless you choose that.
 Their work comes together when you merge it.
 
-Projects are under **Projects** in the sidebar (`/api/v1/projects`).
+Projects are under **Settings → Projects** (`/api/v1/projects`).
 
 ## Sources
 
@@ -31,8 +31,8 @@ tells the agent where things are and which branch it is on.
 
 ## Threads and workspaces
 
-Start a thread from the project's **Threads** page (`POST /api/v1/projects/{id}/threads`), or by assigning a
-task. On the agent's disk:
+Start a thread by picking a project in the new-thread composer, from the project's **Threads** page
+(`POST /api/v1/projects/{id}/threads`), or by assigning a task. On the agent's disk:
 
 ```
 projects/<slug>/

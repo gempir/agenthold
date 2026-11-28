@@ -44,6 +44,9 @@ it('shows the role in the user menu and hides admin links from users', async () 
     'GET /apps': [],
   });
   renderApp('/');
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Account menu' }),
+  );
   expect(await screen.findByText('User')).toBeVisible();
   expect(screen.queryByRole('link', { name: /Overview/ })).toBeNull();
 });

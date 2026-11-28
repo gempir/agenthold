@@ -5,6 +5,7 @@ import {
   Bot,
   Check,
   FolderGit2,
+  FolderKanban,
   GitBranch,
   PanelRight,
   Settings2,
@@ -186,27 +187,56 @@ export function AgentPage({
                   </span>
                 )}
               </Crumb>
-              {(selected.git?.project || selected.git?.branch) && (
-                <span
+              {selected.project ? (
+                <Link
+                  to="/projects/$projectId"
+                  params={{ projectId: selected.project.id }}
                   data-testid="topbar-git"
-                  title={[selected.git.project, selected.git.branch]
+                  title={[
+                    selected.project.name,
+                    selected.project.branch ||
+                      (selected.project.direct ? 'main checkouts' : ''),
+                  ]
                     .filter(Boolean)
                     .join(' · ')}
-                  className="ml-2 hidden min-w-0 shrink items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs text-muted-foreground md:flex"
+                  className="ml-2 hidden min-w-0 shrink items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground md:flex"
                 >
-                  <FolderGit2 className="size-3 shrink-0" aria-hidden />
+                  <FolderKanban className="size-3 shrink-0" aria-hidden />
                   <span className="max-w-28 truncate">
-                    {selected.git.project}
+                    {selected.project.name}
                   </span>
-                  {selected.git.branch && (
+                  {selected.project.branch && (
                     <>
                       <GitBranch className="size-3 shrink-0" aria-hidden />
                       <span className="max-w-28 truncate font-mono">
-                        {selected.git.branch}
+                        {selected.project.branch}
                       </span>
                     </>
                   )}
-                </span>
+                </Link>
+              ) : (
+                (selected.git?.project || selected.git?.branch) && (
+                  <span
+                    data-testid="topbar-git"
+                    title={[selected.git.project, selected.git.branch]
+                      .filter(Boolean)
+                      .join(' · ')}
+                    className="ml-2 hidden min-w-0 shrink items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs text-muted-foreground md:flex"
+                  >
+                    <FolderGit2 className="size-3 shrink-0" aria-hidden />
+                    <span className="max-w-28 truncate">
+                      {selected.git.project}
+                    </span>
+                    {selected.git.branch && (
+                      <>
+                        <GitBranch className="size-3 shrink-0" aria-hidden />
+                        <span className="max-w-28 truncate font-mono">
+                          {selected.git.branch}
+                        </span>
+                      </>
+                    )}
+                  </span>
+                )
               )}
             </>
           )}

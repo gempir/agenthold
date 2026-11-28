@@ -215,3 +215,75 @@ it('shows the branch of active and settled threads', async () => {
     'fix/old-bug',
   );
 });
+
+it('switches the sidebar between threads, agents and apps from the footer bar', async () => {
+  mockApi({
+    'GET /me': me,
+    'GET /harnesses': [],
+    'GET /agents': [
+      agent({ id: 'a1', name: 'web-dev', state: 'running' }),
+      agent({ id: 'a2', name: 'worker', state: 'sleeping' }),
+    ],
+    'GET /agents/a1/sessions': [session()],
+    'GET /agents/a2/sessions': [],
+    'GET /apps': [
+      {
+        id: 'ap1',
+        name: 'demo-app',
+        owner: me.user,
+        cpus: 1,
+        memoryMb: 1024,
+        idleMinutes: 0,
+        state: 'running',
+        stateError: '',
+        stateChangedAt: '2030-01-01T00:00:00Z',
+        needsRebuild: false,
+        isTemplate: false,
+        role: 'owner',
+        url: 'https://demo.apps.example.com/',
+        links: {},
+        createdAt: '2030-01-01T00:00:00Z',
+        updatedAt: '2030-01-01T00:00:00Z',
+      },
+    ],
+  });
+  renderApp('/settings/threads');
+  const nav = await screen.findByRole('navigation', { name: 'Sidebar' });
+
+  // No Projects section in the sidebar; Settings button lives in the footer.
+  expect(within(nav).queryByRole('button', { name: /Projects/ })).toBeNull();
+  expect(within(nav).getByRole('link', { name: 'Settings' })).toHaveAttribute(
+    'href',
+    '/settings',
+  );
+  expect(
+    within(nav).getByRole('button', { name: 'Account menu' }),
+  ).toBeVisible();
+
+  const agentsBtn = await within(nav).findByRole('button', {
+    name: 'Agents (2)',
+  });
+  const appsBtn = within(nav).getByRole('button', { name: 'Apps (1)' });
+  expect(within(nav).getByRole('list', { name: 'Threads' })).toBeVisible();
+
+  // Clicking Agents switches the sidebar to list all agents.
+  await userEvent.click(agentsBtn);
+  expect(agentsBtn).toHaveAttribute('aria-pressed', 'true');
+  expect(within(nav).queryByRole('list', { name: 'Threads' })).toBeNull();
+  const agentsList = within(nav).getByRole('list', { name: 'Agents' });
+  expect(within(agentsList).getByText('web-dev')).toBeVisible();
+  expect(within(agentsList).getByText('worker')).toBeVisible();
+
+  // Clicking Apps switches the sidebar to list apps.
+  await userEvent.click(appsBtn);
+  expect(appsBtn).toHaveAttribute('aria-pressed', 'true');
+  expect(agentsBtn).toHaveAttribute('aria-pressed', 'false');
+  const appsList = within(nav).getByRole('list', { name: 'Apps' });
+  expect(within(appsList).getByText('demo-app')).toBeVisible();
+  expect(within(appsList).getByText('demo.apps.example.com')).toBeVisible();
+
+  // Clicking Apps again toggles back to Threads.
+  await userEvent.click(appsBtn);
+  expect(appsBtn).toHaveAttribute('aria-pressed', 'false');
+  expect(within(nav).getByRole('list', { name: 'Threads' })).toBeVisible();
+});

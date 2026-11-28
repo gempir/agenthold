@@ -149,15 +149,19 @@ const appPageRoute = createRoute({
   },
 });
 
-const projectsRoute = createRoute({
+// Projects moved into settings; old /projects links still land there.
+const projectsRedirectRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/projects',
   validateSearch: (s: Record<string, unknown>): { new?: boolean } => ({
     ...((s.new === true || s.new === 'true') && { new: true }),
   }),
-  component: function Projects() {
-    const { new: create } = projectsRoute.useSearch();
-    return <ProjectsPage key={create ? 'new' : 'list'} create={create} />;
+  beforeLoad: ({ search }) => {
+    throw redirect({
+      to: '/settings/projects',
+      search: search.new ? { new: true } : {},
+      replace: true,
+    });
   },
 });
 
@@ -268,6 +272,18 @@ const threadsSettingsRoute = createRoute({
   component: ThreadsSettingsPage,
 });
 
+const projectsSettingsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: '/projects',
+  validateSearch: (s: Record<string, unknown>): { new?: boolean } => ({
+    ...((s.new === true || s.new === 'true') && { new: true }),
+  }),
+  component: function ProjectsSettings() {
+    const { new: create } = projectsSettingsRoute.useSearch();
+    return <ProjectsPage key={create ? 'new' : 'list'} create={create} />;
+  },
+});
+
 const gitRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: '/git',
@@ -288,7 +304,7 @@ const routeTree = rootRoute.addChildren([
     agentRoute,
     agentSettingsRoute,
     appPageRoute,
-    projectsRoute,
+    projectsRedirectRoute,
     projectRoute,
     overviewRedirectRoute,
     slackLinkRoute,
@@ -297,6 +313,7 @@ const routeTree = rootRoute.addChildren([
       profileRoute,
       overviewRoute,
       threadsSettingsRoute,
+      projectsSettingsRoute,
       agentsSettingsRoute,
       accountsRoute,
       secretsRoute,
